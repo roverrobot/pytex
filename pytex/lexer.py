@@ -136,13 +136,13 @@ class Scanner:
     """
     A scanner reads tokens from a stream. The main method is read()
     @param catcode: a list that maps characters to their category codes
-    @param stream: the stream to read from. Could be a string or a file-like object
+    @param stream: the stream to read from. Must be a file-like object
     @param name: the name of the stream
     """
     def __init__(self, catcode, stream, name=None):
+        if not isinstance(stream, io.IOBase):
+            raise TypeError("stream must be a file-like object")
         self.catcode = catcode
-        if isinstance(stream, str):
-            stream = io.StringIO(stream)
         self.stream = enumerate(stream)
         self.tokenizer = None
         self.name = name
@@ -189,6 +189,17 @@ class Scanner:
                     return None
                 return self.read()
             return t
+
+
+class StringScanner(Scanner):
+    """
+    A scanner that reads from a string
+    @param catcode: a list that maps characters to their category codes
+    @param s: the string to read from
+    @param name: the name of the string
+    """
+    def __init__(self, catcode, s: str, name: str=None):
+        super().__init__(catcode, io.StringIO(s), name)
 
 
 class TokenListScanner:

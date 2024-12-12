@@ -29,7 +29,7 @@ class TestScanner(unittest.TestCase):
 
     def test_token(self):
         catcode = self.catcode()
-        scanner = lexer.Scanner(catcode, "A1{}^_$#&@")
+        scanner = lexer.StringScanner(catcode, "A1{}^_$#&@")
         token = scanner.read()
         self.assertEqual(token.name, "A")
         self.assertEqual(token.catcode, CATCODE.LETTER)
@@ -67,7 +67,7 @@ class TestScanner(unittest.TestCase):
 
     def test_command(self):
         catcode = self.catcode()
-        scanner = lexer.Scanner(catcode, "\\alpha 1\\beta\n")
+        scanner = lexer.StringScanner(catcode, "\\alpha 1\\beta\n")
         token = scanner.read()
         self.assertEqual(token.name, "\\alpha")
         self.assertIsNone(token.catcode)
@@ -82,7 +82,7 @@ class TestScanner(unittest.TestCase):
 
     def test_comment(self):
         catcode = self.catcode()
-        scanner = lexer.Scanner(catcode, "A%comment")
+        scanner = lexer.StringScanner(catcode, "A%comment")
         token = scanner.read()
         self.assertEqual(token.name, "A")
         self.assertEqual(token.catcode, CATCODE.LETTER)
@@ -91,7 +91,7 @@ class TestScanner(unittest.TestCase):
 
     def test_space(self):
         catcode = self.catcode()
-        scanner = lexer.Scanner(catcode, "A  \tB")
+        scanner = lexer.StringScanner(catcode, "A  \tB")
         token = scanner.read()
         self.assertEqual(token.name, "A")
         self.assertEqual(token.catcode, CATCODE.LETTER)
@@ -108,7 +108,7 @@ class TestScanner(unittest.TestCase):
 
     def test_eol(self):
         catcode = self.catcode()
-        scanner = lexer.Scanner(catcode, "A \n \n B")
+        scanner = lexer.StringScanner(catcode, "A \n \n B")
         token = scanner.read()
         self.assertEqual(token.name, "A")
         self.assertEqual(token.catcode, CATCODE.LETTER)
@@ -131,7 +131,7 @@ class TestScanner(unittest.TestCase):
 
     def test_expand(self):
         catcode = self.catcode()
-        scanner = lexer.Scanner(catcode, "^^61^^a")
+        scanner = lexer.StringScanner(catcode, "^^61^^a")
         token = scanner.read()
         self.assertEqual(token.name, "a")
         self.assertEqual(token.catcode, CATCODE.LETTER)
@@ -146,7 +146,7 @@ class TestScanner(unittest.TestCase):
     def test_input_stack(self):
         catcode = self.catcode()
         stack = lexer.InputStack()
-        scanner = lexer.Scanner(catcode, "ABC")
+        scanner = lexer.StringScanner(catcode, "ABC")
         stack.push(scanner)
         token = stack.read()
         self.assertEqual(token.name, "A")
@@ -155,7 +155,7 @@ class TestScanner(unittest.TestCase):
         C = stack.read()
         stack.unread(C)
         stack.unread(B)
-        scanner = lexer.Scanner(catcode, "1")
+        scanner = lexer.StringScanner(catcode, "1")
         stack.push(scanner)
         token = stack.read()
         self.assertEqual(token.name, "1")

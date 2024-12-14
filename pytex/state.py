@@ -144,6 +144,7 @@ class Domain:
         self.name = name
         self.values = values
         self.group_stack = group_stack
+        self.addDomain("equitable", {})
 
     def __setitem__(self, index, value):
         """
@@ -183,3 +184,47 @@ class Domain:
 
     def __repr__(self):
         return self.values.__repr__()
+
+
+class State:
+    """
+    stores the state of the parser, including the local and global parameters and registers.
+    """
+    def __init__(self):
+        self.groups = GroupStack()
+        self.domains = {}
+        self.globals = {}
+
+    def __getattr__(self, index):
+        try:
+            return self.domains[index]
+        except:
+            raise AttributeError(index)
+        
+    def __setattr__(self, index, value):
+        self.domains[index] = value
+
+    def currentGroup(self):
+        return self.groups.top()
+
+    def beginGroup(self, group_type: GROUP_TYPE, position):
+        """
+        starts a new group
+        :param context: the context of the group
+        """
+        self.groups.begin(group_type, position)
+
+    def endGroup(self, group_type: GROUP_TYPE, position):
+        """
+        ends the current group
+        :param context: the context of the group
+        """
+        self.groups.end(group_type, position)
+    
+    def addDomain(self, name: str, values):
+        """
+        add a domain to the state
+        :param name: the name of the domain
+        :param values: the values of the domain
+        """
+        self.domains[name] = Domain(name, values, self.groups)

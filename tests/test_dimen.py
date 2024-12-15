@@ -48,6 +48,15 @@ class TestReadDimen(unittest.TestCase):
         parser.parse("}")
         self.assertEqual(parser.state.dimen[0], 10)
 
+    def test_dimen_parameter(self):
+        parser = Parser()
+        parser.parse("\\hsize = 10 pt")
+        self.assertEqual(parser.state.layout["hsize"], 10)
+        parser.parse("{\\hsize = 1 pt")
+        self.assertEqual(parser.state.layout["hsize"], 1)
+        parser.parse("}")
+        self.assertEqual(parser.state.layout["hsize"], 10)
+
 
 if __name__ == '__main__':
     unittest.main()

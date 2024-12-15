@@ -31,6 +31,7 @@ def readSigns(parser):
         elif t.name != "+":
             parser.input.unread(t)
             break
+    parser.skipSpaces()
     return sign
 
 
@@ -118,7 +119,7 @@ def validHexDigit(c):
     return validDecimalDigit(c) or ord("A") <= ord(c) <= ord("F") or ord("a") <= ord(c) <= ord("f") 
 
 
-def readDigits(parser, base):
+def readDigits(parser, base, optional=False):
     """
     Read a sequence of digits in the given base
     @param parser: the parser
@@ -147,7 +148,7 @@ def readDigits(parser, base):
             break
         read = True
         value += t.name
-    if not read:
+    if not read and not optional:
         raise ValueError("expecting a number", pos)
     return value
 

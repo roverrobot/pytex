@@ -3,6 +3,7 @@ from pytex import token
 from pytex import lexer
 from pytex import state
 from pytex.module import ModuleManager
+from pytex import assignment
 
 
 class Parser:

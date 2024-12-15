@@ -76,12 +76,12 @@ class Parser:
         """
         self.tokens += c.name
     
-    def addSpace(self, c):
+    def addSpace(self):
         """
         add a space to the current list
         @param c: the token representing space
         """
-        self.tokens += c.name
+        self.tokens += " "
 
     def lookup(self, name):
         """

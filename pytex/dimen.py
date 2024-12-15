@@ -87,18 +87,18 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     try:
         return f * t.dimenValue(parser)
     except AttributeError:
-        pass
-    parser.input.unread(t)
-    # skip an optional true
+        parser.input.unread(t)
+    true = False
     if mu:
         units = {"mu"}
     else:
+        # skip an optional true
         true = parser.readKeyword({"true"})
         if true:
             units = {"pt", "pc", "in", "bp", "cm", "mm", "dd", "cc", "sp"}
         else:
             units = {"pt", "pc", "in", "bp", "cm", "mm", "dd", "cc", "sp", "em", "ex"}
-    if stretchness:
+    if stretchness and not true:
         units.add("fil")
     unit = parser.readKeyword(units)
     if unit is None:
@@ -107,7 +107,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         else:
             raise Exception("dimension unit expected")
     infinity = 0
-    if mu:
+    if unit == "mu":
         dimen = f
     elif unit == "em":
         raise Exception("em dimension not implemented")

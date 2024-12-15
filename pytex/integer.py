@@ -151,7 +151,7 @@ class CharCodeAccessor(IntegerArrayAccessor):
 
 class CatCode(Array):
     """
-    a category code
+    The category code array \\catcode
     """
     def __init__(self, size: typing.Optional[int]=None):
         super().__init__(CATCODE.OTHER, size)
@@ -175,9 +175,6 @@ class CatCode(Array):
 
 
 class CatCodeAccessor(CharCodeAccessor):
-    def __init__(self):
-        super().__init__("catcode")
-
     def validate(self, value: int):
         """
         validate the value of the category code
@@ -185,6 +182,58 @@ class CatCodeAccessor(CharCodeAccessor):
         if 0 <= value <= 15:
             return value
         raise ValueError("category code must be between 0 and 15")
+
+
+class LCCode(Array):
+    """
+    The lowercase code array \\lccode
+    """
+    def __init__(self, size: typing.Optional[int]=None):
+        super().__init__(0, size)
+        for c in range(ord("A"), ord("Z") + 1):
+            self[c] = c + 32
+            self[c+32] = c + 32
+
+
+class UCCode(Array):
+    """
+    The uppercase code array \\uccode
+    """
+    def __init__(self, size: typing.Optional[int]=None):
+        super().__init__(0, size)
+        for c in range(ord("A"), ord("Z") + 1):
+            self[c] = c
+            self[c+32] = c
+
+
+class SFCode(Array):
+    """
+    The space factor code array \\sfcode
+    """
+    
+    def __init__(self, size: typing.Optional[int]=None):
+        super().__init__(1000, size)
+        # When INITEX creates a brand new TEX, all characters have a space factor code of 1000, 
+        # except that the uppercase letters ‘A’ through ‘Z’ have code 999. 
+        for c in range(ord("A"), ord("Z") + 1):
+            self[c] = 999
+        
+
+class MathCode(Array):
+    """
+    The math code array \\mathcode
+    """
+    def __init__(self, size: typing.Optional[int]=None):
+        super().__init__(0, size)
+        # \mathcode x = x for all characters x that are neither letters nor digits. The ten digits
+        # have \mathcode x = x+ ̋7000; the 52 letters have \mathcode x = x+ ̋7100.
+        for c in range(self.SIZE):
+            self[c] = c
+        for c in range(ord("A"), ord("Z") + 1):
+            self[c] = c + 0x7100
+            self[c + 32] = c + 0x7120
+        for c in range(ord("0"), ord("9") + 1):
+            self[c] = c + 0x7000
 
 
 module = Module("integer", 
@@ -254,7 +303,11 @@ module = Module("integer",
         "insertpenalties": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
     },
     domains={
-        "catcode": {"generator": CatCode, "accessor": CatCodeAccessor()},
-        "count": {"generator": lambda: Array(0), "accessor": IntegerArrayAccessor("count")},
+        "catcode": {"generator": CatCode, "accessor": CatCodeAccessor},
+        "lccode": {"generator": LCCode, "accessor": IntegerArrayAccessor},
+        "uccode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
+        "sfcode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
+        "mathcode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
+        "count": {"generator": lambda: Array(0), "accessor": IntegerArrayAccessor},
     }
 )

@@ -7,6 +7,7 @@ from pytex import assignment
 from pytex import integer
 from pytex import keyword
 from pytex import dimen
+from pytex import glue
 
 
 class Parser:

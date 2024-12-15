@@ -211,8 +211,7 @@ class State:
     """
     def __init__(self):
         self.groups = GroupStack()
-        self.domains = {}
-        self.globals = {}
+        self.domains = {"globals": {}}
         self.addDomain("equitable", {})
         self.addDomain("layout", LayoutParameters())
         self.addDomain("parameters", {})

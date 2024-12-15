@@ -57,6 +57,10 @@ class TestInteger(unittest.TestCase):
         self.assertEqual(parser.state.count[0], 2)
         parser.parse("\\count1=-\\count0")
         self.assertEqual(parser.state.count[1], -2)
+        parser.parse("{\\count1=1")
+        self.assertEqual(parser.state.count[1], 1)
+        parser.parse("}")
+        self.assertEqual(parser.state.count[1], -2)
 
 if __name__ == '__main__':
     unittest.main()

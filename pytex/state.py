@@ -216,15 +216,18 @@ class State:
         self.addDomain("equitable", {})
         self.addDomain("layout", LayoutParameters())
         self.addDomain("parameters", {})
+        def setattr(self, index, value):
+            self.domains[index] = value
+        self.__setattr__ = setattr
 
     def __getattr__(self, index):
         try:
             return self.domains[index]
         except:
             raise AttributeError(index)
-        
-    def __setattr__(self, index, value):
-        self.domains[index] = value
+
+    def __getitem__(self, index):
+        return self.domains[index]
 
     def currentGroup(self):
         return self.groups.top()

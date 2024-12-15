@@ -31,15 +31,21 @@ def readUnsignedNumber(parser):
     return float(v)
 
 
-def readDimen(parser, mu=False):
+def readDimen(parser, mu: bool=False):
     """
     read a dimension from the input
+
+    Note that, this function is is used to read either a dimension or a 
+    stretchness of a glue.
+
     @param parser: the parser
     @param mu: True if the dimension is a mu dimension
-    @return: the dimension
-    """
-    return readSigns(parser) * readUnsignedDimen(parser, mu)
+    @return: the dimension if fil is False, otherwise the dimension and the infinity level
 
+    """
+    sign = readSigns(parser)
+    dimen = readUnsignedDimen(parser, mu, False)
+    return  sign * dimen
 
 
 UNITS = {
@@ -52,12 +58,14 @@ UNITS = {
     "mm" : 7227.0 / 254,
 }
 
-def readUnsignedDimen(parser, mu):
+def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     """
     read an unsigned dimension from the input
     @param parser: the parser
     @param mu: True if the dimension is a mu dimension
-    @return: the unsigned dimension
+    @param stretchness: True if the dimension is a stretchness
+    @return: the unsigned dimension if stretchness is False, otherwise the 
+    dimension and the infinity level
     """
     # an unsigned dimension
     t = parser.token_expand()
@@ -90,56 +98,75 @@ def readUnsignedDimen(parser, mu):
             units = {"pt", "pc", "in", "bp", "cm", "mm", "dd", "cc", "sp"}
         else:
             units = {"pt", "pc", "in", "bp", "cm", "mm", "dd", "cc", "sp", "em", "ex"}
+    if stretchness:
+        units.add("fil")
     unit = parser.readKeyword(units)
     if unit is None:
         if mu:
             raise Exception("mu dimension expected")
         else:
             raise Exception("dimension unit expected")
+    infinity = 0
     if mu:
-        return f
-    if unit == "em":
+        dimen = f
+    elif unit == "em":
         raise Exception("em dimension not implemented")
-    if unit == "ex":
+    elif unit == "ex":
         raise Exception("ex dimension not implemented")
-    return f * UNITS[unit]
+    elif unit == "fil":
+        infinity = 1
+        # read additional "l"
+        l = {"l"}
+        while parser.readKeyword(l):
+            infinity += 1
+        # maximum infinity is 3 (fil, fill, filll)
+        if infinity > 3:
+            infinity = 3
+        dimen = f
+    else:
+        dimen = f * UNITS[unit]
+    if stretchness:
+        return dimen, infinity
+    return dimen
 
 
-class DimenParameter(ParameterAccessor):
+class DimenValue:
     """
     An dimension parameter accessor
     """
-    def intValue(self, parser):
-        """
-        return the integer value of the character code
-        """
-        return round(self.getValue(parser) * 65536)
-
-    def dimenValue(self, parser):
-        """
-        return the integer value of the character code
-        """
-        return self.getValue(parser)
-
-
-class DimenArrayAccessor(ArrayAccessor):
-    """
-    accessor for the dimen domain
-    """
     def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        """
         return parser.readDimen()
 
     def intValue(self, parser):
         """
-        return the integer value of the character code
+        return the dimension in sp unit, i.e., dimension * 65536
+        @param parser: the parser
         """
         return round(self.getValue(parser) * 65536)
 
     def dimenValue(self, parser):
         """
-        return the integer value of the character code
+        return the dimension value
+        @param parser: the parser
         """
         return self.getValue(parser)
+
+
+class DimenParameter(DimenValue, ParameterAccessor):
+    """
+    An dimension parameter accessor
+    """
+    pass
+
+class DimenArrayAccessor(DimenValue, ArrayAccessor):
+    """
+    accessor for the dimen domain
+    """
+    pass
 
 
 mod = Module("dimen",

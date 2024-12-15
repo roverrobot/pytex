@@ -6,6 +6,7 @@ from pytex.module import ModuleManager
 from pytex import assignment
 from pytex import integer
 from pytex import keyword
+from pytex import dimen
 
 
 class Parser:

@@ -83,7 +83,8 @@ class Parser:
             if t is None or t.catcode != lexer.CATCODE.SPACE:
                 self.input.unread(t)
                 return
-            n -= 1
+            if n is not None:
+                n -= 1
 
     def addChar(self, c):
         """

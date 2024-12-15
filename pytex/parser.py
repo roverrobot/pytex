@@ -69,6 +69,22 @@ class Parser:
         else:
             self.input.push(leser.Scanner(self.state.catcode, input, name))
 
+    def skipSpaces(self, expand: bool = True, n: int = None):
+        """
+        skip spaces
+        @param expand: whether to expand tokens
+        @param n: the number of spaces to skip, None to skip all spaces
+        """
+        tok = self.token_expand if expand else self.token
+        while True:
+            if n is not None and n == 0:
+                return
+            t = tok()
+            if t is None or t.catcode != lexer.CATCODE.SPACE:
+                self.input.unread(t)
+                return
+            n -= 1
+
     def addChar(self, c):
         """
         add a character to the current list

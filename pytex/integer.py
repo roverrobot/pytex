@@ -67,17 +67,44 @@ def readUnsigned(parser):
         else:
             value = ord(t.name)
     elif t.name == "'":
-        value = readDigits(parser, 8)
+        value = int(readDigits(parser, 8), 8)
     elif t.name == '"':
-        value = readDigits(parser, 16)
+        value = int(readDigits(parser, 16), 16)
     else:
         parser.input.unread(t)
-        value = readDigits(parser, 10)
+        value = int(readDigits(parser, 10), 10)
     # read the optional space
     t = parser.token_expand()
     if t is not None and t.catcode != CATCODE.SPACE:
         parser.input.unread(t)
     return value
+
+
+def validDecimalDigit(c):
+    """
+    Check if the character is a decimal digit
+    @param c: the character
+    @return: True if the character is a decimal digit
+    """
+    return ord("0") <= ord(c) <= ord("9")
+
+
+def validOctalDigit(c):
+    """
+    Check if the character is an octal digit
+    @param c: the character
+    @return: True if the character is an octal digit
+    """
+    return ord("0") <= ord(c) <= ord("7")
+
+
+def validHexDigit(c):
+    """
+    Check if the character is a hex digit
+    @param c: the character
+    @return: True if the character is a hex digit
+    """
+    return validDecimalDigit(c) or ord("A") <= ord(c) <= ord("F") or ord("a") <= ord(c) <= ord("f") 
 
 
 def readDigits(parser, base):
@@ -87,23 +114,28 @@ def readDigits(parser, base):
     @param base: the base of the number
     @return: the integer
     """
+    if base == 10:
+        validDigit = validDecimalDigit
+    elif base == 8:
+        validDigit = validOctalDigit
+    elif base == 16:
+        validDigit = validHexDigit
+    else:
+        raise ValueError("invalid base", base)
+    # have we started reading?
     read = False
-    value = 0
+    value = ""
     pos = parser.input.position()
     while True:
         t = parser.token_expand()
         if t is None:
             break
         # commands do not have a catcode
-        if not hasattr(t, "catcode") or t.catcode != CATCODE.OTHER:
+        if (t.catcode != CATCODE.OTHER and t.catcode != CATCODE.LETTER) or not validDigit(t.name):
             parser.input.unread(t)
             break
-        try:
-            value = value * base + int(t.name, base)
-            read = True
-        except ValueError:
-            parser.input.unread(t)
-            break
+        read = True
+        value += t.name
     if not read:
         raise ValueError("expecting a number", pos)
     return value

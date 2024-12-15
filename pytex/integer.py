@@ -153,10 +153,13 @@ def readDigits(parser, base, optional=False):
     return value
 
 
-class IntegerParameter(ParameterAccessor):
+class IntegerValue:
     """
-    An integer parameter accessor
+    integer accessor common functions
     """
+    def readValue(self, parser):
+        return parser.readInteger()
+
     def intValue(self, parser):
         """
         get the integer value of the parameter
@@ -165,18 +168,18 @@ class IntegerParameter(ParameterAccessor):
         return self.getValue(parser)
 
 
-class IntegerArrayAccessor(ArrayAccessor):
+class IntegerParameter(IntegerValue, ParameterAccessor):
+    """
+    An integer parameter accessor
+    """
+    pass
+
+
+class IntegerArrayAccessor(IntegerValue, ArrayAccessor):
     """
     An integer array accessor
     """
-    def readValue(self, parser):
-        return parser.readInteger()
-
-    def intValue(self, parser):
-        """
-        return the integer value of the character code
-        """
-        return self.getValue(parser)
+    pass
 
 
 class CharCodeAccessor(IntegerArrayAccessor):

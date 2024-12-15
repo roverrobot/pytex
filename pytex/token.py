@@ -42,6 +42,9 @@ class Command:
     to be expanded to, such as a macro, or a primitive command that is executed by the
     parser.
     """
+    # a command is a special type of token that has no name and category code
+    name = None
+    catcode = None
     def execute(self, parser):
         """
         execute the command.
@@ -85,14 +88,6 @@ class Token(Command):
         @param parser: the parser
         """
         raise ValueError("invalid token: " + str(self))
-
-    def charValue(self, parser):
-        """ 
-        most tokens are characters. These tokens have a char value given by their name
-        @param parser: the parser
-        @return: the character value of the token
-        """
-        return self.name
 
     # the token generators for each category code
     generators = None

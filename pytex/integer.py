@@ -1,0 +1,260 @@
+"""
+This module handles reading and processing integers.
+"""
+
+
+import typing
+from pytex.token import Token, CATCODE
+from pytex.module import Module
+from pytex.accessor import ParameterAccessor, ArrayAccessor, Array
+
+
+def readInteger(parser):
+    """
+    Read an integer
+    @param parser: the parser
+    @return: the integer
+    """
+    # number = signs followed by unsigned number
+    # read signs, which are optional See TeXbook p. 269
+    sign = 1
+    pos = parser.input.position()
+    while True:
+        t = parser.token_expand()
+        if t is None:
+            raise ValueError("expecting an integer", pos)
+        if t.catcode != CATCODE.OTHER:
+            parser.input.unread(t)
+            break
+        if t.name == "-":
+            sign = -sign
+        elif t.name != "+":
+            parser.input.unread(t)
+            break
+    return sign * readUnsigned(parser)
+
+
+def readUnsigned(parser):
+    """
+    Read an unsigned integer
+    @param parser: the parser
+    @return: the unsigned integer
+    """
+    # an unsigned integer is an innternal integer (one with an intValue method),
+    # or a coersed integer, or a normal integer
+    # a coerced integer is either a dimension or a glue, both have an intValue method
+    pos = parser.input.position()
+    t = parser.token_expand()
+    if t is None:
+        raise ValueError("expecting an integer", pos)
+    try:
+        return t.intValue(parser)
+    except AttributeError:
+        pass
+    # a normal integer is either a ` followed by a character, or a ' followed by
+    # an octant number, or a " followed by a hex number, or a number
+    if t.catcode != CATCODE.OTHER:
+        raise ValueError("expecting an integer", pos)
+    if t.name == "`":
+        t = parser.token()
+        if t.catcode is None:
+            if t.name[0] == "\\" and len(t.name) == 2:
+                value = ord(t.name[1])
+            elif len(t.name) == 1:
+                value =  ord(t.name)
+            else:
+                raise ValueError("expecting a character", pos)
+        else:
+            value = ord(t.name)
+    elif t.name == "'":
+        value = readDigits(parser, 8)
+    elif t.name == '"':
+        value = readDigits(parser, 16)
+    else:
+        parser.input.unread(t)
+        value = readDigits(parser, 10)
+    # read the optional space
+    t = parser.token_expand()
+    if t is not None and t.catcode != CATCODE.SPACE:
+        parser.input.unread(t)
+    return value
+
+
+def readDigits(parser, base):
+    """
+    Read a sequence of digits in the given base
+    @param parser: the parser
+    @param base: the base of the number
+    @return: the integer
+    """
+    read = False
+    value = 0
+    pos = parser.input.position()
+    while True:
+        t = parser.token_expand()
+        if t is None:
+            break
+        # commands do not have a catcode
+        if not hasattr(t, "catcode") or t.catcode != CATCODE.OTHER:
+            parser.input.unread(t)
+            break
+        try:
+            value = value * base + int(t.name, base)
+            read = True
+        except ValueError:
+            parser.input.unread(t)
+            break
+    if not read:
+        raise ValueError("expecting a number", pos)
+    return value
+
+
+class IntegerParameter(ParameterAccessor):
+    """
+    An integer parameter accessor
+    """
+    def intValue(self, parser):
+        """
+        get the integer value of the parameter
+        @param parser: the parser
+        """
+        return self.getValue(parser)
+
+
+class IntegerArrayAccessor(ArrayAccessor):
+    """
+    An integer array accessor
+    """
+    def readValue(self, parser):
+        return parser.readInteger()
+
+    def intValue(self, parser):
+        """
+        return the integer value of the character code
+        """
+        return self.getValue(parser)
+
+
+class CharCodeAccessor(IntegerArrayAccessor):
+    """
+    A character code accessor
+    """
+    def readValue(self, parser):
+        return self.validate(parser.readInteger())
+
+    def validate(self, value: int):
+        """
+        validate the value of the character code
+        """
+        return value
+    
+
+class CatCode(Array):
+    """
+    a category code
+    """
+    def __init__(self, size: typing.Optional[int]=None):
+        super().__init__(CATCODE.OTHER, size)
+        for c in range(ord("A"), ord("Z") + 1):
+            self[c] = CATCODE.LETTER
+            self[c + 32] = CATCODE.LETTER
+        self[ord("\\")] = CATCODE.ESCAPE
+        self[ord("{")] = CATCODE.BEGIN_GROUP
+        self[ord("}")] = CATCODE.END_GROUP
+        self[ord("\r")] = CATCODE.END_OF_LINE
+        self[ord(" ")] = CATCODE.SPACE
+        self[ord("\t")] = CATCODE.SPACE
+        self[ord("^")] = CATCODE.SUPERSCRIPT
+        self[ord("_")] = CATCODE.SUBSCRIPT
+        self[ord("$")] = CATCODE.MATH_SHIFT
+        self[ord("#")] = CATCODE.PARAMETER
+        self[ord("&")] = CATCODE.ALIGNMENT_TAB
+        self[ord("%")] = CATCODE.COMMENT
+        self[ord("@")] = CATCODE.ACTIVE
+        self[8] = CATCODE.INVALID
+
+
+class CatCodeAccessor(CharCodeAccessor):
+    def __init__(self):
+        super().__init__("catcode")
+
+    def validate(self, value: int):
+        """
+        validate the value of the category code
+        """
+        if 0 <= value <= 15:
+            return value
+        raise ValueError("category code must be between 0 and 15")
+
+
+module = Module("integer", 
+    attributes={"readInteger": readInteger},
+    parameters={
+        # integer parameters
+        "pretolerance": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "tolerance": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "hbadness": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "vbadness": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "linepenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "hyphenpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "exhyphenpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "binoppenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "relpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "clubpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "widowpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "displaywidowpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "brokenpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "predisplaypenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "postdisplaypenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "interlinepenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "floatingpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "outputpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "doublehyphendemerits": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "finalhyphendemerits": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "adjdemerits": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "looseness": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "language": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "uchyph": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "lefthyphenmin": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "righthyphenmin": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "defaulthyphenchar": {"value": ord("-"), "accessor": IntegerParameter, "domain": "layout"},
+        "defaultskewchar": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "hangafter": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "fam": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "mag": {"value": 1000, "accessor": IntegerParameter, "domain": "layout"},
+        "delimiterfactor": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        # control parameters
+        "pausing": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "holdinginserts": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracingonline": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracingmacros": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracingstats": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracingparagraphs": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracingpages": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracingoutput": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracinglostchars": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracingcommands": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "tracingrestores": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "globaldefs": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "escapechar": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "endlinechar": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "newlinechar": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "maxdeadcycles": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "time": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "day": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "month": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "year": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "showboxbreadth": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "showboxdepth": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "errorcontextlines": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        # global parameters
+        "spacefactor": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
+        "prevgraf": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
+        "deadcycles": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
+        "insertpenalties": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
+    },
+    domains={
+        "catcode": {"generator": CatCode, "accessor": CatCodeAccessor()},
+        "count": {"generator": lambda: Array(0), "accessor": IntegerArrayAccessor("count")},
+    }
+)

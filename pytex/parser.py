@@ -4,6 +4,7 @@ from pytex import lexer
 from pytex import state
 from pytex.module import ModuleManager
 from pytex import assignment
+from pytex import integer
 
 
 class Parser:

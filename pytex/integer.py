@@ -9,20 +9,20 @@ from pytex.module import Module
 from pytex.accessor import ParameterAccessor, ArrayAccessor, Array
 
 
-def readInteger(parser):
+def readSigns(parser):
     """
-    Read an integer
+    Read ooptional signs
     @param parser: the parser
-    @return: the integer
+    @return: 1 or -1
     """
-    # number = signs followed by unsigned number
-    # read signs, which are optional See TeXbook p. 269
     sign = 1
     pos = parser.input.position()
+    # skips spaces
     while True:
+        parser.skipSpaces()
         t = parser.token_expand()
         if t is None:
-            raise ValueError("expecting an integer", pos)
+            break
         if t.catcode != CATCODE.OTHER:
             parser.input.unread(t)
             break
@@ -31,7 +31,18 @@ def readInteger(parser):
         elif t.name != "+":
             parser.input.unread(t)
             break
-    return sign * readUnsigned(parser)
+    return sign
+
+
+def readInteger(parser):
+    """
+    Read an integer
+    @param parser: the parser
+    @return: the integer
+    """
+    # number = signs followed by unsigned number
+    # read signs, which are optional See TeXbook p. 269
+    return readSigns(parser) * readUnsigned(parser)
 
 
 def readUnsigned(parser):

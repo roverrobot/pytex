@@ -72,6 +72,7 @@ class Module:
                 domain = item["domain"]
                 value = item["value"]
                 accessor = item["accessor"]
+                parser.state[domain][name] = value
                 parser.state.equitable.setGlobal("\\"+name, accessor(domain, name))
 
 

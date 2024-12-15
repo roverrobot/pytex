@@ -73,13 +73,10 @@ class Assignment(token.Command):
         self.assign(parser, [])
 
 
-class Prefix(Assignment):
+class Prefix(token.Command):
     """
     A prefix to an assignment
-    """
-    def __init__(self):
-        super().__init__(None, False)
-    
+    """    
     def modify(self, value, globally: bool):
         """
         modify the value
@@ -89,6 +86,14 @@ class Prefix(Assignment):
         """
         raise ValueError("prefix not defined")
     
+    def execute(self, parser):
+        """
+        execute the prefix. It reads an assignment from the input stack
+        then calls the its assign method.
+        @param parser: the parser
+        """
+        self.assign(parser, [])
+
     def assign(self, parser, prefixes: list):
         """
         assign the value to the index
@@ -97,7 +102,7 @@ class Prefix(Assignment):
         """
         prefixes.append(self)
         pos = parser.input.position()
-        assignment = paarser.token()
+        assignment = parser.token_expand()
         try:
             assignment.assign(parser, prefixes)
         except:

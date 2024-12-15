@@ -61,6 +61,8 @@ class TestInteger(unittest.TestCase):
         self.assertEqual(parser.state.count[1], 1)
         parser.parse("}")
         self.assertEqual(parser.state.count[1], -2)
+        parser.parse("{\\global\\count1=1}")
+        self.assertEqual(parser.state.count[1], 1)
 
 if __name__ == '__main__':
     unittest.main()

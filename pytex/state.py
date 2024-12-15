@@ -37,7 +37,7 @@ class Group:
     @param group_type: the type of the group
     @param position: the position of the token starting the group
     """
-    def __init__(self, group_type: GROUP_TYPE, position):
+    def __init__(self, position, group_type: GROUP_TYPE):
         self.group_type = group_type
         self.position = position
         # values holds the saved values, where the key is the name of a domain, e.g., "catcode", 
@@ -60,7 +60,7 @@ class Group:
         if index not in store[1]:
             store[1][index] = domain[index]
 
-    def end(self, group_type: GROUP_TYPE, position):
+    def end(self, position, group_type: GROUP_TYPE):
         """
         end the group, and restore the old values. This is valid only if the group_type
         matches the type that started the group.
@@ -93,16 +93,16 @@ class GroupStack(list):
     a stack of groups.
     """
 
-    def begin(self, group_type: GROUP_TYPE, position):
+    def begin(self, position, group_type: GROUP_TYPE):
         """
         begin a new group
         @param group_type: the type of the group
         @param position: the position of the token starting the group
         """
-        group = Group(group_type, position)
+        group = Group(position, group_type)
         self.append(group)
 
-    def end(self, group_type: GROUP_TYPE, position):
+    def end(self, position, group_type: GROUP_TYPE):
         """
         end the current group
         @param group_type: the type of the group
@@ -111,7 +111,7 @@ class GroupStack(list):
         if len(self) == 0:
             raise ValueError("no group to end")
         group = self.pop(-1)
-        group.end(group_type, position)
+        group.end(position, group_type)
 
     def top(self):
         """
@@ -144,7 +144,6 @@ class Domain:
         self.name = name
         self.values = values
         self.group_stack = group_stack
-        self.addDomain("equitable", {})
 
     def __setitem__(self, index, value):
         """
@@ -186,6 +185,26 @@ class Domain:
         return self.values.__repr__()
 
 
+class LayoutParameters(dict):
+    """
+    a class to store the parameters of a parser
+    """
+    def __init__(self):
+        self.changed = {}
+
+    def __setitem__(self, index, value):
+        super().__setitem__(index, value)
+        self.changed[index] = value
+
+    def getChanged(self):
+        """
+        get the changed parameters, and clear the changed dict
+        """
+        changed = self.changed
+        self.changed = {}
+        return changed
+
+
 class State:
     """
     stores the state of the parser, including the local and global parameters and registers.
@@ -194,6 +213,9 @@ class State:
         self.groups = GroupStack()
         self.domains = {}
         self.globals = {}
+        self.addDomain("equitable", {})
+        self.addDomain("layout", LayoutParameters())
+        self.addDomain("parameters", {})
 
     def __getattr__(self, index):
         try:
@@ -207,19 +229,19 @@ class State:
     def currentGroup(self):
         return self.groups.top()
 
-    def beginGroup(self, group_type: GROUP_TYPE, position):
+    def beginGroup(self, position, group_type: GROUP_TYPE=GROUP_TYPE.SIMPLE):
         """
         starts a new group
         :param context: the context of the group
         """
-        self.groups.begin(group_type, position)
+        self.groups.begin(position, group_type)
 
-    def endGroup(self, group_type: GROUP_TYPE, position):
+    def endGroup(self, position, group_type: GROUP_TYPE=GROUP_TYPE.SIMPLE):
         """
         ends the current group
         :param context: the context of the group
         """
-        self.groups.end(group_type, position)
+        self.groups.end(position, group_type)
     
     def addDomain(self, name: str, values):
         """

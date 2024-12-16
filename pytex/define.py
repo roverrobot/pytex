@@ -5,6 +5,11 @@ This module implements command definition, such as \\let etc.
 
 from pytex import accessor
 from pytex.module import Module
+from pytex.integer import IntegerValuePointer
+from pytex.dimen import DimenValuePointer
+from pytex.glue import GlueValuePointer, MuGlueValuePointer
+from pytex.accessor import ParameterAccessor
+from pytex import token
 
 
 class Define(accessor.ArrayAccessor):
@@ -74,9 +79,107 @@ class FutureLet(Define):
         super().__init__(FutureLetItem)
 
 
+class IntegerHolder:
+    """
+    a holder for an integer
+    """
+    def __init__(self, value):
+        self.value = value
+
+    def intValue(self, parser):
+        """
+        get the integer value
+        """
+        return self.value
+
+
+class CharDefValue(token.Command):
+    """
+    the value of the \\chardef command
+    """
+    def __init__(self, value):
+        self.value = value
+    
+    def __str__(self):
+        return chr(self.value)
+
+    def execute(self, parser):
+        """
+        execute the command
+        @param parser: the parser
+        """
+        parser.addChar(chr(self.value))
+    
+    def pointer(self, parser):
+        """
+        get the integer value
+        """
+        return IntegerHolder(self.value)
+
+
+class CharDefItem(accessor.ValuePointer):
+    """
+    an item in the equitable.
+    """
+    def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        """
+        return CharDefValue(parser.readInteger())
+
+
+class CharDef(Define):
+    """
+    the \\chardef command
+    """
+    def __init__(self):
+        super().__init__(CharDefItem)
+
+
+class RegisterItem(accessor.ValuePointer):
+    """
+    an item in \\count.
+    """
+    def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        """
+        return ParameterAccessor(self.register, parser.readInteger(), self.item_generator)
+
+
+class RegisterDef(Define):
+    """
+    commands such as \\countdef \\skipdef etc.
+    @param register: the name of the register
+    @param item_generator: the generator for the register item
+    """
+    def __init__(self, register: str, item_generator):
+        super().__init__(RegisterItem)
+        self.register = register
+        self.item_generator = item_generator
+
+    def pointer(self, parser):
+        """
+        get the value pointer
+        @param parser: the parser
+        @return: the value pointer and possible prefixes
+        """
+        p = super().pointer(parser)
+        p.register = self.register
+        p.item_generator = self.item_generator
+        return p
+
+
 mod = Module("define",
     commands = {
         "let": Let(),
-        "futurelet": FutureLet()
+        "futurelet": FutureLet(),
+        "chardef": CharDef(),
+        "countdef": RegisterDef("count", IntegerValuePointer),
+        "dimendef": RegisterDef("dimen", DimenValuePointer),
+        "skipdef": RegisterDef("skip", GlueValuePointer),
+        "muskipdef": RegisterDef("muskip", MuGlueValuePointer),
     }
 )

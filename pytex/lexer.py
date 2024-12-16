@@ -16,7 +16,7 @@ class Position:
         self.line = line
         self.column = column
 
-    def __str__(self):
+    def __repr__(self):
         file = "" if self.file is None else self.file
         return "%s:%d:%d" % (file, self.line, self.column)
 

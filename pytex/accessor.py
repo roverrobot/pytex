@@ -9,7 +9,7 @@ from pytex.module import Module
 from pytex import token
 
 
-class ValuePointer:
+class ValuePointer(token.Command):
     """
     access a value in a domain
     @param domain: the domain of the assignment
@@ -67,6 +67,13 @@ class ValuePointer:
             parser.state[self.domain].setGlobal(self.index, value)
         else:
             parser.state[self.domain][self.index] = value
+    
+    def execute(self, parser):
+        """
+        execute the assignment command. The default behavior is to raise an error.
+        @param parser: the parser
+        """
+        self.assign(parser)
 
 
 class Accessor(token.Command):

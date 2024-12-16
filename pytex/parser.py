@@ -9,6 +9,7 @@ from pytex import keyword
 from pytex import dimen
 from pytex import glue
 from pytex import arithmatic
+from pytex import define
 
 
 class Parser:

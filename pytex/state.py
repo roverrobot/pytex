@@ -205,6 +205,17 @@ class LayoutParameters(dict):
         return changed
 
 
+class Array(list):
+    SIZE = 65536
+    """
+    a character code
+    """
+    def __init__(self, default=None, size: typing.Optional[int]=None):
+        if size is None:
+            size = self.SIZE
+        super().__init__([default] * size)
+
+
 class State:
     """
     stores the state of the parser, including the local and global parameters and registers.

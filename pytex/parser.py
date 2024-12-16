@@ -3,7 +3,7 @@ from pytex import token
 from pytex import lexer
 from pytex import state
 from pytex.module import ModuleManager
-from pytex import assignment
+from pytex import accessor
 from pytex import integer
 from pytex import keyword
 from pytex import dimen

@@ -1,40 +1,109 @@
 """
-Accessors are commands that access registers or parameters
+Assignment commands are commands that assign values to registers or parameters
 """
 
 
 import typing
-from pytex.token import Command
-from pytex.assignment import Assignment
+from pytex import token
+from pytex.module import Module
+from pytex import token
 
 
-class Accessor(Assignment):
+class ValuePointer:
     """
-    An accessor is a command that accesses a register or a parameter. It is a command that
-    takes a single argument, the name of the register or parameter, and returns the value of
-    the register or parameter.
+    access a value in a domain
+    @param domain: the domain of the assignment
+    @param index: the index of the assignment
+    @param eq: whether there is an equal sign in the assignment
     """
-    def __init__(self, domain: str):
-        super().__init__(domain, eq=True)
-    
-    def getValue(self, parser):
+    def __init__(self, domain, index, eq: bool):
+        self.domain = domain
+        self.index = index
+        self.eq = eq
+        self.prefixes = []
+
+    def readEq(self, parser):
         """
-        get the value from the array. Need to read the index first.
+        read the equal sign from the input stack
         @param parser: the parser
         """
-        index = self.getIndex(parser)
-        return parser.state[self.domain][index]
+        t = parser.token_expand()
+        if t is None:
+            return
+        if t.catcode != token.CATCODE.OTHER or t.name != "=":
+            parser.input.unread(t)
+            return
+        t = parser.token_expand()
+        if t.catcode != token.CATCODE.SPACE:
+            parser.input.unread(t)
+
+    def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        """
+        raise ValueError("assignment command must have a value")
+
+    def getValue(self, parser):
+        """
+        get the value from the domain.
+        @param parser: the parser
+        """
+        return parser.state[self.domain][self.index]
+
+    def assign(self, parser):
+        """
+        assign the value to the index
+        @param parser: the parser
+        @param prefixes: the prefixes to the assignment
+        """
+        if self.eq:
+            self.readEq(parser)
+        value = self.readValue(parser)
+        globally = False
+        for p in self.prefixes:
+            value, globally = p.modify(value, globally)
+        if globally:
+            parser.state[self.domain].setGlobal(self.index, value)
+        else:
+            parser.state[self.domain][self.index] = value
 
 
-class Array(list):
-    SIZE = 65536
+class Accessor(token.Command):
     """
-    a character code
+    This is the base class to access a value in domain via a value pointer.
+
+    @param domain: the domain of the assignment
+    @param pointer_generator: the pointer generator
+    @param eq: whether there is an equal sign in the assignment
     """
-    def __init__(self, default=None, size: typing.Optional[int]=None):
-        if size is None:
-            size = self.SIZE
-        super().__init__([default] * size)
+    def __init__(self, domain: str, pointer_generator, eq: bool):
+        self.domain = domain
+        self.eq = eq
+        self.pointer_generator = pointer_generator
+
+    def getIndex(self, parser):
+        """
+        get the index from the input stack
+        @param parser: the parser
+        """
+        raise ValueError("assignment command must have an index")
+
+    def pointer(self, parser):
+        """
+        get the value pointer
+        @param parser: the parser
+        @return: the value pointer and possible prefixes
+        """
+        return self.pointer_generator(self.domain, self.getIndex(parser), self.eq)
+
+    def execute(self, parser):
+        """
+        execute the assignment command. The default behavior is to raise an error.
+        @param parser: the parser
+        """
+        p = self.pointer(parser)
+        p.assign(parser)
 
 
 class ArrayAccessor(Accessor):
@@ -42,7 +111,14 @@ class ArrayAccessor(Accessor):
     An array accessor is an accessor that accesses an array of registers or parameters. It is a command
     that takes a single argument, the name of the register or parameter, and returns the value of the
     register or parameter.
-    """    
+
+    @param domain: the domain of the assignment
+    @param pointer_generator: the pointer generator
+    @param eq: whether there is an equal sign in the assignment
+    """ 
+    def __init__(self, domain: str, pointer_generator):
+        super().__init__(domain, pointer_generator, eq=True)
+
     def getIndex(self, parser):
         """
         get the index from the input stack
@@ -60,8 +136,8 @@ class ParameterAccessor(Accessor):
     A parameter accessor is an accessor that accesses a parameter. It is a command that takes a single
     argument, the name of the parameter, and returns the value of the parameter.
     """
-    def __init__(self, domain: str, name: str):
-        super().__init__(domain)
+    def __init__(self, domain: str, name: str, pointer_generator):
+        super().__init__(domain, pointer_generator, eq=True)
         self.name = name
     
     def getIndex(self, parser):
@@ -70,3 +146,56 @@ class ParameterAccessor(Accessor):
         @param parser: the parser
         """
         return self.name
+
+
+class Prefix(token.Command):
+    """
+    A prefix to an assignment
+    """    
+    def modify(self, value, globally: bool):
+        """
+        modify the value
+        @param value: the value
+        @param globally: whether the assignment is global
+        @return: the modified value and whether the assignment is global
+        """
+        raise ValueError("prefix not defined")
+    
+    def execute(self, parser):
+        """
+        execute the prefix. It reads an assignment from the input stack
+        then calls the its assign method.
+        @param parser: the parser
+        """
+        p = self.pointer(parser)
+        p.assign(parser)
+
+    def pointer(self, parser):
+        """
+        assign the value to the index
+        @param parser: the parser
+        @param prefixes: the prefixes to the assignment
+        """
+        pos = parser.input.position()
+        assignment = parser.token_expand()
+        try:
+            p = assignment.pointer(parser)
+            p.prefixes.append(self)
+            return p
+        except:
+            raise ValueError("expecting an assignment", pos)
+
+
+class GlobalPrefix(Prefix):
+    """
+    The global prefix
+    """
+    def modify(self, value, globally: bool):
+        return value, True
+
+
+module = Module("assignment", 
+    commands = {
+        "global": GlobalPrefix()
+    }
+)

@@ -6,7 +6,8 @@ This module handles reading and processing integers.
 import typing
 from pytex.token import Token, CATCODE
 from pytex.module import Module
-from pytex.accessor import ParameterAccessor, ArrayAccessor, Array
+from pytex.state import Array
+from pytex.accessor import ValuePointer, ParameterAccessor, ArrayAccessor
 
 
 def readSigns(parser):
@@ -60,7 +61,8 @@ def readUnsigned(parser):
     if t is None:
         raise ValueError("expecting an integer", pos)
     try:
-        return t.intValue(parser)
+        value = t.pointer(parser)
+        return value.intValue(parser)
     except AttributeError:
         pass
     # a normal integer is either a ` followed by a character, or a ' followed by
@@ -153,7 +155,7 @@ def readDigits(parser, base, optional=False):
     return value
 
 
-class IntegerValue:
+class IntegerValuePointer(ValuePointer):
     """
     integer accessor common functions
     """
@@ -167,34 +169,6 @@ class IntegerValue:
         """
         return self.getValue(parser)
 
-
-class IntegerParameter(IntegerValue, ParameterAccessor):
-    """
-    An integer parameter accessor
-    """
-    pass
-
-
-class IntegerArrayAccessor(IntegerValue, ArrayAccessor):
-    """
-    An integer array accessor
-    """
-    pass
-
-
-class CharCodeAccessor(IntegerArrayAccessor):
-    """
-    A character code accessor
-    """
-    def readValue(self, parser):
-        return self.validate(parser.readInteger())
-
-    def validate(self, value: int):
-        """
-        validate the value of the character code
-        """
-        return value
-    
 
 class CatCode(Array):
     """
@@ -221,14 +195,19 @@ class CatCode(Array):
         self[8] = CATCODE.INVALID
 
 
-class CatCodeAccessor(CharCodeAccessor):
-    def validate(self, value: int):
-        """
-        validate the value of the category code
-        """
+class CatCodeValuePointer(IntegerValuePointer):
+    """
+    access a value in \\catcode
+
+    Will check the range when reading a value
+    """
+    def readValue(self, parser):
+        pos = parser.input.position()
+        value = parser.readInteger()
         if 0 <= value <= 15:
             return value
-        raise ValueError("category code must be between 0 and 15")
+        else:
+            raise ValueError("category code must be between 0 and 15", pos)
 
 
 class LCCode(Array):
@@ -287,74 +266,74 @@ module = Module("integer",
     attributes={"readInteger": readInteger},
     parameters={
         # integer parameters
-        "pretolerance": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "tolerance": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "hbadness": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "vbadness": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "linepenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "hyphenpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "exhyphenpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "binoppenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "relpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "clubpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "widowpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "displaywidowpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "brokenpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "predisplaypenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "postdisplaypenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "interlinepenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "floatingpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "outputpenalty": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "doublehyphendemerits": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "finalhyphendemerits": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "adjdemerits": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "looseness": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "language": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "uchyph": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "lefthyphenmin": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "righthyphenmin": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "defaulthyphenchar": {"value": ord("-"), "accessor": IntegerParameter, "domain": "layout"},
-        "defaultskewchar": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "hangafter": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "fam": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
-        "mag": {"value": 1000, "accessor": IntegerParameter, "domain": "layout"},
-        "delimiterfactor": {"value": 0, "accessor": IntegerParameter, "domain": "layout"},
+        "pretolerance": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "tolerance": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "hbadness": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "vbadness": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "linepenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "hyphenpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "exhyphenpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "binoppenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "relpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "clubpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "widowpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "displaywidowpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "brokenpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "predisplaypenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "postdisplaypenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "interlinepenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "floatingpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "outputpenalty": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "doublehyphendemerits": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "finalhyphendemerits": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "adjdemerits": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "looseness": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "language": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "uchyph": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "lefthyphenmin": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "righthyphenmin": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "defaulthyphenchar": {"value": ord("-"), "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "defaultskewchar": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "hangafter": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "fam": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "mag": {"value": 1000, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
+        "delimiterfactor": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
         # control parameters
-        "pausing": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "holdinginserts": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracingonline": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracingmacros": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracingstats": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracingparagraphs": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracingpages": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracingoutput": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracinglostchars": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracingcommands": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "tracingrestores": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "globaldefs": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "escapechar": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "endlinechar": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "newlinechar": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "maxdeadcycles": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "time": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "day": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "month": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "year": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "showboxbreadth": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "showboxdepth": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
-        "errorcontextlines": {"value": 0, "accessor": IntegerParameter, "domain": "parameters"},
+        "pausing": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "holdinginserts": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracingonline": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracingmacros": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracingstats": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracingparagraphs": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracingpages": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracingoutput": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracinglostchars": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracingcommands": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "tracingrestores": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "globaldefs": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "escapechar": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "endlinechar": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "newlinechar": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "maxdeadcycles": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "time": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "day": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "month": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "year": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "showboxbreadth": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "showboxdepth": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
+        "errorcontextlines": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
         # global parameters
-        "spacefactor": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
-        "prevgraf": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
-        "deadcycles": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
-        "insertpenalties": {"value": 0, "accessor": IntegerParameter, "domain": "globals"},
+        "spacefactor": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
+        "prevgraf": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
+        "deadcycles": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
+        "insertpenalties": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
     },
     domains={
-        "catcode": {"generator": CatCode, "accessor": CatCodeAccessor},
-        "lccode": {"generator": LCCode, "accessor": IntegerArrayAccessor},
-        "uccode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
-        "sfcode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
-        "mathcode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
-        "count": {"generator": lambda: Array(0), "accessor": IntegerArrayAccessor},
+        "catcode": {"generator": CatCode, "accessor": ArrayAccessor, "type": CatCodeValuePointer},
+        "lccode": {"generator": LCCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
+        "uccode": {"generator": UCCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
+        "sfcode": {"generator": UCCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
+        "mathcode": {"generator": UCCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
+        "count": {"generator": lambda: Array(0), "accessor": ArrayAccessor, "type": IntegerValuePointer},
     }
 )

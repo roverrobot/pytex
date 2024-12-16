@@ -8,6 +8,7 @@ from pytex import integer
 from pytex import keyword
 from pytex import dimen
 from pytex import glue
+from pytex import arithmatic
 
 
 class Parser:
@@ -92,9 +93,9 @@ class Parser:
     def addChar(self, c):
         """
         add a character to the current list
-        @param c: the token representing character
+        @param c: the character
         """
-        self.tokens += c.name
+        self.tokens += c
     
     def addSpace(self):
         """

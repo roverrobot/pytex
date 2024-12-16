@@ -9,6 +9,13 @@ class TestToks(unittest.TestCase):
         k = parser.readBalanced(expand=False)
         self.assertEqual(len(k), 4)
         self.assertEqual(k[3].name, "d")
+    
+    def test_read_general_text(self):
+        parser = Parser()
+        parser.readFrom(" \\relax  {abcd}")
+        k = parser.readGeneralText(expand=False)
+        self.assertEqual(len(k), 4)
+        self.assertEqual(k[3].name, "d")
 
 
     def test_toks_register(self):

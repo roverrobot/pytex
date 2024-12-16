@@ -39,6 +39,50 @@ def readBalanced(parser, expand: bool = False):
         toks.append(t)
 
 
+class Relax(Command):
+    """
+    the \\relax command
+    """
+    def execute(self, parser):
+        """
+        execute the command
+        @param parser: the parser
+        """
+        pass
+
+
+# the \\relax command
+relax = Relax()
+
+def skipFiller(parser):
+    """
+    read a filler
+
+    A filler is a sequence of space tokens or \\relax commands.
+    @param parser: the parser
+    """
+    while True:
+        t = parser.token_expand()
+        if t is None:
+            return
+        if t.catcode == CATCODE.SPACE or t == relax:
+            continue
+        parser.input.unread(t)
+        break
+
+
+def readGeneralText(parser, expand: bool = True):
+    """
+    read general text
+
+    A general text is a filler followed by a balanced token list.
+    @param parser: the parser
+    """
+    pos = parser.input.position()
+    skipFiller(parser)
+    return readBalanced(parser, expand)
+
+
 class ToksValuePointer(accessor.ValuePointer):
     """
     a pointer to the token list
@@ -75,6 +119,11 @@ class ToksArray(Array):
 mod = Module("toks",
     attributes = {
         "readBalanced": readBalanced,
+        "skipFiller": skipFiller,
+        "readGeneralText": readGeneralText,
+    },
+    commands = {
+        "relax": relax,
     },
     domains = {
         "toks": {"generator": ToksArray, "accessor": accessor.ArrayAccessor, "type": ToksValuePointer},

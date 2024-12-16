@@ -14,7 +14,6 @@ class TestReadKeyword(unittest.TestCase):
         k = parser.readKeyword({"test", "false"})
         self.assertEqual(k, "test") 
         t = parser.token_expand()
-        self.assertIsNone(t)
         parser.readFrom(" tes  ")
         k = parser.readKeyword({"test", "false"})
         self.assertIsNone(k)

@@ -29,7 +29,6 @@ def readKeyword(parser, keywords: set):
         for k in keywords.copy():
             if t.name.lower() == k[i]:
                 if len(k) == i + 1:
-                    parser.skipSpaces()
                     return k
             else:
                 keywords.remove(k)

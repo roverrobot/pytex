@@ -4,6 +4,8 @@ This file defines facilities to implement versioned values and groups.
 
 
 import typing
+from pytex.module import Module
+from pytex.token import Command
 import enum
 
 class GROUP_TYPE(enum.IntEnum):
@@ -263,3 +265,29 @@ class State:
         :param values: the values of the domain
         """
         self.domains[name] = Domain(name, values, self.groups)
+
+
+class BeginGroup(Command):
+    """
+    the \\begingroup command
+    """
+    def execute(self, parser):
+        pos = parser.input.position()
+        parser.state.beginGroup(pos, GROUP_TYPE.SEMI_SIMPLE)
+
+
+class EndGroup(Command):
+    """
+    the \\endgroup command
+    """
+    def execute(self, parser):
+        pos = parser.input.position()
+        parser.state.endGroup(pos, GROUP_TYPE.SEMI_SIMPLE)
+
+
+mod = Module("state",
+    commands={
+        "begingroup": BeginGroup(),
+        "endgroup": EndGroup(),
+    }
+)

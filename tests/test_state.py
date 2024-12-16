@@ -1,5 +1,6 @@
 import unittest
 from pytex import state
+from pytex.parser import Parser
 
 
 class TestGroupStack(unittest.TestCase):
@@ -66,6 +67,24 @@ class TestGroupStack(unittest.TestCase):
             pass
         except Exception as e:
             self.fail("unexpected exception: %s" % e)
+    
+    def test_parser(self):
+        parser = Parser()
+        parser.parse("\\count0=1\\begingroup\\count0=2")
+        self.assertEqual(parser.state.count[0], 2)
+        parser.parse("\\endgroup")
+        self.assertEqual(parser.state.count[0], 1)
+        try:
+            parser.parse("{\\endgroup")
+            self.fail("group matching failed")
+        except ValueError as e:
+            self.assertTrue("mismatch" in str(e))
+        try:
+            parser.parse("\\begingroup}")
+            self.fail("group matching failed")
+        except ValueError as e:
+            self.assertTrue("mismatch" in str(e))
+        
 
 if __name__ == '__main__':
     unittest.main()

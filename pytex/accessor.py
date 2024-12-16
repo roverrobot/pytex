@@ -201,8 +201,31 @@ class GlobalPrefix(Prefix):
         return value, True
 
 
+class Afterassignment(token.Command):
+    """
+    the \\afterassignment command
+
+    It reads the next (unexpanded) token and stores it in the afterassignment parameter.
+    """
+    def exec(self, parser):
+        """
+        execute the command
+        @param parser: the parser
+        """
+        t = parser.token()
+        if t is None:
+            raise ValueError("expecting a token")
+        parser.state.domains.globals.afterassignment = t
+
+
 module = Module("assignment", 
     commands = {
-        "global": GlobalPrefix()
-    }
+        "global": GlobalPrefix(),
+        "afterassignment": Afterassignment(),
+    },
+    parameters= {
+        # this token should not have any accessor, because users only interact
+        # with it via the afterassignment command.
+        "afterassignment": {"value": None, "accessor": None, "domain": "globals"},
+    },
 )

@@ -33,5 +33,10 @@ class TestDefine(unittest.TestCase):
         self.assertEqual(parser.state.count[0], 1)
         self.assertEqual(parser.state.count[1], -1)
 
+    def test_afterassignment(self):
+        parser = Parser()
+        parser.parse("\\afterassignment a{\\count0=1}")
+        self.assertEqual(parser.tokens, "a ")
+
 if __name__ == '__main__':
     unittest.main()

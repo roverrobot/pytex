@@ -116,3 +116,19 @@ class Parser:
             return self.state.equitable[name]
         except KeyError:
             return None
+
+    def beginGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
+        """
+        begin a group
+        @param position: the position of the begin group token
+        @param group_type: the type of the group
+        """
+        self.state.beginGroup(position, group_type)
+    
+    def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
+        """
+        end a group
+        @param position: the position of the end group token
+        @param group_type: the type of the group
+        """
+        self.state.endGroup(position, group_type)

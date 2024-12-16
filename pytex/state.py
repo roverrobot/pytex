@@ -257,6 +257,7 @@ class State:
         :param context: the context of the group
         """
         self.groups.end(position, group_type)
+            
     
     def addDomain(self, name: str, values):
         """
@@ -273,7 +274,7 @@ class BeginGroup(Command):
     """
     def execute(self, parser):
         pos = parser.input.position()
-        parser.state.beginGroup(pos, GROUP_TYPE.SEMI_SIMPLE)
+        parser.beginGroup(pos, GROUP_TYPE.SEMI_SIMPLE)
 
 
 class EndGroup(Command):
@@ -282,7 +283,7 @@ class EndGroup(Command):
     """
     def execute(self, parser):
         pos = parser.input.position()
-        parser.state.endGroup(pos, GROUP_TYPE.SEMI_SIMPLE)
+        parser.endGroup(pos, GROUP_TYPE.SEMI_SIMPLE)
 
 
 mod = Module("state",

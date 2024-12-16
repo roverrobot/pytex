@@ -108,13 +108,13 @@ class Token(Command):
 class BeginGroupToken(Token):
     """ a token that represents the beginning of a group {"""
     def execute(self, parser):
-        parser.state.beginGroup(self)
+        parser.beginGroup(parser.input.position())
 
 
 class EndGroupToken(Token):
     """ a token that represents the end of a group {"""
     def execute(self, parser):
-        parser.state.endGroup(self)
+        parser.state.endGroup(parser.input.position())
 
 
 class CommandToken(Token):

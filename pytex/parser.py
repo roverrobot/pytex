@@ -114,4 +114,4 @@ class Parser:
         try:
             return self.state.equitable[name]
         except KeyError:
-            raise ValueError("command not defined: ", name)
+            return None

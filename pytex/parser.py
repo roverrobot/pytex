@@ -10,6 +10,7 @@ from pytex import dimen
 from pytex import glue
 from pytex import arithmatic
 from pytex import define
+from pytex import toks
 
 
 class Parser:

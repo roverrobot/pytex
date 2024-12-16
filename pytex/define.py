@@ -9,6 +9,7 @@ from pytex.integer import IntegerValuePointer
 from pytex.dimen import DimenValuePointer
 from pytex.glue import GlueValuePointer, MuGlueValuePointer
 from pytex.accessor import ParameterAccessor
+from pytex.toks import ToksValuePointer
 from pytex import token
 
 
@@ -181,5 +182,6 @@ mod = Module("define",
         "dimendef": RegisterDef("dimen", DimenValuePointer),
         "skipdef": RegisterDef("skip", GlueValuePointer),
         "muskipdef": RegisterDef("muskip", MuGlueValuePointer),
+        "toksdef": RegisterDef("toks", ToksValuePointer)
     }
 )

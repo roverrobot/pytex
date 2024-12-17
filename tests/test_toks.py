@@ -30,5 +30,19 @@ class TestToks(unittest.TestCase):
         parser.parse("\\aftergroup a\\aftergroup b{\\count0=1}")
         self.assertEqual(parser.tokens, "ab ")
         
+    def test_case(self):
+        parser = Parser()
+        parser.parse("\\uppercase{a!}")
+        self.assertEqual(parser.tokens, "A! ")
+        parser.tokens=""
+        parser.parse("\\lowercase{!A}")
+        self.assertEqual(parser.tokens, "!a ")
+        try:
+            parser.parse("\\catcode`z=13\\let z=a\\uppercase{azb}")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("Z", str(e))
+
+
 if __name__ == '__main__':
     unittest.main()

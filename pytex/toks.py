@@ -3,7 +3,7 @@ This module defines the token list facilities.
 """
 
 import typing
-from pytex.lexer import CATCODE
+from pytex.lexer import CATCODE, TokenListScanner
 from pytex.token import Command
 from pytex.module import Module
 from pytex.state import Array
@@ -131,6 +131,36 @@ class AfterGroup(Command):
         parser.state.domains["globals"]["aftergroup"].append(t)
 
 
+class Case(Command):
+    """
+    the \\uppercase and \\lowercase commands
+    """
+    def __init__(self, upper: bool):
+        self.upper = upper
+
+    def execute(self, parser):
+        """
+        execute the command
+
+        The command argument is a general text. The tokens in the general text
+        are converted to uppercase or lowercase according to the value of the
+        \\lccode and \\uccode arrays.
+        @param parser: the parser
+        """
+        if self.upper:
+            code = parser.state.uccode
+        else:
+            code = parser.state.lccode
+        text = readGeneralText(parser, expand=False)
+        for t in text:
+            if len(t.name) > 1:
+                continue
+            c = code[ord(t.name)]
+            if c != 0:
+                t.name = chr(c)
+        parser.input.push(TokenListScanner(text))
+
+
 mod = Module("toks",
     attributes = {
         "readBalanced": readBalanced,
@@ -139,7 +169,9 @@ mod = Module("toks",
     },
     commands = {
         "relax": relax,
-        "aftergroup": AfterGroup()
+        "aftergroup": AfterGroup(),
+        "uppercase": Case(True),
+        "lowercase": Case(False),
     },
     domains = {
         "toks": {"generator": ToksArray, "accessor": accessor.ArrayAccessor, "type": ToksValuePointer},

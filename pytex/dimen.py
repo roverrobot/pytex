@@ -74,7 +74,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         raise Exception("dimension expected")
     # an internal dimension or a glue (both have a dimenValue method)
     try:
-        return t.dimenValue(parser)
+        return t.pointer(parser).dimenValue(parser)
     except AttributeError:
         pass
     # a number

@@ -178,5 +178,14 @@ mod = Module("toks",
     },
     parameters={
         "aftergroup": {"value": [], "accessor": None, "domain": "globals"},
+        "output": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
+        "everyhbox": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "layout", "type": ToksValuePointer},
+        "everyvbox": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "layout", "type": ToksValuePointer},
+        "everyjob": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "layout", "type": ToksValuePointer},
+        "everycr": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "layout", "type": ToksValuePointer},
+        "errhelp": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "layout", "type": ToksValuePointer},
+        "everypar": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "layout", "type": ToksValuePointer},
+        "everymath": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "layout", "type": ToksValuePointer},
+        "everydisplay": {"value": [], "accessor": accessor.ParameterAccessor, "domain": "layout", "type": ToksValuePointer},
     }
 )

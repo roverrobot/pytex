@@ -12,6 +12,7 @@ from pytex import arithmatic
 from pytex import define
 from pytex import toks
 from pytex import macro
+from pytex import conditional
 
 
 class Toks(toks.Toks):
@@ -36,8 +37,8 @@ class Parser:
     def __init__(self):
         self.state = state.State()
         self.input = lexer.InputStack()
-        # the stack of if levels. Each element is a boolean value indicating whether 
-        # the condition allows \or command as a branch
+        # the stack of if levels. Each element is a tuple containing the conditional 
+        # command and its position in the input.
         self.ifstack = [] 
         # for now, characters and spaces are collected in a string
         self.tokens = Toks()
@@ -83,6 +84,8 @@ class Parser:
             if t is None:
                 break
             t.execute(self)
+        if len(self.ifstack) > 0:
+            raise ValueError("missing \\fi")
 
     def readFrom(self, input, name: typing.Optional[str] = None):
         """

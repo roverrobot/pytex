@@ -1,0 +1,147 @@
+"""
+This module implements conditional commands such as \\\if and \\ifx etc.
+"""
+
+
+import typing
+from pytex.token import CATCODE, Command, Token
+from pytex.module import Module
+
+def skipBranch(parser):
+    """
+    skip all tokens in a branch, until an \\else, \\or or \\fi is encountered.
+    @param parser: the parser
+    @return: the command that was encountered    """
+    pos = parser.input.position()
+    while True:
+        t = parser.token()
+        if t is None:
+            c, cpos = parser.ifstack[-1]
+            raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", pos)
+        if t.catcode is None:
+            c = parser.lookup(t.name)
+            if c is None:
+                continue
+            if isinstance(c, Branch):
+                return c
+
+
+class Branch(Command):
+    """
+    the base class for a branch. Commands such as \else, \or, and \fi are subclasses of this class.
+    @param command_name: the name of the command
+    """
+    def __init__(self, command_name: str):
+        self.command_name = command_name
+    
+    def skipAll(self, parser):
+        """
+        skip all tokens in a conditional command, until an \\fi is encountered.
+        @param parser: the parser
+        """
+        while True:
+            c = skipBranch(parser)
+            if isinstance(c, Fi):
+                parser.ifstack.pop()
+                return
+
+    def expand(self, parser):
+        if len(parser.ifstack) == 0:
+            raise ValueError("unexpected " + self.command_name)
+        self.skipAll(parser)
+
+
+class Else(Branch):
+    """ the \\else command """
+    def __init__(self):
+        super().__init__("\\else")
+
+
+class Or(Branch):
+    """ the \\or command """
+    def __init__(self):
+        super().__init__("\\or")
+
+    def expand(self, parser):
+        if len(parser.ifstack) == 0 or not parser.ifstack[-1][0].is_case:
+            raise ValueError("unexpected \\or")
+        self.skipAll(parser)
+
+
+class Fi(Branch):
+    """ the \\fi command """
+    def __init__(self):
+        super().__init__("\\fi")
+
+    def skipAll(self, parser):
+        if len(parser.ifstack) == 0:
+            raise ValueError("unexpected \\fi")
+        parser.ifstack.pop()
+
+
+class Conditional(Command):
+    """
+    The base class for all conditional commands.
+
+    The main method of this class is condition, which should be overridden by subclasses to implement the condition
+    of the conditional command.
+
+    @param is_case: whether the command is an \\ifcase command
+    """
+    def __init__(self, is_case: bool = False):
+        self.is_case = is_case
+
+    def condition(self, parser):
+        """
+        The condition of the conditional command.
+
+        This method should be overridden by subclasses to implement the condition of the conditional command.
+        It reads the tokens from the parser and returns an integer representing the braanch
+        to be taken. The return value should be 0 for true and 1 for false. In the \\ifcase
+        command, the return value should be the index of the branch to be taken, starting from 0.
+
+        @param parser: the parser
+        @return: the index pf the branch to be taken. 0 for true, 1 for false
+        """
+        # the default implementation is equivalent to \iftrue
+        return 0
+
+    def skipTo(self, parser, condition):
+        for i in range(condition):
+            c = skipBranch(parser)
+            if isinstance(c, Or) and not self.is_case:
+                raise ValueError("unexpected \\or")
+            elif isinstance(c, Fi):
+                parser.ifstack.pop()
+                return
+
+    def expand(self, parser):
+        pos = parser.input.position()
+        condition = self.condition(parser)
+        parser.ifstack.append((self, pos))
+        self.skipTo(parser, condition)
+
+
+class If(Conditional):
+    """ the \\if command """
+    def condition(self, parser):
+        pos = parser.input.position()
+        t1 = parser.token_expand()
+        t2 = parser.token_expand()
+        if t1 is None or t2 is None:
+            raise ValueError("expecting two tokens", pos)
+        if t1.catcode is None and t2.catcode is None:
+            return 0
+        if t1.catcode != t2.catcode or t1.name != t2.name:
+            return 1
+        return 0
+
+
+mod = Module("conditional",
+    commands={
+        "if": If(),
+        "else": Else(),
+        "or": Or(),
+        "fi": Fi(),
+    }
+)

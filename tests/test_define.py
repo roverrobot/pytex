@@ -18,12 +18,12 @@ class TestDefine(unittest.TestCase):
     def test_futurelet(self):
         parser = Parser()
         parser.parse("\\futurelet\\a=01\\a")
-        self.assertEqual(parser.tokens, "01")
+        self.assertEqual(str(parser.tokens), "01")
 
     def test_chardef(self):
         parser = Parser()
         parser.parse("\\chardef\\a=`a \\a")
-        self.assertEqual(parser.tokens, "a")
+        self.assertEqual(str(parser.tokens), "a")
         parser.parse("\\count0=\\a")
         self.assertEqual(parser.state.count[0], ord("a"))
 
@@ -36,7 +36,7 @@ class TestDefine(unittest.TestCase):
     def test_afterassignment(self):
         parser = Parser()
         parser.parse("\\afterassignment a{\\count0=1}")
-        self.assertEqual(parser.tokens, "a ")
+        self.assertEqual(str(parser.tokens), "a ")
 
 
 class TestDefine(unittest.TestCase):
@@ -117,23 +117,17 @@ class TestDefine(unittest.TestCase):
     def test_macro_expansion(self):
         parser = Parser()
         parser.parse("\\def\\a{1}\\a")
-        self.assertEqual(parser.tokens, "1")
-        parser.tokens = ""
+        self.assertEqual(str(parser.tokens), "1")
         parser.parse("\\def\\a#1{#1}\\a{2}")
-        self.assertEqual(parser.tokens, "2 ")
-        parser.tokens = ""
+        self.assertEqual(str(parser.tokens), "2 ")
         parser.parse("\\def\\a#1#2{#1#2}\\a{1} 2")
-        self.assertEqual(parser.tokens, "12 ")
-        parser.tokens = ""
+        self.assertEqual(str(parser.tokens), "12 ")
         parser.parse("\\def\\a12 {1}\\a12")
-        self.assertEqual(parser.tokens, "1")
-        parser.tokens = ""
+        self.assertEqual(str(parser.tokens), "1")
         parser.parse("\\def\\a1#12{#1}\\a1{2}2")
-        self.assertEqual(parser.tokens, "2 ")
-        parser.tokens = ""
+        self.assertEqual(str(parser.tokens), "2 ")
         parser.parse("\\def\\a1#12#2{#1#2}\\a1{2}23")
-        self.assertEqual(parser.tokens, "23 ")
-        parser.tokens = ""
+        self.assertEqual(str(parser.tokens), "23 ")
         try:
             parser.parse("\\def\\a1#12#2{#1#2}\\a1{2}")
             self.fail("Expected ValueError")

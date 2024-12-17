@@ -22,7 +22,7 @@ class TestReadDimen(unittest.TestCase):
         parser = Parser()
         parser.parse("\\dimen0 = 10 pt\\multiply \\dimen0 by 2 pt")
         self.assertEqual(parser.state.dimen[0], 20)
-        self.assertEqual(parser.tokens, "pt ")
+        self.assertEqual(str(parser.tokens), "pt ")
 
     
     def test_read_divide(self):

@@ -28,15 +28,14 @@ class TestToks(unittest.TestCase):
     def test_aftergroup(self):
         parser = Parser()
         parser.parse("\\aftergroup a\\aftergroup b{\\count0=1}")
-        self.assertEqual(parser.tokens, "ab ")
+        self.assertEqual(str(parser.tokens), "ab ")
         
     def test_case(self):
         parser = Parser()
         parser.parse("\\uppercase{a!}")
-        self.assertEqual(parser.tokens, "A! ")
-        parser.tokens=""
+        self.assertEqual(str(parser.tokens), "A! ")
         parser.parse("\\lowercase{!A}")
-        self.assertEqual(parser.tokens, "!a ")
+        self.assertEqual(str(parser.tokens), "!a ")
         try:
             parser.parse("\\catcode`z=13\\let z=a\\uppercase{azb}")
             self.fail()

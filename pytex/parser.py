@@ -14,6 +14,21 @@ from pytex import toks
 from pytex import macro
 
 
+class Toks(toks.Toks):
+    """
+    a token list serviing as a temporary collector for all tokens
+    before hlists and vlists are implemented.
+
+    Each time the __repr__ method is called, the token list is cleared.
+    """
+    def __init__(self, *args):
+        super().__init__(*args, included_braces=True)
+
+    def __repr__(self):
+        content = super().__repr__()
+        self.clear()
+        return content
+
 class Parser:
     """
     The parser is the main class that processes the input and executes the commands.
@@ -21,8 +36,11 @@ class Parser:
     def __init__(self):
         self.state = state.State()
         self.input = lexer.InputStack()
+        # the stack of if levels. Each element is a boolean value indicating whether 
+        # the condition allows \or command as a branch
+        self.ifstack = [] 
         # for now, characters and spaces are collected in a string
-        self.tokens = ""
+        self.tokens = Toks()
         for name, mod in ModuleManager.items():
             mod.populate(self)
     
@@ -96,16 +114,16 @@ class Parser:
     def addChar(self, c):
         """
         add a character to the current list
-        @param c: the character
+        @param c: the character token
         """
-        self.tokens += c
+        self.tokens.append(c)
     
     def addSpace(self):
         """
         add a space to the current list
         @param c: the token representing space
         """
-        self.tokens += " "
+        self.tokens.append(token.SpaceToken())
 
     def lookup(self, name):
         """

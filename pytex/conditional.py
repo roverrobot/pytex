@@ -184,10 +184,43 @@ class IfCase(Conditional):
         return parser.readInteger()
 
 
+class IfNum(Conditional):
+    """ the \\ifnum command """
+    def __init__(self, name: str="\\ifnum"):
+        super().__init__(name)
+
+    def readValue(self, parser):
+        return parser.readInteger()
+
+    def condition(self, parser):
+        n1 = self.readValue(parser)
+        pos = parser.input.position()
+        op = parser.token_expand()
+        if op is None or op.catcode != CATCODE.OTHER or op.name not in "<=>":
+            raise ValueError("expecting a comparison operator", pos)
+        n2 = self.readValue(parser)
+        if op.name == "<":
+            return 0 if n1 < n2 else 1
+        if op.name == "=":
+            return 0 if n1 == n2 else 1
+        return 0 if n1 > n2 else 1
+
+
+class IfDim(IfNum):
+    """ the \\ifdim command """
+    def __init__(self):
+        super().__init__("\\ifdim")
+
+    def readValue(self, parser):
+        return parser.readDimen()
+
+
 mod = Module("conditional",
     commands={
         "if": If(),
         "ifx": IfX(),
+        "ifnum": IfNum(),
+        "ifdim": IfDim(),
         "ifcase": IfCase(),
         "else": Else(),
         "or": Or(),

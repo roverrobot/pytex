@@ -59,6 +59,66 @@ class TestConditional(unittest.TestCase):
         parser.parse("\\ifcase4 a\\or b\\else c\\fi")
         self.assertEqual(str(parser.tokens), "c")
 
+    def test_ifnum(self):
+        parser = Parser()
+        parser.parse("\\count0 1\\count 1 2")
+        parser.parse("\\ifnum \\count0=\\count1 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "b")
+        parser.parse("\\ifnum 1>\\count1 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "b")
+        parser.parse("\\ifnum 1=\\count0 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "a")
+        parser.parse("\\ifnum 1=2 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "b")
+        try:
+            parser.parse("\\ifnum 1\\else\\fi")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("else", str(e))
+        try:
+            parser.parse("\\ifnum 1 2\\else\\fi")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("comparison", str(e))
+        try:
+            parser.parse("\\ifnum 1=a\\else\\fi")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("integer", str(e))
+
+
+    def test_ifdim(self):
+        parser = Parser()
+        parser.parse("\\dimen0 1pt\\dimen1 2pt")
+        parser.parse("\\ifdim\\dimen0<\\dimen1 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "a")
+        parser.parse("\\ifdim 1pt>\\dimen1 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "b")
+        parser.parse("\\ifdim 1pt=\\dimen0 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "a")
+        parser.parse("\\ifdim 1pt=\\dimen1 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "b")
+        try:
+            parser.parse("\\ifdim 1\\else\\fi")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("else", str(e))
+        try:
+            parser.parse("\\ifdim 1pt\\else\\fi")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("else", str(e))
+        try:
+            parser.parse("\\ifdim 1pt 2pt\\else\\fi")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("comparison", str(e))
+        try:
+            parser.parse("\\ifdim 1pt=a\\else\\fi")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("number", str(e))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -112,6 +112,8 @@ class Conditional(Command):
             c = skipBranch(parser)
             if isinstance(c, Or) and not self.is_case:
                 raise ValueError("unexpected \\or")
+            if isinstance(c, Else):
+                return
             elif isinstance(c, Fi):
                 parser.ifstack.pop()
                 return
@@ -173,10 +175,20 @@ class IfX(Conditional):
         return 1
 
 
+class IfCase(Conditional):
+    """ the \\ifcase command """
+    def __init__(self):
+        super().__init__("\\ifcase", is_case=True)
+
+    def condition(self, parser):
+        return parser.readInteger()
+
+
 mod = Module("conditional",
     commands={
         "if": If(),
         "ifx": IfX(),
+        "ifcase": IfCase(),
         "else": Else(),
         "or": Or(),
         "fi": Fi(),

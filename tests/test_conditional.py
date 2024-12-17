@@ -48,5 +48,17 @@ class TestConditional(unittest.TestCase):
         self.assertEqual(str(parser.tokens), "b")
 
 
+    def test_ifcase(self):
+        parser = Parser()
+        parser.parse("\\ifcase0 a\\or b\\fi")
+        self.assertEqual(str(parser.tokens), "a")
+        parser.parse("\\ifcase1 a\\or b\\fi")
+        self.assertEqual(str(parser.tokens), "b")
+        parser.parse("\\ifcase2 a\\or b\\fi")
+        self.assertEqual(str(parser.tokens), "")
+        parser.parse("\\ifcase4 a\\or b\\else c\\fi")
+        self.assertEqual(str(parser.tokens), "c")
+
+
 if __name__ == '__main__':
     unittest.main()

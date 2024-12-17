@@ -18,8 +18,8 @@ class Define(accessor.ArrayAccessor):
     the base class for defining commands
     @param pointer_generator: the generator for the pointer to the equitable item
     """
-    def __init__(self, pointer_generator):
-        super().__init__("equitable", pointer_generator)
+    def __init__(self, pointer_generator, eq: bool = True):
+        super().__init__("equitable", pointer_generator, eq)
 
     def getIndex(self, parser):
         """

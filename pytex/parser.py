@@ -11,6 +11,7 @@ from pytex import glue
 from pytex import arithmatic
 from pytex import define
 from pytex import toks
+from pytex import macro
 
 
 class Parser:

@@ -123,8 +123,8 @@ class ArrayAccessor(Accessor):
     @param pointer_generator: the pointer generator
     @param eq: whether there is an equal sign in the assignment
     """ 
-    def __init__(self, domain: str, pointer_generator):
-        super().__init__(domain, pointer_generator, eq=True)
+    def __init__(self, domain: str, pointer_generator, eq=True):
+        super().__init__(domain, pointer_generator, eq)
 
     def getIndex(self, parser):
         """

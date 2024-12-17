@@ -56,6 +56,20 @@ class MacroScanner(TokenListScanner):
         raise ValueError("invalid macro replacement text, # must be followed by a number of another #", self.input.position())
 
 
+def comapreToks(toks1, toks2):
+    """
+    compare two token lists
+    """
+    if len(toks1) != len(toks2):
+        return False
+    for i in range(len(toks1)):
+        x = toks1[i]
+        y = toks2[i]
+        if x.catcode != y.catcode or x.name != y.name:
+            return False
+    return True
+
+
 class Macro(Command):
     """
     a macro is defined by brackets and the replacement text
@@ -162,6 +176,13 @@ class Macro(Command):
         scanner = MacroScanner(self.replacement, args)
         parser.input.push(scanner)
         return None
+    
+    def __eq__(self, other):
+        # this is used by the \\ifx command to compare two macros
+        try:
+            return comapreToks(self.parameters, other.parameters) and comapreToks(self.replacement, other.replacement)
+        except AttributeError:
+            return False
 
 
 class MacroValuePointer(ValuePointer):

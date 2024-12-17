@@ -88,7 +88,8 @@ class Conditional(Command):
 
     @param is_case: whether the command is an \\ifcase command
     """
-    def __init__(self, is_case: bool = False):
+    def __init__(self, name: str, is_case: bool = False):
+        self.name = name
         self.is_case = is_case
 
     def condition(self, parser):
@@ -124,6 +125,9 @@ class Conditional(Command):
 
 class If(Conditional):
     """ the \\if command """
+    def __init__(self):
+        super().__init__("\\if")
+
     def condition(self, parser):
         pos = parser.input.position()
         t1 = parser.token_expand()
@@ -137,9 +141,42 @@ class If(Conditional):
         return 0
 
 
+class IfX(Conditional):
+    """ the \\ifx command """
+    def __init__(self):
+        super().__init__("\\ifx")
+
+    def condition(self, parser):
+        pos = parser.input.position()
+        # TEX does not expand control sequences when it looks at the two tokens.
+        # The condition is true if (a) the two tokens are not macros, and they both 
+        # represent the same (character code, category code) pair or the same TEX 
+        # primitive or the same \font or \chardef or \countdef, etc.
+        # or if (b) the two tokens are macros, and they both have the same status 
+        # with respect to \long and \outer, and they both have the same
+        # parameters and “top level” expansion.
+        t1 = parser.token()
+        t2 = parser.token()
+        if t1 is None or t2 is None:
+            raise ValueError("expecting two tokens", pos)
+        if t1.catcode is None:
+            t1 = parser.lookup(t1.name)
+        if t2.catcode is None:
+            t2 = parser.lookup(t2.name)
+        if t1 == t2:
+            return 0
+        if t1.catcode != t2.catcode:
+            return 1
+        # now t1 and t2 must have the same catcode
+        if t1.catcode != None:
+            return 0 if t1.name == t2.name else 1
+        return 1
+
+
 mod = Module("conditional",
     commands={
         "if": If(),
+        "ifx": IfX(),
         "else": Else(),
         "or": Or(),
         "fi": Fi(),

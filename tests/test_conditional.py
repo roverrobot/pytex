@@ -39,6 +39,13 @@ class TestConditional(unittest.TestCase):
         except ValueError as e:
             self.assertIn("\\or", str(e))
             parser.ifstack.clear()
+    
+    def test_ifx(self):
+        parser = Parser()
+        parser.parse("\\def\\a{a}\\def\\b{a}\\ifx\\a\\b a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "a")
+        parser.parse("\\def\\a{0}\\ifx\\a 0 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "b")
 
 
 if __name__ == '__main__':

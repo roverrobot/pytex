@@ -73,7 +73,7 @@ class Parser:
         if isinstance(input, str):
             self.input.push(lexer.StringScanner(self.state.catcode, input, name))
         else:
-            self.input.push(leser.Scanner(self.state.catcode, input, name))
+            self.input.push(lexer.Scanner(self.state.catcode, input, name))
 
     def skipSpaces(self, expand: bool = True, n: int = None):
         """
@@ -132,3 +132,7 @@ class Parser:
         @param group_type: the type of the group
         """
         self.state.endGroup(position, group_type)
+        aftergroup = self.state.domains["globals"]["aftergroup"]
+        if len(aftergroup) > 0:
+            self.input.push(lexer.TokenListScanner(aftergroup))
+            self.state.domains["globals"]["aftergroup"] = []

@@ -25,5 +25,10 @@ class TestToks(unittest.TestCase):
         self.assertEqual(len(k), 4)
         self.assertEqual(k[3].name, "d")
 
+    def test_aftergroup(self):
+        parser = Parser()
+        parser.parse("\\aftergroup a\\aftergroup b{\\count0=1}")
+        self.assertEqual(parser.tokens, "ab ")
+        
 if __name__ == '__main__':
     unittest.main()

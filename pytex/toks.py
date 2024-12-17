@@ -116,6 +116,21 @@ class ToksArray(Array):
             self[i] = []
 
 
+class AfterGroup(Command):
+    """
+    the \\aftergroup command
+    """
+    def execute(self, parser):
+        """
+        execute the command
+        @param parser: the parser
+        """
+        t = parser.token()
+        if t is None:
+            raise ValueError("token expected")
+        parser.state.domains["globals"]["aftergroup"].append(t)
+
+
 mod = Module("toks",
     attributes = {
         "readBalanced": readBalanced,
@@ -124,8 +139,12 @@ mod = Module("toks",
     },
     commands = {
         "relax": relax,
+        "aftergroup": AfterGroup()
     },
     domains = {
         "toks": {"generator": ToksArray, "accessor": accessor.ArrayAccessor, "type": ToksValuePointer},
+    },
+    parameters={
+        "aftergroup": {"value": [], "accessor": None, "domain": "globals"},
     }
 )

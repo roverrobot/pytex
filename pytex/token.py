@@ -114,7 +114,7 @@ class BeginGroupToken(Token):
 class EndGroupToken(Token):
     """ a token that represents the end of a group {"""
     def execute(self, parser):
-        parser.state.endGroup(parser.input.position())
+        parser.endGroup(parser.input.position())
 
 
 class CommandToken(Token):

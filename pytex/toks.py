@@ -10,20 +10,36 @@ from pytex.state import Array
 from pytex import accessor
 
 
-def readBalanced(parser, expand: bool = False):
+class Toks(list):
+    """
+    a token list
+    @param included_braces: whether the enclosing braces are included in the token list
+    """
+    def __init__(self, *args, included_braces: bool = False):
+        super().__init__(*args) 
+        self.included_braces = included_braces
+
+    def __repr__(self):
+        content = "".join(map(lambda x: x.name, self))
+        return content if self.included_braces else  "{" + content + "}"
+
+
+def readBalancedText(parser, expand: bool = False, include_braces: bool = False):
     """
     read a balanced token list
     @param parser: the parser
     @param expand: whether to expand the tokens
+    @param include_braces: whether to include the braces in the token list
     @return: the token list
     """
-    tokens = []
     pos = parser.input.position()
     read = lambda: parser.token_expand() if expand else parser.token()
     lbrace = read()
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", pos)
-    toks = []
+    toks = Toks(included_braces=include_braces)
+    if include_braces:
+        toks.append(lbrace)
     level = 0
     while True:
         t = read()
@@ -33,6 +49,8 @@ def readBalanced(parser, expand: bool = False):
             level += 1
         elif t.catcode == CATCODE.END_GROUP:
             if level == 0:
+                if include_braces:
+                    toks.append(t)
                 return toks
             else:
                 level -= 1
@@ -71,16 +89,19 @@ def skipFiller(parser):
         break
 
 
-def readGeneralText(parser, expand: bool = True):
+def readGeneralText(parser, expand: bool = True, include_braces: bool = False):
     """
     read general text
 
     A general text is a filler followed by a balanced token list.
     @param parser: the parser
+    @param expand: whether to expand the tokens
+    @param include_braces: whether to include the braces in the token list
+    @return: the token list
     """
     pos = parser.input.position()
     skipFiller(parser)
-    return readBalanced(parser, expand)
+    return readBalancedText(parser, expand, include_braces)
 
 
 class ToksValuePointer(accessor.ValuePointer):
@@ -92,7 +113,7 @@ class ToksValuePointer(accessor.ValuePointer):
         read the value from the input stack
         @param parser: the parser
         """
-        return readBalanced(parser, expand=False)
+        return readBalancedText(parser, expand=False)
     
     def toksValue(self, parser):
         """
@@ -163,7 +184,7 @@ class Case(Command):
 
 mod = Module("toks",
     attributes = {
-        "readBalanced": readBalanced,
+        "readBalancedText": readBalancedText,
         "skipFiller": skipFiller,
         "readGeneralText": readGeneralText,
     },

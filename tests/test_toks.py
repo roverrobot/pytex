@@ -6,7 +6,7 @@ class TestToks(unittest.TestCase):
     def test_read_toks(self):
         parser = Parser()
         parser.readFrom("{abcd}")
-        k = parser.readBalanced(expand=False)
+        k = parser.readBalancedText(expand=False)
         self.assertEqual(len(k), 4)
         self.assertEqual(k[3].name, "d")
     

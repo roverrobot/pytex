@@ -64,5 +64,17 @@ class TestExpandable(unittest.TestCase):
         parser.parse("\\escapechar=`! \\string\\test")
         self.assertEqual(str(parser.tokens), "!test")
 
+    def test_the(self):
+        parser = Parser()
+        parser.parse("\\count0=0 \\the\\count0")
+        self.assertEqual(str(parser.tokens), "0")
+        parser.parse("\\dimen0=1pt \\the\\dimen0")
+        self.assertEqual(str(parser.tokens), str(parser.state.dimen[0])+"pt")
+        parser.parse("\\skip0=1pt plus 1fil minus 1fil \\relax\\the\\skip0")
+        self.assertEqual(str(parser.tokens), str(parser.state.skip[0]))
+        parser.parse("\\toks0={\\the\\count0}\\the\\toks0")
+        self.assertEqual(str(parser.tokens), "0")
+
+
 if __name__ == '__main__':
     unittest.main()

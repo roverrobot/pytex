@@ -149,6 +149,63 @@ class String(Command):
         parser.input.push(TokenListScanner(toToks(s)))
 
 
+class Protect(Command):
+    """
+    a command that protects a token from expansion
+    @param token: the token to protect
+    """
+    def __init__(self, token):
+        self.token = token
+
+    def expand(self, parser):
+        return self.token.expand(parser)
+
+    def execute(self, parser):
+        self.token.execute(parser)
+
+
+class ProtectedTokenListScanner(TokenListScanner):
+    """
+    a token list scanner that protects the tokens from expansion
+    """
+    def read(self):
+        t = super().read()
+        if t is not None and t.is_command:
+            return Protect(t)
+        return t
+
+
+class The(Command):
+    """
+    The \\the command.
+    """
+    def expand(self, parser):
+        pos = parser.input.position()
+        t = parser.token_expand()
+        if t is None or not t.is_command:
+            raise ValueError("invalid token after \\the", pos)
+        try:
+            p = t.pointer(parser)
+        except AttributeError:
+            raise ValueError("invalid token after \\the", pos)
+        value = None
+        if hasattr(p, "glueValue"):
+            value = str(p.glueValue(parser))
+        elif hasattr(p, "dimenValue"):
+            value = str(p.dimenValue(parser)) + "pt"
+        elif hasattr(p, "intValue"):
+            value = str(p.intValue(parser))
+        if value is not None:
+            parser.input.push(TokenListScanner(toToks(value)))
+            return
+        if hasattr(p, "toksValue"):
+            value = p.toksValue(parser)
+            parser.input.push(ProtectedTokenListScanner(value))
+            return
+        if hasattr(p, "fontValue"):
+            raise UnimplementedError("fontValue")
+
+
 mod = Module("expandable",
     commands={
         "noexpand": NoExpand(),
@@ -158,5 +215,6 @@ mod = Module("expandable",
         "number": Number(),
         "romannumeral": RomanNumeral(),
         "string": String(),
+        "the": The()
     }
 )

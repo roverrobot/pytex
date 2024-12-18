@@ -45,6 +45,7 @@ class Command:
     # a command is a special type of token that has no name and category code
     name = None
     catcode = None
+    is_command = True
     def execute(self, parser):
         """
         execute the command.
@@ -73,6 +74,8 @@ class Token(Command):
         self.name = name
         self.catcode = catcode
         self.meaning = None
+
+    is_command = False
 
     def __str__(self):
         name = "\\r" if self.name == "\r" else self.name
@@ -125,6 +128,9 @@ class CommandToken(Token):
     contexts.
     @param name: the name of the command
     """
+
+    is_command = True
+
     def __init__(self, name: str):
         super().__init__(name, None)
         # the no expand flag
@@ -158,6 +164,22 @@ class CommandToken(Token):
         @return: None
         """
         return None
+
+
+class ActiveToken(CommandToken):
+    """ an active token """
+    def __init__(self, name: str, _):
+        super().__init__(name)
+        self.catcode = CATCODE.ACTIVE
+
+    def charValue(self, parser):
+        """ 
+        An active token is a character token, so it has a char value.
+        @param parser: the parser
+        @return: the char value
+        """
+        return self.name
+
 
 class ParameterToken(Token):
     """
@@ -217,7 +239,7 @@ Token.generators = [
     SpaceToken,  # SPACE = 10
     CharToken,  # LETTER = 11
     CharToken,  # OTHER = 12
-    None,  # ACTIVE = 13
+    ActiveToken,  # ACTIVE = 13
     None,  # COMMENT = 14
     None,  # INVALID = 15
 ]

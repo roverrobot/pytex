@@ -27,7 +27,7 @@ class Define(accessor.ArrayAccessor):
         @param parser: the parser
         """
         t = parser.token()
-        if t is None or t.catcode is not None:
+        if t is None or not t.is_command:
             raise ValueError("command name expected")
         return t.name
 

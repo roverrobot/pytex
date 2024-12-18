@@ -59,7 +59,7 @@ class TestScanner(unittest.TestCase):
         self.assertEqual(token.catcode, CATCODE.ALIGNMENT_TAB)
         token = scanner.read()
         self.assertEqual(token.name, "@")
-        self.assertIsNone(token.catcode)
+        self.assertEqual(token.catcode, CATCODE.ACTIVE)
         token = scanner.read()
         self.assertEqual(token.catcode, CATCODE.SPACE)
         token = scanner.read()

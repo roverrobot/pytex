@@ -71,7 +71,7 @@ def readUnsigned(parser):
         raise ValueError("expecting an integer", pos)
     if t.name == "`":
         t = parser.token()
-        if t.catcode is None:
+        if t.is_command:
             if t.name[0] == "\\" and len(t.name) == 2:
                 value = ord(t.name[1])
             elif len(t.name) == 1:

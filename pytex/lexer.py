@@ -114,8 +114,6 @@ class Tokenizer:
                 return CommandToken("\\par")
             return SpaceToken()
         self.start = False
-        if catcode == CATCODE.ACTIVE:
-            return CommandToken(c)
         if catcode != CATCODE.ESCAPE:
             return Token.token(c, catcode)
         c, catcode = self.charExpand()

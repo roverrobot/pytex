@@ -3,8 +3,10 @@ This module implements various expandable commands.
 """
 
 
-from pytex.token import Command, CATCODE, CommandToken
+from pytex.token import Command, CATCODE, CommandToken, Token
 from pytex.module import Module
+from pytex.toks import Toks
+from pytex.lexer import TokenListScanner
 
 
 class NoExpand(Command):
@@ -85,11 +87,50 @@ class CSName(Command):
         return c
 
 
+class Number(Command):
+    """
+    the \\number command, that converts a number to tokens with catcode OTHER
+    """
+    def str(self, n):
+        return str(n)
+
+    def expand(self, parser):
+        n = parser.readInteger()
+        s = self.str(n)
+        toks = Toks()
+        for c in s:
+            toks.append(Token.token(c, CATCODE.OTHER))
+        parser.input.push(TokenListScanner(toks))
+
+
+class RomanNumeral(Number):
+    """
+    the \\romannumeral command, that converts a number to roman numerals
+    """
+    LETTERS = ["m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"]
+    VALUES = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+
+    def str(self, n):
+        i = 1
+        s = ""
+        for i in range(len(self.LETTERS)):
+            letter = self.LETTERS[i]
+            value = self.VALUES[i]
+            while n >= value:
+                n -= value
+                s += letter
+            if n == 0:
+                break
+        return s
+
+
 mod = Module("expandable",
     commands={
         "noexpand": NoExpand(),
         "expandafter": ExpandAfter(),
         "csname": CSName(),
         "endcsname": endcsname,
+        "number": Number(),
+        "romannumeral": RomanNumeral(),
     }
 )

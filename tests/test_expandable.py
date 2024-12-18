@@ -2,7 +2,7 @@ import unittest
 from pytex.parser import Parser
 
 
-class TestReadKeyword(unittest.TestCase):
+class TestExpandable(unittest.TestCase):
     def test_noexpand(self):
         parser = Parser()
         parser.readFrom("\\noexpand\\test")
@@ -51,6 +51,13 @@ class TestReadKeyword(unittest.TestCase):
             self.fail()
         except ValueError as e:
             self.assertEqual(str(e), "unexpected \\endcsname")
+
+    def test_number_romannumeral(self):
+        parser = Parser()
+        parser.parse("\\count0=123 \\number\\count0")
+        self.assertEqual(str(parser.tokens), "123")
+        parser.parse("\\romannumeral\\count0")
+        self.assertEqual(str(parser.tokens), "cxxiii")
 
 
 if __name__ == '__main__':

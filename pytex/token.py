@@ -133,8 +133,6 @@ class CommandToken(Token):
 
     def __init__(self, name: str):
         super().__init__(name, None)
-        # the no expand flag
-        self.noexpand = False
 
     def expand(self, parser):
         """
@@ -143,12 +141,10 @@ class CommandToken(Token):
         @param parser: the parser
         @return: the expanded command
         """
-        if self.noexpand:
-            return self
         command = parser.lookup(self.name)
         if command is None:
             return self
-        return command
+        return command.expand(parser)
 
     def execute(self, parser):
         """

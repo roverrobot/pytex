@@ -13,6 +13,7 @@ from pytex import define
 from pytex import toks
 from pytex import macro
 from pytex import conditional
+from pytex import expandable
 
 
 class Toks(toks.Toks):
@@ -62,15 +63,11 @@ class Parser:
             if t is None:
                 return None
             t1 = t.expand(self)
-            # if the token is not expandable, t == t1
-            if t1 == t:
-                return t
             # if the token is consumed, get the next token
             if t1 is None:
                 t = self.token()
             else:
-                # if the token is expanded, check the expanded token
-                t = t1
+                return t1
 
     def parse(self, input, name: typing.Optional[str] = None):
         """

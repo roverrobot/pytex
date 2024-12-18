@@ -119,6 +119,15 @@ class TestConditional(unittest.TestCase):
         except ValueError as e:
             self.assertIn("number", str(e))
 
+    def test_ifodd(self):
+        parser = Parser()
+        parser.parse("\\ifodd1 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "a")
+        parser.parse("\\ifodd2 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "b")
+        parser.parse("\\count0 3 \\ifodd\\count0 a\\else b\\fi")
+        self.assertEqual(str(parser.tokens), "a")
+
 
 if __name__ == '__main__':
     unittest.main()

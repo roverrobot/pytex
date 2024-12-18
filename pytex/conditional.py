@@ -18,7 +18,7 @@ def skipBranch(parser):
         if t is None:
             c, cpos = parser.ifstack[-1]
             raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", pos)
-        if t.catcode is None:
+        if t.is_command:
             c = parser.lookup(t.name)
             if c is None:
                 continue
@@ -125,31 +125,61 @@ class Conditional(Command):
         self.skipTo(parser, condition)
 
 
-class If(Conditional):
-    """ the \\if command """
-    def __init__(self):
-        super().__init__("\\if")
+class IfCompareToken(Conditional):
+    """ 
+    the base class for \\if, \\ifx and \\ifcat
+
+    @param name: the name of the command
+    @param expand: whether the command should expand the tokens before comparing them
+    """
+    def __init__(self, name: str, expand_tokens: bool):
+        super().__init__(name)
+        self.expand_tokens = expand_tokens
+
+    def equal(self, t1, t2):
+        raise NotImplementedError()
 
     def condition(self, parser):
         pos = parser.input.position()
-        t1 = parser.token_expand()
-        t2 = parser.token_expand()
+        if self.expand_tokens:
+            t1 = parser.token_expand()
+            t2 = parser.token_expand()
+        else:
+            t1 = parser.token()
+            t2 = parser.token()
+            if t1 is not None and t1.is_command:
+                t1 = parser.lookup(t1.name)
+            if t2 is not None and t2.is_command:
+                t2 = parser.lookup(t2.name)
         if t1 is None or t2 is None:
             raise ValueError("expecting two tokens", pos)
-        if t1.catcode is None and t2.catcode is None:
-            return 0
-        if t1.catcode != t2.catcode or t1.name != t2.name:
-            return 1
-        return 0
+        return 0 if self.equal(t1, t2) else 1
 
 
-class IfX(Conditional):
+class IfCat(IfCompareToken):
+    """ the \\ifcat command """
+    def __init__(self):
+        super().__init__("\\ifcat", expand_tokens=True)
+
+    def equal(self, t1, t2):
+        return t1.catcode == t2.catcode
+
+
+class If(IfCompareToken):
+    """ the \\if command """
+    def __init__(self):
+        super().__init__("\\if", expand_tokens=True)
+
+    def equal(self, t1, t2):
+        return t1.catcode == t2.catcode and (t1.catcode is None or t1.name == t2.name)
+
+
+class IfX(IfCompareToken):
     """ the \\ifx command """
     def __init__(self):
-        super().__init__("\\ifx")
-
-    def condition(self, parser):
-        pos = parser.input.position()
+        super().__init__("\\ifx", expand_tokens=False)
+    
+    def equal(self, t1, t2):
         # TEX does not expand control sequences when it looks at the two tokens.
         # The condition is true if (a) the two tokens are not macros, and they both 
         # represent the same (character code, category code) pair or the same TEX 
@@ -157,22 +187,14 @@ class IfX(Conditional):
         # or if (b) the two tokens are macros, and they both have the same status 
         # with respect to \long and \outer, and they both have the same
         # parameters and “top level” expansion.
-        t1 = parser.token()
-        t2 = parser.token()
-        if t1 is None or t2 is None:
-            raise ValueError("expecting two tokens", pos)
-        if t1.catcode is None:
-            t1 = parser.lookup(t1.name)
-        if t2.catcode is None:
-            t2 = parser.lookup(t2.name)
         if t1 == t2:
-            return 0
+            return True
         if t1.catcode != t2.catcode:
-            return 1
+            return False
         # now t1 and t2 must have the same catcode
         if t1.catcode != None:
-            return 0 if t1.name == t2.name else 1
-        return 1
+            return t1.name == t2.name
+        return False
 
 
 class IfCase(Conditional):
@@ -215,6 +237,16 @@ class IfDim(IfNum):
         return parser.readDimen()
 
 
+class IfOdd(Conditional):
+    """ the \\ifodd command """
+    def __init__(self):
+        super().__init__("\\ifodd")
+
+    def condition(self, parser):
+        n = parser.readInteger()
+        return 0 if n % 2 == 1 else 1
+
+
 mod = Module("conditional",
     commands={
         "if": If(),
@@ -222,6 +254,7 @@ mod = Module("conditional",
         "ifnum": IfNum(),
         "ifdim": IfDim(),
         "ifcase": IfCase(),
+        "ifodd": IfOdd(),
         "else": Else(),
         "or": Or(),
         "fi": Fi(),

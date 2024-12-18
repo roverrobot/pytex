@@ -247,14 +247,33 @@ class IfOdd(Conditional):
         return 0 if n % 2 == 1 else 1
 
 
+# The default behavior of Conditional is \iftrue
+
+class IfFalse(Conditional):
+    """ the \\iffalse command """
+    def __init__(self):
+        super().__init__("\\iffalse")
+
+    def condition(self, parser):
+        return 1
+
+
+# other conditional commands will be implemented inother modules
+# \if[vhm]mode, \ifinner will be implemented with hlists and vlists
+# \ifvoid, \ifhbox, \ifvbox will be implemented with boxes
+# \ifoef will be implemented with file operations
+
 mod = Module("conditional",
     commands={
         "if": If(),
         "ifx": IfX(),
+        "ifcat": IfCat(),
         "ifnum": IfNum(),
         "ifdim": IfDim(),
         "ifcase": IfCase(),
         "ifodd": IfOdd(),
+        "iftrue": Conditional("\\iftrue"),
+        "iffalse": IfFalse(),
         "else": Else(),
         "or": Or(),
         "fi": Fi(),

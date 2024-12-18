@@ -87,6 +87,18 @@ class CSName(Command):
         return c
 
 
+def toToks(s: str) -> Toks:
+    """
+    Convert a string to a token list.
+    @param s: the string
+    @return: the token list
+    """
+    toks = Toks()
+    for c in s:
+        toks.append(Token.token(c, CATCODE.OTHER))
+    return toks
+
+
 class Number(Command):
     """
     the \\number command, that converts a number to tokens with catcode OTHER
@@ -97,10 +109,7 @@ class Number(Command):
     def expand(self, parser):
         n = parser.readInteger()
         s = self.str(n)
-        toks = Toks()
-        for c in s:
-            toks.append(Token.token(c, CATCODE.OTHER))
-        parser.input.push(TokenListScanner(toks))
+        parser.input.push(TokenListScanner(toToks(s)))
 
 
 class RomanNumeral(Number):
@@ -124,6 +133,22 @@ class RomanNumeral(Number):
         return s
 
 
+class String(Command):
+    """
+    the \\string command, that converts a token to a string
+    """
+    def expand(self, parser):
+        pos = parser.input.position()
+        t = parser.token()
+        if t is None:
+            raise ValueError("expecting a token", pos)
+        if t.catcode is None:
+            s = chr(parser.state.domains["layout"]["escapechar"]) + t.name[1:]
+        else:
+            s = t.name
+        parser.input.push(TokenListScanner(toToks(s)))
+
+
 mod = Module("expandable",
     commands={
         "noexpand": NoExpand(),
@@ -132,5 +157,6 @@ mod = Module("expandable",
         "endcsname": endcsname,
         "number": Number(),
         "romannumeral": RomanNumeral(),
+        "string": String(),
     }
 )

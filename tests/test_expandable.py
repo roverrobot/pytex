@@ -59,6 +59,10 @@ class TestExpandable(unittest.TestCase):
         parser.parse("\\romannumeral\\count0")
         self.assertEqual(str(parser.tokens), "cxxiii")
 
+    def test_string(self):
+        parser = Parser()
+        parser.parse("\\escapechar=`! \\string\\test")
+        self.assertEqual(str(parser.tokens), "!test")
 
 if __name__ == '__main__':
     unittest.main()

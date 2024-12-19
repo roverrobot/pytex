@@ -140,5 +140,33 @@ class TestDefine(unittest.TestCase):
             self.assertIn("match", str(e))
 
 
+    def test_prefixes(self):
+        parser = Parser()
+        parser.parse("\\def\\a{1}\\long\\def\\b{2}{\\global\\def\\c{3}}\\outer\\def\\d{4}")
+        a = parser.lookup("\\a")
+        self.assertFalse(a.long)
+        self.assertFalse(a.outer)
+        b = parser.lookup("\\b")
+        self.assertTrue(b.long)
+        self.assertFalse(b.outer)
+        c = parser.lookup("\\c")
+        self.assertIsNotNone(c)
+        self.assertFalse(c.long)
+        self.assertFalse(c.outer)
+        d = parser.lookup("\\d")
+        self.assertTrue(d.outer)
+        self.assertFalse(d.long)
+        parser.parse("{\\global\\outer\\def\\e{5}}")
+        e = parser.lookup("\\e")
+        self.assertIsNotNone(e)
+        self.assertTrue(e.outer)
+        self.assertFalse(e.long)
+        try:
+            parser.parse("\\outer\\let\\f6")
+            self.fail("Expected ValueError")
+        except ValueError as e:
+            self.assertIn("macro", str(e))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -6,7 +6,7 @@ This module implements macros.
 import typing
 from pytex.token import CATCODE, Command, Token
 from pytex.lexer import TokenListScanner
-from pytex.accessor import ValuePointer
+from pytex.accessor import ValuePointer, Prefix
 from pytex.define import Define
 from pytex.module import Module
 from pytex.toks import Toks
@@ -77,6 +77,9 @@ class Macro(Command):
     def __init__(self, parameters: typing.List[Token], replacement: typing.List[Token]):
         self.parameters = parameters
         self.replacement = replacement
+        self.long = False
+        self.outer = False
+        self.protected = False
 
     def __repr__(self):
         return f"Macro({self.parameters}{self.replacement})"
@@ -233,8 +236,40 @@ class Def(Define):
         Define.__init__(self, MacroValuePointer, eq=False)
 
 
+class MacroPrix(Prefix):
+    """
+    the base class for prefixes for macro definition
+    """
+    def pointer(self, parser):
+        pos = parser.input.position()
+        p = super().pointer(parser)
+        if isinstance(p, MacroValuePointer):
+            return p
+        raise ValueError("expecting a macro", pos)
+
+
+class Long(MacroPrix):
+    """
+    the \\long prefix
+    """
+    def modify(self, value, globally):
+        value.long = True
+        return value, globally
+
+
+class Outer(MacroPrix):
+    """
+    the \\outer prefix
+    """
+    def modify(self, value, globally):
+        value.outer = True
+        return value, globally
+
+
 mod = Module("macro",
   commands={
     "def": Def(),
+    "long": Long(),
+    "outer": Outer()
   }
 )

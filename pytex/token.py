@@ -46,6 +46,8 @@ class Command:
     name = None
     catcode = None
     is_command = True
+    # the command is protected from expansion when constructing an expended token list
+    protected = False
     def execute(self, parser):
         """
         execute the command.

@@ -183,6 +183,15 @@ class TestDefine(unittest.TestCase):
             self.assertIn("defined", str(e))
             self.fail()
 
+    def test_protected(self):
+        parser = Parser()
+        parser.parse("\\toks0={\\a}\edef\\b{\\the\\toks0}\\def\\a{1}\\b")
+        self.assertEqual(str(parser.tokens), "1")
+        b = parser.lookup("\\b")
+        self.assertEqual(b.replacement[0].name, "\\a")
+        parser.parse("\\the\\toks0")
+        self.assertEqual(str(parser.tokens), "1")
+
 
 if __name__ == '__main__':
     unittest.main()

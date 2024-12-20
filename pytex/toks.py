@@ -24,6 +24,20 @@ class Toks(list):
         return content if self.included_braces else  "{" + content + "}"
 
 
+def token_expand(parser):
+    """
+    expand a token
+    @param parser: the parser
+    """
+    t = parser.token()
+    if t is None or t.protected:
+        return t
+    t1 = t.expand(parser)
+    if t1 is not None:
+        return t1
+    return token_expand(parser)
+
+
 def readBalancedText(parser, expand: bool = False, include_braces: bool = False):
     """
     read a balanced token list
@@ -33,7 +47,7 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False)
     @return: the token list
     """
     pos = parser.input.position()
-    read = lambda: parser.token_expand() if expand else parser.token()
+    read = lambda: token_expand(parser) if expand else parser.token()
     lbrace = read()
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", pos)

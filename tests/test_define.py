@@ -166,6 +166,22 @@ class TestDefine(unittest.TestCase):
             self.fail("Expected ValueError")
         except ValueError as e:
             self.assertIn("macro", str(e))
+    
+    def test_edef_gdef(self):
+        parser = Parser()
+        parser.parse("\\def\\a{1}\\edef\\b{\\a}\\b")
+        self.assertEqual(str(parser.tokens), "1")
+        b = parser.lookup("\\b")
+        self.assertEqual(b.replacement[0].name, "1")
+        parser.parse("{\\gdef\\a{2}}\\a")
+        self.assertEqual(str(parser.tokens), "2")
+        try:
+            parser.parse("{\\xdef\\c{\\a}")
+            c = parser.lookup("\\c")
+            self.assertEqual(c.replacement[0].name, "2")
+        except ValueError as e:
+            self.assertIn("defined", str(e))
+            self.fail()
 
 
 if __name__ == '__main__':

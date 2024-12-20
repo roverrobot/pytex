@@ -6,7 +6,7 @@ This module implements macros.
 import typing
 from pytex.token import CATCODE, Command, Token
 from pytex.lexer import TokenListScanner
-from pytex.accessor import ValuePointer, Prefix
+from pytex.accessor import ValuePointer, Prefix, GlobalPrefix
 from pytex.define import Define
 from pytex.module import Module
 from pytex.toks import Toks
@@ -191,7 +191,7 @@ class Macro(Command):
 class MacroValuePointer(ValuePointer):
     """
     a pointer to a macro
-    """    
+    """
     def readValue(self, parser):
         """
         read the macro definition from the input stack
@@ -224,16 +224,29 @@ class MacroValuePointer(ValuePointer):
             else:
                 parameters.append(t)
         # read the replacement text
-        replacement = parser.readBalancedText(expand=False)
+        replacement = parser.readBalancedText(expand=self.expanded)
         return Macro(parameters, replacement)
 
 
 class Def(Define):
     """
     define a macro
+
+    @param globally: whether the definition is global
+    @param expanded: whether the replacement text is expanded
     """
-    def __init__(self):
+    def __init__(self, globally=False, expanded=False):
         Define.__init__(self, MacroValuePointer, eq=False)
+        self.globally = globally
+        self.expanded = expanded
+    
+    def pointer(self, parser):
+        p = super().pointer(parser)
+        p.expanded = self.expanded
+        if self.globally:
+            p.prefixes.append(GlobalPrefix())
+        p.globally = self.globally
+        return p
 
 
 class MacroPrix(Prefix):
@@ -269,6 +282,9 @@ class Outer(MacroPrix):
 mod = Module("macro",
   commands={
     "def": Def(),
+    "gdef": Def(globally=True),
+    "edef": Def(expanded=True),
+    "xdef": Def(globally=True, expanded=True),
     "long": Long(),
     "outer": Outer()
   }

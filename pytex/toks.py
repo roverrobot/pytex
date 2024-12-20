@@ -71,20 +71,8 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False)
         toks.append(t)
 
 
-class Relax(Command):
-    """
-    the \\relax command
-    """
-    def execute(self, parser):
-        """
-        execute the command
-        @param parser: the parser
-        """
-        pass
+relax = Command()
 
-
-# the \\relax command
-relax = Relax()
 
 def skipFiller(parser):
     """

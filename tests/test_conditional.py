@@ -139,6 +139,16 @@ class TestConditional(unittest.TestCase):
         self.assertEqual(str(parser.tokens), "a")
         parser.parse("\\iffalse a\\fi")
         self.assertEqual(str(parser.tokens), "")
+    
+    def test_multi_levels(self):
+        parser = Parser()
+        parser.parse("\\iftrue\\iffalse a\\else b\\fi\\else c\\fi")
+        self.assertEqual(str(parser.tokens), "b")
+        try:
+            parser.parse("\\fi")
+            self.fail()
+        except ValueError as e:
+            self.assertIn("\\fi", str(e))
 
 
 if __name__ == '__main__':

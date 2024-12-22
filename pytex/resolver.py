@@ -19,7 +19,7 @@ class InMemoryTextFile:
     def __init__(self, content: str=""):
         self.content = content
         # currently opened readers
-        self.reader = []
+        self.readers = []
         # currently opened writer
         self.writer = None
 
@@ -115,11 +115,15 @@ class FileResolver:
                     return name, t
             return name, self.sourceTypeInfo([ext])
         if type == "source":
-            return name, self.sourceTypeInfo(["tex"])
-        try:
+            info = self.sourceTypeInfo(["tex"])
+        elif type in self.typeinfo:
             info = self.typeinfo[type]
-        except KeyError:
+        else:
             raise ValueError("unknown file type: ", type)
+        for e in info.extensions:
+            if name.endswith("." + e):
+                name = name[:-len(e) - 1]
+                break
         return name, info
 
     def openIn(self, name: str, type: str=None):

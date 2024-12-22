@@ -1,5 +1,6 @@
 import unittest
 from pytex.parser import Parser
+from pytex.resolver import InMemoryTextFile
 
 
 class TestExpandable(unittest.TestCase):
@@ -74,6 +75,12 @@ class TestExpandable(unittest.TestCase):
         self.assertEqual(str(parser.tokens), str(parser.state.skip[0]))
         parser.parse("\\toks0={\\the\\count0}\\the\\toks0")
         self.assertEqual(str(parser.tokens), "0")
+
+    def test_input(self):
+        parser = Parser()
+        parser.resolver.in_memory_files["test.tex"] = InMemoryTextFile("abc")
+        parser.parse("\\input test")
+        self.assertEqual(str(parser.tokens), "abc ")
 
 
 if __name__ == '__main__':

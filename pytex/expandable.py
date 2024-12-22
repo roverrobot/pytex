@@ -6,7 +6,7 @@ This module implements various expandable commands.
 from pytex.token import Command, CATCODE, CommandToken, Token
 from pytex.module import Module
 from pytex.toks import Toks
-from pytex.lexer import TokenListScanner
+from pytex.lexer import TokenListScanner, Scanner
 
 
 class NoExpand(Command):
@@ -206,6 +206,21 @@ class The(Command):
             raise UnimplementedError("fontValue")
 
 
+class Input(Command):
+    """
+    The \\input command.
+    """
+    def expand(self, parser):
+        pos = parser.input.position()
+        name = parser.readFileName()
+        if name is None:
+            raise ValueError("expecting a file name", pos)
+        f = parser.resolver.openIn(name, "source")
+        if f is None:
+            raise ValueError("file not found", pos)
+        parser.input.push(Scanner(parser.state.catcode, f, name))
+
+
 mod = Module("expandable",
     commands={
         "noexpand": NoExpand(),
@@ -215,6 +230,7 @@ mod = Module("expandable",
         "number": Number(),
         "romannumeral": RomanNumeral(),
         "string": String(),
-        "the": The()
+        "the": The(),
+        "input": Input(),
     }
 )

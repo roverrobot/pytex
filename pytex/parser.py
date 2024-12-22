@@ -15,6 +15,7 @@ from pytex import macro
 from pytex import conditional
 from pytex import expandable
 from pytex import resolver
+from pytex import node
 
 
 class Toks(toks.Toks):

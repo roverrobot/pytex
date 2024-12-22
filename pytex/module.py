@@ -62,7 +62,10 @@ class Module:
         """
         if self.attributes is not None:
             for name, value in self.attributes.items():
-                setattr(parser, name, types.MethodType(value, parser))
+                if callable(value):
+                    setattr(parser, name, types.MethodType(value, parser))
+                else:
+                    setattr(parser, name, value)
 
     def populateParameters(self, parser):
         """

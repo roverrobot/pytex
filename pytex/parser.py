@@ -14,6 +14,7 @@ from pytex import toks
 from pytex import macro
 from pytex import conditional
 from pytex import expandable
+from pytex import resolver
 
 
 class Toks(toks.Toks):

@@ -141,7 +141,8 @@ class Scanner:
         if not isinstance(stream, io.IOBase):
             raise TypeError("stream must be a file-like object")
         self.catcode = catcode
-        self.stream = enumerate(stream)
+        self.stream = stream
+        self.lines = enumerate(stream)
         self.tokenizer = None
         self.name = name
         # line number
@@ -156,13 +157,14 @@ class Scanner:
         read the next line from the stream
         """
         try:
-            self.line, line = next(self.stream)
+            self.line, line = next(self.lines)
             if line[-1] == "\n":
                 line = line[:-1]
             self.tokenizer = Tokenizer(line, self.catcode)
         except StopIteration:
             self.column = self.tokenizer.pos
             self.tokenizer = None
+            self.stream.close()
 
     def position(self):
         """

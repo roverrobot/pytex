@@ -112,7 +112,7 @@ class FileResolver:
             # check if we know the type
             for t in self.typeinfo:
                 if ext in self.typeinfo[t].extensions:
-                    return name, t
+                    return name, self.typeinfo[t]
             return name, self.sourceTypeInfo([ext])
         if type == "source":
             info = self.sourceTypeInfo(["tex"])

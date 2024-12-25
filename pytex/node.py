@@ -130,20 +130,23 @@ class Disc(Node):
         return f"Disc({self.pre}, {self.post}, {self.replace})"
 
 
-class Ligature(CharNode):
+class Ligature(Box):
     """
     A ligature node.
     """
     node_type = NODE_TYPE.LIGATURE
-    def __init__(self, char_info, font, components):
+    def __init__(self, char: CharNode):
+        char = CharNode(char_info, font)
         super().__init__(char_info, font)
         self.components = components
+        self.hlist = []
+        self.current = 0
 
     def __repr__(self):
         s = ""
         for c in self.components:
             s += str(c)
-        return f"Ligature({self.char}, {s})"
+        return f"Ligature({self.hlist}, {s})"
     
 
 class What(Node):

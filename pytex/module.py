@@ -76,6 +76,8 @@ class Module:
             for name, item in self.parameters.items():
                 domain = item["domain"]
                 value = item["value"]
+                if callable(value):
+                    value = value()
                 accessor = item["accessor"]
                 parser.state[domain][name] = value
                 if accessor is not None:

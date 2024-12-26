@@ -3,7 +3,9 @@ TeX Font Metrics (TFM) file format
 """
 
 from pytex import node
-from struct import unpack
+from pytex.module import Module
+from struct import unpack, pack
+import io
 import typing
 
 
@@ -242,9 +244,22 @@ class Extend:
 
 
 class TFM:
-    def __init__(self, name: str, stream):
+    def __init__(self, stream):
+        if stream is None:
+            # \nullfont
+            x = [6 + 2 + 5 + 7, 2, 0, 0, 1, 1, 1, 1, 0, 0, 0, 7, 0, 0]
+            s = pack(">12H2I", *x)
+            x = [0]
+            zero = pack(">I", *x)
+            sc = zero
+            sw = zero
+            sh = zero
+            sd = zero
+            si = zero
+            x = [0] * 7
+            sp = pack(">7I", *x)
+            stream = io.BytesIO(s + sc + sw + sh + sd+ si + sp)
         data = BinaryStream(stream)
-        self.name = name
         x = data.read(24)
         lf, lh, bc, ec, nw, nh, nd, ni, nl, nk, ne, np = unpack(">12H", x)
         self.bc = bc
@@ -282,3 +297,20 @@ class TFM:
         data.close()
 
 
+class TFMDict(dict):
+    """
+    A dictionary of TFM files.
+    """
+    def __init__(self):
+        super().__init__()
+        self["nullfont"] = TFM(None)
+
+    def __repr__(self):
+        return f"TFMDict({list(self.keys())})"
+
+
+mod = Module("tfm",
+    parameters = {
+        "tfm": {"value": TFMDict, "accessor": None, "domain": "globals"},
+    }
+)

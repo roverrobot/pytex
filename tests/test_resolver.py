@@ -15,7 +15,7 @@ class TestTeXLive(unittest.TestCase):
 
     def test_read_file_name(self):
         parser = Parser()
-        parser.readFrom("abc.def g")
+        parser.readFrom("\\relax abc.def g")
         name = parser.readFileName()
         self.assertEqual(name, "abc.def")
         t = parser.token()

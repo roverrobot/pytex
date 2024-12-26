@@ -194,6 +194,7 @@ def readFileName(parser) -> str:
     @return: the file name as a string
     """
     name = ""
+    parser.skipFiller()
     while True:
         t = parser.token()
         if t is None:

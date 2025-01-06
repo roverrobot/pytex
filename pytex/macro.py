@@ -56,7 +56,7 @@ class MacroScanner(TokenListScanner):
         raise ValueError("invalid macro replacement text, # must be followed by a number of another #", self.input.position())
 
 
-def comapreToks(toks1, toks2):
+def compareToks(toks1, toks2):
     """
     compare two token lists
     """
@@ -183,7 +183,7 @@ class Macro(Command):
     def __eq__(self, other):
         # this is used by the \\ifx command to compare two macros
         try:
-            return comapreToks(self.parameters, other.parameters) and comapreToks(self.replacement, other.replacement)
+            return compareToks(self.parameters, other.parameters) and compareToks(self.replacement, other.replacement)
         except AttributeError:
             return False
 

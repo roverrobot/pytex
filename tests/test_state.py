@@ -1,6 +1,7 @@
 import pytest
 from pytex import state
 from pytex.parser import Parser
+from tests import checkValues
 
 
 @pytest.fixture
@@ -74,15 +75,12 @@ def test_group_mismatch(groupstack):
     except Exception as e:
         assert False, "unexpected exception: %s" % e
 
-def test_parser_group():
-    parser = Parser()
-    parser.parse("\\count0=1\\begingroup\\count0=2")
-    assert parser.state.count[0] == 2
-    parser.parse("\\endgroup")
-    assert parser.state.count[0] == 1
+def test_parser_group(parser):
+    checkValues(parser, "\\count0=1\\begingroup\\count0=2", [("count", 0, 2)])
+    checkValues(parser, "\\endgroup", [("count", 0, 1)])
 
-def test_parser_group_mismatch():
-    parser = Parser()
+
+def test_parser_group_mismatch(parser):
     try:
         parser.parse("{\\endgroup")
         assert False, "group matching failed"

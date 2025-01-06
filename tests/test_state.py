@@ -1,6 +1,5 @@
 import pytest
 from pytex import state
-from pytex.parser import Parser
 from tests import checkValues
 
 

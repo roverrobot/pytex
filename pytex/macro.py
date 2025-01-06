@@ -245,7 +245,6 @@ class Def(Define):
         p.expanded = self.expanded
         if self.globally:
             p.prefixes.append(GlobalPrefix())
-        p.globally = self.globally
         return p
 
 

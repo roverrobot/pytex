@@ -109,7 +109,7 @@ class CharDefValue(token.Command):
         execute the command
         @param parser: the parser
         """
-        parser.addChar(chr(self.value))
+        parser.addChar(token.CharToken(chr(self.value), token.CATCODE.OTHER))
     
     def pointer(self, parser):
         """

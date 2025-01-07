@@ -189,7 +189,7 @@ class Prefix(token.Command):
             p = assignment.pointer(parser)
             p.prefixes.append(self)
             return p
-        except:
+        except KeyError:
             raise ValueError("expecting an assignment", pos)
 
 

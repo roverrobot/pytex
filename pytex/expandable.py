@@ -149,29 +149,17 @@ class String(Command):
         parser.input.push(TokenListScanner(toToks(s)))
 
 
-class Protect(Command):
-    """
-    a command that protects a token from expansion
-    @param token: the token to protect
-    """
-    def __init__(self, token):
-        self.token = token
-
-    def expand(self, parser):
-        return self.token.expand(parser)
-
-    def execute(self, parser):
-        self.token.execute(parser)
-
-
 class ProtectedTokenListScanner(TokenListScanner):
     """
     a token list scanner that protects the tokens from expansion
     """
     def read(self):
         t = super().read()
-        if t is not None and t.is_command:
-            return Protect(t)
+        if t is not None and isinstance(t, CommandToken):
+            c = CommandToken(t.name)
+            c.catcode = t.catcode
+            c.protected = True
+            return c
         return t
 
 

@@ -19,7 +19,7 @@ class Stretchness:
     orders 1--3 is fil, fill, and filll.    
     """
     mu = False
-    def __init__(self, factor: float, order: int):
+    def __init__(self, factor: float=0, order: int=0):
         self.factor = factor
         self.order = order
     
@@ -49,6 +49,11 @@ class Stretchness:
 
     def __truediv__(self, factor):
         return Stretchness(self.factor / factor, self.order)
+    
+    def __eq__(self, value):
+        if not isinstance(value, Stretchness):
+            return False
+        return self.factor == value.factor and self.order == value.order
 
 
 class Glue:
@@ -56,7 +61,7 @@ class Glue:
     a glue is a dimension with stretch and shrink
     """
     mu = False
-    def __init__(self, dimen: float=0, stretch: Stretchness = None, shrink: Stretchness = None):
+    def __init__(self, dimen: float=0, stretch=Stretchness(), shrink=Stretchness()):
         self.dimen = dimen
         self.stretch = stretch
         self.shrink = shrink
@@ -86,6 +91,11 @@ class Glue:
     
     def __truediv__(self, factor):
         return Glue(self.dimen / factor, self.stretch / factor, self.shrink / factor)
+    
+    def __eq__(self, value):
+        if not isinstance(value, Glue):
+            return False
+        return self.dimen == value.dimen and self.stretch == value.stretch and self.shrink == value.shrink
 
 
 class MuStretchness(Stretchness):
@@ -103,13 +113,22 @@ class MuStretchness(Stretchness):
         return the stretchness value
         """
         raise NotImplementedError()
+    
+    def __eq__(self, value):
+        if not isinstance(value, MuStretchness):
+            return False
+        return self.factor == value.factor and self.order == value.order
 
 
 class MuGlue(Glue):
     """
     a mu glue is a dimension with stretch and shrink in mu units
     """
+    def __init__(self, dimen = 0, stretch=MuStretchness(), shrink=MuStretchness()):
+        super().__init__(dimen, stretch, shrink)
+
     mu = True
+
     def __str__(self):
         result = f"{self.dimen}mu"
         if self.stretch is not None:
@@ -123,9 +142,14 @@ class MuGlue(Glue):
         return the glue value
         """
         raise NotImplementedError()
+    
+    def __eq__(self, value):
+        if not isinstance(value, MuGlue):
+            return False
+        return self.dimen == value.dimen and self.stretch == value.stretch and self.shrink == value.shrink
 
 
-def readStretchness(parser, mu: bool=False) -> Stretchness:
+def readStretchness(parser, mu: bool=False):
     """
     read a stretchness
     """
@@ -136,7 +160,7 @@ def readStretchness(parser, mu: bool=False) -> Stretchness:
     return Stretchness(sign*factor, order)
 
 
-def readGlue(parser, mu: bool=False) -> Glue:
+def readGlue(parser, mu: bool=False):
     """
     read a glue
     """
@@ -154,10 +178,14 @@ def readGlue(parser, mu: bool=False) -> Glue:
     shrink = None
     if parser.readKeyword({"plus"}):
         stretch = readStretchness(parser, mu)
+    elif mu:
+        stretch = MuStretchness(0, 0)
     else:
         stretch = Stretchness(0, 0)
     if parser.readKeyword({"minus"}):
         shrink = readStretchness(parser, mu)
+    elif mu:
+        shrink = MuStretchness(0, 0)
     else:
         shrink = Stretchness(0, 0)
     if mu:

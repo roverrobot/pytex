@@ -9,7 +9,7 @@ from pytex.integer import IntegerValuePointer
 from pytex.dimen import DimenValuePointer
 from pytex.glue import GlueValuePointer, MuGlueValuePointer
 from pytex.accessor import ParameterAccessor
-from pytex.toks import ToksValuePointer
+from pytex.toks import ToksValuePointer, relax
 from pytex import token
 
 
@@ -29,6 +29,8 @@ class Define(accessor.ArrayAccessor):
         t = parser.token()
         if t is None or not t.is_command:
             raise ValueError("command name expected")
+        # command t is going to be redefined. We make it relax
+        parser.state.equitable[t.name] = relax
         return t.name
 
 

@@ -145,7 +145,7 @@ class CommandToken(Token):
         """
         command = parser.lookup(self.name)
         if command is None:
-            return self
+            raise ValueError("command not defined: ", self.name)
         return command.expand(parser)
 
     def execute(self, parser):

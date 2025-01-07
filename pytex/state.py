@@ -54,13 +54,17 @@ class Group:
         @param index: the index of the value
         @param value: the value
         """
-        if domain not in self.values:
+        if index in domain.values:
+            save = domain[index]
+        else:
+            save = None
+        if domain.name not in self.values:
             store = (domain, {})
             self.values[domain.name] = store
         else:
             store = self.values[domain.name]
         if index not in store[1]:
-            store[1][index] = domain[index]
+            store[1][index] = save
 
     def end(self, position, group_type: GROUP_TYPE):
         """
@@ -126,7 +130,7 @@ class GroupStack(list):
     
     def remove(self, domain, index):
         """
-        remove a value from all groups. This is to implement \global
+        remove a value from all groups. This is to implement \\global
         @param domain: the domain of the value
         @param index: the index of the value
         """
@@ -181,7 +185,10 @@ class Domain:
         @param index: the index of the value
         @param: the value
         """
-        self.values[index] = value
+        if value is None:
+            del self.values[index]
+        else:
+            self.values[index] = value
 
     def __repr__(self):
         return self.values.__repr__()

@@ -1,87 +1,86 @@
-import unittest
-from pytex.parser import Parser
+import pytest
 from pytex.resolver import InMemoryTextFile
 
 
-class TestExpandable(unittest.TestCase):
-    def test_noexpand(self):
-        parser = Parser()
-        parser.readFrom("\\noexpand\\test")
-        t = parser.token_expand()
-        self.assertEqual(t.name, "\\test")
-        t = parser.token_expand()
-        self.assertIsNone(t)
-        parser.readFrom("\\noexpand a")
-        t = parser.token_expand()
-        self.assertEqual(t.name, "a")
-
-    def test_expandafter(self):
-        parser = Parser()
-        parser.parse("\\def\\a{a}")
-        parser.readFrom("\\expandafter a\\a")
-        t = parser.token_expand()
-        self.assertEqual(t.name, "a")
-        t = parser.token_expand()
-        self.assertEqual(t.name, "a")
-        t = parser.token_expand()
-        self.assertIsNone(t)
-
-    def test_csname(self):
-        parser = Parser()
-        parser.readFrom("\\csname test\\endcsname")
-        t = parser.token_expand()
-        self.assertTrue(t.is_command)
-        t = parser.token_expand()
-        self.assertIsNone(t)
-        parser.parse("\\test")
-        self.assertEqual(str(parser.tokens), "")
-        parser.parse("\\def\\test{a}\\csname test\\endcsname")
-        self.assertEqual(str(parser.tokens), "a")
-        try:
-            parser.parse("\\csname test")
-            self.fail()
-        except ValueError as e:
-            self.assertEqual(str(e), "expecting \\endcsname")
-        try:
-            parser.parse("\\csname \\count\\endcsname")
-            self.fail()
-        except ValueError as e:
-            self.assertEqual(str(e), "expecting \\endcsname")
-        try:
-            parser.parse("\\endcsname")
-            self.fail()
-        except ValueError as e:
-            self.assertEqual(str(e), "unexpected \\endcsname")
-
-    def test_number_romannumeral(self):
-        parser = Parser()
-        parser.parse("\\count0=123 \\number\\count0")
-        self.assertEqual(str(parser.tokens), "123")
-        parser.parse("\\romannumeral\\count0")
-        self.assertEqual(str(parser.tokens), "cxxiii")
-
-    def test_string(self):
-        parser = Parser()
-        parser.parse("\\escapechar=`! \\string\\test")
-        self.assertEqual(str(parser.tokens), "!test")
-
-    def test_the(self):
-        parser = Parser()
-        parser.parse("\\count0=0 \\the\\count0")
-        self.assertEqual(str(parser.tokens), "0")
-        parser.parse("\\dimen0=1pt \\the\\dimen0")
-        self.assertEqual(str(parser.tokens), str(parser.state.dimen[0])+"pt")
-        parser.parse("\\skip0=1pt plus 1fil minus 1fil \\relax\\the\\skip0")
-        self.assertEqual(str(parser.tokens), str(parser.state.skip[0]))
-        parser.parse("\\toks0={\\the\\count0}\\the\\toks0")
-        self.assertEqual(str(parser.tokens), "0")
-
-    def test_input(self):
-        parser = Parser()
-        parser.resolver.in_memory_files["test.tex"] = InMemoryTextFile("abc")
-        parser.parse("\\input test")
-        self.assertEqual(str(parser.tokens), "abc ")
+def test_noexpand(parser):
+    parser.readFrom("\\noexpand\\test")
+    t = parser.token_expand()
+    assert t is not None
+    assert t.name == "\\test"
+    t = parser.token_expand()
+    assert t is None
+    parser.readFrom("\\noexpand a")
+    t = parser.token_expand()
+    assert t is not None
+    assert t.name == "a"
 
 
-if __name__ == '__main__':
-    unittest.main()
+def test_expandafter(collector):
+    collector.parse("\\def\\a{a}\\expandafter a\\a")
+    assert collector.getString() == "aa"
+
+
+def test_csname(collector):
+    collector.readFrom("\\csname test\\endcsname")
+    t = collector.token_expand()
+    assert t is not None
+    assert t.is_command
+    t = collector.token_expand()
+    assert t is None
+    collector.parse("\\test")
+    assert collector.getString() == ""
+    collector.parse("\\def\\test{a}\\csname test\\endcsname")
+    assert collector.getString() == "a"
+
+
+def test_missing_endcsname(parser):
+    try:
+        parser.parse("\\csname test")
+        assert False, "missing \\endcsname"
+    except ValueError as e:
+        assert "\\endcsname" in str(e)
+
+
+def test_unexpected_command(parser):
+    try:
+        parser.parse("\\csname \\count\\endcsname")
+        assert False, "expecting \\endcsname"
+    except ValueError as e:
+        assert "expecting \\endcsname" in str(e)
+
+
+def test_misplaced_endcsname(parser):
+    try:
+        parser.parse("\\endcsname")
+        assert False, "unexpected \\endcsname"
+    except ValueError as e:
+        assert "unexpected \\endcsname" in str(e)
+
+
+def test_number_romannumeral(collector):
+    collector.parse("\\count0=123 \\number\\count0")
+    assert collector.getString() == "123"
+    collector.parse("\\romannumeral\\count0")
+    assert collector.getString() == "cxxiii"
+
+
+def test_string(collector):
+    collector.parse("\\escapechar=`! \\string\\test")
+    assert collector.getString() == "!test"
+
+
+def test_the(collector):
+    collector.parse("\\count0=0 \\the\\count0")
+    assert collector.getString() == "0"
+    collector.parse("\\dimen0=1pt \\the\\dimen0")
+    assert collector.getString() == str(collector.state.dimen[0])+"pt"
+    collector.parse("\\skip0=1pt plus 1fil minus 1fil \\relax\\the\\skip0")
+    assert collector.getString() == str(collector.state.skip[0])
+    collector.parse("\\toks0={\\the\\count0}\\the\\toks0")
+    assert collector.getString() == "0"
+
+
+def test_input(collector):
+    collector.resolver.in_memory_files["test.tex"] = InMemoryTextFile("abc")
+    collector.parse("123\\input test")
+    assert collector.getString() == "123abc "

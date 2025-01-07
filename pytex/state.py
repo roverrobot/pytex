@@ -54,10 +54,11 @@ class Group:
         @param index: the index of the value
         @param value: the value
         """
-        if index in domain.values:
-            save = domain[index]
-        else:
+        if isinstance(domain.values, dict) and index not in domain.values:
             save = None
+        else:
+            save = domain[index]
+        print(f"storing {index} in {domain.name}", save)
         if domain.name not in self.values:
             store = (domain, {})
             self.values[domain.name] = store

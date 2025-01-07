@@ -82,7 +82,7 @@ class FileResolver:
         """
         Get the type information
         """
-        return TypeInfo(["tex"], exts, binary=False)
+        return TypeInfo(exts, binary=False)
 
     def resolveInMemory(self, name: str):
         """

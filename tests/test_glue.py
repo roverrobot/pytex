@@ -1,107 +1,58 @@
-import unittest
-from pytex.parser import Parser
+import pytest
+from pytex.glue import Glue, Stretchness, MuGlue, MuStretchness
+from tests import checkValues
 
-class TestReadDimen(unittest.TestCase):
-    def test_read_glue(self):
-        parser = Parser()
-        parser.readFrom("10 pt a")
-        result = parser.readGlue()
-        self.assertEqual(result.dimen, 10)
-        self.assertEqual(result.stretch.factor, 0)
-        self.assertEqual(result.stretch.order, 0)
-        self.assertEqual(result.shrink.factor, 0)
-        self.assertEqual(result.shrink.order, 0)
-        t = parser.token_expand()
-        self.assertEqual(t.name, 'a')
-        parser.readFrom("-10in plus 1pt m")
-        result = parser.readGlue()
-        self.assertEqual(result.dimen, -10*72.27)
-        self.assertEqual(result.stretch.factor, 1)
-        self.assertEqual(result.stretch.order, 0)
-        self.assertEqual(result.shrink.factor, 0)
-        self.assertEqual(result.shrink.order, 0)
-        t = parser.token_expand()
-        self.assertEqual(t.name, 'm')
-        parser.readFrom("-10in minus 1pt")
-        result = parser.readGlue()
-        self.assertEqual(result.dimen, -10*72.27)
-        self.assertEqual(result.stretch.factor, 0)
-        self.assertEqual(result.stretch.order, 0)
-        self.assertEqual(result.shrink.factor, 1)
-        self.assertEqual(result.shrink.order, 0)
-        parser.readFrom("-10in plus 1pt minus 2fillll")
-        result = parser.readGlue()
-        self.assertEqual(result.dimen, -10*72.27)
-        self.assertEqual(result.stretch.factor, 1)
-        self.assertEqual(result.stretch.order, 0)
-        self.assertEqual(result.shrink.factor, 2)
-        self.assertEqual(result.shrink.order, 3)
-        t = parser.token_expand()
-        self.assertIsNone(t)
+
+def test_read_glue(parser):
+    parser.readFrom("10 pt a")
+    result = parser.readGlue()
+    assert result == Glue(10)
+    t = parser.token_expand()
+    assert t is not None
+    assert t.name == 'a'
+    parser.readFrom("-10in plus 1pt m")
+    result = parser.readGlue()
+    assert result == Glue(-10*72.27, Stretchness(1, 0))
+    t = parser.token_expand()
+    assert t is not None
+    assert t.name == 'm'
+    parser.readFrom("-10in minus 1pt")
+    result = parser.readGlue()
+    assert result == Glue(-10*72.27, shrink=Stretchness(1, 0))
+    parser.readFrom("-10in plus 1pt minus 2fillll")
+    result = parser.readGlue()
+    assert result == Glue(-10*72.27, Stretchness(1, 0), Stretchness(2, 3))
+    t = parser.token_expand()
+    assert t is None
         
-    def test_read_mu(self):
-        parser = Parser()
-        parser.readFrom("10 mu")
+
+def test_read_mu(parser):
+    parser.readFrom("10 mu")
+    result = parser.readGlue(mu=True)
+    assert result == MuGlue(10)
+    parser.readFrom("-10mu plus 1fil minus 2mu")
+    result = parser.readGlue(mu=True)
+    assert result == MuGlue(-10, MuStretchness(1, 1), MuStretchness(2, 0))
+    parser.readFrom("-10mu plus 1pt")
+    try:
         result = parser.readGlue(mu=True)
-        self.assertEqual(result.dimen, 10)
-        self.assertEqual(result.stretch.factor, 0)
-        self.assertEqual(result.stretch.order, 0)
-        self.assertEqual(result.shrink.factor, 0)
-        self.assertEqual(result.shrink.order, 0)
-        parser.readFrom("-10mu plus 1fil minus 2mu")
-        result = parser.readGlue(mu=True)
-        self.assertEqual(result.dimen, -10)
-        self.assertEqual(result.stretch.factor, 1)
-        self.assertEqual(result.stretch.order, 1)
-        self.assertEqual(result.shrink.factor, 2)
-        self.assertEqual(result.shrink.order, 0)
-        parser.readFrom("-10mu plus 1pt")
-        try:
-            result = parser.readGlue(mu=True)
-            self.fail()
-        except Exception as e:
-            self.assertTrue('mu dimension expected' in str(e))
-
-    def test_glue_array(self):
-        parser = Parser()
-        parser.parse("\\skip0 = 10 pt plus 1pt minus 2fil")
-        skip0 = parser.state.skip[0]
-        self.assertEqual(skip0.dimen, 10)
-        self.assertEqual(skip0.stretch.factor, 1)
-        self.assertEqual(skip0.stretch.order, 0)
-        self.assertEqual(skip0.shrink.factor, 2)
-        self.assertEqual(skip0.shrink.order, 1)
-        parser.parse("{\\skip0 = 1 pt")
-        skip0 = parser.state.skip[0]
-        self.assertEqual(skip0.dimen, 1)
-        self.assertEqual(skip0.stretch.factor, 0)
-        self.assertEqual(skip0.stretch.order, 0)
-        self.assertEqual(skip0.shrink.factor, 0)
-        self.assertEqual(skip0.shrink.order, 0)
-        parser.parse("}")
-        skip0 = parser.state.skip[0]
-        self.assertEqual(skip0.dimen, 10)
-        self.assertEqual(skip0.stretch.factor, 1)
-        self.assertEqual(skip0.stretch.order, 0)
-        self.assertEqual(skip0.shrink.factor, 2)
-        self.assertEqual(skip0.shrink.order, 1)
+        assert False, "cannot accept pt as unit when reading a mu glue"
+    except Exception as e:
+        assert "mu dimension expected" in str(e)
 
 
-    def test_muglue_array(self):
-        parser = Parser()
-        parser.parse("\\muskip0 = 1 mu plus 1mu minus 2fil")
-        muskip0 = parser.state.muskip[0]
-        self.assertEqual(muskip0.dimen, 1)
-        self.assertEqual(muskip0.stretch.factor, 1)
-        self.assertEqual(muskip0.stretch.order, 0)
-        self.assertEqual(muskip0.shrink.factor, 2)
-        self.assertEqual(muskip0.shrink.order, 1)
-        try:
-            parser.parse("\\muskip0 = 1 pt")
-            self.fail()
-        except Exception as e:
-            self.assertTrue('mu dimension expected' in str(e))
+def test_glue_array(parser):
+    orig = Glue(10, Stretchness(1, 0), Stretchness(2, 1))
+    checkValues(parser, "\\skip0 = 10 pt plus 1pt minus 2fil", [["skip", 0, orig]])
+    checkValues(parser, "{\\skip0 = 1 pt", [["skip", 0, Glue(1)]])
+    checkValues(parser, "}", [["skip", 0, orig]])
 
 
-if __name__ == '__main__':
-    unittest.main()
+def test_muglue_array(parser):
+    orig = MuGlue(10, MuStretchness(1, 0), MuStretchness(2, 1))
+    checkValues(parser, "\\muskip0 = 10 mu plus 1mu minus 2fil", [["muskip", 0, orig]])
+    try:
+        parser.parse("\\muskip0 = 1 pt")
+        assert False, "cannot accept pt as unit when reading a mu glue"
+    except Exception as e:
+        assert "mu dimension expected" in str(e)

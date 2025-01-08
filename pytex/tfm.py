@@ -297,19 +297,41 @@ class TFM:
         data.close()
 
 
+nullfont = TFM(None)
+
+
 class TFMDict(dict):
     """
     A dictionary of TFM files.
     """
     def __init__(self):
         super().__init__()
-        self["nullfont"] = TFM(None)
+        self["nullfont"] = nullfont
 
     def __repr__(self):
         return f"TFMDict({list(self.keys())})"
 
 
+def loadTFM(parser, name: str):
+    """
+    Load a TFM file.
+    @param name: the name of the TFM file
+    """
+    if name in parser.state.globals["tfm"]:
+        return parser.state.globals["tfm"][name]
+    file = parser.resolver.openIn(name, "tfm")
+    if file is None:
+        raise FileNotFoundError(f"TFM file {name} not found")
+    tfm = TFM(file)
+    parser.state.globals["tfm"][name] = tfm
+    file.close()
+    return tfm
+
+
 mod = Module("tfm",
+    attributes = {
+        "loadTFM": loadTFM,
+    },
     parameters = {
         "tfm": {"value": TFMDict, "accessor": None, "domain": "globals"},
     }

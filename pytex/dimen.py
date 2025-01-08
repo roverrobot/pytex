@@ -114,9 +114,9 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     if unit == "mu":
         dimen = f
     elif unit == "em":
-        raise Exception("em dimension not implemented")
+        dimen = f * parser.state.layout["currentfont"].param[5] #parameter #6 is quad width
     elif unit == "ex":
-        raise Exception("ex dimension not implemented")
+        dimen = f * parser.state.layout["currentfont"].param[4] #parameter #6 is x height
     elif unit == "fil":
         infinity = 1
         # read additional "l"

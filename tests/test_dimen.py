@@ -1,5 +1,6 @@
 import pytest
 from tests import checkValues
+from pytex import texlive
 
 
 def test_read_dimen(parser):
@@ -58,7 +59,18 @@ def test_dimen_array(parser):
     checkValues(parser, "{\\dimen0 = 1 pt", [["dimen", 0, 1]])
     checkValues(parser, "}", [["dimen", 0, 10]])
 
+
 def test_dimen_parameter(parser):
     checkValues(parser, "\\hsize = 10 pt", [["layout", "hsize", 10]])
     checkValues(parser, "{\\hsize = 1 pt", [["layout", "hsize", 1]])
     checkValues(parser, "}", [["layout", "hsize", 10]])
+
+
+def test_em_ex(parser):
+    parser.parse("\\font\\f=cmr10 \\f")
+    parser.readFrom("1 em")
+    result = parser.readDimen()
+    assert result == 10.000028610229492
+    parser.readFrom("1 ex")
+    result = parser.readDimen()
+    assert result == 4.305553436279297

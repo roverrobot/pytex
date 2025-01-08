@@ -30,7 +30,7 @@ class Define(accessor.ArrayAccessor):
         if t is None or not t.is_command:
             raise ValueError("command name expected")
         # command t is going to be redefined. We make it relax
-        parser.state.equitable[t.name] = relax
+        parser.state.equitable[t.name] = None
         return t.name
 
 

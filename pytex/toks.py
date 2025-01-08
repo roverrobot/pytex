@@ -4,7 +4,7 @@ This module defines the token list facilities.
 
 import typing
 from pytex.lexer import CATCODE, TokenListScanner
-from pytex.token import Command
+from pytex.token import Command, CommandToken
 from pytex.module import Module
 from pytex.state import Array
 from pytex import accessor
@@ -27,9 +27,11 @@ def token_expand(parser):
     if t is None or t.protected:
         return t
     t1 = t.expand(parser)
-    if t1 is not None:
-        return t1
-    return token_expand(parser)
+    if t1 is None:
+        return token_expand(parser)
+    if isinstance(t1, CommandToken) and t1 == t:
+        raise ValueError(f"undefined command {t.name}")
+    return t1
 
 
 def readBalancedText(parser, expand: bool = False):

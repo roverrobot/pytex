@@ -82,7 +82,7 @@ class Macro(Command):
         self.protected = False
 
     def __repr__(self):
-        return f"Macro({self.parameters}{self.replacement})"
+        return f"Macro({self.parameters}{{self.replacement}})"
     
     def matchDelimited(self, parser, start):
         """
@@ -138,7 +138,7 @@ class Macro(Command):
                 return result, i
             if t.catcode == CATCODE.BEGIN_GROUP:
                 parser.input.unread(t)
-                l = parser.readBalancedText(expand=False, include_braces=True)
+                l = parser.readBalancedText(expand=False)
                 result.extend(l)
             else:
                 result.append(t)

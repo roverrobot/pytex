@@ -58,10 +58,18 @@ class List(Node):
 class CharNode(Box):
     """
     A character node.
+    @param char_info: the character information
+    @param font: the font of the character
+    @param at: the size of the font
     """
     node_type = NODE_TYPE.CHAR
-    def __init__(self, char_info, font):
-        self.char_info = char_info
+    def __init__(self, char_info, font, at):
+        super().__init__(char_info.width * at, char_info.height * at, char_info.depth * at)
+        self.char = char_info.char
+        self.italic = char_info.italic * at
+        self.program = char_info.program
+        self.chain = char_info.chain
+        self.extend = char_info.extend
         self.font = font
 
     def __repr__(self):

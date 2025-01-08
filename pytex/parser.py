@@ -16,6 +16,7 @@ from pytex import conditional
 from pytex import expandable
 from pytex import resolver
 from pytex import node
+from pytex import font
 
 
 class Parser:
@@ -49,6 +50,10 @@ class Parser:
             if t is None:
                 return None
             t1 = t.expand(self)
+            try:
+                f = self.state.equitable["\\f"]
+            except KeyError:
+                f = ""
             # if the token is consumed, get the next token
             if t1 is None:
                 t = self.token()

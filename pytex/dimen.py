@@ -128,7 +128,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
             infinity = 3
         dimen = f
     else:
-        dimen = f * UNITS[unit]
+        dimen = f * UNITS[unit] * parser.state.layout["mag"] / 1000
     if stretchness:
         return dimen, infinity
     return dimen

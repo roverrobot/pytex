@@ -15,6 +15,20 @@ def test_read_dimen(parser):
     parser.readFrom("-1 true pt")
     result = parser.readDimen()
     assert result == -1
+
+
+def test_read_true_dimen(parser):
+    # magnify by a factor of 2.0
+    parser.state.layout["mag"] = 2000
+    parser.readFrom("-1Truept")
+    result = parser.readDimen()
+    assert result == -2
+    parser.readFrom("-1 true em")
+    try:
+        parser.readDimen()
+        assert False, "em cannot follow true"
+    except Exception as e:
+        assert "unit" in str(e)
     
 
 def test_read_mu(parser):

@@ -49,7 +49,7 @@ class ValuePointer(token.Command):
         get the value from the domain.
         @param parser: the parser
         """
-        return parser.state[self.domain][self.index]
+        return self.domain[self.index]
 
     def assign(self, parser):
         """
@@ -64,9 +64,9 @@ class ValuePointer(token.Command):
         for p in self.prefixes:
             value, globally = p.modify(value, globally)
         if globally:
-            parser.state[self.domain].setGlobal(self.index, value)
+            self.domain.setGlobal(self.index, value)
         else:
-            parser.state[self.domain][self.index] = value
+            self.domain[self.index] = value
     
     def execute(self, parser):
         """
@@ -102,7 +102,8 @@ class Accessor(token.Command):
         @param parser: the parser
         @return: the value pointer and possible prefixes
         """
-        return self.pointer_generator(self.domain, self.getIndex(parser), self.eq)
+        domain = parser.state.domains[self.domain]
+        return self.pointer_generator(domain, self.getIndex(parser), self.eq)
 
     def execute(self, parser):
         """

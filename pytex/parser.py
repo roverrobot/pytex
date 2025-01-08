@@ -44,7 +44,6 @@ class Parser:
         # command and its position in the input.
         self.ifstack = [] 
         # for now, characters and spaces are collected in a string
-        self.tokens = Toks()
         for name, mod in ModuleManager.items():
             mod.populate(self)
     
@@ -118,14 +117,14 @@ class Parser:
         add a character to the current list
         @param c: the character token
         """
-        self.tokens.append(c)
+        pass
     
     def addSpace(self):
         """
         add a space to the current list
         @param c: the token representing space
         """
-        self.tokens.append(token.SpaceToken())
+        pass
 
     def lookup(self, name):
         """

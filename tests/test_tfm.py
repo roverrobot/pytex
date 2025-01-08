@@ -1,35 +1,30 @@
-import unittest
+import pytest
 from pytex import tfm
-from pytex.parser import Parser
 from pytex import texlive
 
-class TestTFM(unittest.TestCase):
-    def test_read_tfm(self):
-        resolver = texlive.TexliveResolver()
-        tfm_file = resolver.openIn("cmr10.tfm")
-        try:
-            tfm_data = tfm.TFM(tfm_file)
-            self.assertEqual(tfm_data.header.size, 10.0)
-        except FileNotFoundError:
-            self.skipTest("cmr10.tfm not found")
-    
-    def test_nullfont(self):
-        parser = Parser()
-        nullfont = parser.state.globals["tfm"]["nullfont"]
-        self.assertEqual(nullfont.header.size, 0.0)
-        self.assertEqual(nullfont.ec, 0)
-        self.assertEqual(nullfont.bc, 0)
-        c = nullfont.char_info[0]
-        self.assertEqual(c.width, 0)
-        self.assertEqual(c.height, 0)
-        self.assertEqual(c.depth, 0)
-        self.assertEqual(c.italic, 0)
-        self.assertEqual(c.program, None)
-        self.assertEqual(c.chain, None)
-        self.assertEqual(c.extend, None)
-        self.assertEqual(nullfont.param, [0] * 7)
+
+def test_read_tfm():
+    resolver = texlive.TexliveResolver()
+    tfm_file = resolver.openIn("cmr10.tfm")
+    try:
+        tfm_data = tfm.TFM(tfm_file)
+        assert tfm_data.header.size == 10.0
+    except FileNotFoundError:
+        pytest.skip("cmr10.tfm not found")
 
 
-
-if __name__ == '__main__':
-    unittest.main()
+def test_nullfont(parser):
+    nullfont = parser.state.globals["tfm"]["nullfont"]
+    assert nullfont.header.checksum == 0
+    assert nullfont.header.size == 0.0
+    assert nullfont.ec == 0
+    assert nullfont.bc == 0
+    c = nullfont.char_info[0]
+    assert c.width == 0
+    assert c.height == 0
+    assert c.depth == 0
+    assert c.italic == 0
+    assert c.program == None
+    assert c.chain == None
+    assert c.extend == None
+    assert nullfont.param == [0] * 7

@@ -18,21 +18,6 @@ from pytex import resolver
 from pytex import node
 
 
-class Toks(toks.Toks):
-    """
-    a token list serviing as a temporary collector for all tokens
-    before hlists and vlists are implemented.
-
-    Each time the __repr__ method is called, the token list is cleared.
-    """
-    def __init__(self, *args):
-        super().__init__(*args, included_braces=True)
-
-    def __repr__(self):
-        content = super().__repr__()
-        self.clear()
-        return content
-
 class Parser:
     """
     The parser is the main class that processes the input and executes the commands.

@@ -58,7 +58,6 @@ class Group:
             save = None
         else:
             save = domain[index]
-        print(f"storing {index} in {domain.name}", save)
         if domain.name not in self.values:
             store = (domain, {})
             self.values[domain.name] = store

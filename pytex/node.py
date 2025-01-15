@@ -16,7 +16,7 @@ class NODE_TYPE(enum.Enum):
     ADJUST = 6
     LIGATURE = 7
     DISC = 8
-    WHAT = 9
+    WHATSIT = 9
     MATH = 10 # mlist
     GLUE = 11
     KERN = 12
@@ -29,7 +29,6 @@ class Node:
     """
     Base class for all nodes.
     """
-    node_type = None
     def __repr__(self):
         return self.node_type.name
     
@@ -42,7 +41,6 @@ class Box(Node):
         self.width = width
         self.height = height
         self.depth = depth
-
 
 class List(Node):
     """
@@ -62,15 +60,14 @@ class CharNode(Box):
     @param font: the font of the character
     @param at: the size of the font
     """
-    node_type = NODE_TYPE.CHAR
     def __init__(self, char_info, font, at):
         super().__init__(char_info.width * at, char_info.height * at, char_info.depth * at)
         self.char = char_info.char
         self.italic = char_info.italic * at
-        self.program = char_info.program
-        self.chain = char_info.chain
-        self.extend = char_info.extend
+        self.char_info = char_info
         self.font = font
+
+    node_type = NODE_TYPE.CHAR
 
     def __repr__(self):
         return f"{self.char}"
@@ -81,8 +78,6 @@ class Rule(Box):
     A rule node.
     """
     node_type = NODE_TYPE.RULE
-    def __init__(self, width, height, depth):
-        super().__init__(width, height, depth)
     
     def __repr__(self):
         return f"Rule({self.width}, {self.height}, {self.depth})"
@@ -91,22 +86,26 @@ class Rule(Box):
 class Glue(Node):
     """
     A glue node.
+    @param glue: the glue
     """
-    node_type = NODE_TYPE.GLUE
     def __init__(self, glue):
         self.glue = glue
 
     def __repr__(self):
         return f"Glue(self.glue)"
     
+    node_type = NODE_TYPE.GLUE
+
 
 class Kern(Node):
     """
     A kern node.
+    @param kern: the kern
     """
-    node_type = NODE_TYPE.KERN
     def __init__(self, kern):
         self.kern = kern
+
+    node_type = NODE_TYPE.KERN
 
     def __repr__(self):
         return f"Kern(self.kern)"
@@ -115,10 +114,12 @@ class Kern(Node):
 class Penalty(Node):
     """
     A penalty node.
+    @param penalty: the penalty
     """
-    node_type = NODE_TYPE.PENALTY
     def __init__(self, penalty):
         self.penalty = penalty
+
+    node_type = NODE_TYPE.PENALTY
 
     def __repr__(self):
         return f"Penalty(self.penalty)"
@@ -128,7 +129,6 @@ class Disc(Node):
     """
     A discretionary node.
     """
-    node_type = NODE_TYPE.DISC
     def __init__(self, pre, post, replace):
         self.pre = pre
         self.post = post
@@ -137,30 +137,34 @@ class Disc(Node):
     def __repr__(self):
         return f"Disc({self.pre}, {self.post}, {self.replace})"
 
+    node_type = NODE_TYPE.DISC
+   
 
-class Ligature(Box):
+class WhatsIt(Node):
     """
-    A ligature node.
+    A whatsit node.
     """
-    node_type = NODE_TYPE.LIGATURE
-    def __init__(self, char: CharNode):
-        char = CharNode(char_info, font)
-        super().__init__(char_info, font)
-        self.components = components
-        self.hlist = []
-        self.current = 0
-
-    def __repr__(self):
-        s = ""
-        for c in self.components:
-            s += str(c)
-        return f"Ligature({self.hlist}, {s})"
-    
-
-class What(Node):
-    """
-    A whatisit node.
-    """
-    node_type = NODE_TYPE.WHAT
     def __init__(self, subtype):
         self.subtype = subtype
+
+    node_type = NODE_TYPE.WHATSIT
+
+
+class VAdjust(Node):
+    """
+    A vadjust node.
+    """
+    def __init__(self, vlist):
+        self.vlist = vlist
+
+    node_type = NODE_TYPE.ADJUST
+
+
+class Mark(Node):
+    """
+    A \mark node.
+    """
+    def __init__(self, tokens):
+        self.tokens = tokens
+
+    node_type = NODE_TYPE.MARK

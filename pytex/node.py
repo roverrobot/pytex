@@ -42,16 +42,6 @@ class Box(Node):
         self.height = height
         self.depth = depth
 
-class List(Node):
-    """
-    a vlist or a hlist node.
-    """
-    def __init__(self):
-        self.nodes = []
-    
-    def __repr__(self):
-        return f"{self.node_type.name}({self.nodes})"
-
 
 class CharNode(Box):
     """

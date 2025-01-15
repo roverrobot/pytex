@@ -17,6 +17,8 @@ from pytex import expandable
 from pytex import resolver
 from pytex import node
 from pytex import font
+from pytex import lists
+from pytex import vmode
 
 
 class Parser:
@@ -28,7 +30,9 @@ class Parser:
         self.input = lexer.InputStack()
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
-        self.ifstack = [] 
+        self.ifstack = []
+        # the list stack
+        self.lists = [vmode.VList(inner=False)]
         # for now, characters and spaces are collected in a string
         for name, mod in ModuleManager.items():
             mod.populate(self)

@@ -37,6 +37,13 @@ class Font(Command):
         # special characters
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}
     
+    def __getitem__(self, char):
+        """
+        get the character node
+        @param char: the character code
+        """
+        return self.charnode[ord(char)-self.bc]
+
     def execute(self, parser):
         parser.state.layout["currentfont"] = self
 

@@ -25,8 +25,8 @@ class BinaryStream:
         value = self.data.read(n)
         k = len(value)
         if k < n:
-            pos = data.tell()
-            data.close()
+            pos = self.data.tell()
+            self.data.close()
             raise EOFError(pos)
         return value
 
@@ -103,12 +103,13 @@ class Op:
         self.next_char = next_char
         self.next_step = None
 
-    def op(self, ligature: node.Ligature, next: int):
+    def op(self, hlist, next: int):
         """
         Perform the operation.
-        @param current: the position of the current character in hlist
+        @param hlist: the hlist which last node is a CharNode (the current char)
         @param next: the next character
         """
+        pass
 
     def kernBetween(self, char: int):
         """
@@ -140,7 +141,7 @@ class LigOp(Op):
         self.keep_next = op & 1 == 1
         self.move = op >> 2
 
-    def op(self, ligature: node.Ligature, next: node.CharNode):
+    def op(self, hlist, next: node.CharNode):
         pass
 
 
@@ -158,7 +159,7 @@ class KernOp(Op):
         super().__init__(next_char)
         self.kern = kern
 
-    def op(self, ligature: node.Ligature, next: node.CharNode):
+    def op(self, hlist, next: node.CharNode):
         pass
 
     def kernBetween(self, char):

@@ -166,3 +166,10 @@ def test_multi_levels(collector):
     collector.parse("\\iftrue\\iffalse a\\else b\\fi\\else c\\fi")
     assert collector.getString() == "b"
     assert len(collector.ifstack) == 0
+
+
+def test_ifvmode(collector):
+    collector.parse("\\ifvmode a\\else b\\fi")
+    assert collector.getString() == "a"
+    collector.parse("\\ifvmode a\\fi")
+    assert collector.getString() == "a"

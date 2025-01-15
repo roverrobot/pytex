@@ -7,6 +7,7 @@ from pytex import node as nd
 from pytex.token import Command
 import enum
 from pytex.module import Module
+from pytex import conditional
 
 
 class LISTTYE(enum.Enum):
@@ -90,9 +91,36 @@ class Penalty(Command):
         parser.lists[-1].append(node)
 
 
+class IfMode(conditional.Conditional):
+    """
+    A conditional that checks the current mode.
+    """
+    def __init__(self, name, mode):
+        super().__init__(name)
+        self.mode = mode
+    
+    def condition(self, parser):
+        return 0 if parser.lists[-1].type == self.mode else 1
+
+
+class IfInner(conditional.Conditional):
+    """
+    The \\ifinner command.
+    """
+    def __init__(self):
+        super().__init__("\\ifinner")
+    
+    def condition(self, parser):
+        return 0 if parser.lists[-1].inner else 1
+
+
 mod = Module("lists",
     commands={
         "kern": Kern(),
         "penalty": Penalty(),
+        "ifvmode": IfMode("\\ifvmode", LISTTYE.VERTICAL),
+        "ifhmode": IfMode("\\ifhmode", LISTTYE.HORIZONTAL),
+        "ifmmode": IfMode("\\ifmmode", LISTTYE.MATH),
+        "ifinner": IfInner(),
     },
 )

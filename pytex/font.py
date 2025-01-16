@@ -42,10 +42,12 @@ class Font(Command):
         get the character node
         @param char: the character code
         """
-        return self.charnode[ord(char)-self.bc]
+        if self.bc <= ord(char) <= self.ec:
+            return self.charnode[ord(char)-self.bc]
+        return self.charnode[0]
 
     def execute(self, parser):
-        parser.state.layout["currentfont"] = self
+        parser.state.parameters["currentfont"] = self
 
     def __repr__(self):
         return f"Font({self.name}, {self.at})"
@@ -137,7 +139,7 @@ class FontCommand(Define):
         @param parser: the parser
         @return: the value pointer and possible prefixes
         """
-        return FontValuePointer(parser.state.domains["layout"], "currentfont")
+        return FontValuePointer(parser.state.parameter, "currentfont")
     
     def execute(self, parser):
         p = super().pointer(parser)
@@ -146,7 +148,7 @@ class FontCommand(Define):
 
 mod = Module("font",
     parameters = {
-        "currentfont": {"value": nullfont, "accessor": ParameterAccessor, "type": FontValuePointer, "domain": "layout"},
+        "currentfont": {"value": nullfont, "accessor": ParameterAccessor, "type": FontValuePointer, "domain": "parameters"},
     },
     commands = {
         "hyphenchar": FontChar("hyphenchar"),

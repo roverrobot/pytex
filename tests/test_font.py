@@ -44,5 +44,5 @@ def test_skewchar(collector):
 
 def test_select_font(parser):
     parser.parse('\\font\\f=cmr10 \\f')
-    assert parser.state.layout["currentfont"].name == 'cmr10'
-    assert parser.state.layout["currentfont"].at == 10.0
+    assert parser.state.parameters["currentfont"].name == 'cmr10'
+    assert parser.state.parameters["currentfont"].at == 10.0

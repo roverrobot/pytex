@@ -114,9 +114,9 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     if unit == "mu":
         dimen = f
     elif unit == "em":
-        dimen = f * parser.state.layout["currentfont"].param[5] #parameter #6 is quad width
+        dimen = f * parser.state.parameters["currentfont"].param[5] #parameter #6 is quad width
     elif unit == "ex":
-        dimen = f * parser.state.layout["currentfont"].param[4] #parameter #6 is x height
+        dimen = f * parser.state.parameters["currentfont"].param[4] #parameter #6 is x height
     elif unit == "fil":
         infinity = 1
         # read additional "l"
@@ -185,7 +185,7 @@ mod = Module("dimen",
         "predisplaysize": {"value": 0, "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
         "displaywidth": {"value": 0, "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
         "displayindent": {"value": 0, "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "parindent": {"value": 0, "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
+        "parindent": {"value": 0, "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "parameters"},
         "hangindent": {"value": 0, "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
         "hoffset": {"value": 0, "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
         "voffset": {"value": 0, "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},

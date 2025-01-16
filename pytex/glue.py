@@ -86,12 +86,7 @@ class Glue:
         return Glue(self.dimen * factor, self.stretch * factor, self.shrink / factor)
 
     def __str__(self):
-        result = f"{self.dimen}pt"
-        if self.stretch is not None:
-            result += " plus " + str(self.stretch)
-        if self.shrink is not None:
-            result += " minus " + str(self.shrink)
-        return result
+        return f"{self.dimen}pt plus {self.stretch} minus {self.shrink}"
     
     def __add__(self, other):
         return Glue(self.dimen + other.dimen, self.stretch + other.stretch, self.shrink + other.shrink)

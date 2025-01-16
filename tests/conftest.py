@@ -15,7 +15,7 @@ def parser():
 
 
 def addChar(self, c):
-    self.tokens += c.name
+    self.tokens += c
 
 
 def addSpace(self):

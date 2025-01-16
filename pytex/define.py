@@ -111,7 +111,7 @@ class CharDefValue(token.Command):
         execute the command
         @param parser: the parser
         """
-        parser.addChar(token.CharToken(chr(self.value), token.CATCODE.OTHER))
+        parser.addChar(chr(self.value))
     
     def pointer(self, parser):
         """

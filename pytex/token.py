@@ -202,7 +202,7 @@ class SpaceToken(Token):
 class CharToken(Token):
     """ a letter or other character """
     def execute(self, parser):
-        parser.addChar(self)
+        parser.addChar(self.name)
     
 
 class MathShiftToken(Token):

@@ -44,13 +44,13 @@ class VSkip(VerticalCommand):
     def __init__(self, glue=None):
         self.glue = glue
 
-    def vertical(self, parser):
+    def vertical(self, parser, vlist):
         if self.glue is None:
             glue = parser.readGlue()
         else:
             glue = self.glue
         node = nd.Glue(glue)
-        parser.lists.top().add(parser, node)
+        vlist.append(node)
 
 
 class VFil(VSkip):
@@ -58,7 +58,7 @@ class VFil(VSkip):
     Add a vertical glue of 0pt plus 1fil.
     """
     def __init__(self):
-        super().__init__(Glue(0, Stretchness(1, 0), Stretchness(1, 1)))
+        super().__init__(Glue(0, Stretchness(1, 1)))
 
 
 class VFill(VSkip):
@@ -66,7 +66,7 @@ class VFill(VSkip):
     Add a vertical glue of 0pt plus 1fill.
     """
     def __init__(self):
-        super().__init__(Glue(0, Stretchness(1, 0), Stretchness(1, 2)))
+        super().__init__(Glue(0,  Stretchness(1, 2)))
 
 
 class Vss(VSkip):

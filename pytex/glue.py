@@ -23,6 +23,12 @@ class Stretchness:
         self.factor = factor
         self.order = order
     
+    def copy(self):
+        """
+        return a copy of the stretchness
+        """
+        return Stretchness(self.factor, self.order) 
+
     def __str__(self):
         if self.order == 0:
             return f"{self.factor}pt"
@@ -66,6 +72,19 @@ class Glue:
         self.stretch = stretch
         self.shrink = shrink
     
+    def copy(self):
+        """
+        return a copy of the glue
+        """
+        return Glue(self.dimen, self.stretch.copy(), self.shrink.copy())
+
+    def scale(self, factor):
+        """
+        scale the glue
+        factor: the scaling factor
+        """
+        return Glue(self.dimen * factor, self.stretch * factor, self.shrink / factor)
+
     def __str__(self):
         result = f"{self.dimen}pt"
         if self.stretch is not None:
@@ -245,7 +264,7 @@ mod = Module("glue",
         # glue parameters
         "baselineskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
         "lineskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "parskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
+        "parskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "parameters"},
         "abovedisplayskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
         "abovedisplayshortskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
         "belowdisplayskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
@@ -255,7 +274,7 @@ mod = Module("glue",
         "topskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
         "splittopskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
         "tabskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "parfillskip": {"value": Glue(0, Stretchness(1,1)), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
+        "parfillskip": {"value": Glue(0, Stretchness(1,1)), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "parameters"},
         "thinmuskip": {"value": MuGlue(), "accessor": ParameterAccessor, "type": MuGlueValuePointer, "domain": "layout"},
         "medmuskip": {"value": MuGlue(), "accessor": ParameterAccessor, "type": MuGlueValuePointer, "domain": "layout"},
         "thickmuskip": {"value": MuGlue(), "accessor": ParameterAccessor, "type": MuGlueValuePointer, "domain": "layout"},

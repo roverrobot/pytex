@@ -324,7 +324,7 @@ module = Module("integer",
         "showboxdepth": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
         "errorcontextlines": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
         # global parameters
-        "spacefactor": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
+        "spacefactor": {"value": 1000, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
         "prevgraf": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
         "deadcycles": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
         "insertpenalties": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},

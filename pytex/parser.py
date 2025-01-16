@@ -19,6 +19,7 @@ from pytex import node
 from pytex import font
 from pytex import lists
 from pytex import vmode
+from pytex import hmode
 
 
 class Parser:
@@ -111,14 +112,78 @@ class Parser:
         add a character to the current list
         @param c: the character token
         """
-        pass
+        if self.lists[-1].type == lists.LISTTYE.VERTICAL:
+            # if any of these tokens occurs as a command in vertical mode or 
+            # internal vertical mode, TeX automatically performs an \indent 
+            # command as explained above. This leads into horizontal mode with 
+            # the \everypar tokens in the input, after which TeX will see the 
+            # horizontal command again. The TeX Book pp.283
+            self.newParagraph()
+        if self.lists[-1].type == lists.LISTTYE.HORIZONTAL:
+            # The most common commands of all are the character commands that tell 
+            # TeX to append a character to the current horizontal list, using the
+            # current font. If two or more commands of this type occur in succession,
+            # TeX processes them all as a unit, converting to ligatures and/or 
+            # inserting kerns as directed by the font information. (Ligatures and 
+            # kerns may be influenced by invisible “boundary” characters at the left 
+            # and right, unless \noboundary appears.) Each character command adjusts
+            # \spacefactor, using the \sfcode table as described in Chapter 12. 
+            # In unrestricted horizontal mode, a ‘\discretionary{}{}{}’ item is 
+            # appended after a character whose code is the \hyphenchar of its font, 
+            # or after a ligature formed from a sequence that ends with such a 
+            # character.
+            f = self.state.parameters["currentfont"]
+            hlist = self.lists[-1]
+            hlist.append(f[c])
+            self.state.globals["spacefactor"] = self.state.sfcode[ord(c)]
+        else:
+            # math mode.
+            raise NotImplementedError
     
     def addSpace(self):
         """
         add a space to the current list
         @param c: the token representing space
         """
-        pass
+        # Spaces have no eﬀect in vertical modes or math modes.
+        top = self.lists[-1]
+        type = top.type 
+        if type == lists.LISTTYE.VERTICAL or type == lists.LISTTYE.MATH:
+            return
+        # In horizontal mode, a space token appends glue to the current list,
+        # see the TeX Book pp.76 for more details.
+        f = self.state.globals["spacefactor"]
+        # If the space factor f is diﬀerent from 1000, the interword glue is 
+        # computed as follows: Take the normal space glue for the current font, 
+        # and add the extra space if f ≥ 2000. (Each font specifies a normal space, 
+        # normal stretch, normal shrink, and extra space; for example, these 
+        # quantities are 3.33333 pt, 1.66666 pt, 1.11111 pt, and 1.11111 pt, 
+        # respectively, in cmr10. We’ll discuss such font parameters in greater
+        # detail later.) Then the stretch component is multiplied by f/1000, while 
+        # the shrink component is multiplied by 1000/f.
+        # However, TeX has two parameters \spaceskip and \xspaceskip that allow
+        # you to override the normal spacing of the current font. If f ≥2000 and 
+        # if \xspaceskip is nonzero, the \xspaceskip glue is used for an interword 
+        # space. Otherwise if \spaceskip is nonzero, the \spaceskip glue is used, 
+        # with stretch and shrink components multiplied by f/1000 and 1000/f. For 
+        # example, the \raggedright macro of plain TeX uses \spaceskip and 
+        # \xspaceskip to suppress all stretching and shrinking of interword spaces.
+        xspaceskip = self.state.parameters["xspaceskip"]
+        spaceskip = self.state.parameters["spaceskip"]
+        if f >= 2000 and xspaceskip.dimen != 0:
+            spaceglue = xspaceskip
+        elif spaceskip.dimen != 0:
+            spaceglue = spaceskip.scale(f/1000)
+        else:
+            font = self.state.parameters["currentfont"]
+            if f >= 2000:
+                spaceglue = font.spaceglue.copy()
+                spaceglue.dimen += font.param[6] # \fontdimen[7] is the extra space
+            else:
+                spaceglue = font.spaceglue
+            spaceglue = spaceglue.scale(f/1000)
+        top.append(node.Glue(spaceglue))
+        self.state.globals["spacefactor"] = 1000
 
     def lookup(self, name):
         """
@@ -150,3 +215,21 @@ class Parser:
         if len(aftergroup) > 0:
             self.input.push(lexer.TokenListScanner(aftergroup))
             self.state.domains["globals"]["aftergroup"] = []
+
+    def newParagraph(self, indent: bool = True):
+        """
+        start a new paragraph: starting the horizontal list with an empty 
+        # hbox whose width is \parindent. The \everypar tokens are inserted into 
+        # TeX’s input. The page builder is exercised. When the paragraph is 
+        # eventually completed, horizontal mode will come to an end as described 
+        # in Chapter 25. (The TeX Book pp.282)        """
+        hlist = hmode.HList()
+        if indent:
+            hlist.append(node.Box(self.state.parameters["parindent"], 0, 0))
+        self.lists.append(hlist)
+        everypar = self.state.parameters["everypar"]
+        if len(everypar) > 0:
+            self.input.push(lexer.TokenListScanner(everypar))
+        # the spacefactor is set to 1000 at the beginning of a paragraph
+        self.state.globals["spacefactor"] = 1000
+        return hlist

@@ -1,0 +1,213 @@
+"""
+Implementation of horizontal commands and hlist handling.
+"""
+
+
+from pytex import node as nd
+from pytex import lists
+from pytex.glue import Glue, Stretchness
+from pytex.module import Module
+from pytex.token import Command
+
+
+class HList(lists.List):
+    """
+    A horizontal list.
+    """
+    def __init__(self, inner=True):
+        super().__init__(lists.LISTTYE.HORIZONTAL, inner=inner)
+        # nodes that need to by migrated to the enclosing vertical list
+
+
+class HorizontalCommand(lists.ModeDependentCommand):
+    """
+    A command that behaves differently in different modes.
+    """
+    def vertical(self, parser, vlist):
+        """
+        In vertical mode, a horizontal command should start a new paragraph
+        """
+        hlist = parser.newParagraph()
+        self.horizontal(hlist)
+    
+
+class Char(HorizontalCommand):
+    """
+    Add a character to the current list.
+    """
+    def horizontal(self, parser, hlist):
+        # read the character from the input stack
+        c = parser.readInteger()
+        if c < 0:
+            raise ValueError("invalid character code")
+        parser.addChar(chr(c))
+
+    def math(self, parser, mlist):
+        self.horizontal(parser)
+
+
+class HSkip(HorizontalCommand):
+    """
+    Add a horizontal skip to the current list.
+    """
+    def __init__(self, glue=None):
+        self.glue = glue
+
+    def horizontal(self, parser, hlist):
+        if self.glue is None:
+            glue = parser.readGlue()
+        else:
+            glue = self.glue
+        node = nd.Glue(glue)
+        hlist.append(node)
+
+
+class HFil(HSkip):
+    """
+    Add a horizontal skip of 0pt plus 1fil.
+    """
+    def __init__(self):
+        super().__init__(Glue(0, Stretchness(1, 1)))
+
+
+class HFill(HSkip):
+    """
+    Add a horizontal skip of 0pt plus 1fill.
+    """
+    def __init__(self):
+        super().__init__(Glue(0, Stretchness(1, 2)))
+
+
+class Hss(HSkip):
+    """
+    Add a horizontal skip of 0pt plus 1fil minus 1fil.
+    """
+    def __init__(self):
+        super().__init__(Glue(0, Stretchness(1, 1), Stretchness(1, 1)))
+
+
+class HNegFil(HSkip):
+    """
+    Add a horizontal skip of 0pt plus -1fil.
+    """
+    def __init__(self):
+        super().__init__(Glue(0, Stretchness(-1, 1)))
+
+
+class Par(HorizontalCommand):
+    """
+    the \\par command, which ends the current paragraph
+
+    The primitive \\par command, also called \endgraf in plain TeX, does
+    nothing in restricted horizontal mode. But it terminates horizontal mode: 
+    The current list is finished oﬀ by doing 
+    \\unskip \\penalty10000 \\hskip\\parfillskip, 
+    then it is broken into lines as explained in Chapter 14, and TeX returns 
+    to the enclosing vertical or internal vertical mode. The lines of the 
+    paragraph are appended to the enclosing vertical list, interspersed with 
+    interline glue and interline penalties, and with the migration of vertical 
+    material that was in the horizontal list. Then TeX exercises the page 
+    builder. 
+    """
+    def horizontal(self, parser, hlist):
+        # has no effect for restricted horizontal mode
+        if hlist.inner:
+            return
+        # end the current paragraph:
+        # \unskip
+        if len(hlist) > 0 and hlist[-1].node_type == nd.NODE_TYPE.GLUE:
+            hlist.pop()
+        # \penalty10000
+        hlist.append(nd.Penalty(10000))
+        # \hskip\parfillskip
+        hlist.append(nd.Glue(parser.state.paramters.parfillskip))
+        parser.lists.pop()
+        parser.lists[-1].append(hlist)
+
+    def vertical(self, parser, vlist):
+        # The primitive \par command has no eﬀect when TeX is in vertical
+        # mode, except that the page builder is exercised in case something 
+        # is present on the contribution list, and the paragraph shape 
+        # parameters are cleared.
+        parser.state.globals["parshape"] = []
+        pass
+
+
+class Indent(lists.ModeDependentCommand):
+    """
+    The \\indent command.
+    """
+    def vertical(self, parser, vlist):
+        # The \parskip glue is appended to the current list, unless TeX is in
+        # internal vertical mode and the current list is empty. Then TeX enters 
+        # unrestricted horizontal mode (i.e., start a new paragraph). See 
+        # The TeX Book pp.282
+        if not vlist.inner or len(vlist) > 0:
+            vlist.append(nd.Glue(parser.state.parameters.parindent))
+        parser.newParagraph()
+    
+    def horizontal(self, parser, hlist):
+        # An empty box of width \parindent is appended to the current list,
+        # and the space factor is set to 1000. (The TeX Book pp.286)
+        hlist.append(nd.Box(parser.state.parameters.parindent, 0, 0))
+        parser.state.globals.spacefactor = 1000
+
+    def math(self, parser, mlist):
+        # An empty box of width \parindent is appended to the current list,
+        # as the nucleus of a new Ord atom.
+        raise NotImplementedError("indent in math mode")
+
+
+class Unindent(lists.ModeDependentCommand):
+    """
+    The \\unindent command.
+    """
+    def vertical(self, parser, vlist):
+        # This is exactly like \indent, except that T EX starts out in 
+        # horizontal mode with an empty list instead of with an indentation.
+        if not vlist.inner or len(vlist) > 0:
+            vlist.append(nd.Glue(parser.state.parameters.parindent))
+        parser.newParagraph(Indent=False)
+    
+    def horizontal(self, parser, hlist):
+        # This command has no eﬀect in horizontal modes.
+        pass
+
+    def math(self, parser, mlist):
+        # This command has no eﬀect in math mode.
+        pass
+
+
+class ParShape(Command):
+    """
+    Set the paragraph shape.
+    """
+    def execute(self, parser):
+        n = parser.readInteger()
+        if n < 0:
+            raise ValueError("invalid number of lines")
+        parshape = []
+        for i in range(n):
+            indent = parser.readDimen()
+            width = parser.readDimen()
+            parshape.append((indent, width))
+        parser.state.globals["parshape"] = parshape
+
+
+mod = Module("hmode",
+    commands={
+        "char": Char(),
+        "hskip": HSkip(),
+        "hfil": HFil(),
+        "hfill": HFill(),
+        "hss": Hss(),
+        "hnegfil": HNegFil(),
+        "par": Par(),
+        "indent": Indent(),
+        "unindent": Unindent(),
+        "parshape": ParShape(),
+    },
+    parameters={
+        "parshape": {"value": list, "accessor": None, "domain": "globals"},
+    },
+)

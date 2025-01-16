@@ -183,7 +183,6 @@ class Parser:
                 spaceglue = font.spaceglue
             spaceglue = spaceglue.scale(f/1000)
         top.append(node.Glue(spaceglue))
-        self.state.globals["spacefactor"] = 1000
 
     def lookup(self, name):
         """

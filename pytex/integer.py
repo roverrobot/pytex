@@ -333,8 +333,8 @@ module = Module("integer",
         "catcode": {"generator": CatCode, "accessor": ArrayAccessor, "type": CatCodeValuePointer},
         "lccode": {"generator": LCCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
         "uccode": {"generator": UCCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
-        "sfcode": {"generator": UCCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
-        "mathcode": {"generator": UCCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
+        "sfcode": {"generator": SFCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
+        "mathcode": {"generator": MathCode, "accessor": ArrayAccessor, "type": IntegerValuePointer},
         "count": {"generator": lambda: Array(0), "accessor": ArrayAccessor, "type": IntegerValuePointer},
     }
 )

@@ -224,7 +224,8 @@ class Parser:
         # in Chapter 25. (The TeX Book pp.282)        """
         hlist = hmode.HList(inner=False)
         if indent:
-            hlist.append(hmode.IndentBox(self))
+            width = self.state.parameters["parindent"]
+            hlist.append(hmode.IndentBox(width))
         self.lists.append(hlist)
         everypar = self.state.parameters["everypar"]
         if len(everypar) > 0:

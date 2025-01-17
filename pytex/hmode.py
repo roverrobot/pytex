@@ -150,14 +150,13 @@ class Indent(lists.ModeDependentCommand):
         raise NotImplementedError("indent in math mode")
 
 
-
 class IndentBox(nd.Box):
     """
     An box for indentation
     """
     node_type = nd.NODE_TYPE.HLIST
-    def __init__(self, parser):
-        super().__init__(parser.state.parameters["parindent"], 0, 0)
+    def __init__(self, width):
+        super().__init__(width, 0, 0)
 
 
 class Unindent(lists.ModeDependentCommand):

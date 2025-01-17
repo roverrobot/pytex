@@ -27,6 +27,7 @@ class List(list):
     def __init__(self, type: LISTTYE, inner: bool=True):
         super().__init__()
         self.type = type
+        self.inner = inner
 
     def __repr__(self):
         if self.type == LISTTYE.VERTICAL:

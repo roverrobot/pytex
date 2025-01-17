@@ -222,9 +222,9 @@ class Parser:
         # TeX’s input. The page builder is exercised. When the paragraph is 
         # eventually completed, horizontal mode will come to an end as described 
         # in Chapter 25. (The TeX Book pp.282)        """
-        hlist = hmode.HList()
+        hlist = hmode.HList(inner=False)
         if indent:
-            hlist.append(node.Box(self.state.parameters["parindent"], 0, 0))
+            hlist.append(hmode.IndentBox(self))
         self.lists.append(hlist)
         everypar = self.state.parameters["everypar"]
         if len(everypar) > 0:
@@ -232,3 +232,20 @@ class Parser:
         # the spacefactor is set to 1000 at the beginning of a paragraph
         self.state.globals["spacefactor"] = 1000
         return hlist
+
+    def endParagraph(self):
+        """
+        end a paragraph
+        """
+        hlist = self.lists[-1]
+        if hlist.type != lists.LISTTYE.HORIZONTAL or hlist.inner:
+            raise ValueError("cannot end the paragraph here", self.input.pos)
+        # \unskip
+        if len(hlist) > 0 and hlist[-1].node_type == node.NODE_TYPE.GLUE:
+            hlist.pop()
+        # \penalty10000
+        hlist.append(node.Penalty(10000))
+        # \hskip\parfillskip
+        hlist.append(node.Glue(self.state.parameters["parfillskip"]))
+        self.lists.pop()
+        self.lists[-1].append(hlist)

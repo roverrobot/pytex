@@ -31,9 +31,7 @@ class VerticalCommand(lists.ModeDependentCommand):
         if hlist.inner:
             # raise an error
             super().horizontal(parser, hlist)
-        lists = parser.lists
-        lists.pop()
-        lists.append(hlist)
+        parser.endParagraph()
         self.execute(parser)
 
 

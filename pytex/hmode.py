@@ -114,15 +114,7 @@ class Par(HorizontalCommand):
         if hlist.inner:
             return
         # end the current paragraph:
-        # \unskip
-        if len(hlist) > 0 and hlist[-1].node_type == nd.NODE_TYPE.GLUE:
-            hlist.pop()
-        # \penalty10000
-        hlist.append(nd.Penalty(10000))
-        # \hskip\parfillskip
-        hlist.append(nd.Glue(parser.state.paramters.parfillskip))
-        parser.lists.pop()
-        parser.lists[-1].append(hlist)
+        parser.endParagraph()
 
     def vertical(self, parser, vlist):
         # The primitive \par command has no eﬀect when TeX is in vertical
@@ -156,6 +148,16 @@ class Indent(lists.ModeDependentCommand):
         # An empty box of width \parindent is appended to the current list,
         # as the nucleus of a new Ord atom.
         raise NotImplementedError("indent in math mode")
+
+
+
+class IndentBox(nd.Box):
+    """
+    An box for indentation
+    """
+    node_type = nd.NODE_TYPE.HLIST
+    def __init__(self, parser):
+        super().__init__(parser.state.parameters["parindent"], 0, 0)
 
 
 class Unindent(lists.ModeDependentCommand):

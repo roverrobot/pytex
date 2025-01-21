@@ -2,10 +2,11 @@ import pytest
 from pytex import texlive
 
 
-def test_read_font(parser):
-    parser.parse('\\font\\f=cmr10')
-    assert parser.state.equitable["\\f"].name == 'cmr10'
-    assert parser.state.equitable["\\f"].at == 10.0
+def test_read_font(cmr10):
+    assert cmr10.state.equitable["\\f"].name == 'cmr10'
+    assert cmr10.state.equitable["\\f"].at == 10.0
+    assert cmr10.state.parameters["currentfont"].name == 'cmr10'
+    assert cmr10.state.parameters["currentfont"].at == 10.0
 
 
 def test_read_font_scaled(parser):
@@ -40,9 +41,3 @@ def test_skewchar(collector):
     assert collector.state.equitable["\\f"].fontchar["skewchar"] == 45
     collector.parse('\\the\\skewchar\\f')
     assert collector.getString() == '45'
-
-
-def test_select_font(parser):
-    parser.parse('\\font\\f=cmr10 \\f')
-    assert parser.state.parameters["currentfont"].name == 'cmr10'
-    assert parser.state.parameters["currentfont"].at == 10.0

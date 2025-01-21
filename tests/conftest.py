@@ -36,3 +36,8 @@ def collector():
     parser.getString = types.MethodType(getString, parser)
     return parser
 
+
+@pytest.fixture
+def cmr10(parser):
+    parser.parse('\\font\\f=cmr10 \\f')
+    return parser

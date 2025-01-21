@@ -6,11 +6,6 @@ from pytex import texlive
 from pytex import hmode
 
 
-@pytest.fixture
-def cmr10(parser):
-    parser.parse('\\font\\f=cmr10 \\f')
-    return parser
-
 def test_new_paragraph(cmr10):
     s = "Hello, world!"
     cmr10.parse(s)

@@ -91,9 +91,11 @@ class Kern(Node):
     """
     A kern node.
     @param kern: the kern
+    @param automatic: whether the kern is automatic (from a ligature)
     """
-    def __init__(self, kern):
+    def __init__(self, kern, automatic: bool = False):
         self.kern = kern
+        self.automatic = automatic
 
     node_type = NODE_TYPE.KERN
 

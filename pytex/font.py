@@ -32,7 +32,7 @@ class Font(Command):
             self.param[i] = tfm.param[i] * at
         self.bc = tfm.bc
         self.ec = tfm.ec
-        self.charnode = [CharNode(info, self, at) for info in tfm.char_info]
+        self.charnode = [CharNode(info, self) for info in tfm.char_info]
         self.spaceglue = Glue(self.param[1], Stretchness(self.param[2], 0), Stretchness(self.param[3], 0))
         # special characters
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}

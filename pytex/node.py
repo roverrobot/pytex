@@ -48,9 +48,9 @@ class CharNode(Box):
     A character node.
     @param char_info: the character information
     @param font: the font of the character
-    @param at: the size of the font
     """
-    def __init__(self, char_info, font, at):
+    def __init__(self, char_info, font):
+        at = font.at
         super().__init__(char_info.width * at, char_info.height * at, char_info.depth * at)
         self.char = char_info.char
         self.italic = char_info.italic * at

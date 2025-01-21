@@ -98,25 +98,12 @@ class Op:
     """
     A ligature or kerning operation.
     @param next_char: the next character to match the operation
+    @param isKern: True if this is a kerning operation
     """
-    def __init__(self, next_char: int):
+    def __init__(self, next_char: int, isKern: bool):
         self.next_char = next_char
         self.next_step = None
-
-    def op(self, hlist, next: int):
-        """
-        Perform the operation.
-        @param hlist: the hlist which last node is a CharNode (the current char)
-        @param next: the next character
-        """
-        pass
-
-    def kernBetween(self, char: int):
-        """
-        return the kerning between the current character and char.
-        @param char: the next character
-        """
-        return 0 if self.next_step is None else self.next_step.kernBetween(char)
+        self.isKern = isKern
 
 
 class LigOp(Op):
@@ -135,15 +122,11 @@ class LigOp(Op):
     a: move the current character forward a positions. 
     """
     def __init__(self, next_char: str, insert: int, op: int):
-        super().__init__(next_char)
+        super().__init__(next_char, False)
         self.insert = insert
         self.delete_current = op & 2 == 0
         self.keep_next = op & 1 == 1
         self.move = op >> 2
-
-    def op(self, hlist, next: node.CharNode):
-        pass
-
 
 
 class KernOp(Op):
@@ -156,14 +139,8 @@ class KernOp(Op):
     current char and the next_char.
     """
     def __init__(self, next_char: str, kern: float):
-        super().__init__(next_char)
+        super().__init__(next_char, True)
         self.kern = kern
-
-    def op(self, hlist, next: node.CharNode):
-        pass
-
-    def kernBetween(self, char):
-        return self.kern if self.next_char == char else super().kernBetween(char)
 
 
 class LigKern:

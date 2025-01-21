@@ -10,13 +10,84 @@ from pytex.module import Module
 from pytex.token import Command
 
 
+class Ligature(nd.CharNode):
+    """
+    A ligature node.
+
+    It is a char node that stores the characters that are combined into the
+    ligature.
+    @param char: the ligature character
+    """
+    def __init__(self, char, characters):
+        super().__init__(char.char_info, char.font)
+        self.characters = characters
+
+    node_type = nd.NODE_TYPE.LIGATURE
+
+    def __repr__(self):
+        s = "".join([c.char for c in self.characters])
+        return f"Ligature({s})"
+
+
+def addNode(nodes, node):
+    if node.node_type == nd.NODE_TYPE.CHAR and len(nodes) > 0:
+        last = nodes[-1]
+        if isinstance(last, nd.CharNode) and last.font == node.font:
+            # check if there is a program
+            next = ord(node.char)
+            if next in last.char_info.program:
+                op = last.char_info.program[next]
+                if op.isKern:
+                    nodes.append(nd.Kern(op.kern, True))
+                    nodes.append(node)
+                    return nodes
+                # a ligature
+                if last.node_type != nd.NODE_TYPE.LIGATURE:
+                    last = Ligature(last, [last])
+                    nodes[-1] = last
+                last.characters.append(node)
+                insert = Ligature(last.font[chr(op.insert)], last.characters)
+                move = op.move
+                if op.delete_current:
+                    nodes.pop()
+                    nodes.append(insert)
+                elif move == 0:
+                    nodes = addNode(nodes, insert)
+                else:
+                    nodes.append(insert)
+                    move -= 1
+                if not op.keep_next:
+                    return nodes
+                if move == 0:
+                    return addNode(nodes, Ligature(node, last.characters))
+    nodes.append(node)
+    return nodes
+
+
 class HList(lists.List):
     """
     A horizontal list.
     """
     def __init__(self, inner=True):
         super().__init__(lists.LISTTYE.HORIZONTAL, inner=inner)
-        # nodes that need to by migrated to the enclosing vertical list
+
+    def pack(self):
+        """
+        prepare the list for typesetting.
+
+        @return a new list with ligatures combined, and the glues in the list
+
+        This will combine characters into ligatures and label the glues
+        """
+        nodes = []
+        glues = []
+        for node in self:
+            if isinstance(node, nd.Glue):
+                glues.append(node)
+                nodes.append(node)
+            else:
+                nodes = addNode(nodes, node)
+        return nodes, glues
 
 
 class HorizontalCommand(lists.ModeDependentCommand):

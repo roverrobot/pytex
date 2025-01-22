@@ -222,7 +222,11 @@ class Array(list):
     def __init__(self, default=None, size: typing.Optional[int]=None):
         if size is None:
             size = self.SIZE
-        super().__init__([default] * size)
+        if callable(default):
+            init = [default() for i in range(size)]
+        else:
+            init = [default] * size
+        super().__init__(init)
 
 
 class State:

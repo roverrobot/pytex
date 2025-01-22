@@ -115,20 +115,6 @@ class ToksValuePointer(accessor.ValuePointer):
         return self.getValue(parser)
 
 
-class ToksArray(Array):
-    """
-    an array of token lists.
-
-    We need to overwrite the default value handling of Array, because passing
-    an empty list to the constructor of Array will create a reference to the
-    same list, so that the default value will be shared among all the items.
-    """
-    def __init__(self):
-        super().__init__(ToksValuePointer)
-        for i in range(len(self)):
-            self[i] = []
-
-
 class AfterGroup(Command):
     """
     the \\aftergroup command
@@ -187,7 +173,7 @@ mod = Module("toks",
         "lowercase": Case(False),
     },
     domains = {
-        "toks": {"generator": ToksArray, "accessor": accessor.ArrayAccessor, "type": ToksValuePointer},
+        "toks": {"generator": lambda: Array([]), "accessor": accessor.ArrayAccessor, "type": ToksValuePointer},
     },
     parameters={
         "aftergroup": {"value": list, "accessor": None, "domain": "globals"},

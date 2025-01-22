@@ -14,7 +14,7 @@ class VList(lists.List):
     A vertical list.
     """
     def __init__(self, inner=True):
-        super().__init__(lists.LISTTYE.VERTICAL, inner=inner)
+        super().__init__(lists.LISTTYPE.VERTICAL, inner=inner)
 
 
 class VerticalCommand(lists.ModeDependentCommand):

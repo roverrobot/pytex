@@ -112,14 +112,14 @@ class Parser:
         add a character to the current list
         @param c: the character token
         """
-        if self.lists[-1].type == lists.LISTTYE.VERTICAL:
+        if self.lists[-1].type == lists.LISTTYPE.VERTICAL:
             # if any of these tokens occurs as a command in vertical mode or 
             # internal vertical mode, TeX automatically performs an \indent 
             # command as explained above. This leads into horizontal mode with 
             # the \everypar tokens in the input, after which TeX will see the 
             # horizontal command again. The TeX Book pp.283
             self.newParagraph()
-        if self.lists[-1].type == lists.LISTTYE.HORIZONTAL:
+        if self.lists[-1].type == lists.LISTTYPE.HORIZONTAL:
             # The most common commands of all are the character commands that tell 
             # TeX to append a character to the current horizontal list, using the
             # current font. If two or more commands of this type occur in succession,
@@ -153,7 +153,7 @@ class Parser:
         # Spaces have no eﬀect in vertical modes or math modes.
         top = self.lists[-1]
         type = top.type 
-        if type == lists.LISTTYE.VERTICAL or type == lists.LISTTYE.MATH:
+        if type == lists.LISTTYPE.VERTICAL or type == lists.LISTTYPE.MATH:
             return
         # In horizontal mode, a space token appends glue to the current list,
         # see the TeX Book pp.76 for more details.
@@ -244,7 +244,7 @@ class Parser:
         end a paragraph
         """
         hlist = self.lists[-1]
-        if hlist.type != lists.LISTTYE.HORIZONTAL or hlist.inner:
+        if hlist.type != lists.LISTTYPE.HORIZONTAL or hlist.inner:
             raise ValueError("cannot end the paragraph here", self.input.pos)
         # \unskip
         if len(hlist) > 0 and hlist[-1].node_type == node.NODE_TYPE.GLUE:

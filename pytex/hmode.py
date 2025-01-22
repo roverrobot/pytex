@@ -70,7 +70,7 @@ class HList(lists.List):
     A horizontal list.
     """
     def __init__(self, inner=True):
-        super().__init__(lists.LISTTYE.HORIZONTAL, inner=inner)
+        super().__init__(lists.LISTTYPE.HORIZONTAL, inner=inner)
 
     def pack(self):
         """

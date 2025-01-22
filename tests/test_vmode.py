@@ -28,7 +28,7 @@ def test_space(parser):
     parser.parse(" ")
     assert len(parser.lists) == 1
     vlist = parser.lists[-1]
-    assert vlist.type == lists.LISTTYE.VERTICAL
+    assert vlist.type == lists.LISTTYPE.VERTICAL
     assert len(vlist) == 0
 
 
@@ -37,5 +37,5 @@ def test_par(parser):
     parser.parse("\n\n\n")
     assert len(parser.lists) == 1
     vlist = parser.lists[-1]
-    assert vlist.type == lists.LISTTYE.VERTICAL
+    assert vlist.type == lists.LISTTYPE.VERTICAL
     assert len(vlist) == 0

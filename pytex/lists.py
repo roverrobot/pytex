@@ -10,7 +10,7 @@ from pytex.module import Module
 from pytex import conditional
 
 
-class LISTTYE(enum.Enum):
+class LISTTYPE(enum.Enum):
     VERTICAL = 0
     HORIZONTAL = 1
     MATH = 2
@@ -24,15 +24,15 @@ class List(list):
 
     The internal mode means an internal vlist, or restricted hlist, or nondisplay mlist.
     """
-    def __init__(self, type: LISTTYE, inner: bool=True):
+    def __init__(self, type: LISTTYPE, inner: bool=True):
         super().__init__()
         self.type = type
         self.inner = inner
 
     def __repr__(self):
-        if self.type == LISTTYE.VERTICAL:
+        if self.type == LISTTYPE.VERTICAL:
             type = "VList"
-        elif self.type == LISTTYE.HORIZONTAL:
+        elif self.type == LISTTYPE.HORIZONTAL:
             type = "HList"
         else:
             type = "MList"
@@ -47,11 +47,11 @@ class ModeDependentCommand(Command):
     def execute(self, parser):
         top = parser.lists[-1]
         mode = top.type
-        if mode == LISTTYE.HORIZONTAL:
+        if mode == LISTTYPE.HORIZONTAL:
             self.horizontal(parser, top)
-        elif mode == LISTTYE.VERTICAL:
+        elif mode == LISTTYPE.VERTICAL:
             self.vertical(parser, top)
-        elif mode == LISTTYE.MATH:
+        elif mode == LISTTYPE.MATH:
             self.math(parser, top)
     
     def modeError(self, parser, mode):
@@ -119,9 +119,9 @@ mod = Module("lists",
     commands={
         "kern": Kern(),
         "penalty": Penalty(),
-        "ifvmode": IfMode("\\ifvmode", LISTTYE.VERTICAL),
-        "ifhmode": IfMode("\\ifhmode", LISTTYE.HORIZONTAL),
-        "ifmmode": IfMode("\\ifmmode", LISTTYE.MATH),
+        "ifvmode": IfMode("\\ifvmode", LISTTYPE.VERTICAL),
+        "ifhmode": IfMode("\\ifhmode", LISTTYPE.HORIZONTAL),
+        "ifmmode": IfMode("\\ifmmode", LISTTYPE.MATH),
         "ifinner": IfInner(),
     },
 )

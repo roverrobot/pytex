@@ -102,7 +102,7 @@ class VoidBox(nd.Box):
         self.content = None
 
     def __repr__(self):
-        return "Box()s"
+        return "Box()"
     
 
 class BoxValuePointer(ValuePointer):

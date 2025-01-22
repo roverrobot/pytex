@@ -51,9 +51,10 @@ class Module:
         if self.domains is not None:
             for name, domain in self.domains.items():
                 parser.state.addDomain(name, domain["generator"]())
-                pointer_generator = domain["type"]
                 accessor = domain["accessor"]
-                parser.state.equitable.setGlobal("\\"+name, accessor(name, pointer_generator))
+                if accessor is not None:
+                    pointer_generator = domain["type"]
+                    parser.state.equitable.setGlobal("\\"+name, accessor(name, pointer_generator))
 
     def populateAttributes(self, parser):
         """

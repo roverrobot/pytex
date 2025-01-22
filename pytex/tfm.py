@@ -6,7 +6,6 @@ from pytex import node
 from pytex.module import Module
 from struct import unpack, pack
 import io
-import typing
 
 
 class BinaryStream:
@@ -193,6 +192,7 @@ class CharInfo:
         self.program = None
         self.chain = None
         self.extend = None
+        self.program = None
         if tfm is None:
             self.width = 0
             self.height = 0

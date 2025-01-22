@@ -111,13 +111,13 @@ class BoxValuePointer(ValuePointer):
     a value pointer for the \\hbox array
     """
     def __init__(self, domain, index, wipe):
-        super().__init__(domain, index)
+        super().__init__(domain, index, eq=True)
         self.wipe = wipe
 
     def boxValue(self, parser):
         box = self.getValue(parser)
         if self.wipe:
-            self.domaim[self.index] = VoidBox()
+            self.domain[self.index] = VoidBox()
             return box
         return box.copy()
 
@@ -131,14 +131,14 @@ class Box(Command):
         self.wipe = wipe
     
     def execute(self, parser):
-        p = self.pointer()
+        p = self.pointer(parser)
         box = p.boxValue(parser)
         parser.lists[-1].append(box)
     
     def pointer(self, parser):
         pos = parser.input.position()
         index = parser.readInteger()
-        if 0 <= index < len(parser.state.box):
+        if 0 <= index < len(parser.state.box.values):
             return BoxValuePointer(parser.state.box, index, self.wipe)
         raise ValueError("box index out of range", pos)
 

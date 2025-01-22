@@ -42,3 +42,15 @@ def test_copy(box):
     assert box1.height == box0.height
     assert box1.depth == box0.depth
     assert box1 is not box0
+
+
+def test_ifvoid(box):
+    box0 = box.state.box[0]
+    box.parse("\\ifvoid0 a\\else b\\fi")
+    top = box.lists[-1]
+    assert top[-1].char == "b"
+    box.parse("\\setbox1=\\box0")
+    box.parse("\\ifvoid1 c\\else d\\fi")
+    assert top[-1].char == "d"
+    box.parse("\\ifvoid0 a\\else b\\fi")
+    assert top[-1].char == "a"

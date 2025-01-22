@@ -10,6 +10,7 @@ from pytex.accessor import ArrayAccessor, ValuePointer
 from pytex.state import Array
 from pytex.token import Command
 from pytex.dimen import Dimen
+from pytex import conditional
 
 
 class WrapInfo:
@@ -154,9 +155,7 @@ def readBox(parser):
     if command is None:
         raise ValueError("expecting a box", pos)
     try:
-        print(command)
         p = command.pointer(parser)
-        print(p)
         return p.boxValue(parser)
     except AttributeError:
         raise ValueError("expecting a box", pos)
@@ -170,6 +169,21 @@ class SetBox(ArrayAccessor):
         super().__init__("box", BoxValuePointer)
 
 
+class IfVoid(conditional.Conditional):
+    """
+    The \\ifinner command.
+    """
+    def __init__(self):
+        super().__init__("\\ifinner")
+    
+    def condition(self, parser):
+        pos = parser.input.position()
+        index = parser.readInteger()
+        if 0 <= index < len(parser.state.box.values):
+            return 0 if parser.state.box[index].content is None else 1
+        raise ValueError("box index out of range", pos)
+
+
 mod = Module("hbox", 
     domains={
         "box": {"generator": lambda: Array(VoidBox), "accessor": None},
@@ -181,5 +195,6 @@ mod = Module("hbox",
         "box": Box(True),
         "copy": Box(False),
         "setbox": SetBox(),
+        "ifvoid": IfVoid(),
     }
 )

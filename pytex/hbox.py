@@ -80,6 +80,16 @@ class HBox(nd.Box):
                 s = shrink.factor * ratio if shrink.order == order else 0
                 g.kern = g.glue.dimen - s
 
+    def copy(self):
+        """
+        return a copy of the box
+        """
+        box = HBox(self.hlist, self.width, 0)
+        box.content = self.content
+        box.glues = self.glues
+        box.migrate = self.migrate
+        return box
+    
     def __repr__(self):
         return f"HBox({self.width}, {self.height}, {self.depth}, {self.content})"
 
@@ -108,7 +118,8 @@ class BoxValuePointer(ValuePointer):
         box = self.getValue(parser)
         if self.wipe:
             self.domaim[self.index] = VoidBox()
-        return box
+            return box
+        return box.copy()
 
 
 class Box(Command):

@@ -83,7 +83,7 @@ class Glue:
         scale the glue
         factor: the scaling factor
         """
-        return Glue(self.dimen * factor, self.stretch * factor, self.shrink / factor)
+        return Glue(self.dimen, self.stretch * factor, self.shrink / factor)
 
     def __str__(self):
         return f"{self.dimen}pt plus {self.stretch} minus {self.shrink}"

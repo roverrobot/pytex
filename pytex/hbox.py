@@ -39,7 +39,6 @@ class WrapInfo:
                 self.migrate.append(n)
             elif isinstance(n, nd.Mark):
                 self.migrate.append(n)
-        print("natural width", self.natural_width)
 
 
 class HBox(nd.Box):

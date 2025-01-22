@@ -34,6 +34,7 @@ def test_ligatures(cmr10, input, char):
 ])
 def test_kern(cmr10, input):
     cmr10.parse(input)
+    at = cmr10.state.parameters["currentfont"].at
     top = cmr10.lists[-1]
     nodes, glues = top.pack()
     assert len(nodes) == 5
@@ -46,4 +47,4 @@ def test_kern(cmr10, input):
     next = ord(input[1])
     program = char.char_info.program
     assert next in program
-    assert knode.kern == program[next].kern
+    assert knode.kern == program[next].kern*at

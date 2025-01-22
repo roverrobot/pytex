@@ -3,7 +3,7 @@ This module implements glue parsing and handling.
 """
 
 
-from pytex.dimen import readDimen, readUnsignedDimen
+from pytex.dimen import readDimen, readUnsignedDimen, Dimen
 from pytex.integer import readSigns
 from pytex.state import Array
 from pytex.accessor import ValuePointer, ArrayAccessor, ParameterAccessor
@@ -19,7 +19,7 @@ class Stretchness:
     orders 1--3 is fil, fill, and filll.    
     """
     mu = False
-    def __init__(self, factor: float=0, order: int=0):
+    def __init__(self, factor=Dimen(), order: int=0):
         self.factor = factor
         self.order = order
     
@@ -67,7 +67,7 @@ class Glue:
     a glue is a dimension with stretch and shrink
     """
     mu = False
-    def __init__(self, dimen: float=0, stretch=Stretchness(), shrink=Stretchness()):
+    def __init__(self, dimen=Dimen(), stretch=Stretchness(), shrink=Stretchness()):
         self.dimen = dimen
         self.stretch = stretch
         self.shrink = shrink

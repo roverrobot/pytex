@@ -102,6 +102,8 @@ def test_ifdim(collector):
     collector.parse("\\dimen0 1pt\\dimen1 2pt")
     collector.parse("\\ifdim\\dimen0<\\dimen1 a\\else b\\fi")
     assert collector.getString() == "a"
+    collector.parse("\\ifdim 2pt>\\dimen1 a\\else b\\fi")
+    assert collector.getString() == "b"
     collector.parse("\\ifdim 1pt>\\dimen1 a\\else b\\fi")
     assert collector.getString() == "b"
     collector.parse("\\ifdim 1pt=\\dimen0 a\\else b\\fi")

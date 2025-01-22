@@ -4,6 +4,7 @@ This module implements the nodes of horizontal and vertical lists.
 
 
 import enum
+from pytex.dimen import Dimen
 
 
 class NODE_TYPE(enum.Enum):
@@ -38,9 +39,9 @@ class Box(Node):
     A box node.
     """
     def __init__(self, width, height, depth):
-        self.width = width
-        self.height = height
-        self.depth = depth
+        self.width = Dimen(width)
+        self.height = Dimen(height)
+        self.depth = Dimen(depth)
 
 
 class CharNode(Box):
@@ -80,9 +81,11 @@ class Glue(Node):
     """
     def __init__(self, glue):
         self.glue = glue
+        self.kern = None
 
     def __repr__(self):
-        return f"Glue(self.glue)"
+        set = self.glue if self.kern is None else f"{self.kern}pt"
+        return f"Glue({set})"
     
     node_type = NODE_TYPE.GLUE
 
@@ -94,13 +97,13 @@ class Kern(Node):
     @param automatic: whether the kern is automatic (from a ligature)
     """
     def __init__(self, kern, automatic: bool = False):
-        self.kern = kern
+        self.kern = Dimen(kern)
         self.automatic = automatic
 
     node_type = NODE_TYPE.KERN
 
     def __repr__(self):
-        return f"Kern(self.kern)"
+        return f"Kern({self.kern}pt)"
 
 
 class Penalty(Node):

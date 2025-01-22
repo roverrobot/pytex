@@ -135,7 +135,12 @@ class Parser:
             f = self.state.parameters["currentfont"]
             hlist = self.lists[-1]
             hlist.append(f[c])
-            self.state.globals["spacefactor"] = self.state.sfcode[ord(c)]
+            sf = self.state.sfcode[ord(c)]
+            if sf != 0:
+                cf = self.state.globals["spacefactor"]
+                if cf < 1000 < sf:
+                    sf = 1000
+                self.state.globals["spacefactor"] = sf
         else:
             # math mode.
             raise NotImplementedError

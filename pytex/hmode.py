@@ -35,10 +35,11 @@ def addNode(nodes, node):
         if isinstance(last, nd.CharNode) and last.font == node.font:
             # check if there is a program
             next = ord(node.char)
-            if next in last.char_info.program:
+            program = last.char_info.program
+            if program is not None and next in program:
                 op = last.char_info.program[next]
                 if op.isKern:
-                    nodes.append(nd.Kern(op.kern, True))
+                    nodes.append(nd.Kern(op.kern*last.font.at, True))
                     nodes.append(node)
                     return nodes
                 # a ligature
@@ -206,13 +207,13 @@ class Indent(lists.ModeDependentCommand):
         # unrestricted horizontal mode (i.e., start a new paragraph). See 
         # The TeX Book pp.282
         if not vlist.inner or len(vlist) > 0:
-            vlist.append(nd.Glue(parser.state.parameters.parindent))
+            vlist.append(nd.Glue(parser.state.parameters["parskip"]))
         parser.newParagraph()
     
     def horizontal(self, parser, hlist):
         # An empty box of width \parindent is appended to the current list,
         # and the space factor is set to 1000. (The TeX Book pp.286)
-        hlist.append(nd.Box(parser.state.parameters.parindent, 0, 0))
+        hlist.append(nd.Box(parser.state.parameters["parskip"], 0, 0))
         parser.state.globals.spacefactor = 1000
 
     def math(self, parser, mlist):
@@ -230,7 +231,7 @@ class IndentBox(nd.Box):
         super().__init__(width, 0, 0)
 
 
-class Unindent(lists.ModeDependentCommand):
+class NoIndent(lists.ModeDependentCommand):
     """
     The \\unindent command.
     """
@@ -238,8 +239,8 @@ class Unindent(lists.ModeDependentCommand):
         # This is exactly like \indent, except that T EX starts out in 
         # horizontal mode with an empty list instead of with an indentation.
         if not vlist.inner or len(vlist) > 0:
-            vlist.append(nd.Glue(parser.state.parameters.parindent))
-        parser.newParagraph(Indent=False)
+            vlist.append(nd.Glue(parser.state.parameters["parskip"]))
+        parser.newParagraph(indent=False)
     
     def horizontal(self, parser, hlist):
         # This command has no eﬀect in horizontal modes.
@@ -276,7 +277,7 @@ mod = Module("hmode",
         "hnegfil": HNegFil(),
         "par": Par(),
         "indent": Indent(),
-        "unindent": Unindent(),
+        "noindent": NoIndent(),
         "parshape": ParShape(),
     },
     parameters={

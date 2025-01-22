@@ -113,6 +113,9 @@ class BoxValuePointer(ValuePointer):
         super().__init__(domain, index, eq=True)
         self.wipe = wipe
 
+    def readValue(self, parser):
+        return parser.readBox()
+
     def boxValue(self, parser):
         box = self.getValue(parser)
         if self.wipe:
@@ -151,23 +154,20 @@ def readBox(parser):
     if command is None:
         raise ValueError("expecting a box", pos)
     try:
+        print(command)
         p = command.pointer(parser)
+        print(p)
         return p.boxValue(parser)
     except AttributeError:
         raise ValueError("expecting a box", pos)
     
 
-class SetBox(Command):
+class SetBox(ArrayAccessor):
     """
     the \\setbox command
     """
-    def execute(self, parser):
-        pos = parser.input.position()
-        index = parser.readInteger()
-        box = readBox(parser)
-        if 0 <= index < len(parser.state.box):
-            parser.state.box[index] = box
-        raise ValueError("box index out of range", pos)
+    def __init__(self):
+        super().__init__("box", BoxValuePointer)
 
 
 mod = Module("hbox", 

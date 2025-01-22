@@ -22,9 +22,23 @@ def test_box_dimensions(box):
     assert Dimen(box0.height) == 6.94444
     assert Dimen(box0.depth) == 1.94444    
 
+
 def test_box_command(box):
     box0 = box.state.box[0]
     box.parse("\\box0")
     top = box.lists[-1]
     assert top[-1] == box0
     assert box.state.box[0].content is None
+
+
+def test_copy(box):
+    box0 = box.state.box[0]
+    box.parse("\\setbox1=\\copy0")
+    box1 = box.state.box[1]
+    assert box1.content == box0.content
+    assert box1.glues == box0.glues
+    assert box1.migrate == box0.migrate
+    assert box1.width == box0.width
+    assert box1.height == box0.height
+    assert box1.depth == box0.depth
+    assert box1 is not box0

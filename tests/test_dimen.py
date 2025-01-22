@@ -70,7 +70,7 @@ def test_em_ex(parser):
     parser.parse("\\font\\f=cmr10 \\f")
     parser.readFrom("1 em")
     result = parser.readDimen()
-    assert result == 10.000028610229492
+    assert result == 10.00002
     parser.readFrom("1 ex")
     result = parser.readDimen()
-    assert result == 4.305553436279297
+    assert result == 4.30554

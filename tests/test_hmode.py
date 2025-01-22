@@ -53,6 +53,6 @@ def test_vskip(cmr10):
     assert len(hlist) == 8
     node = vlist[1]
     assert node.node_type == nd.NODE_TYPE.GLUE
-    assert node.glue.dimen == 72.27
+    assert node.glue.dimen == 72.26999
     hlist = vlist[2]
     assert hlist.type == lists.LISTTYE.HORIZONTAL

@@ -36,12 +36,14 @@ class Group:
     a group is a collection of values that are bound to a certain scope.
     To implement a group, we store old values in the group, while the new values
     are stored in situ. When the group is closed, the old values are restored.
-    @param group_type: the type of the group
     @param position: the position of the token starting the group
+    @param group_type: the type of the group
+    @param callback: a callback to be called when the group
     """
-    def __init__(self, position, group_type: GROUP_TYPE):
+    def __init__(self, position, group_type: GROUP_TYPE, callback=None):
         self.group_type = group_type
         self.position = position
+        self.callback = callback
         # values holds the saved values, where the key is the name of a domain, e.g., "catcode", 
         # "equitable" etc, and the value is a tuple, which first value is the domain, and 
         # the second is a dict that maps the index to the saved value.
@@ -66,6 +68,16 @@ class Group:
         if index not in store[1]:
             store[1][index] = save
 
+    def match(self, group_type: GROUP_TYPE):
+        """
+        check if the group type matches the group type of the group
+        @param group_type: the group type
+        @return: True if the group type matches, False otherwise
+        """
+        if self.group_type == GROUP_TYPE.SEMI_SIMPLE or self.group_type == GROUP_TYPE.MATH:
+            return group_type == self.group_type
+        return group_type ==  GROUP_TYPE.SIMPLE
+
     def end(self, position, group_type: GROUP_TYPE):
         """
         end the group, and restore the old values. This is valid only if the group_type
@@ -73,12 +85,14 @@ class Group:
         @param group_type: the type of the group
         @param position: the position of the token ending the group
         """
-        if group_type != self.group_type:
+        if not self.match(group_type):
             raise ValueError(f"mismatched group type starting at {self.position} and ending at {position}")
         for key, item in self.values.items():
             domain, store = item
             for index, value in store.items():
                 domain.restore(index, value)
+        if self.callback:
+            self.callback()
 
     def remove(self, domain, index):
         """
@@ -99,13 +113,14 @@ class GroupStack(list):
     a stack of groups.
     """
 
-    def begin(self, position, group_type: GROUP_TYPE):
+    def begin(self, position, group_type: GROUP_TYPE, callback=None):
         """
         begin a new group
-        @param group_type: the type of the group
         @param position: the position of the token starting the group
+        @param group_type: the type of the group
+        @param callback: a callback to be called when the group is closed
         """
-        group = Group(position, group_type)
+        group = Group(position, group_type, callback)
         self.append(group)
 
     def end(self, position, group_type: GROUP_TYPE):
@@ -255,12 +270,14 @@ class State:
     def currentGroup(self):
         return self.groups.top()
 
-    def beginGroup(self, position, group_type: GROUP_TYPE=GROUP_TYPE.SIMPLE):
+    def beginGroup(self, position, group_type: GROUP_TYPE=GROUP_TYPE.SIMPLE, callback=None):
         """
         starts a new group
-        :param context: the context of the group
+        @param position: the position of the group
+        @param group_type: the type of the group
+        @param callback: a callback to be called when the group is closed
         """
-        self.groups.begin(position, group_type)
+        self.groups.begin(position, group_type, callback)
 
     def endGroup(self, position, group_type: GROUP_TYPE=GROUP_TYPE.SIMPLE):
         """

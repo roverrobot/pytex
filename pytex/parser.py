@@ -72,13 +72,22 @@ class Parser:
         @param name: the name of the input
         """
         self.readFrom(input, name)
-        while True:
-            t = self.token_expand()
-            if t is None:
-                break
-            t.execute(self)
+        self.loop()
         if len(self.ifstack) > 0:
             raise ValueError("missing \\fi")
+        
+    def loop(self):
+        """
+        the main read-execute loop
+        """
+        self.run = True
+        while self.run:
+            t = self.token_expand()
+            if t is None:
+                self.run = False
+                break
+            t.execute(self)
+
 
     def readFrom(self, input, name: typing.Optional[str] = None):
         """
@@ -200,13 +209,14 @@ class Parser:
         except KeyError:
             return None
 
-    def beginGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
+    def beginGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE, callback=None):
         """
         begin a group
         @param position: the position of the begin group token
         @param group_type: the type of the group
+        @param callback: the callback function
         """
-        self.state.beginGroup(position, group_type)
+        self.state.beginGroup(position, group_type, callback)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
         """

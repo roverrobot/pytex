@@ -20,6 +20,7 @@ from pytex import font
 from pytex import lists
 from pytex import vmode
 from pytex import hmode
+from pytex import box
 
 
 class Parser:

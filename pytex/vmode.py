@@ -16,6 +16,30 @@ class VList(lists.List):
     def __init__(self, inner=True):
         super().__init__(lists.LISTTYPE.VERTICAL, inner=inner)
 
+    def pack(self):
+        """
+        prepare the list for typesetting.
+
+        @return a new list and the glues
+
+        This will migrate the \\marks and \\vadjusts in an hbox to the list.
+        """
+        nodes = []
+        glues = []
+        for node in self:
+            if isinstance(node, nd.Glue):
+                glues.append(node)
+            elif node.node_type == nd.NODE_TYPE.HLIST:
+                nodes.append(node)
+                for n in node.migrate:
+                    if n.node_type == nd.NODE_TYPE.MARK:
+                        nodes.append(n)
+                    elif n.node_type == nd.NODE_TYPE.VADJUST:
+                        nodes.extend(n.vlist)
+                continue
+            nodes.append(node)
+        return nodes, glues
+
 
 class VerticalCommand(lists.ModeDependentCommand):
     """

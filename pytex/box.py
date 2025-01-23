@@ -4,6 +4,7 @@ parse and wrap up an hbox
 
 from pytex import node as nd
 from pytex import hmode
+from pytex import vmode
 from pytex.glue import Stretchness
 from pytex.module import Module
 from pytex.accessor import ArrayAccessor, ValuePointer
@@ -14,15 +15,15 @@ from pytex import conditional
 from pytex.state import GROUP_TYPE
 
 
-class WrapInfo:
+class HBoxWrapInfo:
     """
     The natural dimension,  stretchness and migratable nodes of an hlist
     @param nodes: the nodes
     """
     def __init__(self, nodes):
         self.natural_width = Dimen()
-        self.height = Dimen()
-        self.depth = Dimen()
+        self.height = None
+        self.depth = None
         self.stretch = Stretchness(0,0)
         self.shrink = Stretchness(0,0)
         self.migrate = []
@@ -33,8 +34,10 @@ class WrapInfo:
                 self.natural_width += n.glue.dimen
             elif isinstance(n, nd.Box):
                 self.natural_width += n.width
-                self.height = max(self.height, n.height)
-                self.depth = max(self.depth, n.depth)
+                if self.height is None or n.height > self.height:
+                    self.height = n.height
+                if self.depth is None or n.depth > self.depth:
+                    self.depth = n.depth
             elif isinstance(n, nd.Kern):
                 self.natural_width += n.kern
             elif isinstance(n, nd.VAdjust):
@@ -46,10 +49,8 @@ class WrapInfo:
 class HBox(nd.Box):
     """
     A horizontal box.
-    @param hlist: an hlist to be wrapped
     @param to: the target width
     @param spread: the spread
-    @param packed: optionally the packed hlist.
     """
     def __init__(self, to, spread):
         self.hlist = None
@@ -61,8 +62,14 @@ class HBox(nd.Box):
     node_type = nd.NODE_TYPE.HLIST
 
     def pack(self, hlist, packed=None):
+        """
+        pack the hlist into the box
+        @param hlist: an hlist to be wrapped
+        @param packed: optionally the packed hlist.
+        """
+        self.hlist = hlist
         self.content, self.glues = packed if packed is not None else hlist.pack()
-        info = WrapInfo(self.content)
+        info = HBoxWrapInfo(self.content)
         self.migrate = info.migrate
         if self.to is None:
             self.width = info.natural_width + self.spread
@@ -305,6 +312,110 @@ class IfVoid(conditional.Conditional):
         raise ValueError("box index out of range", pos)
 
 
+class VBoxWrapInfo:
+    """
+    The natural dimension,  stretchness and migratable nodes of an hlist
+    @param nodes: the nodes
+    @param vtop: whether the box is a vtop
+    """
+    def __init__(self, nodes, vtop):
+        self.natural_height = Dimen()
+        self.width = None
+        self.depth = Dimen()
+        self.stretch = Stretchness(0,0)
+        self.shrink = Stretchness(0,0)
+        for n in nodes:
+            if isinstance(n, nd.Glue):
+                self.stretch += n.glue.stretch
+                self.shrink += n.glue.shrink
+                self.natural_height += n.glue.dimen
+            elif isinstance(n, nd.Box):
+                if self.width is None or n.width > self.width:
+                    self.width = n.width
+                self.natural_height += n.height + n.depth
+            elif isinstance(n, nd.Kern):
+                self.natural_height += n.kern
+        if len(nodes) > 0:
+            last = nodes[-1]
+            if isinstance(last, nd.Box):
+                self.natural_height -= last.depth
+                self.depth = last.depth
+            if vtop:
+                first = nodes[0]
+                self.depth = self.natural_height - first.height + self.depth
+                self.natural_height = first.height
+
+
+class VBox(nd.Box):
+    """
+    A vertical box.
+    @param to: the target height
+    @param spread: the spread
+    @param vtop: whether the box is a vtop
+    """
+    def __init__(self, to, spread, vtop):
+        super().__init__(0, 0, 0)
+        self.content = None
+        self.vlist = None
+        self.to = to
+        self.spread = spread
+        self.vtop = vtop
+
+    node_type = nd.NODE_TYPE.VLIST
+
+    def pack(self, vlist, packed=None):
+        """
+        pack the vlist into the box
+        @param vlist: a vlist to be wrapped
+        @param packed: optionally the packed vlist.
+        """
+        self.vlist = vlist
+        self.content, self.glues = packed if packed is not None else vlist.pack()
+        info = VBoxWrapInfo(self.content, self.vtop)
+        if self.to is None:
+            self.height = info.natural_height + self.spread
+        else:
+            self.height = self.to
+        self.width = info.width
+        self.depth = info.depth
+        diff = self.height - info.natural_height
+        if diff == 0:
+            for g in self.glues:
+                g.kern = g.glue.dimen
+        elif diff > 0:
+            ratio = 1 if info.stretch.factor == 0 else diff / info.stretch.factor
+            order = info.stretch.order
+            for g in self.glues:
+                stretch = g.glue.stretch
+                s = stretch.factor * ratio if stretch.order == order else 0
+                g.kern = g.glue.dimen + s
+        else:
+            ratio = min(1, -diff / info.shrink.factor)
+            order = info.shrink.order
+            for g in self.glues:
+                shrink = g.glue.shrink
+                s = shrink.factor * ratio if shrink.order == order else 0
+                g.kern = g.glue.dimen - s
+
+
+class VBoxCommand(ReadBox):
+    """
+    the \\hbox command
+    @param vtop: whether the box is a vtop
+    """
+    def __init__(self, vtop):
+        self.vtop = vtop
+
+    def list(self):
+        return vmode.VList()
+    
+    def box(self, to, spread):
+        return VBox(to, spread, self.vtop)
+    
+    def reason(self):
+        return GROUP_TYPE.VTOP if self.vtop else GROUP_TYPE.VBOX
+    
+
 mod = Module("hbox", 
     domains={
         "box": {"generator": lambda: Array(VoidBox), "accessor": None},
@@ -318,5 +429,7 @@ mod = Module("hbox",
         "setbox": SetBox(),
         "ifvoid": IfVoid(),
         "hbox": HBoxCommand(),
+        "vbox": VBoxCommand(False),
+        "vtop": VBoxCommand(True),
     }
 )

@@ -168,3 +168,9 @@ def test_wd(box, cmd, attr):
     assert box.state.dimen[0] == getattr(box.state.box[0], attr)
     box.parse(f"{cmd}0=100pt")
     assert getattr(box.state.box[0], attr) == 100
+
+
+def test_box_void(box):
+    box.parse("\\box1")
+    top = box.lists[-1]
+    assert len(top) == 0

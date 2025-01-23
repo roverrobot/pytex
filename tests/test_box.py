@@ -156,3 +156,15 @@ def test_vtop_spread(box):
     assert box.height == 6.94444 + 10
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
     assert len(box.content) == 3
+
+
+@pytest.mark.parametrize("cmd, attr", [
+    ["\\ht", "height"],
+    ["\\dp", "depth"],
+    ["\\wd", "width"]
+])
+def test_wd(box, cmd, attr):
+    box.parse(f"\\dimen0={cmd}0")
+    assert box.state.dimen[0] == getattr(box.state.box[0], attr)
+    box.parse(f"{cmd}0=100pt")
+    assert getattr(box.state.box[0], attr) == 100

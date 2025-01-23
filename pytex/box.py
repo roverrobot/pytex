@@ -7,7 +7,7 @@ from pytex import hmode
 from pytex import vmode
 from pytex.glue import Stretchness
 from pytex.module import Module
-from pytex.accessor import ArrayAccessor, ValuePointer
+from pytex.accessor import Accessor, ArrayAccessor, ValuePointer
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen
@@ -416,6 +416,42 @@ class VBoxCommand(ReadBox):
         return GROUP_TYPE.VTOP if self.vtop else GROUP_TYPE.VBOX
     
 
+class BoxDimenValuePointer(ValuePointer):
+    """
+    a value pointer for the dimension of a box
+    """
+    def readValue(self, parser):
+        return parser.readDimen()
+
+    def setValue(self, parser, value, globally: bool):
+        setattr(self.domain, self.index, value)
+
+    def dimenValue(self, parser):
+        return getattr(self.domain, self.index)
+    
+    def intValue(self, parser):
+        return int(self.dimenValue(parser))
+
+    allow_global = False
+
+
+class BoxDimenCommand(Accessor):
+    """
+    a command that accesses a dimension for a box
+    """
+    def __init__(self, dimen):
+        self.dimen = dimen
+        super().__init__("box", BoxDimenValuePointer, eq=True)
+
+    def pointer(self, parser):
+        pos = parser.input.position()
+        index = parser.readInteger()
+        if 0 <= index < len(parser.state.box.values):
+            box = parser.state.box[index]
+            return BoxDimenValuePointer(box, self.dimen, eq=True)
+        raise ValueError("box index out of range", pos)
+
+
 mod = Module("hbox", 
     domains={
         "box": {"generator": lambda: Array(VoidBox), "accessor": None},
@@ -431,5 +467,8 @@ mod = Module("hbox",
         "hbox": HBoxCommand(),
         "vbox": VBoxCommand(False),
         "vtop": VBoxCommand(True),
+        "wd": BoxDimenCommand("width"),
+        "ht": BoxDimenCommand("height"),
+        "dp": BoxDimenCommand("depth"),
     }
 )

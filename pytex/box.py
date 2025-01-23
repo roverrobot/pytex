@@ -13,6 +13,7 @@ from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen
 from pytex import conditional
 from pytex.state import GROUP_TYPE
+from pytex.lists import LISTTYPE
 
 
 class HBoxWrapInfo:
@@ -166,7 +167,8 @@ class Box(Command):
     def execute(self, parser):
         p = self.pointer(parser)
         box = p.boxValue(parser)
-        parser.lists[-1].append(box)
+        if not isinstance(box, VoidBox):
+            parser.lists[-1].append(box)
     
     def pointer(self, parser):
         pos = parser.input.position()
@@ -217,7 +219,6 @@ class BoxSpecPointer(ValuePointer):
 
     def finalize(self, parser):
         def callback():
-            parser.run = False
             assert parser.lists.pop() == self.list
             self.box.pack(self.list)
         parser.beginGroup(self.pos, self.command.reason(), callback)
@@ -397,6 +398,9 @@ class VBox(nd.Box):
                 s = shrink.factor * ratio if shrink.order == order else 0
                 g.kern = g.glue.dimen - s
 
+    def __repr__(self):
+        return f"VBox({self.width}, {self.height}, {self.depth}, {self.content})"
+
 
 class VBoxCommand(ReadBox):
     """
@@ -452,6 +456,42 @@ class BoxDimenCommand(Accessor):
         raise ValueError("box index out of range", pos)
 
 
+class UnBox(Command):
+    """
+    the \\un[hv]box and \\un[hv]copy commands
+    @param vertical whether the command is vertical
+    @param wipe whether to wipe the box register after use
+    """
+    def __init__(self, vertical: bool, wipe: bool):
+        self.vertical = vertical
+        self.wipe = wipe
+
+    def execute(self, parser):
+        pos = parser.input.position()
+        index = parser.readInteger()
+        if 0 <= index < len(parser.state.box.values):
+            box = parser.state.box[index]
+            if self.wipe:
+                parser.state.box[index] = VoidBox()
+            if isinstance(box, VoidBox):
+                return
+            top = parser.lists[-1]
+            if self.vertical and top.type == LISTTYPE.VERTICAL:
+                if box.node_type == nd.NODE_TYPE.VLIST:
+                    top.extend(box.content)
+                else:
+                    raise ValueError("expecting a vbox", pos)
+            elif not self.vertical and top.type == LISTTYPE.HORIZONTAL:
+                if box.node_type == nd.NODE_TYPE.HLIST:
+                    top.extend(box.hlist)
+                else:
+                    raise ValueError("expecting an hbox", pos)
+            else:
+                raise ValueError("wrong mode", pos)
+        else:
+            raise ValueError("box index out of range", pos)
+
+
 mod = Module("hbox", 
     domains={
         "box": {"generator": lambda: Array(VoidBox), "accessor": None},
@@ -470,5 +510,9 @@ mod = Module("hbox",
         "wd": BoxDimenCommand("width"),
         "ht": BoxDimenCommand("height"),
         "dp": BoxDimenCommand("depth"),
+        "unhbox": UnBox(False, True),
+        "unvbox": UnBox(True, True),
+        "unhcopy": UnBox(False, False),
+        "unvcopy": UnBox(True, False),
     }
 )

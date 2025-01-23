@@ -174,3 +174,41 @@ def test_box_void(box):
     box.parse("\\box1")
     top = box.lists[-1]
     assert len(top) == 0
+
+
+def test_unhbox(box):
+    box.parse("1\\unhbox0")
+    top = box.lists[-1]
+    assert len(top) == 15
+    assert box.state.box[0].content is None
+
+
+def test_unhbox_wrongmode(box):
+    try:
+        box.parse("\\unhbox0")
+        assert False
+    except ValueError as e:
+        assert "wrong mode" in str(e)
+
+
+def test_unvbox_wrongbox(box):
+    try:
+        box.parse("\\unvbox0")
+        assert False
+    except ValueError as e:
+        assert "vbox" in str(e)
+
+
+def test_unhcopy(box):
+    box.parse("1\\unhcopy0")
+    top = box.lists[-1]
+    assert len(top) == 15
+    assert box.state.box[0].content is not None
+
+
+def test_unvbox(box):
+    box.parse("\\setbox1=\\vbox{\\box0}\\unvbox1")
+    top = box.lists[-1]
+    assert len(top) == 1
+    assert top[0].node_type == NODE_TYPE.HLIST
+    assert box.state.box[1].content is None

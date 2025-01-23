@@ -6,7 +6,7 @@ This module implements glue parsing and handling.
 from pytex.dimen import readDimen, readUnsignedDimen, Dimen
 from pytex.integer import readSigns
 from pytex.state import Array
-from pytex.accessor import ValuePointer, ArrayAccessor, ParameterAccessor
+from pytex.accessor import ValuePointer, ArrayAccessor, ParameterAccessor, GlobalParameterAccessor
 from pytex.module import Module
 import typing
 
@@ -275,6 +275,6 @@ mod = Module("glue",
         "thickmuskip": {"value": MuGlue(), "accessor": ParameterAccessor, "type": MuGlueValuePointer, "domain": "layout"},
         "spaceskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "parameters"},
         "xspaceskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "parameters"},
-        "lastskip": {"value": 0, "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "globals"},
+        "lastskip": {"value": 0, "accessor": GlobalParameterAccessor, "type": GlueValuePointer, "domain": "globals"},
     }
 )

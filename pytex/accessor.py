@@ -183,6 +183,21 @@ class ParameterAccessor(Accessor):
         return self.name
 
 
+class GlobalParameterAccessor(ParameterAccessor):
+    """
+    an accessor that accesses a global parameter
+    """
+    def pointer(self, parser):
+        """
+        get the value pointer
+        @param parser: the parser
+        @return: the value pointer and possible prefixes
+        """
+        p = super().pointer(parser)
+        p.allow_global = False
+        return p
+
+
 class Prefix(token.Command):
     """
     A prefix to an assignment

@@ -62,3 +62,6 @@ def test_integer_array(parser):
     checkValues(parser, "{\\count1=1", [["count", 1, 1]])
     checkValues(parser, "}", [["count", 1, -2]])
     checkValues(parser, "{\\global\\count1=1}", [["count", 1, 1]])
+
+def test_global_integer(parser):
+    checkValues(parser, "\\global\\spacefactor=1", [["globals", "spacefactor", 1]])

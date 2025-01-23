@@ -7,7 +7,7 @@ import typing
 from pytex.token import Token, CATCODE
 from pytex.module import Module
 from pytex.state import Array
-from pytex.accessor import ValuePointer, ParameterAccessor, ArrayAccessor
+from pytex.accessor import ValuePointer, ParameterAccessor, GlobalParameterAccessor, ArrayAccessor
 
 
 def readSigns(parser):
@@ -324,10 +324,10 @@ module = Module("integer",
         "showboxdepth": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
         "errorcontextlines": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
         # global parameters
-        "spacefactor": {"value": 1000, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
-        "prevgraf": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
-        "deadcycles": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
-        "insertpenalties": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
+        "spacefactor": {"value": 1000, "accessor": GlobalParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
+        "prevgraf": {"value": 0, "accessor": GlobalParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
+        "deadcycles": {"value": 0, "accessor": GlobalParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
+        "insertpenalties": {"value": 0, "accessor": GlobalParameterAccessor, "type": IntegerValuePointer, "domain": "globals"},
     },
     domains={
         "catcode": {"generator": CatCode, "accessor": ArrayAccessor, "type": CatCodeValuePointer},

@@ -1,6 +1,7 @@
 import pytest
 from pytex import hbox
 from pytex import lists
+from pytex.node import NODE_TYPE
 from pytex import texlive
 from pytex.dimen import Dimen
 
@@ -9,7 +10,8 @@ from pytex.dimen import Dimen
 def box(cmr10):
     cmr10.parse("\\noindent Hello, world!\\relax")
     top = cmr10.lists.pop()
-    box = hbox.HBox(top, spread=10)
+    box = hbox.HBox(to=None, spread=10)
+    box.pack(top)
     cmr10.state.box[0] = box
     return cmr10
 
@@ -54,3 +56,36 @@ def test_ifvoid(box):
     assert top[-1].char == "d"
     box.parse("\\ifvoid0 a\\else b\\fi")
     assert top[-1].char == "a"
+
+
+def test_hbox(cmr10):
+    cmr10.parse("\\hbox{Hello, world!}\\relax")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    box = top[-1]
+    assert box.node_type == NODE_TYPE.HLIST
+    assert box.width == 55.58344
+    assert box.height == 6.94444
+    assert box.depth == 1.94444
+    assert len(box.content) == 14
+
+def test_hbox_to(cmr10):
+    cmr10.parse("\\hbox to 100pt{Hello, world!}\\relax")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    box = top[-1]
+    assert box.node_type == NODE_TYPE.HLIST
+    assert box.width == 100
+    assert box.height == 6.94444
+    assert box.depth == 1.94444
+
+
+def test_hbox_spread(cmr10):
+    cmr10.parse("\\hbox spread 10pt{Hello, world!}\\relax")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    box = top[-1]
+    assert box.node_type == NODE_TYPE.HLIST
+    assert box.width == 65.58344
+    assert box.height == 6.94444
+    assert box.depth == 1.94444

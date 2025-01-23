@@ -8,9 +8,10 @@ from pytex.glue import Stretchness
 from pytex.module import Module
 from pytex.accessor import ArrayAccessor, ValuePointer
 from pytex.state import Array
-from pytex.token import Command
+from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen
 from pytex import conditional
+from pytex.state import GROUP_TYPE
 
 
 class WrapInfo:
@@ -50,15 +51,23 @@ class HBox(nd.Box):
     @param spread: the spread
     @param packed: optionally the packed hlist.
     """
-    def __init__(self, hlist, to=None, spread=0, packed = None):
-        self.hlist = hlist
+    def __init__(self, to, spread):
+        self.hlist = None
+        self.content = None
+        self.to = to
+        self.spread = spread
+        super().__init__(0, 0, 0)
+
+    node_type = nd.NODE_TYPE.HLIST
+
+    def pack(self, hlist, packed=None):
         self.content, self.glues = packed if packed is not None else hlist.pack()
         info = WrapInfo(self.content)
         self.migrate = info.migrate
-        if to is None:
-            self.width = info.natural_width + spread
+        if self.to is None:
+            self.width = info.natural_width + self.spread
         else:
-            self.width = to
+            self.width = self.to
         self.height = info.height
         self.depth = info.depth
         diff = self.width - info.natural_width
@@ -84,7 +93,11 @@ class HBox(nd.Box):
         """
         return a copy of the box
         """
-        box = HBox(self.hlist, self.width, 0)
+        box = HBox(0, 0)
+        box.width = self.width
+        box.height = self.height
+        box.depth = self.depth
+        box.hlist = self.hlist
         box.content = self.content
         box.glues = self.glues
         box.migrate = self.migrate
@@ -146,6 +159,97 @@ class Box(Command):
         raise ValueError("box index out of range", pos)
 
 
+class BoxSpecPointer:
+    """
+    a pointer that read a box specification (not including the list)
+
+    @param command: the command that starts the box spec reading
+    Note that the box is only partially constructed by this pointer, i.e.,
+    the list is not read. According to the TeX Book, the \\afterassignment
+    token is put into the input stack after the openning { token. This means 
+    that the assignment is done after the { token.
+    """
+    def __init__(self, command):
+        self.command = command
+        self.list = command.list()
+        self.box = None
+  
+    def boxValue(self, parser):
+        def callback():
+            parser.run = False
+            assert parser.lists.pop() == self.list
+            self.box.pack(self.list)
+        spec = parser.readKeyword(["to", "spread"])
+        if spec is None:
+            to = None
+            spread = 0
+        else:
+            dim = parser.readDimen()
+            if spec == "to":
+                to = dim
+                spread = 0
+            else:
+                to = None
+                spread = dim
+        self.box = self.command.box(to, spread)
+        parser.skipFiller()
+        pos = parser.input.position()
+        t = parser.token_expand()
+        if t.catcode != CATCODE.BEGIN_GROUP:
+            raise ValueError("expecting a {", pos)
+        parser.lists.append(self.list)
+        parser.beginGroup(pos, self.command.reason(), callback)
+        return self.box
+
+class ReadBox(Command):
+    """
+    the base class for \\hbox, \\vbox and \\vtop commands
+    """
+    def list(self):
+        """
+        create a new list
+        """
+        raise NotImplementedError
+    
+    def box(self):
+        """
+        create a new box
+        """
+        raise NotImplementedError
+    
+    def reason(self):
+        """
+        return the reason for reading the box
+        """
+        raise NotImplementedError
+    
+    def pointer(self, parser):
+        """
+        return a pointer that read a box specification (not including the list)
+        """
+        return BoxSpecPointer(self)
+    
+    def execute(self, parser):
+        p = self.pointer(parser)
+        box = p.boxValue(parser)
+        parser.loop()
+        parser.lists[-1].append(box)
+
+
+class HBoxCommand(ReadBox):
+    """
+    the \\hbox command
+    """
+    def list(self):
+        return hmode.HList()
+    
+    def box(self, to, spread):
+        return HBox(to, spread)
+    
+    def reason(self):
+        return GROUP_TYPE.HBOX
+    
+
 def readBox(parser):
     """
     read a box from the input stack
@@ -196,5 +300,6 @@ mod = Module("hbox",
         "copy": Box(False),
         "setbox": SetBox(),
         "ifvoid": IfVoid(),
+        "hbox": HBoxCommand(),
     }
 )

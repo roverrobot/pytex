@@ -30,14 +30,14 @@ def test_read_font_error(parser):
 
 
 def test_hyphenchar(collector):
-    collector.parse('\\font\\f=cmr10 \\hyphenchar\\f=45')
+    collector.parse('\\font\\f=cmr10 \\global\\hyphenchar\\f=45')
     assert collector.state.equitable["\\f"].fontchar["hyphenchar"] == 45
     collector.parse('\\the\\hyphenchar\\f')
     assert collector.getString() == '45'
 
 
 def test_skewchar(collector):
-    collector.parse('\\font\\f=cmr10 \\skewchar\\f=45')
+    collector.parse('\\font\\f=cmr10 \\global\\skewchar\\f=45')
     assert collector.state.equitable["\\f"].fontchar["skewchar"] == 45
     collector.parse('\\the\\skewchar\\f')
     assert collector.getString() == '45'

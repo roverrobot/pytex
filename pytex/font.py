@@ -99,6 +99,10 @@ class FontValuePointer(ValuePointer):
 nullfont = Font("nullfont", tfm=nullfont_tfm, at=0)
 
 
+class FontCharValuePointer(IntegerValuePointer):
+    allow_global = False
+
+
 class FontChar(Accessor):
     """
     A font character
@@ -126,7 +130,7 @@ class FontChar(Accessor):
         @return: the value pointer and possible prefixes
         """
         font = self.getIndex(parser)
-        return IntegerValuePointer(font.fontchar, self.name, eq=True)
+        return FontCharValuePointer(font.fontchar, self.name, eq=True)
 
 
 class FontCommand(Define):

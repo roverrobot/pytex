@@ -4,9 +4,10 @@ The horizontal and vertical lists of TeX.
 
 
 from pytex import node as nd
-from pytex.token import Command
+from pytex.token import Command, CATCODE
 import enum
 from pytex.module import Module
+from pytex.state import GROUP_TYPE
 from pytex import conditional
 
 
@@ -113,6 +114,27 @@ class IfInner(conditional.Conditional):
     
     def condition(self, parser):
         return 0 if parser.lists[-1].inner else 1
+
+
+def readList(parser, list, reason: GROUP_TYPE):
+    """
+    Read a list from the input stack.
+    @param parser: The parser.
+    @param list: The list to read.
+    @param reason: The reason for reading the list.
+    """
+    def callback():
+        parser.run = False
+    parser.skipFiller()
+    pos = parser.input.position()
+    t = parser.token_expand()
+    if t.catcode != CATCODE.BEGIN_GROUP:
+        raise ValueError("expecting a {", pos)
+    parser.lists.append(list)
+    parser.beginGroup(pos, reason, callback)
+    parser.loop()
+    parser.lists.pop()
+    return list
 
 
 mod = Module("lists",

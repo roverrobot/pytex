@@ -8,11 +8,7 @@ from pytex.dimen import Dimen
 
 @pytest.fixture()
 def box(cmr10):
-    cmr10.parse("\\noindent Hello, world!\\relax")
-    top = cmr10.lists.pop()
-    box = hbox.HBox(to=None, spread=10)
-    box.pack(top)
-    cmr10.state.box[0] = box
+    cmr10.parse("\\setbox0=\\hbox{Hello, world!}\\relax")
     return cmr10
 
 
@@ -20,7 +16,7 @@ def test_box_dimensions(box):
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     box0 = box.state.box[0]
-    assert Dimen(box0.width) == Dimen(65.58344)
+    assert Dimen(box0.width) == Dimen(55.58344)
     assert Dimen(box0.height) == 6.94444
     assert Dimen(box0.depth) == 1.94444    
 

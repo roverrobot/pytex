@@ -67,6 +67,21 @@ class ValuePointer(token.Command):
             self.domain.setGlobal(self.index, value)
         else:
             self.domain[self.index] = value
+        self.finalize(parser)
+
+    def finalize(self, parser):
+        """
+        finalize the assignment
+        @param parser: the parser
+
+        This method is mainly needed for box assignment. This is because, for the 
+        box assignment, the \\afterassignment token is inserted after the { token,
+        i.e., a new group has already started. But if the box assignment happens after
+        the { token, the } token finishing the box will undo the assignment. So
+        the assignmennt shoudld happen before the group starts. So the group should
+        start in this method.
+        """
+        pass
     
     def execute(self, parser):
         """

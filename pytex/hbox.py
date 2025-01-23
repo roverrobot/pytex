@@ -126,10 +126,20 @@ class BoxValuePointer(ValuePointer):
     def __init__(self, domain, index, wipe):
         super().__init__(domain, index, eq=True)
         self.wipe = wipe
+        self.spec = None
 
     def readValue(self, parser):
-        return parser.readBox()
+        box = parser.readBox()
+        if isinstance(box, BoxSpecPointer):
+            self.spec = box
+            box = box.box
+        return box
 
+    def finalize(self, parser):
+        if self.spec is not None:
+            self.spec.finalize(parser)
+
+    
     def boxValue(self, parser):
         box = self.getValue(parser)
         if self.wipe:
@@ -159,26 +169,24 @@ class Box(Command):
         raise ValueError("box index out of range", pos)
 
 
-class BoxSpecPointer:
+class BoxSpecPointer(ValuePointer):
     """
     a pointer that read a box specification (not including the list)
 
     @param command: the command that starts the box spec reading
+
     Note that the box is only partially constructed by this pointer, i.e.,
     the list is not read. According to the TeX Book, the \\afterassignment
     token is put into the input stack after the openning { token. This means 
-    that the assignment is done after the { token.
+    that the assignment is done after the { token, but before the list is read.
     """
     def __init__(self, command):
         self.command = command
         self.list = command.list()
         self.box = None
+        self.pos = None
   
     def boxValue(self, parser):
-        def callback():
-            parser.run = False
-            assert parser.lists.pop() == self.list
-            self.box.pack(self.list)
         spec = parser.readKeyword(["to", "spread"])
         if spec is None:
             to = None
@@ -193,13 +201,20 @@ class BoxSpecPointer:
                 spread = dim
         self.box = self.command.box(to, spread)
         parser.skipFiller()
-        pos = parser.input.position()
+        self.pos = parser.input.position()
         t = parser.token_expand()
         if t.catcode != CATCODE.BEGIN_GROUP:
-            raise ValueError("expecting a {", pos)
+            raise ValueError("expecting a {", self.pos)
         parser.lists.append(self.list)
-        parser.beginGroup(pos, self.command.reason(), callback)
-        return self.box
+        return self
+
+    def finalize(self, parser):
+        def callback():
+            parser.run = False
+            assert parser.lists.pop() == self.list
+            self.box.pack(self.list)
+        parser.beginGroup(self.pos, self.command.reason(), callback)
+    
 
 class ReadBox(Command):
     """
@@ -231,7 +246,8 @@ class ReadBox(Command):
     
     def execute(self, parser):
         p = self.pointer(parser)
-        box = p.boxValue(parser)
+        box = p.boxValue(parser).box
+        p.finalize(parser)
         parser.loop()
         parser.lists[-1].append(box)
 
@@ -270,7 +286,8 @@ class SetBox(ArrayAccessor):
     the \\setbox command
     """
     def __init__(self):
-        super().__init__("box", BoxValuePointer)
+        generator = lambda domain, index, eq: BoxValuePointer(domain, index, wipe=True)
+        super().__init__("box", generator)
 
 
 class IfVoid(conditional.Conditional):

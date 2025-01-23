@@ -22,6 +22,9 @@ class ValuePointer(token.Command):
         self.eq = eq
         self.prefixes = []
 
+    # by default, the assignment is may be global
+    allow_global = True
+
     def readEq(self, parser):
         """
         read the equal sign from the input stack
@@ -51,6 +54,18 @@ class ValuePointer(token.Command):
         """
         return self.domain[self.index]
 
+    def setValue(self, parser, value, globally: bool):
+        """
+        set the value in the domain.
+        @param parser: the parser
+        @param value: the value
+        @param globally: whether the assignment is global
+        """
+        if globally and self.allow_global:
+            self.domain.setGlobal(self.index, value)
+        else:
+            self.domain[self.index] = value
+    
     def assign(self, parser):
         """
         assign the value to the index
@@ -60,13 +75,10 @@ class ValuePointer(token.Command):
         if self.eq:
             self.readEq(parser)
         value = self.readValue(parser)
-        globally = False
+        globally = parser.state.parameters["globaldefs"] != 0
         for p in self.prefixes:
             value, globally = p.modify(value, globally)
-        if globally:
-            self.domain.setGlobal(self.index, value)
-        else:
-            self.domain[self.index] = value
+        self.setValue(parser, value, globally)
         self.finalize(parser)
 
     def finalize(self, parser):

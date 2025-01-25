@@ -271,6 +271,19 @@ class ParShape(Command):
         parser.state.globals["parshape"] = parshape
 
 
+class ControlledSpace(HorizontalCommand):
+    """
+    A command that inserts a controlled space "\\ ".
+    """
+    def horizontal(self, parser, hlist):
+        font = parser.state.parameters["currentfont"]
+        hlist.append(nd.Glue(font.spaceglue))
+
+    def math(self, parser, mlist):
+        # In math mode, a space is a no-op
+        self.horizontal(parser, mlist)
+
+
 mod = Module("hmode",
     commands={
         "char": Char(),
@@ -283,6 +296,7 @@ mod = Module("hmode",
         "indent": Indent(),
         "noindent": NoIndent(),
         "parshape": ParShape(),
+        " ": ControlledSpace(),
     },
     parameters={
         "parshape": {"value": list, "accessor": None, "domain": "globals"},

@@ -56,3 +56,13 @@ def test_vskip(cmr10):
     assert node.glue.dimen == 72.26999
     hlist = vlist[2]
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
+
+
+def test_controlled_space(cmr10):
+    cmr10.parse("\\ ")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL    
+    assert len(top) == 3
+    node = top[1]
+    assert node.node_type == nd.NODE_TYPE.GLUE
+    assert node.glue == cmr10.state.parameters["currentfont"].spaceglue

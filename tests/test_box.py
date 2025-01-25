@@ -212,3 +212,33 @@ def test_unvbox(box):
     assert len(top) == 1
     assert top[0].node_type == NODE_TYPE.HLIST
     assert box.state.box[1].content is None
+
+
+def test_accent_nochar(cmr10):
+    cmr10.parse("\\accent65 \\uppercase{1}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 4
+    assert top[1].char == "A"
+    assert top[2].char == "1"
+
+
+def test_accent(cmr10):
+    cmr10.parse("\\noindent\\accent65 1\\relax")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 4
+    kern = top[0]
+    assert kern.node_type == NODE_TYPE.KERN
+    assert kern.kern == -1.25000
+    accent = top[1] 
+    assert accent.node_type == NODE_TYPE.HLIST
+    assert len(accent.content) == 1
+    assert accent.content[0].char == "A"
+    kern = top[2]
+    assert kern.node_type == NODE_TYPE.KERN
+    assert kern.kern == -6.25002
+    char = top[3]
+    assert char.node_type == NODE_TYPE.CHAR
+    assert char.char == "1"
+

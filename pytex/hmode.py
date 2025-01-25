@@ -100,7 +100,7 @@ class HorizontalCommand(lists.ModeDependentCommand):
         In vertical mode, a horizontal command should start a new paragraph
         """
         hlist = parser.newParagraph()
-        self.horizontal(hlist)
+        self.horizontal(parser, hlist)
     
 
 class Char(HorizontalCommand):
@@ -116,6 +116,10 @@ class Char(HorizontalCommand):
 
     def math(self, parser, mlist):
         self.horizontal(parser)
+
+    def charValue(self, parser):
+        c = parser.readInteger()
+        return chr(c)
 
 
 class HSkip(HorizontalCommand):

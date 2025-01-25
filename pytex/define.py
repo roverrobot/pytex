@@ -119,6 +119,12 @@ class CharDefValue(token.Command):
         """
         return IntegerHolder(self.value)
 
+    def charValue(self, parser):
+        """
+        get the character value
+        """
+        return self.value
+
 
 class CharDefItem(accessor.ValuePointer):
     """

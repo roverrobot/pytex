@@ -5,6 +5,7 @@ parse and wrap up an hbox
 from pytex import node as nd
 from pytex import hmode
 from pytex import vmode
+from pytex.toks import relax
 from pytex.glue import Stretchness
 from pytex.module import Module
 from pytex.accessor import Accessor, ArrayAccessor, ValuePointer
@@ -13,7 +14,7 @@ from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen
 from pytex import conditional
 from pytex.state import GROUP_TYPE
-from pytex.lists import LISTTYPE
+from pytex.lists import LISTTYPE, ModeDependentCommand
 
 
 class HBoxWrapInfo:
@@ -35,10 +36,15 @@ class HBoxWrapInfo:
                 self.natural_width += n.glue.dimen
             elif isinstance(n, nd.Box):
                 self.natural_width += n.width
-                if self.height is None or n.height > self.height:
-                    self.height = n.height
-                if self.depth is None or n.depth > self.depth:
-                    self.depth = n.depth
+                h = n.height
+                d = n.depth
+                if n.node_type == nd.NODE_TYPE.HLIST or n.node_type == nd.NODE_TYPE.VLIST:
+                    h -= n.shifted
+                    d += n.shifted
+                if self.height is None or h > self.height:
+                    self.height = h
+                if self.depth is None or d > self.depth:
+                    self.depth = d
             elif isinstance(n, nd.Kern):
                 self.natural_width += n.kern
             elif isinstance(n, nd.VAdjust):
@@ -58,6 +64,7 @@ class HBox(nd.Box):
         self.content = None
         self.to = to
         self.spread = spread
+        self.shifted = 0
         super().__init__(0, 0, 0)
 
     node_type = nd.NODE_TYPE.HLIST
@@ -68,6 +75,10 @@ class HBox(nd.Box):
         @param hlist: an hlist to be wrapped
         @param packed: optionally the packed hlist.
         """
+        if not isinstance(hlist, hmode.HList):
+            l = hmode.HList()
+            l.extend(hlist)
+            hlist = l
         self.hlist = hlist
         self.content, self.glues = packed if packed is not None else hlist.pack()
         info = HBoxWrapInfo(self.content)
@@ -105,6 +116,7 @@ class HBox(nd.Box):
         box.width = self.width
         box.height = self.height
         box.depth = self.depth
+        box.shifted = self.shifted
         box.hlist = self.hlist
         box.content = self.content
         box.glues = self.glues
@@ -331,8 +343,11 @@ class VBoxWrapInfo:
                 self.shrink += n.glue.shrink
                 self.natural_height += n.glue.dimen
             elif isinstance(n, nd.Box):
-                if self.width is None or n.width > self.width:
-                    self.width = n.width
+                w = n.width
+                if n.node_type == nd.NODE_TYPE.HLIST or n.node_type == nd.NODE_TYPE.VLIST:
+                    w -= n.shifted
+                if self.width is None or w > self.width:
+                    self.width = w
                 self.natural_height += n.height + n.depth
             elif isinstance(n, nd.Kern):
                 self.natural_height += n.kern
@@ -360,6 +375,7 @@ class VBox(nd.Box):
         self.vlist = None
         self.to = to
         self.spread = spread
+        self.shifted = 0
         self.vtop = vtop
 
     node_type = nd.NODE_TYPE.VLIST
@@ -370,6 +386,10 @@ class VBox(nd.Box):
         @param vlist: a vlist to be wrapped
         @param packed: optionally the packed vlist.
         """
+        if not isinstance(vlist, vmode.VList):
+            l = vmode.VList()
+            l.extend(vlist)
+            vlist = l
         self.vlist = vlist
         self.content, self.glues = packed if packed is not None else vlist.pack()
         info = VBoxWrapInfo(self.content, self.vtop)
@@ -492,6 +512,113 @@ class UnBox(Command):
             raise ValueError("box index out of range", pos)
 
 
+class Shift(ModeDependentCommand):
+    """
+    The \\raise, \\lower, \\moveleft, \\moveright command.
+    @param vertical whether the command is vertical (\moveleft, \moveright) or
+    horizontal (\raise, \lower)
+    @param direction: the direction of the shift (-1, or 1). Here -1 means right or up,
+    and 1 means left or down.
+    """
+    def __init__(self, vertical: bool, direction: int):
+        self.vertical = vertical
+        self.direction = direction
+
+    def horizontal(self, parser, hlist):
+        if self.vertical:
+            super().horizontal(parser, hlist)
+        hlist.append(self.shift(parser))
+
+    def vertical(self, parser, vlist):
+        if not self.vertical:
+            super().vertical(parser, vlist)
+        vlist.append(self.shift(parser))
+
+    def math(self, parser, mlist):
+        if self.vertical:
+            super().math(parser, mlist)
+        box = self.shift(parser)
+        # TODO: add the box to the mlist
+        raise NotImplementedError("shift in math mode")
+    
+    def shift(self, parser):
+        """
+        read the shift value and box, then return the shifted box
+        """
+        shift = parser.readDimen()
+        box = parser.readBox()
+        box.shifted = shift * self.direction
+        return box
+
+
+class Accent(hmode.HorizontalCommand):
+    """
+    The \\accent command.
+    """
+
+    def readArgs(self, parser):
+        """
+        read the accent char and the accented char
+        """
+        pos = parser.input.position()
+        c = parser.readInteger()
+        font = parser.state.parameters["currentfont"]
+        if c < font.bc or c > font.ec:
+            raise ValueError("invalid accent", pos)
+        accent = font[chr(c)]
+        while True:
+            t = parser.token_expand()
+            if t is None:
+                break
+            # is t is an assignment, run it
+            if isinstance(t, Accessor) and not isinstance(t, SetBox):
+                t.execute(parser)
+            elif t != relax:
+                break
+        if t is not None:
+            if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
+                c = t.name
+            elif t.is_command:
+                try:
+                    c = t.charValue(parser)
+                except AttributeError:
+                    c = None
+            else:
+                c = None
+            if c is not None:
+                font = parser.state.parameters["currentfont"]
+                char = font[c]
+                return char, accent
+            parser.input.unread(t)
+        return None, accent
+
+    def horizontal(self, parser, hlist):
+        char, accent = self.readArgs(parser)
+        if char is None:
+            hlist.append(accent)
+            return
+        # build the accent
+        # append a kern to shift the accent so that it aligns with the char
+        w = char.width + char.italic
+        dx = (w - accent.width) / 2
+        if dx != 0:
+            hlist.append(nd.Kern(dx))
+        accentbox = HBox(None, 0)
+        accentbox.pack([accent])
+        ex = char.font.param[4] # font dimen 5 is ex
+        dy = ex - char.height
+        if dy < 0:
+            accentbox.shifted = dy
+        hlist.append(accentbox)
+        # move the char back by the width of the accent box
+        hlist.append(nd.Kern(-(float(char.width) + float(accent.width)) / 2))
+        hlist.append(char)
+
+    def math(self, parser, mlist):
+        char, accent = self.readArgs(parser)
+        raise NotImplementedError("accent in math mode")
+
+
 mod = Module("hbox", 
     domains={
         "box": {"generator": lambda: Array(VoidBox), "accessor": None},
@@ -514,5 +641,10 @@ mod = Module("hbox",
         "unvbox": UnBox(True, True),
         "unhcopy": UnBox(False, False),
         "unvcopy": UnBox(True, False),
+        "accent": Accent(),
+        "raise": Shift(False, -1),
+        "lower": Shift(False, 1),
+        "moveleft": Shift(True, 1),
+        "moveright": Shift(True, -1),
     }
 )

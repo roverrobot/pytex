@@ -8,6 +8,7 @@ from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command
+from pytex.state import GROUP_TYPE
 
 
 class Ligature(nd.CharNode):
@@ -284,6 +285,36 @@ class ControlledSpace(HorizontalCommand):
         self.horizontal(parser, mlist)
 
 
+class DiscHList(HList):
+    """
+    A horizontal list that can contain discretionary nodes.
+    """
+    def __init__(self):
+        super().__init__(inner=True)
+
+    def append(self, node):
+        if isinstance(node, nd.Box) or isinstance(node, nd.Kern):
+            super().append(node)
+        else:
+            raise ValueError("invalid node in this \\disctretionary")
+
+
+class Discretionary(HorizontalCommand):
+    """
+    The \\discretionary command.
+    """
+    def horizontal(self, parser, hlist):
+        # Read the three arguments
+        pre = DiscHList()
+        parser.readList(pre, GROUP_TYPE.DISC)
+        post = DiscHList()
+        parser.readList(post, GROUP_TYPE.DISC)
+        replace = DiscHList()
+        parser.readList(replace, GROUP_TYPE.DISC)
+        # Add the discretionary node
+        hlist.append(nd.Disc(pre, post, replace))
+
+
 mod = Module("hmode",
     commands={
         "char": Char(),
@@ -297,6 +328,7 @@ mod = Module("hmode",
         "noindent": NoIndent(),
         "parshape": ParShape(),
         " ": ControlledSpace(),
+        "discretionary": Discretionary(),
     },
     parameters={
         "parshape": {"value": list, "accessor": None, "domain": "globals"},

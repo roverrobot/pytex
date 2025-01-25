@@ -124,3 +124,31 @@ def test_penalty(cmr10):
     node = top[2]
     assert node.node_type == nd.NODE_TYPE.PENALTY
     assert node.penalty == 10000
+
+
+def test_discretionary(cmr10):
+    cmr10.parse("\\discretionary{a-}{b}{c}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 3
+    node = top[1]
+    assert node.node_type == nd.NODE_TYPE.DISC
+    assert len(node.pre) == 2
+    assert node.pre[0].node_type == nd.NODE_TYPE.CHAR
+    assert node.pre[0].char == "a"
+    assert node.pre[1].node_type == nd.NODE_TYPE.CHAR
+    assert node.pre[1].char == "-"
+    assert len(node.post) == 1
+    assert node.post[0].node_type == nd.NODE_TYPE.CHAR
+    assert node.post[0].char == "b"
+    assert len(node.replace) == 1
+    assert node.replace[0].node_type == nd.NODE_TYPE.CHAR
+    assert node.replace[0].char == "c"
+
+
+def test_discretionary_invalid_node(cmr10):
+    try:
+        cmr10.parse("\\discretionary{a}{b }{c}")
+        assert False
+    except ValueError as e:
+        assert "invalid" in str(e)

@@ -133,6 +133,7 @@ def readList(parser, list, reason: GROUP_TYPE):
     parser.lists.append(list)
     parser.beginGroup(pos, reason, callback)
     parser.loop()
+    parser.run = True
     parser.lists.pop()
     return list
 
@@ -205,5 +206,8 @@ mod = Module("lists",
         "hrule": Rule(True),
         "vrule": Rule(False),
         "penalty": Penalty(),
+    },
+    attributes={
+        "readList": readList,
     },
 )

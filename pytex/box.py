@@ -15,6 +15,7 @@ from pytex.dimen import Dimen
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand
+from math import inf
 
 
 class HBoxWrapInfo:
@@ -29,22 +30,21 @@ class HBoxWrapInfo:
         self.stretch = Stretchness(0,0)
         self.shrink = Stretchness(0,0)
         self.migrate = []
+        self.rules = [] # the rules which depth or height is not set (i.e., is None)
         for n in nodes:
             if isinstance(n, nd.Glue):
                 self.stretch += n.glue.stretch
                 self.shrink += n.glue.shrink
                 self.natural_width += n.glue.dimen
             elif isinstance(n, nd.Box):
-                self.natural_width += n.width
-                h = n.height
-                d = n.depth
-                if n.node_type == nd.NODE_TYPE.HLIST or n.node_type == nd.NODE_TYPE.VLIST:
-                    h -= n.shifted
-                    d += n.shifted
-                if self.height is None or h > self.height:
+                w, h, d = self.boxDimen(n)
+                self.natural_width += w
+                if self.height is None or h > float(self.height):
                     self.height = h
-                if self.depth is None or d > self.depth:
+                if self.depth is None or d > float(self.depth):
                     self.depth = d
+                if isinstance(n, nd.Rule) and (n.height is None or n.depth is None):
+                    self.rules.append(n)
             elif isinstance(n, nd.Kern):
                 self.natural_width += n.kern
             elif isinstance(n, nd.VAdjust):
@@ -52,6 +52,20 @@ class HBoxWrapInfo:
             elif isinstance(n, nd.Mark):
                 self.migrate.append(n)
 
+    def boxDimen(self, n):
+        if isinstance(n, nd.Rule):
+            w = 0 if n.width is None else n.width
+            h = -inf if n.height is None else n.height
+            d = -inf if n.depth is None else n.depth
+        else:
+            if n.node_type == nd.NODE_TYPE.HLIST or n.node_type == nd.NODE_TYPE.VLIST:
+                shifted = n.shifted
+            else:
+                shifted = 0
+            w = n.width
+            h = n.height - shifted
+            d = n.depth + shifted
+        return w, h, d
 
 class HBox(nd.Box):
     """
@@ -89,6 +103,11 @@ class HBox(nd.Box):
             self.width = self.to
         self.height = info.height
         self.depth = info.depth
+        for r in info.rules:
+            if r.height is None:
+                r.height = self.height
+            if r.depth is None:
+                r.depth = self.depth
         diff = self.width - info.natural_width
         if diff == 0: # natural
             for g in self.glues:
@@ -337,29 +356,48 @@ class VBoxWrapInfo:
         self.depth = Dimen()
         self.stretch = Stretchness(0,0)
         self.shrink = Stretchness(0,0)
+        self.rules = []
+        d = 0
+        h = 0
         for n in nodes:
             if isinstance(n, nd.Glue):
                 self.stretch += n.glue.stretch
                 self.shrink += n.glue.shrink
                 self.natural_height += n.glue.dimen
             elif isinstance(n, nd.Box):
-                w = n.width
-                if n.node_type == nd.NODE_TYPE.HLIST or n.node_type == nd.NODE_TYPE.VLIST:
-                    w -= n.shifted
-                if self.width is None or w > self.width:
+                w, h, d = self.boxDimen(n)
+                if self.width is None or w > float(self.width):
                     self.width = w
-                self.natural_height += n.height + n.depth
+                self.natural_height += h + d
+                if isinstance(n, nd.Rule) and n.width is None:
+                    self.rules.append(n)
             elif isinstance(n, nd.Kern):
                 self.natural_height += n.kern
         if len(nodes) > 0:
             last = nodes[-1]
             if isinstance(last, nd.Box):
-                self.natural_height -= last.depth
-                self.depth = last.depth
+                self.natural_height -= d
+                self.depth = d
             if vtop:
                 first = nodes[0]
-                self.depth = self.natural_height - first.height + self.depth
-                self.natural_height = first.height
+                w, h, d = self.boxDimen(first)
+                self.depth = self.natural_height - h + d
+                self.natural_height = h
+
+    def boxDimen(self, n):
+        if isinstance(n, nd.Rule):
+            w = -inf if n.width is None else n.width
+            h = 0 if n.height is None else n.height
+            d = 0 if n.depth is None else n.depth
+        else:
+            h = n.height
+            d = n.depth
+            if n.node_type == nd.NODE_TYPE.HLIST or n.node_type == nd.NODE_TYPE.VLIST:
+                shifted = n.shifted
+            else:
+                shifted = 0
+            w = n.width - shifted
+        return w, h, d
 
 
 class VBox(nd.Box):
@@ -399,6 +437,9 @@ class VBox(nd.Box):
             self.height = self.to
         self.width = info.width
         self.depth = info.depth
+        for r in info.rules:
+            if r.width is None:
+                r.width = self.width
         diff = self.height - info.natural_height
         if diff == 0:
             for g in self.glues:

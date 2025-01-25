@@ -56,7 +56,7 @@ class ModeDependentCommand(Command):
             self.math(parser, top)
     
     def modeError(self, parser, mode):
-        pos = parser.input.pos
+        pos = parser.input.position()
         raise ValueError(f"this command cannot be used in {mode} mode", pos)
     
     def horizontal(self, parser, hlist):
@@ -137,6 +137,53 @@ def readList(parser, list, reason: GROUP_TYPE):
     return list
 
 
+class Rule(ModeDependentCommand):
+    """
+    The \\hrule or \\vrule command.
+    @param vertical: Whether the rule is vertical.
+
+    Note that \\hrule is vertical and \\vrule is horizontal.
+    """
+    def __init__(self, vertical):
+        self.vert = vertical
+
+    def readRule(self, parser):
+        if self.vert:
+            width = None
+            height = 0.4
+            depth = 0
+        else:
+            width = 0.4
+            height = None
+            depth = None
+        while True:
+            k = parser.readKeyword(["width", "height", "depth"])
+            if k is None:
+                break
+            if k == "width":
+                width = parser.readDimen()
+            elif k == "height":
+                height = parser.readDimen()
+            elif k == "depth":
+                depth = parser.readDimen()
+        return nd.Rule(width, height, depth)
+
+    def horizontal(self, parser, hlist):
+        if self.vert:
+            super().horizontal(parser, hlist)
+        hlist.append(self.readRule(parser))
+    
+    def vertical(self, parser, vlist):
+        if not self.vert:
+            super().vertical(parser, vlist)
+        vlist.append(self.readRule(parser))
+    
+    def math(self, parser, mlist):
+        if self.vert:
+            super().math(parser, mlist)
+        raise NotImplementedError("rule in math mode")
+
+
 mod = Module("lists",
     commands={
         "kern": Kern(),
@@ -145,5 +192,7 @@ mod = Module("lists",
         "ifhmode": IfMode("\\ifhmode", LISTTYPE.HORIZONTAL),
         "ifmmode": IfMode("\\ifmmode", LISTTYPE.MATH),
         "ifinner": IfInner(),
+        "hrule": Rule(True),
+        "vrule": Rule(False),
     },
 )

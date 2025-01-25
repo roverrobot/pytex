@@ -208,6 +208,15 @@ class Insert(Command):
         parser.lists[-1].append(nd.Insert(n, vlist))
 
 
+class Mark(Command):
+    """
+    The \\mark command.
+    """
+    def execute(self, parser):
+        text = parser.readGeneralText(expand=True)
+        parser.lists[-1].append(nd.Mark(text))
+
+
 mod = Module("lists",
     commands={
         "kern": Kern(),
@@ -220,6 +229,7 @@ mod = Module("lists",
         "vrule": Rule(False),
         "penalty": Penalty(),
         "insert": Insert(),
+        "mark": Mark(),
     },
     attributes={
         "readList": readList,

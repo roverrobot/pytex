@@ -63,3 +63,13 @@ def test_insert(cmr10):
     assert len(node.vlist) == 1
     assert node.vlist[0].node_type == nd.NODE_TYPE.GLUE
     assert node.vlist[0].glue == glue.Glue(72.26999)
+
+
+def test_mark(cmr10):
+    cmr10.parse("\\def\\a{123}\\mark{\\a}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
+    node = top[0]
+    assert node.node_type == nd.NODE_TYPE.MARK
+    assert str(node.tokens) == "123"

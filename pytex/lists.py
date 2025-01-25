@@ -184,6 +184,16 @@ class Rule(ModeDependentCommand):
         raise NotImplementedError("rule in math mode")
 
 
+class Penalty(Command):
+    """
+    The \\penalty command.
+    """
+    def execute(self, parser):
+        penalty = parser.readInteger()
+        node = nd.Penalty(penalty)
+        parser.lists[-1].append(node)
+
+
 mod = Module("lists",
     commands={
         "kern": Kern(),
@@ -194,5 +204,6 @@ mod = Module("lists",
         "ifinner": IfInner(),
         "hrule": Rule(True),
         "vrule": Rule(False),
+        "penalty": Penalty(),
     },
 )

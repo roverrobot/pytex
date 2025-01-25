@@ -2,6 +2,7 @@ import pytest
 from pytex import node as nd
 from pytex import glue
 from pytex import lists
+from pytex import texlive
 
 
 @pytest.mark.parametrize(
@@ -39,3 +40,13 @@ def test_par(parser):
     vlist = parser.lists[-1]
     assert vlist.type == lists.LISTTYPE.VERTICAL
     assert len(vlist) == 0
+
+
+def test_penalty(cmr10):
+    cmr10.parse("\\penalty 10000")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
+    node = top[0]
+    assert node.node_type == nd.NODE_TYPE.PENALTY
+    assert node.penalty == 10000

@@ -115,4 +115,12 @@ def test_vrule(cmr10):
     assert node.height == box.height
     assert node.depth == box.depth
 
-    
+
+def test_penalty(cmr10):
+    cmr10.parse("1\\penalty 10000")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 3
+    node = top[2]
+    assert node.node_type == nd.NODE_TYPE.PENALTY
+    assert node.penalty == 10000

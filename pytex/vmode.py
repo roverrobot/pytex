@@ -31,6 +31,12 @@ class VList(lists.List):
                 glues.append(node)
             elif node.node_type == nd.NODE_TYPE.HLIST:
                 nodes.append(node)
+                if not node.inner: 
+                    # this is a paragraph. We have not implemented it yet
+                    raise NotImplementedError("paragraphs are not implemented yet")
+                else:
+                    # this is a \hbox.
+                    pass
                 for n in node.migrate:
                     if n.node_type == nd.NODE_TYPE.MARK:
                         nodes.append(n)

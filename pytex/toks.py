@@ -91,7 +91,6 @@ def readGeneralText(parser, expand: bool = True):
     @param expand: whether to expand the tokens
     @return: the token list
     """
-    pos = parser.input.position()
     skipFiller(parser)
     return readBalancedText(parser, expand)
 

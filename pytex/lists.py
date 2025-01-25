@@ -217,6 +217,15 @@ class Mark(Command):
         parser.lists[-1].append(nd.Mark(text))
 
 
+class Special(Command):
+    """
+    The \\special command.
+    """
+    def execute(self, parser):
+        text = parser.readGeneralText(expand=True)
+        parser.lists[-1].append(nd.Special(text))
+
+
 mod = Module("lists",
     commands={
         "kern": Kern(),
@@ -230,6 +239,7 @@ mod = Module("lists",
         "penalty": Penalty(),
         "insert": Insert(),
         "mark": Mark(),
+        "special": Special(),
     },
     attributes={
         "readList": readList,

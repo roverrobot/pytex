@@ -73,3 +73,13 @@ def test_mark(cmr10):
     node = top[0]
     assert node.node_type == nd.NODE_TYPE.MARK
     assert str(node.tokens) == "123"
+
+
+def test_special(cmr10):
+    cmr10.parse("\\special{abc}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
+    node = top[0]
+    assert node.node_type == nd.NODE_TYPE.WHATSIT
+    assert str(node.text) == "abc"

@@ -201,3 +201,13 @@ def test_mark(cmr10):
     assert len(node.content) == 0
     assert len(node.migrate) == 1
     assert str(node.migrate[0].tokens) == "123"
+
+
+def test_special(cmr10):
+    cmr10.parse("1\\special{abc}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 4
+    node = top[2]
+    assert node.node_type == nd.NODE_TYPE.WHATSIT
+    assert str(node.text) == "abc"

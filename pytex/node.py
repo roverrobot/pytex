@@ -150,10 +150,21 @@ class WhatsIt(Node):
     """
     A whatsit node.
     """
-    def __init__(self, subtype):
-        self.subtype = subtype
-
     node_type = NODE_TYPE.WHATSIT
+
+    def output(self, parser):
+        raise NotImplementedError("output method should be implemented in subclass")
+
+
+class Special(WhatsIt):
+    """
+    A special node.
+    """
+    def __init__(self, text):
+        self.text = text
+
+    def __repr__(self):
+        return f"Special({self.text})"
 
 
 class VAdjust(Node):

@@ -79,17 +79,21 @@ class HList(lists.List):
 
         @return a new list with ligatures combined, and the glues in the list
 
-        This will combine characters into ligatures and label the glues
+        This will combine characters into ligatures, glues, and  nodes that need
+        to be migrated.
         """
         nodes = []
         glues = []
+        migrate = []
         for node in self:
             if isinstance(node, nd.Glue):
                 glues.append(node)
                 nodes.append(node)
+            elif isinstance(node, nd.VAdjust) or isinstance(node, nd.Mark) or isinstance(node, nd.Insert):
+                migrate.append(node)
             else:
                 nodes = addNode(nodes, node)
-        return nodes, glues
+        return nodes, glues, migrate
 
 
 class HorizontalCommand(lists.ModeDependentCommand):
@@ -313,6 +317,22 @@ class Discretionary(HorizontalCommand):
         parser.readList(replace, GROUP_TYPE.DISC)
         # Add the discretionary node
         hlist.append(nd.Disc(pre, post, replace))
+
+
+class VAdjust(HorizontalCommand):
+    """
+    The \\vadjust command.
+    """
+    def horizontal(self, parser, hlist):
+        # Read the argument
+        
+        vlist = parser.readVList(GROUP_TYPE.VADJUST)
+        # Add the vadjust node
+        hlist.append(nd.VAdjust(vlist))
+
+    def math(self, parser, mlist):
+        # In math mode, a vadjust is a no-op
+        self.horizontal(parser, mlist)
 
 
 mod = Module("hmode",

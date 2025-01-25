@@ -174,3 +174,14 @@ class Mark(Node):
         self.tokens = tokens
 
     node_type = NODE_TYPE.MARK
+
+
+class Insert(Node):
+    """
+    An insert node.
+    """
+    def __init__(self, index, vlist):
+        self.index = index
+        self.vlist = vlist
+
+    node_type = NODE_TYPE.INS

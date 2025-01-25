@@ -29,7 +29,6 @@ class HBoxWrapInfo:
         self.depth = None
         self.stretch = Stretchness(0,0)
         self.shrink = Stretchness(0,0)
-        self.migrate = []
         self.rules = [] # the rules which depth or height is not set (i.e., is None)
         for n in nodes:
             if isinstance(n, nd.Glue):
@@ -47,10 +46,6 @@ class HBoxWrapInfo:
                     self.rules.append(n)
             elif isinstance(n, nd.Kern):
                 self.natural_width += n.kern
-            elif isinstance(n, nd.VAdjust):
-                self.migrate.append(n)
-            elif isinstance(n, nd.Mark):
-                self.migrate.append(n)
 
     def boxDimen(self, n):
         if isinstance(n, nd.Rule):
@@ -94,9 +89,8 @@ class HBox(nd.Box):
             l.extend(hlist)
             hlist = l
         self.hlist = hlist
-        self.content, self.glues = packed if packed is not None else hlist.pack()
+        self.content, self.glues, self.migrate = packed if packed is not None else hlist.pack()
         info = HBoxWrapInfo(self.content)
-        self.migrate = info.migrate
         if self.to is None:
             self.width = info.natural_width + self.spread
         else:

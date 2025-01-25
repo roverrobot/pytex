@@ -152,3 +152,40 @@ def test_discretionary_invalid_node(cmr10):
         assert False
     except ValueError as e:
         assert "invalid" in str(e)
+
+
+def test_insert(cmr10):
+    cmr10.parse("1\\insert 2{\\vskip 1in}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 4
+    node = top[2]
+    assert node.node_type == nd.NODE_TYPE.INS
+    assert node.index == 2
+    assert len(node.vlist) == 1
+    assert node.vlist[0].node_type == nd.NODE_TYPE.GLUE
+    assert node.vlist[0].glue == glue.Glue(72.26999)
+
+
+def test_insert_invalid(cmr10):
+    try:
+        cmr10.parse("\\insert 255{\\vskip 1in}")
+        assert False
+    except ValueError as e:
+        assert "invalid" in str(e)
+
+
+def test_insert_migrate(cmr10):
+    cmr10.parse("\hbox{1\\insert 2{\\vskip 1in}}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
+    assert top[0].node_type == nd.NODE_TYPE.HLIST
+    assert len(top[0].content) == 1
+    assert len(top[0].migrate) == 1
+    node = top[0].migrate[0]
+    assert node.node_type == nd.NODE_TYPE.INS
+    assert node.index == 2
+    assert len(node.vlist) == 1
+    assert node.vlist[0].node_type == nd.NODE_TYPE.GLUE
+    assert node.vlist[0].glue == glue.Glue(72.26999)

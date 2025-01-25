@@ -37,7 +37,7 @@ class VList(lists.List):
                     # this is a \hbox.
                     nodes.append(node)
                 for n in node.migrate:
-                    if n.node_type == nd.NODE_TYPE.MARK:
+                    if n.node_type == nd.NODE_TYPE.MARK or n.node_type == nd.NODE_TYPE.INS:
                         nodes.append(n)
                     elif n.node_type == nd.NODE_TYPE.VADJUST:
                         nodes.extend(n.vlist)
@@ -112,6 +112,16 @@ class VNegFil(VSkip):
         super().__init__(Glue(0, Stretchness(-1, 1)))
 
 
+def readVList(parser, reason):
+    """
+    Read a vertical list.
+    @param parser: the parser
+    @param reason: the reason for reading the list
+    """
+    vlist = VList()
+    return parser.readList(vlist, reason)
+
+
 mod = Module("vmode",
     commands={
         "vskip": VSkip(),
@@ -119,5 +129,8 @@ mod = Module("vmode",
         "vfill": VFill(),
         "vss": Vss(),
         "vnegfil": VNegFil(),
+    },
+    attributes={
+        "readVList": readVList
     },
 )

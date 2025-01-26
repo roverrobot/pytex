@@ -18,6 +18,47 @@ from pytex.lists import LISTTYPE, ModeDependentCommand
 from math import inf
 
 
+class Box(nd.Box):
+    """
+    the base class for \\hbox, \\vbox, and \\vtop
+    @param to: the target width or height
+    @param spread: the spread
+    """
+    def __init__(self, to, spread):
+        super().__init__(None, None, None)
+        # the hlist or vlist that this box wraps
+        self.list = None
+        # the packed list with glues and rule dimensions set correctly
+        self.content = None
+        self.to = to
+        self.spread = spread
+        self.shifted = 0
+
+    inner = True
+
+    def typeset(self, packed=None):
+        """
+        typeset the box
+        @param packed: optionally the packed hlist.
+        """
+        raise NotImplementedError("this method should be implemented by subclasses")
+
+    def copy(self):
+        """
+        return a copy of the box
+        """
+        BoxType = type(self)
+        box = BoxType(self.to, self.spread)
+        box.width = self.width
+        box.height = self.height
+        box.depth = self.depth
+        box.shifted = self.shifted
+        box.list = self.list
+        box.content = self.content
+        box.migrate = self.migrate
+        return box
+
+
 class HBoxWrapInfo:
     """
     The natural dimension,  stretchness and migratable nodes of an hlist
@@ -62,34 +103,25 @@ class HBoxWrapInfo:
             d = n.depth + shifted
         return w, h, d
 
-class HBox(nd.Box):
+
+class HBox(Box):
     """
     A horizontal box.
     @param to: the target width
     @param spread: the spread
     """
     def __init__(self, to, spread):
-        self.hlist = None
-        self.content = None
-        self.to = to
-        self.spread = spread
-        self.shifted = 0
-        super().__init__(0, 0, 0)
+        super().__init__(to, spread)
+        self.migrate = []
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def pack(self, hlist, packed=None):
+    def typeset(self, packed=None):
         """
-        pack the hlist into the box
-        @param hlist: an hlist to be wrapped
+        typeset the box
         @param packed: optionally the packed hlist.
         """
-        if not isinstance(hlist, hmode.HList):
-            l = hmode.HList()
-            l.extend(hlist)
-            hlist = l
-        self.hlist = hlist
-        self.content, self.glues, self.migrate = packed if packed is not None else hlist.pack()
+        self.content, glues, self.migrate = packed if packed is not None else self.list.pack()
         info = HBoxWrapInfo(self.content)
         if self.to is None:
             self.width = info.natural_width + self.spread
@@ -104,19 +136,19 @@ class HBox(nd.Box):
                 r.depth = self.depth
         diff = self.width - info.natural_width
         if diff == 0: # natural
-            for g in self.glues:
+            for g in glues:
                 g.kern = g.glue.dimen
         elif diff > 0: # stretch
             ratio = 1 if info.stretch.factor == 0 else diff / info.stretch.factor
             order = info.stretch.order
-            for g in self.glues:
+            for g in glues:
                 stretch = g.glue.stretch
                 s = stretch.factor * ratio if stretch.order == order else 0
                 g.kern = g.glue.dimen + s
         else: # shrink
             ratio = min(1, -diff / info.shrink.factor)
             order = info.shrink.order
-            for g in self.glues:
+            for g in glues:
                 shrink = g.glue.shrink
                 s = shrink.factor * ratio if shrink.order == order else 0
                 g.kern = g.glue.dimen - s
@@ -125,14 +157,7 @@ class HBox(nd.Box):
         """
         return a copy of the box
         """
-        box = HBox(0, 0)
-        box.width = self.width
-        box.height = self.height
-        box.depth = self.depth
-        box.shifted = self.shifted
-        box.hlist = self.hlist
-        box.content = self.content
-        box.glues = self.glues
+        box = super().copy()
         box.migrate = self.migrate
         return box
     
@@ -181,7 +206,7 @@ class BoxValuePointer(ValuePointer):
         return box.copy()
 
 
-class Box(Command):
+class BoxCommand(Command):
     """
     the \\box or \\copy command
     @param wipe whether to wipe the box register after use
@@ -216,7 +241,6 @@ class BoxSpecPointer(ValuePointer):
     """
     def __init__(self, command):
         self.command = command
-        self.list = command.list()
         self.box = None
         self.pos = None
   
@@ -234,18 +258,18 @@ class BoxSpecPointer(ValuePointer):
                 to = None
                 spread = dim
         self.box = self.command.box(to, spread)
+        self.box.list = self.command.list()
         parser.skipFiller()
         self.pos = parser.input.position()
         t = parser.token_expand()
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", self.pos)
-        parser.lists.append(self.list)
+        parser.lists.append(self.box.list)
         return self
 
     def finalize(self, parser):
         def callback():
-            assert parser.lists.pop() == self.list
-            self.box.pack(self.list)
+            assert parser.lists.pop() == self.box.list
         parser.beginGroup(self.pos, self.command.reason(), callback)
     
 
@@ -334,7 +358,7 @@ class IfVoid(conditional.Conditional):
         pos = parser.input.position()
         index = parser.readInteger()
         if 0 <= index < len(parser.state.box.values):
-            return 0 if parser.state.box[index].content is None else 1
+            return 0 if isinstance(parser.state.box[index], VoidBox) else 1
         raise ValueError("box index out of range", pos)
 
 
@@ -394,7 +418,7 @@ class VBoxWrapInfo:
         return w, h, d
 
 
-class VBox(nd.Box):
+class VBox(Box):
     """
     A vertical box.
     @param to: the target height
@@ -402,28 +426,17 @@ class VBox(nd.Box):
     @param vtop: whether the box is a vtop
     """
     def __init__(self, to, spread, vtop):
-        super().__init__(0, 0, 0)
-        self.content = None
-        self.vlist = None
-        self.to = to
-        self.spread = spread
-        self.shifted = 0
+        super().__init__(to, spread)
         self.vtop = vtop
 
     node_type = nd.NODE_TYPE.VLIST
 
-    def pack(self, vlist, packed=None):
+    def typeset(self, packed=None):
         """
-        pack the vlist into the box
-        @param vlist: a vlist to be wrapped
+        typeset the box
         @param packed: optionally the packed vlist.
         """
-        if not isinstance(vlist, vmode.VList):
-            l = vmode.VList()
-            l.extend(vlist)
-            vlist = l
-        self.vlist = vlist
-        self.content, self.glues = packed if packed is not None else vlist.pack()
+        self.content, glues = packed if packed is not None else self.list.pack()
         info = VBoxWrapInfo(self.content, self.vtop)
         if self.to is None:
             self.height = info.natural_height + self.spread
@@ -436,19 +449,19 @@ class VBox(nd.Box):
                 r.width = self.width
         diff = self.height - info.natural_height
         if diff == 0:
-            for g in self.glues:
+            for g in glues:
                 g.kern = g.glue.dimen
         elif diff > 0:
             ratio = 1 if info.stretch.factor == 0 else diff / info.stretch.factor
             order = info.stretch.order
-            for g in self.glues:
+            for g in glues:
                 stretch = g.glue.stretch
                 s = stretch.factor * ratio if stretch.order == order else 0
                 g.kern = g.glue.dimen + s
         else:
             ratio = min(1, -diff / info.shrink.factor)
             order = info.shrink.order
-            for g in self.glues:
+            for g in glues:
                 shrink = g.glue.shrink
                 s = shrink.factor * ratio if shrink.order == order else 0
                 g.kern = g.glue.dimen - s
@@ -505,10 +518,12 @@ class BoxDimenCommand(Accessor):
     def pointer(self, parser):
         pos = parser.input.position()
         index = parser.readInteger()
-        if 0 <= index < len(parser.state.box.values):
-            box = parser.state.box[index]
-            return BoxDimenValuePointer(box, self.dimen, eq=True)
-        raise ValueError("box index out of range", pos)
+        if not (0 <= index < len(parser.state.box.values)):
+            raise ValueError("box index out of range", pos)
+        box = parser.state.box[index]
+        if box.width is None:
+            box.typeset()
+        return BoxDimenValuePointer(box, self.dimen, eq=True)
 
 
 class UnBox(Command):
@@ -524,27 +539,22 @@ class UnBox(Command):
     def execute(self, parser):
         pos = parser.input.position()
         index = parser.readInteger()
-        if 0 <= index < len(parser.state.box.values):
-            box = parser.state.box[index]
-            if self.wipe:
-                parser.state.box[index] = VoidBox()
-            if isinstance(box, VoidBox):
-                return
-            top = parser.lists[-1]
-            if self.vertical and top.type == LISTTYPE.VERTICAL:
-                if box.node_type == nd.NODE_TYPE.VLIST:
-                    top.extend(box.content)
-                else:
-                    raise ValueError("expecting a vbox", pos)
-            elif not self.vertical and top.type == LISTTYPE.HORIZONTAL:
-                if box.node_type == nd.NODE_TYPE.HLIST:
-                    top.extend(box.hlist)
-                else:
-                    raise ValueError("expecting an hbox", pos)
-            else:
-                raise ValueError("wrong mode", pos)
-        else:
+        if not (0 <= index < len(parser.state.box.values)):
             raise ValueError("box index out of range", pos)
+        box = parser.state.box[index]
+        if self.wipe:
+            parser.state.box[index] = VoidBox()
+        if isinstance(box, VoidBox):
+            return
+        top = parser.lists[-1]
+        if (self.vertical and top.type != LISTTYPE.VERTICAL) or (
+            not self.vertical and top.type != LISTTYPE.HORIZONTAL):
+            raise ValueError("wrong mode", pos)
+        if self.vertical and box.node_type != nd.NODE_TYPE.VLIST:
+            raise ValueError("expecting a vbox", pos)
+        if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
+            raise ValueError("expecting an hbox", pos)
+        top.extend(box.list)
 
 
 class Shift(ModeDependentCommand):
@@ -639,7 +649,8 @@ class Accent(hmode.HorizontalCommand):
         if dx != 0:
             hlist.append(nd.Kern(dx))
         accentbox = HBox(None, 0)
-        accentbox.pack([accent])
+        accentbox.list = hmode.HList()
+        accentbox.list.append(accent)
         ex = char.font.param[4] # font dimen 5 is ex
         dy = ex - char.height
         if dy < 0:
@@ -662,8 +673,8 @@ mod = Module("hbox",
         "readBox": readBox,
     },
     commands={
-        "box": Box(True),
-        "copy": Box(False),
+        "box": BoxCommand(True),
+        "copy": BoxCommand(False),
         "setbox": SetBox(),
         "ifvoid": IfVoid(),
         "hbox": HBoxCommand(),

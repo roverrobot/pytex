@@ -18,7 +18,7 @@ from pytex import hmode
 def test_ligatures(cmr10, input, char):
     cmr10.parse(input)
     top = cmr10.lists[-1]
-    nodes, glues = top.pack()
+    nodes, glues, migrate = top.pack()
     assert len(nodes) == 3
     assert len(glues) == 1
     lig = nodes[1]
@@ -36,7 +36,7 @@ def test_kern(cmr10, input):
     cmr10.parse(input)
     at = cmr10.state.parameters["currentfont"].at
     top = cmr10.lists[-1]
-    nodes, glues = top.pack()
+    nodes, glues, migrate = top.pack()
     assert len(nodes) == 5
     assert len(glues) == 1
     knode = nodes[2]

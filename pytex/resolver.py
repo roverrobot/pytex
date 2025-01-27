@@ -35,15 +35,16 @@ class InMemoryTextFile:
             raise ValueError("file already opened for writing")
         if not for_read and (self.readers or self.writer):
             raise ValueError("file already opened for reading")
-        if not for_read:
-            self.writer = StringIO(self.content)
-            return self.writer
+        s = StringIO(self.content)
         def close(f):
             self.content = f.getvalue()
-            self.readers.remove(f)
-        s = StringIO(self.content)
+            if f in self.readers:
+                self.readers.remove(f)
         s.close = MethodType(close, s)
-        self.readers.append(s)
+        if not for_read:
+            self.writer = s
+        else:
+            self.readers.append(s)
         return s
 
 

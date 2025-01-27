@@ -9,6 +9,23 @@ from pytex.module import Module
 from pytex import token
 
 
+def skipEq(parser):
+    """
+    read the equal sign from the input stack
+    @param parser: the parser
+    """
+    t = parser.token_expand()
+    if t is None:
+        return
+    # read the equal sign
+    if t.catcode != token.CATCODE.OTHER or t.name != "=":
+        parser.input.unread(t)
+        return
+    # skip a space
+    t = parser.token_expand()
+    if t.catcode != token.CATCODE.SPACE:
+        parser.input.unread(t)
+
 class ValuePointer(token.Command):
     """
     access a value in a domain
@@ -30,15 +47,7 @@ class ValuePointer(token.Command):
         read the equal sign from the input stack
         @param parser: the parser
         """
-        t = parser.token_expand()
-        if t is None:
-            return
-        if t.catcode != token.CATCODE.OTHER or t.name != "=":
-            parser.input.unread(t)
-            return
-        t = parser.token_expand()
-        if t.catcode != token.CATCODE.SPACE:
-            parser.input.unread(t)
+        return parser.skipEq()
 
     def readValue(self, parser):
         """
@@ -271,4 +280,7 @@ module = Module("assignment",
         # with it via the afterassignment command.
         "afterassignment": {"value": None, "accessor": None, "domain": "globals"},
     },
+    attributes={
+        "skipEq": skipEq
+    }
 )

@@ -174,7 +174,7 @@ class FileResolver:
         if name[0] == "/":
             raise ValueError("absolute path not allowed")
         name, info = self.getInfo(name, type)
-        if bin:
+        if info.binary:
             raise ValueError("binary files not allowed for writing")
         # it must be an in memory file
         for t in info.extensions:

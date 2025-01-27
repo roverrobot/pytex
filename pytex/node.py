@@ -152,7 +152,12 @@ class WhatsIt(Node):
     """
     node_type = NODE_TYPE.WHATSIT
 
-    def output(self, parser):
+    def output(self, parser, device):
+        """
+        Output the whatsit node.
+        @param parser: the parser
+        @param device: the output device
+        """
         raise NotImplementedError("output method should be implemented in subclass")
 
 
@@ -165,6 +170,9 @@ class Special(WhatsIt):
 
     def __repr__(self):
         return f"Special({self.text})"
+
+    def output(self, parser, device):
+        device.special(self.text)
 
 
 class VAdjust(Node):

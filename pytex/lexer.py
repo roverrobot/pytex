@@ -249,12 +249,16 @@ class InputStack:
         try:
             t = self.stack[-1].read()
             if t is None:
-                self.stack.pop()
+                top = self.stack.pop()
                 for s in reversed(self.stack):
                     if s.position is not None:
                         self.active = s
                         break
-                return self.read()
+                try:
+                    if top.terminate:
+                        return None
+                except AttributeError:
+                    return self.read()
             return t
         except IndexError:
             return None

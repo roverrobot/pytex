@@ -596,6 +596,40 @@ class Shift(ModeDependentCommand):
         return box
 
 
+class AccentNode(nd.Node):
+    """
+    An accent node.
+    """
+    def __init__(self, accent, base):
+        self.accent = accent
+        self.base = base
+
+    node_type = nd.NODE_TYPE.ACCENT
+
+    def typeset(self, hlist):
+        char, accent = self.base, self.accent
+        if char is None:
+            hlist.append(accent)
+            return
+        # build the accent
+        # append a kern to shift the accent so that it aligns with the char
+        w = char.width + char.italic
+        dx = (w - accent.width) / 2
+        if dx != 0:
+            hlist.append(nd.Kern(dx))
+        accentbox = HBox(None, 0)
+        accentbox.list = hmode.HList()
+        accentbox.list.append(accent)
+        ex = char.font.param[4] # font dimen 5 is ex
+        dy = ex - char.height
+        if dy < 0:
+            accentbox.shifted = dy
+        hlist.append(accentbox)
+        # move the char back by the width of the accent box
+        hlist.append(nd.Kern(-(float(char.width) + float(accent.width)) / 2))
+        hlist.append(char)
+
+
 class Accent(hmode.HorizontalCommand):
     """
     The \\accent command.
@@ -639,26 +673,7 @@ class Accent(hmode.HorizontalCommand):
 
     def horizontal(self, parser, hlist):
         char, accent = self.readArgs(parser)
-        if char is None:
-            hlist.append(accent)
-            return
-        # build the accent
-        # append a kern to shift the accent so that it aligns with the char
-        w = char.width + char.italic
-        dx = (w - accent.width) / 2
-        if dx != 0:
-            hlist.append(nd.Kern(dx))
-        accentbox = HBox(None, 0)
-        accentbox.list = hmode.HList()
-        accentbox.list.append(accent)
-        ex = char.font.param[4] # font dimen 5 is ex
-        dy = ex - char.height
-        if dy < 0:
-            accentbox.shifted = dy
-        hlist.append(accentbox)
-        # move the char back by the width of the accent box
-        hlist.append(nd.Kern(-(float(char.width) + float(accent.width)) / 2))
-        hlist.append(char)
+        hlist.append(AccentNode(accent, char))
 
     def math(self, parser, mlist):
         char, accent = self.readArgs(parser)

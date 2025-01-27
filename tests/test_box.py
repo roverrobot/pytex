@@ -235,7 +235,10 @@ def test_accent_nochar(cmr10):
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 4
-    assert top[1].char == "A"
+    accent = top[1]
+    assert accent.node_type == NODE_TYPE.ACCENT
+    assert accent.base is None
+    assert accent.accent.char == "A"
     assert top[2].char == "1"
 
 
@@ -243,7 +246,9 @@ def test_accent(cmr10):
     cmr10.parse("\\noindent\\accent65 1\\relax")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 4
+    assert len(top) == 1
+    assert top[0].node_type == NODE_TYPE.ACCENT
+    top, glue, migrate = top.pack()
     kern = top[0]
     assert kern.node_type == NODE_TYPE.KERN
     assert kern.kern == -1.25000

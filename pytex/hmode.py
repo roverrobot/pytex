@@ -86,10 +86,16 @@ class HList(lists.List):
         glues = []
         migrate = []
         for node in self:
-            if isinstance(node, nd.Glue):
+            node_type = node.node_type
+            if node_type == nd.NODE_TYPE.GLUE:
                 glues.append(node)
                 nodes.append(node)
-            elif isinstance(node, nd.VAdjust) or isinstance(node, nd.Mark) or isinstance(node, nd.Insert):
+            elif node_type == nd.NODE_TYPE.ACCENT:
+                hlist = []
+                node.typeset(hlist)
+                for n in hlist:
+                    nodes = addNode(nodes, n)
+            elif node_type == nd.NODE_TYPE.ADJUST or node_type == nd.NODE_TYPE.MARK or node_type == nd.NODE_TYPE.INS:
                 migrate.append(node)
             else:
                 nodes = addNode(nodes, node)

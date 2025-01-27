@@ -24,6 +24,7 @@ class NODE_TYPE(enum.Enum):
     PENALTY = 13
     UNSET = 14
     MATHS = 15 # math mode nodes
+    ACCENT = 16 # accent node
 
 
 class Node:

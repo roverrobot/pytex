@@ -57,10 +57,6 @@ class Parser:
             if t is None:
                 return None
             t1 = t.expand(self)
-            try:
-                f = self.state.equitable["\\f"]
-            except KeyError:
-                f = ""
             # if the token is consumed, get the next token
             if t1 is None:
                 t = self.token()
@@ -74,6 +70,7 @@ class Parser:
         @param name: the name of the input
         """
         self.readFrom(input, name)
+        self.run = True
         self.loop()
         if len(self.ifstack) > 0:
             raise ValueError("missing \\fi")
@@ -82,7 +79,6 @@ class Parser:
         """
         the main read-execute loop
         """
-        self.run = True
         while self.run:
             t = self.token_expand()
             if t is None:
@@ -112,7 +108,9 @@ class Parser:
             if n is not None and n == 0:
                 return
             t = tok()
-            if t is None or t.catcode != lexer.CATCODE.SPACE:
+            if t is None:
+                return
+            if t.catcode != lexer.CATCODE.SPACE:
                 self.input.unread(t)
                 return
             if n is not None:

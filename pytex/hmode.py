@@ -133,20 +133,18 @@ class Char(HorizontalCommand):
         return chr(c)
 
 
-class HSkip(HorizontalCommand):
+class HSkip(lists.GlueCommand, HorizontalCommand):
     """
     Add a horizontal skip to the current list.
     """
     def __init__(self, glue=None):
-        self.glue = glue
+        lists.GlueCommand.__init__(self, False, glue)
 
     def horizontal(self, parser, hlist):
-        if self.glue is None:
-            glue = parser.readGlue()
-        else:
-            glue = self.glue
-        node = nd.Glue(glue)
-        hlist.append(node)
+        hlist.append(self.glueNode(parser))
+
+    def math(self, parser, mlist):
+        mlist.append(self.glueNode(parser))
 
 
 class HFil(HSkip):
@@ -248,7 +246,7 @@ class IndentBox(nd.Box):
 
 class NoIndent(lists.ModeDependentCommand):
     """
-    The \\unindent command.
+    The \\noindent command.
     """
     def vertical(self, parser, vlist):
         # This is exactly like \indent, except that T EX starts out in 

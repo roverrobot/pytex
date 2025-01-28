@@ -226,6 +226,23 @@ class Special(Command):
         parser.lists[-1].append(nd.Special(text))
 
 
+class GlueCommand:
+    """
+    Add a horizontal skip to the current list.
+    @param vertical: whether the glue is vertical
+    @param glue: The glue to add
+    """
+    def __init__(self, vertical: bool, glue=None):
+        self.vert = vertical
+        self.glue = glue
+
+    def glueValue(self, parser):
+        return parser.readGlue() if self.glue is None else self.glue
+    
+    def glueNode(self, parser):
+        return nd.Glue(self.glueValue(parser))
+
+
 mod = Module("lists",
     commands={
         "kern": Kern(),

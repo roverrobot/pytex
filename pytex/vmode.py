@@ -68,20 +68,15 @@ class VerticalCommand(lists.ModeDependentCommand):
         self.execute(parser)
 
 
-class VSkip(VerticalCommand):
+class VSkip(lists.GlueCommand, VerticalCommand):
     """
     Add a vertical skip.
     """
     def __init__(self, glue=None):
-        self.glue = glue
+        lists.GlueCommand.__init__(self, True, glue)
 
     def vertical(self, parser, vlist):
-        if self.glue is None:
-            glue = parser.readGlue()
-        else:
-            glue = self.glue
-        node = nd.Glue(glue)
-        vlist.append(node)
+        vlist.append(self.glueNode(parser))
 
 
 class VFil(VSkip):

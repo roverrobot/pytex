@@ -14,8 +14,9 @@ from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen
 from pytex import conditional
 from pytex.state import GROUP_TYPE
-from pytex.lists import LISTTYPE, ModeDependentCommand
+from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
 from math import inf
+import enum
 
 
 class Box(nd.Box):
@@ -196,7 +197,8 @@ class BoxValuePointer(ValuePointer):
     def finalize(self, parser):
         if self.spec is not None:
             self.spec.finalize(parser)
-
+            parser.loop()
+            parser.run = True
     
     def boxValue(self, parser):
         box = self.getValue(parser)
@@ -269,7 +271,12 @@ class BoxSpecPointer(ValuePointer):
 
     def finalize(self, parser):
         def callback():
-            assert parser.lists.pop() == self.box.list
+            while True:
+                top = parser.lists.pop()
+                if top == self.box.list:
+                    break
+                parser.lists[-1].append(top)
+            parser.run = False
         parser.beginGroup(self.pos, self.command.reason(), callback)
     
 
@@ -306,6 +313,7 @@ class ReadBox(Command):
         box = p.boxValue(parser).box
         p.finalize(parser)
         parser.loop()
+        parser.run = True
         parser.lists[-1].append(box)
 
 
@@ -680,6 +688,57 @@ class Accent(hmode.HorizontalCommand):
         raise NotImplementedError("accent in math mode")
 
 
+class LEADERS_TYPE(enum.Enum):
+    LEADERS = 0
+    CLEADERS = 1
+    XLEADERS = 2
+
+
+class Leaders(Command):
+    """
+    The \\leaders, \\cleaders and \\xleaders command.
+    """
+    def __init__(self, type: LEADERS_TYPE):
+        self.type = type
+
+    def execute(self, parser):
+        top = parser.lists[-1]
+        # read a rule
+        pos = parser.input.position()
+        t = parser.token_expand()
+        if t is None:
+            raise ValueError("expecting a rule or a box", pos)
+        if isinstance(t, nd.Rule):
+            if (t.vert and top.type == LISTTYPE.VERTICAL) or (not t.vert and top.type != LISTTYPE.VERTICAL):
+                box = t.readRule(parser)
+            else:
+                raise ValueError("rule in the wrong mode", pos)
+        else: # box
+            parser.input.unread(t)
+            box = parser.readBox()
+            if isinstance(box, BoxSpecPointer):
+                box.finalize(parser)
+                parser.loop()
+                parser.run = True
+                box = box.box
+            if (box.node_type == nd.NODE_TYPE.HLIST and top.type == LISTTYPE.VERTICAL) or (box.node_type == nd.NODE_TYPE.VLIST and top.type != LISTTYPE.VERTICAL):
+                raise ValueError("box in the wrong mode", pos)
+        pos = parser.input.position()
+        t = parser.token_expand()
+        if t is None:
+            raise ValueError("expecting a glue", pos)
+        if isinstance(t, GlueCommand):
+            if (t.vert and top.type == LISTTYPE.VERTICAL) or (not t.vert and top.type != LISTTYPE.VERTICAL):
+                glue = t.glueValue(parser)
+            else:
+                raise ValueError("glue in the wrong mode", pos)
+        else:
+            raise ValueError("expecting a glue", pos)
+        node = nd.Glue(glue)
+        node.leaders = (self.type, box)
+        parser.lists[-1].append(node)
+
+
 mod = Module("hbox", 
     domains={
         "box": {"generator": lambda: Array(VoidBox), "accessor": None},
@@ -707,5 +766,8 @@ mod = Module("hbox",
         "lower": Shift(False, 1),
         "moveleft": Shift(True, 1),
         "moveright": Shift(True, -1),
+        "leaders": Leaders(LEADERS_TYPE.LEADERS),
+        "cleaders": Leaders(LEADERS_TYPE.CLEADERS),
+        "xleaders": Leaders(LEADERS_TYPE.XLEADERS),
     }
 )

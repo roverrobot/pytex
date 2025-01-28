@@ -208,19 +208,20 @@ class CharToken(Token):
 class MathShiftToken(Token):
     """ a token that represents a math shift $ """
     def execute(self, parser):
-        parser.mathShift(self)
+        parser.mathShift()
 
 
 class SuperscriptToken(Token):
     """ a token that represents a superscript ^ """
     def execute(self, parser):
-        parser.superscript(self)
+        parser.superscript()
 
 
 class SubscriptToken(Token):
     """ a token that represents a subscript _ """
     def execute(self, parser):
-        parser.subscript(self)
+        parser.subscript()
+
 
 # the token generators for each category code
 Token.generators = [

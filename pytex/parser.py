@@ -22,6 +22,7 @@ from pytex import vmode
 from pytex import hmode
 from pytex import box
 from pytex import file
+from pytex import mmode
 
 
 class Parser:
@@ -152,8 +153,19 @@ class Parser:
                 self.state.globals["spacefactor"] = sf
         else:
             # math mode.
-            raise NotImplementedError
-    
+            code = self.state.mathcode[ord(c)]
+            char = self.mathChar(code)
+            self.lists[-1].append(char)
+
+    def mathChar(self, code):
+            """
+            create a math character
+            @param code: the math code
+            @return: the an atom with the symbol as the nucleus
+            """
+            fam = self.state.parameters["fam"]
+            return mmode.MathSymbol(code, fam)
+
     def addSpace(self):
         """
         add a space to the current list
@@ -216,6 +228,9 @@ class Parser:
         @param group_type: the type of the group
         @param callback: the callback function
         """
+        if self.lists[-1].type == lists.LISTTYPE.MATH:
+            mlist = mmode.MList()
+            self.lists.append(mlist)
         self.state.beginGroup(position, group_type, callback)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
@@ -225,6 +240,10 @@ class Parser:
         @param group_type: the type of the group
         """
         self.state.endGroup(position, group_type)
+        if self.lists[-1].type == lists.LISTTYPE.MATH and group_type != state.GROUP_TYPE.MATH:
+            # this is a subformula. pop it.
+            mlist = self.lists.pop()
+            self.lists[-1].append(mmode.Subformula(mlist))
         aftergroup = self.state.domains["globals"]["aftergroup"]
         if len(aftergroup) > 0:
             self.input.push(lexer.TokenListScanner(aftergroup))

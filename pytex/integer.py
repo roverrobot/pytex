@@ -62,6 +62,9 @@ def readUnsigned(parser):
         raise ValueError("expecting an integer", pos)
     try:
         value = t.pointer(parser)
+    except AttributeError:
+        value = t
+    try:
         return value.intValue(parser)
     except AttributeError:
         pass
@@ -295,12 +298,12 @@ module = Module("integer",
         "defaulthyphenchar": {"value": ord("-"), "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
         "defaultskewchar": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
         "hangafter": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
-        "fam": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
         "mag": {"value": 1000, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
         "delimiterfactor": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
         # escapechar is a layout parameter because \write may use it
         "escapechar": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "layout"},
         # control parameters
+        "fam": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
         "pausing": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
         "holdinginserts": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},
         "tracingonline": {"value": 0, "accessor": ParameterAccessor, "type": IntegerValuePointer, "domain": "parameters"},

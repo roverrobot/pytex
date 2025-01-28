@@ -665,14 +665,13 @@ class Accent(hmode.HorizontalCommand):
         if t is not None:
             if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
                 c = t.name
-            elif t.is_command:
-                try:
-                    c = t.charValue(parser)
-                except AttributeError:
-                    c = None
-            else:
+            try:
+                c = t.charValue(parser)
+            except AttributeError:
+                parser.input.unread(t)
                 c = None
             if c is not None:
+                # the font may have changed in the assignments
                 font = parser.state.parameters["currentfont"]
                 char = font[c]
                 return char, accent

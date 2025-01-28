@@ -18,12 +18,12 @@ class NODE_TYPE(enum.Enum):
     LIGATURE = 7
     DISC = 8
     WHATSIT = 9
-    MATH = 10 # mlist
+    MATH = 10 # math on/off
     GLUE = 11
     KERN = 12
     PENALTY = 13
     UNSET = 14
-    MATHS = 15 # math mode nodes
+    MATHNODE= 15 # math mode nodes
     ACCENT = 16 # accent node
 
 

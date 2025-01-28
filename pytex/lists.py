@@ -38,7 +38,7 @@ class List(list):
         else:
             type = "MList"
         inner = "inner" if self.inner else ""
-        return f'{type}({inner}, {", ".join(repr(node) for node in self)})'
+        return f'{type}({inner}, [{", ".join(repr(node) for node in self)}])'
     
 
 class ModeDependentCommand(Command):
@@ -130,11 +130,16 @@ def readList(parser, list, reason: GROUP_TYPE):
     t = parser.token_expand()
     if t.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting a {", pos)
-    parser.lists.append(list)
+    # when in math mode, beginning a group will create a new math list
+    # so there is no need to provide one
+    if list is not None:
+        parser.lists.append(list)
     parser.beginGroup(pos, reason, callback)
     parser.loop()
     parser.run = True
-    parser.lists.pop()
+    # math list has already been popped in endgroup
+    if list is not None:
+        parser.lists.pop()
     return list
 
 

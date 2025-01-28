@@ -82,20 +82,6 @@ class FutureLet(Define):
         super().__init__(FutureLetItem)
 
 
-class IntegerHolder:
-    """
-    a holder for an integer
-    """
-    def __init__(self, value):
-        self.value = value
-
-    def intValue(self, parser):
-        """
-        get the integer value
-        """
-        return self.value
-
-
 class CharDefValue(token.Command):
     """
     the value of the \\chardef command
@@ -111,19 +97,19 @@ class CharDefValue(token.Command):
         execute the command
         @param parser: the parser
         """
-        parser.addChar(chr(self.value))
+        parser.addChar(self.charValue(parser))
     
-    def pointer(self, parser):
+    def intValue(self, parser):
         """
         get the integer value
         """
-        return IntegerHolder(self.value)
+        return self.value
 
     def charValue(self, parser):
         """
         get the character value
         """
-        return self.value
+        return chr(self.value)
 
 
 class CharDefItem(accessor.ValuePointer):

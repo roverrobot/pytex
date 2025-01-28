@@ -88,6 +88,9 @@ class ValuePointer(token.Command):
         for p in self.prefixes:
             value, globally = p.modify(value, globally)
         self.setValue(parser, value, globally)
+        t = parser.state.globals["afterassignment"]
+        if t is not None:
+            parser.input.unread(t)
         self.finalize(parser)
 
     def finalize(self, parser):
@@ -267,7 +270,7 @@ class Afterassignment(token.Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token")
-        parser.state.domains.globals.afterassignment = t
+        parser.state.domains.globals["afterassignment"] = t
 
 
 module = Module("assignment", 

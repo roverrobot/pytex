@@ -154,8 +154,12 @@ class Parser:
         else:
             # math mode.
             code = self.state.mathcode[ord(c)]
-            char = self.mathChar(code)
-            self.lists[-1].append(char)
+            # code 0x8000 is a special case, making the character active
+            if code == 0x8000:
+                token.ActiveToken(c).execute(self)
+            else:
+                char = self.mathChar(code)
+                self.lists[-1].append(char)
 
     def mathChar(self, code):
             """

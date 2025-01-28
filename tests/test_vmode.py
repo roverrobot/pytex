@@ -3,6 +3,7 @@ from pytex import node as nd
 from pytex import glue
 from pytex import lists
 from pytex import texlive
+from pytex.box import LEADERS_TYPE
 
 
 @pytest.mark.parametrize(
@@ -83,3 +84,43 @@ def test_special(cmr10):
     node = top[0]
     assert node.node_type == nd.NODE_TYPE.WHATSIT
     assert str(node.text) == "abc"
+
+
+@pytest.mark.parametrize("cmd, type", [
+    ["\\leaders", LEADERS_TYPE.LEADERS],
+    ["\\cleaders", LEADERS_TYPE.CLEADERS],
+    ["\\xleaders", LEADERS_TYPE.XLEADERS],
+])
+def test_leaders(cmr10, cmd, type):
+    cmr10.parse(cmd + "\\vbox{\\hbox{.}}\\vskip1cm")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
+    node = top[0]
+    assert node.node_type == nd.NODE_TYPE.GLUE
+    assert node.glue == glue.Glue(2.84526)
+    ltype, box = node.leaders
+    assert ltype == type
+    assert box.node_type == nd.NODE_TYPE.VLIST
+    assert len(box.list) == 1
+    assert box.list[0].node_type == nd.NODE_TYPE.HLIST
+    try:
+        cmr10.parse("\\leaders\\vbox{.}")
+        assert False
+    except ValueError as e:
+        assert "glue" in str(e)
+    try:
+        cmr10.parse("\\leaders\\vskip 1cm")
+        assert False
+    except ValueError as e:
+        assert "box" in str(e)
+    try:
+        cmr10.parse("\\leaders\\hbox{.}\\vskip 1cm")
+        assert False
+    except ValueError as e:
+        assert "mode" in str(e)
+    try:
+        cmr10.parse("\\leaders\\vbox{}\\hskip 1cm")
+        assert False
+    except ValueError as e:
+        assert "mode" in str(e)

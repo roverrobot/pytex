@@ -4,6 +4,7 @@ from pytex import glue
 from pytex import lists
 from pytex import texlive
 from pytex import hmode
+from pytex.box import LEADERS_TYPE
 import math
 
 
@@ -177,7 +178,7 @@ def test_insert_invalid(cmr10):
 
 
 def test_insert_migrate(cmr10):
-    cmr10.parse("\hbox{1\\insert 2{\\vskip 1in}}")
+    cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     assert len(top) == 1
@@ -197,7 +198,7 @@ def test_insert_migrate(cmr10):
 
 
 def test_mark(cmr10):
-    cmr10.parse("\\def\\a{123}\hbox{\\mark{\\a}}")
+    cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     assert len(top) == 1
@@ -219,3 +220,43 @@ def test_special(cmr10):
     node = top[2]
     assert node.node_type == nd.NODE_TYPE.WHATSIT
     assert str(node.text) == "abc"
+
+
+@pytest.mark.parametrize("cmd, type", [
+    ["\\leaders", LEADERS_TYPE.LEADERS],
+    ["\\cleaders", LEADERS_TYPE.CLEADERS],
+    ["\\xleaders", LEADERS_TYPE.XLEADERS],
+])
+def test_leaders(cmr10, cmd, type):
+    cmr10.parse(f"\\noindent1{cmd}\\hbox{{.}}\\hskip1cm2\\relax")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 3
+    node = top[1]
+    assert node.node_type == nd.NODE_TYPE.GLUE
+    assert node.glue == glue.Glue(2.84526)
+    ltype, box = node.leaders
+    assert ltype == type
+    assert box.node_type == nd.NODE_TYPE.HLIST
+    assert len(box.list) == 1
+    assert box.list[0].char == "."
+    try:
+        cmr10.parse("1\\leaders\\hbox{.}")
+        assert False
+    except ValueError as e:
+        assert "glue" in str(e)
+    try:
+        cmr10.parse("1\\leaders\\hskip 1cm")
+        assert False
+    except ValueError as e:
+        assert "box" in str(e)
+    try:
+        cmr10.parse("1\\leaders\\vbox{}\\hskip 1cm")
+        assert False
+    except ValueError as e:
+        assert "mode" in str(e)
+    try:
+        cmr10.parse("1\\leaders\\hbox{}\\vskip 1cm")
+        assert False
+    except ValueError as e:
+        assert "mode" in str(e)

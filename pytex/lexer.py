@@ -268,6 +268,7 @@ class InputStack:
         save a token for later reading
         @param token: the token to save
         """
+        assert token is not None
         self.saved.append(token)
 
     def push(self, lexer):

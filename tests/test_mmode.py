@@ -92,3 +92,14 @@ def test_mathchar(parser, cmd):
     assert node.fam == 2
     assert node.atom_type == mmode.ATOM_TYPE.OP
     parser.parse("$")
+
+
+def test_acive(parser):
+    parser.parse("\\def\\a{1}\\mathcode`a=\"8000$\\a")
+    top = parser.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.MathSymbol)
+    assert node.char == ord("1")
+    parser.parse("$")

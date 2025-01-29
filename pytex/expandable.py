@@ -172,26 +172,24 @@ class The(Command):
         t = parser.token_expand()
         if t is None or not t.is_command:
             raise ValueError("invalid token after \\the", pos)
-        try:
-            p = t.pointer(parser)
-        except AttributeError:
-            raise ValueError("invalid token after \\the", pos)
-        value = None
-        if hasattr(p, "glueValue"):
-            value = str(p.glueValue(parser))
-        elif hasattr(p, "dimenValue"):
-            value = str(p.dimenValue(parser)) + "pt"
-        elif hasattr(p, "intValue"):
-            value = str(p.intValue(parser))
+        if hasattr(t, "glueValue"):
+            value = str(t.glueValue(parser))
+        elif hasattr(t, "dimenValue"):
+            value = str(t.dimenValue(parser)) + "pt"
+        elif hasattr(t, "intValue"):
+            value = str(t.intValue(parser))
+        else:
+            value = None
         if value is not None:
             parser.input.push(TokenListScanner(toToks(value)))
             return
-        if hasattr(p, "toksValue"):
-            value = p.toksValue(parser)
+        if hasattr(t, "toksValue"):
+            value = t.toksValue(parser)
             parser.input.push(ProtectedTokenListScanner(value))
             return
-        if hasattr(p, "fontValue"):
-            raise UnimplementedError("fontValue")
+        if hasattr(t, "fontValue"):
+            value = t.fontValue(parser)
+            value.execute(parser)
 
 
 class Input(Command):

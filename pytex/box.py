@@ -11,7 +11,7 @@ from pytex.module import Module
 from pytex.accessor import Accessor, ArrayAccessor, ValuePointer
 from pytex.state import Array
 from pytex.token import Command, CATCODE
-from pytex.dimen import Dimen
+from pytex.dimen import Dimen, DimenCommand, DimenValuePointer
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
@@ -178,7 +178,18 @@ class VoidBox(nd.Box):
         return "Box()"
     
 
-class BoxValuePointer(ValuePointer):
+class BoxValueAccessor:
+    """
+    access a box value
+    """
+    def boxValue(self, parser):
+        """
+        get the box value
+        """
+        return self.getValue(parser)
+
+
+class BoxValuePointer(ValuePointer, BoxValueAccessor):
     """
     a value pointer for the \\hbox array
     """
@@ -200,15 +211,23 @@ class BoxValuePointer(ValuePointer):
             parser.loop()
             parser.run = True
     
-    def boxValue(self, parser):
-        box = self.getValue(parser)
+    def getValue(self, parser):
+        box = super().getValue(parser)
         if self.wipe:
             self.domain[self.index] = VoidBox()
             return box
         return box.copy()
 
 
-class BoxCommand(Command):
+class BoxValueCommand(BoxValueAccessor):
+    """
+    access the box value of a command
+    """
+    def getValue(self, parser):
+        return self.pointer(parser).getValue(parser)
+
+
+class BoxCommand(Command, BoxValueCommand):
     """
     the \\box or \\copy command
     @param wipe whether to wipe the box register after use
@@ -217,20 +236,17 @@ class BoxCommand(Command):
         self.wipe = wipe
     
     def execute(self, parser):
-        p = self.pointer(parser)
-        box = p.boxValue(parser)
+        box = self.boxValue(parser)
         if not isinstance(box, VoidBox):
             parser.lists[-1].append(box)
     
     def pointer(self, parser):
         pos = parser.input.position()
         index = parser.readInteger()
-        if 0 <= index < len(parser.state.box.values):
-            return BoxValuePointer(parser.state.box, index, self.wipe)
-        raise ValueError("box index out of range", pos)
+        return BoxValuePointer(parser.state.box, index, self.wipe)
 
 
-class BoxSpecPointer(ValuePointer):
+class BoxSpecPointer(ValuePointer, BoxValueAccessor):
     """
     a pointer that read a box specification (not including the list)
 
@@ -246,7 +262,7 @@ class BoxSpecPointer(ValuePointer):
         self.box = None
         self.pos = None
   
-    def boxValue(self, parser):
+    def getValue(self, parser):
         spec = parser.readKeyword(["to", "spread"])
         if spec is None:
             to = None
@@ -280,7 +296,7 @@ class BoxSpecPointer(ValuePointer):
         parser.beginGroup(self.pos, self.command.reason(), callback)
     
 
-class ReadBox(Command):
+class ReadBox(Command, BoxValueCommand):
     """
     the base class for \\hbox, \\vbox and \\vtop commands
     """
@@ -310,7 +326,7 @@ class ReadBox(Command):
     
     def execute(self, parser):
         p = self.pointer(parser)
-        box = p.boxValue(parser).box
+        box = p.getValue(parser).box
         p.finalize(parser)
         parser.loop()
         parser.run = True
@@ -340,8 +356,7 @@ def readBox(parser):
     if command is None:
         raise ValueError("expecting a box", pos)
     try:
-        p = command.pointer(parser)
-        return p.boxValue(parser)
+        return command.boxValue(parser)
     except AttributeError:
         raise ValueError("expecting a box", pos)
     
@@ -496,26 +511,25 @@ class VBoxCommand(ReadBox):
         return GROUP_TYPE.VTOP if self.vtop else GROUP_TYPE.VBOX
     
 
-class BoxDimenValuePointer(ValuePointer):
+class BoxDimenValuePointer(DimenValuePointer):
     """
     a value pointer for the dimension of a box
     """
+    def __init__(self, domain, index):
+        super().__init__(domain, index, eq=True)
+        self.allow_global = False
+
     def readValue(self, parser):
         return parser.readDimen()
 
     def setValue(self, parser, value, globally: bool):
         setattr(self.domain, self.index, value)
 
-    def dimenValue(self, parser):
+    def getValue(self, parser):
         return getattr(self.domain, self.index)
-    
-    def intValue(self, parser):
-        return int(self.dimenValue(parser))
+ 
 
-    allow_global = False
-
-
-class BoxDimenCommand(Accessor):
+class BoxDimenCommand(Accessor, DimenCommand):
     """
     a command that accesses a dimension for a box
     """
@@ -531,7 +545,7 @@ class BoxDimenCommand(Accessor):
         box = parser.state.box[index]
         if box.width is None:
             box.typeset()
-        return BoxDimenValuePointer(box, self.dimen, eq=True)
+        return BoxDimenValuePointer(box, self.dimen)
 
 
 class UnBox(Command):
@@ -665,17 +679,17 @@ class Accent(hmode.HorizontalCommand):
         if t is not None:
             if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
                 c = t.name
-            try:
-                c = t.charValue(parser)
-            except AttributeError:
-                parser.input.unread(t)
+            else:
+                try:
+                    c = t.charValue(parser)
+                except AttributeError:
+                    parser.input.unread(t)
                 c = None
             if c is not None:
                 # the font may have changed in the assignments
                 font = parser.state.parameters["currentfont"]
                 char = font[c]
                 return char, accent
-            parser.input.unread(t)
         return None, accent
 
     def horizontal(self, parser, hlist):

@@ -3,7 +3,7 @@ This module implements glue parsing and handling.
 """
 
 
-from pytex.dimen import readDimen, readUnsignedDimen, Dimen
+from pytex.dimen import readDimen, readUnsignedDimen, Dimen, DimenValueAccessor
 from pytex.integer import readSigns
 from pytex.state import Array
 from pytex.accessor import ValuePointer, ArrayAccessor, ParameterAccessor, GlobalParameterAccessor
@@ -207,39 +207,59 @@ def readGlue(parser, mu: bool=False):
     return Glue(dimen, stretch, shrink)
 
 
-class GlueValuePointer(ValuePointer):
+class GlueValueAccessor(DimenValueAccessor):
     """
-    An dimension parameter accessor
+    an accessor for glue values
     """
-    def readValue(self, parser):
-        return parser.readGlue()
-
-    def intValue(self, parser):
+    def glueValue(self, parser):
         """
-        return the integer value (dimension in sp unit, i.e., dimension * 65536) 
+        return the glue value
         """
-        return round(self.dimenValue(parser) * 65536)
+        return self.pointer(parser).getValue(parser)
 
     def dimenValue(self, parser):
         """
         return the dimen value
         """
-        return self.getValue(parser).dimen
-    
-    def glueValue(self, parser):
-        """
-        return the glue value
-        """
-        return self.getValue(parser)
+        return self.glueValue(parser).dimen
 
 
-class MuGlueValuePointer(ValuePointer):
+class GlueValuePointer(GlueValueAccessor, ValuePointer):
     """
-    An mu dimension parameter accessor
+    A glue value pointer
     """
     def readValue(self, parser):
-        return parser.readGlue(mu=True)
+        return parser.readGlue()
 
+
+class GlueCommand(GlueValueAccessor):
+    """
+    access the glue of the command
+    """
+    def getValue(self, parser):
+        return self.pointer(parser).getValue(parser)
+    
+
+class GlueArrayAccessor(ArrayAccessor, GlueCommand):
+    """
+    access an item of a glue array
+    """
+    def __init__(self, domain):
+        ArrayAccessor.__init__(self, domain, GlueValuePointer)
+
+
+class GlueParameterAccessor(ParameterAccessor, GlueValueAccessor):
+    """
+    access the value of a glue parameter
+    """
+    def __init__(self, domain, name):
+        ParameterAccessor.__init__(self, domain, name, GlueValuePointer)
+
+
+class MuGlueValueAccessor:
+    """
+    accessor for mu glue values
+    """
     def muglueValue(self, parser):
         """
         return the glue value
@@ -247,34 +267,65 @@ class MuGlueValuePointer(ValuePointer):
         return self.getValue(parser)
 
 
+class MuGlueValuePointer(ValuePointer, MuGlueValueAccessor):
+    """
+    pointing to a mu glue value
+    """
+    def readValue(self, parser):
+        return parser.readGlue(mu=True)
+
+
+class MuGlueCommand(MuGlueValueAccessor):
+    """
+    access the mu glue value of a command
+    """
+    def getValue(self, parser):
+        return self.pointer(parser).muglueValue(parser)
+
+
+class MuGlueArrayAccessor(ArrayAccessor, MuGlueCommand):
+    """
+    access an item of a mu glue array
+    """
+    def __init__(self, domain):
+        ArrayAccessor.__init__(self, domain, MuGlueValuePointer)
+
+
+class MuGlueParameterAccessor(ParameterAccessor, MuGlueCommand):
+    """
+    access the value of a mu glue parameter
+    """
+    def __init__(self, domain, name):
+        ParameterAccessor.__init__(self, domain, name, MuGlueValuePointer)
+
+
 mod = Module("glue",
     attributes={
         "readGlue": readGlue,
     },
     domains={
-        "skip": {"generator": lambda: Array(Glue()), "accessor": ArrayAccessor, "type": GlueValuePointer},
-        "muskip": {"generator": lambda: Array(MuGlue()), "accessor": ArrayAccessor, "type": MuGlueValuePointer},
+        "skip": {"generator": lambda: Array(Glue()), "accessor": GlueArrayAccessor},
+        "muskip": {"generator": lambda: Array(MuGlue()), "accessor": MuGlueArrayAccessor},
     },
     parameters={
         # glue parameters
-        "baselineskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "lineskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "parskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "parameters"},
-        "abovedisplayskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "abovedisplayshortskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "belowdisplayskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "belowdisplayshortskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "leftskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "rightskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "topskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "splittopskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "tabskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "layout"},
-        "parfillskip": {"value": Glue(0, Stretchness(1,1)), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "parameters"},
-        "thinmuskip": {"value": MuGlue(), "accessor": ParameterAccessor, "type": MuGlueValuePointer, "domain": "layout"},
-        "medmuskip": {"value": MuGlue(), "accessor": ParameterAccessor, "type": MuGlueValuePointer, "domain": "layout"},
-        "thickmuskip": {"value": MuGlue(), "accessor": ParameterAccessor, "type": MuGlueValuePointer, "domain": "layout"},
-        "spaceskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "parameters"},
-        "xspaceskip": {"value": Glue(), "accessor": ParameterAccessor, "type": GlueValuePointer, "domain": "parameters"},
-        "lastskip": {"value": 0, "accessor": GlobalParameterAccessor, "type": GlueValuePointer, "domain": "globals"},
+        "baselineskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "lineskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "parskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "parameters"},
+        "abovedisplayskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "abovedisplayshortskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "belowdisplayskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "belowdisplayshortskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "leftskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "rightskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "topskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "splittopskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "tabskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
+        "parfillskip": {"value": Glue(0, Stretchness(1,1)), "accessor": GlueParameterAccessor, "domain": "parameters"},
+        "thinmuskip": {"value": MuGlue(), "accessor": MuGlueParameterAccessor, "domain": "layout"},
+        "medmuskip": {"value": MuGlue(), "accessor": MuGlueParameterAccessor, "domain": "layout"},
+        "thickmuskip": {"value": MuGlue(), "accessor": MuGlueParameterAccessor, "domain": "layout"},
+        "spaceskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "parameters"},
+        "xspaceskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "parameters"},
     }
 )

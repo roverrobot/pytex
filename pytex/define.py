@@ -5,11 +5,11 @@ This module implements command definition, such as \\let etc.
 
 from pytex import accessor
 from pytex.module import Module
-from pytex.integer import IntegerValuePointer
-from pytex.dimen import DimenValuePointer
-from pytex.glue import GlueValuePointer, MuGlueValuePointer
-from pytex.accessor import ParameterAccessor
-from pytex.toks import ToksValuePointer, relax
+from pytex.integer import IntegerValuePointer, IntegerParameterAccessor
+from pytex.dimen import DimenValuePointer, DimenParameterAccessor
+from pytex.glue import GlueValuePointer, MuGlueValuePointer, GlueParameterAccessor, MuGlueParameterAccessor
+from pytex.accessor import Accessor, ParameterAccessor
+from pytex.toks import ToksValuePointer, relax, ToksParameterAccessor
 from pytex import token
 
 
@@ -134,14 +134,16 @@ class CharDef(Define):
 
 class RegisterItem(accessor.ValuePointer):
     """
-    an item in \\count.
+    an value of a register definition such as \\countdef.
     """
     def readValue(self, parser):
         """
         read the value from the input stack
         @param parser: the parser
         """
-        return ParameterAccessor(self.register, parser.readInteger(), self.item_generator)
+        index = parser.readInteger()
+        domain = parser.state.domains[self.register]
+        return self.accessor(domain, index, eq=True)
 
 
 class RegisterDef(Define):
@@ -150,10 +152,10 @@ class RegisterDef(Define):
     @param register: the name of the register
     @param item_generator: the generator for the register item
     """
-    def __init__(self, register: str, item_generator):
+    def __init__(self, register: str, accessor: Accessor):
         super().__init__(RegisterItem)
         self.register = register
-        self.item_generator = item_generator
+        self.accessor = accessor
 
     def pointer(self, parser):
         """
@@ -163,7 +165,7 @@ class RegisterDef(Define):
         """
         p = super().pointer(parser)
         p.register = self.register
-        p.item_generator = self.item_generator
+        p.accessor = self.accessor
         return p
 
 
@@ -176,6 +178,6 @@ mod = Module("define",
         "dimendef": RegisterDef("dimen", DimenValuePointer),
         "skipdef": RegisterDef("skip", GlueValuePointer),
         "muskipdef": RegisterDef("muskip", MuGlueValuePointer),
-        "toksdef": RegisterDef("toks", ToksValuePointer)
+        "toksdef": RegisterDef("toks", ToksValuePointer),
     }
 )

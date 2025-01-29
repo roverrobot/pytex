@@ -131,7 +131,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         raise Exception("dimension expected")
     # an internal dimension or a glue (both have a dimenValue method)
     try:
-        return t.pointer(parser).dimenValue(parser)
+        return t.dimenValue(parser)
     except AttributeError:
         pass
     # a number
@@ -191,23 +191,13 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     return Dimen(dimen)
 
 
-class DimenValuePointer(ValuePointer):
-    """
-    An dimension parameter accessor
-    """
-    def readValue(self, parser):
-        """
-        read the value from the input stack
-        @param parser: the parser
-        """
-        return parser.readDimen()
-
+class DimenValueAccessor:
     def intValue(self, parser):
         """
         return the dimension in sp unit, i.e., dimension * 65536
         @param parser: the parser
         """
-        return round(self.getValue(parser) * 65536)
+        return int(self.dimenValue(parser))
 
     def dimenValue(self, parser):
         """
@@ -217,34 +207,71 @@ class DimenValuePointer(ValuePointer):
         return self.getValue(parser)
 
 
+class DimenValuePointer(DimenValueAccessor, ValuePointer):
+    """
+    A pointer to a dimension value
+    """
+    def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        @return: the value
+        """
+        return parser.readDimen()
+
+
+class DimenCommand(DimenValueAccessor):
+    """
+    access the dimen value of a command
+    """
+    def getValue(self, parser):
+        return self.pointer(parser).getValue(parser)
+
+
+class DimenParameterAccessor(ParameterAccessor, DimenCommand):
+    """
+    access the value of a dimen parameter
+    """
+    def __init__(self, domain, name):
+        ParameterAccessor.__init__(self, domain, name, DimenValuePointer)
+
+
+class DimenArrayAccessor(ArrayAccessor, DimenCommand):
+    """
+    access an item of a dimen array
+    """
+    def __init__(self, domain):
+        ArrayAccessor.__init__(self, domain, DimenValuePointer)
+
+
 mod = Module("dimen",
     attributes = {
         "readDimen": readDimen,
     },
     domains={
-        "dimen": {"generator": lambda: Array(0), "accessor": ArrayAccessor, "type": DimenValuePointer},
+        "dimen": {"generator": lambda: Array(0), "accessor": DimenArrayAccessor},
     },
     parameters={
-        "hfuzz": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "vfuzz": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "overfullrule": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "emergencystretch": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "hsize": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "vsize": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "maxdepth": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "splitmaxdepth": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "boxmaxdepth": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "lineskiplimit": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "delimitershortfall": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "nulldelimiterspace": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "scriptspace": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "mathsurround": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "predisplaysize": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "displaywidth": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "displayindent": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "parindent": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "parameters"},
-        "hangindent": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "hoffset": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
-        "voffset": {"value": Dimen(), "accessor": ParameterAccessor, "type": DimenValuePointer, "domain": "layout"},
+        "hfuzz": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "vfuzz": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "overfullrule": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "emergencystretch": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "hsize": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "vsize": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "maxdepth": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "splitmaxdepth": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "boxmaxdepth": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "lineskiplimit": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "delimitershortfall": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "nulldelimiterspace": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "scriptspace": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "mathsurround": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "predisplaysize": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "displaywidth": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "displayindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "parindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "parameters"},
+        "hangindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "hoffset": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "voffset": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
     },
 )

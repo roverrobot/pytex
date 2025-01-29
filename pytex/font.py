@@ -6,11 +6,12 @@ The module implements font handling
 from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.tfm import TFM, nullfont as nullfont_tfm
-from pytex.accessor import ValuePointer, ParameterAccessor, Accessor
-from pytex.integer import IntegerValuePointer
+from pytex.accessor import ValuePointer, ParameterAccessor, ArrayAccessor, Accessor
+from pytex.integer import IntegerValuePointer, IntegerCommand
 from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
 from pytex.define import Define
+from pytex.state import Array
 
 
 class Font(Command):
@@ -52,8 +53,23 @@ class Font(Command):
     def __repr__(self):
         return f"Font({self.name}, {self.at})"
         
+    def fontValue(self, parser):
+        """
+        get the font value
+        @param parser: the parser
+        """
+        return self
 
-class FontValuePointer(ValuePointer):
+
+class FontValueAccessor:
+    """
+    A font value accessor
+    """
+    def fontValue(self, parser):
+        return self.getValue(parser)
+
+
+class FontValuePointer(ValuePointer, FontValueAccessor):
     """
     A font value pointer
     """
@@ -67,11 +83,8 @@ class FontValuePointer(ValuePointer):
             raise ValueError("expecting a font")
         # is the font specified by a command seqeunce?
         if t.is_command:
-            if isinstance(t, Font):
-                return t
             try:
-                pointer = t.pointer(parser)
-                return pointer.fontValue(parser)
+                return t.fontValue(parser)
             except AttributeError:
                 pass
             # the font could be prefixed by a relax
@@ -92,18 +105,47 @@ class FontValuePointer(ValuePointer):
             at = tfm.header.size * parser.state.layout["mag"] / 1000
         return Font(name, tfm, at)
     
-    def fontValue(self, parser):
-        return parser.state.domains[self.domain][self.index]
+
+class FontValueCommand(FontValueAccessor):
+    """
+    access the font value of command
+    """
+    def getValue(self, parser):
+        """
+        get the value of the command
+        @param parser: the parser
+        """
+        return self.pointer(parser).getValue(parser)
+
+
+class FontArrayAccessor(ArrayAccessor, FontValueCommand):
+    """
+    A font array
+    """
+    def __init__(self, domain):
+        super().__init__(domain, FontValuePointer)
+
+
+class FontParameterAccessor(ParameterAccessor, FontValueCommand):
+    """
+    A font parameter accessor
+    """
+    def __init__(self, domain, name):
+        super().__init__(domain, name, FontValuePointer)
 
 
 nullfont = Font("nullfont", tfm=nullfont_tfm, at=0)
 
 
-class FontCharValuePointer(IntegerValuePointer):
-    allow_global = False
+class FontArray(Array):
+    """
+    A font array
+    """
+    def __init__(self):
+        super().__init__(nullfont)
 
 
-class FontChar(Accessor):
+class FontChar(Accessor, IntegerCommand):
     """
     A font character
     """
@@ -119,7 +161,7 @@ class FontChar(Accessor):
             return t
         try:
             pointer = t.pointer(parser)
-            return pointer.fontValue(parser)
+            return pointer.getValue(parser)
         except AttributeError:
             raise ValueError("expecting a font")
 
@@ -130,10 +172,15 @@ class FontChar(Accessor):
         @return: the value pointer and possible prefixes
         """
         font = self.getIndex(parser)
-        return FontCharValuePointer(font.fontchar, self.name, eq=True)
+        p = IntegerValuePointer(font.fontchar, self.name, eq=True)
+        p.allow_global = False
+        return p
 
 
 class FontCommand(Define):
+    """
+    The \\font command
+    """
     def __init__(self):
         super().__init__(FontValuePointer, eq=True)
 
@@ -152,7 +199,12 @@ class FontCommand(Define):
 
 mod = Module("font",
     parameters = {
-        "currentfont": {"value": nullfont, "accessor": ParameterAccessor, "type": FontValuePointer, "domain": "parameters"},
+        "currentfont": {"value": nullfont, "accessor": FontParameterAccessor,  "domain": "parameters"},
+    },
+    domains = {
+        "textfont": {"generator": FontArray, "accessor": FontArrayAccessor},
+        "scriptfont": {"generator": FontArray, "accessor": FontArrayAccessor},
+        "scriptscriptfont": {"generator": FontArray, "accessor": FontArrayAccessor},
     },
     commands = {
         "hyphenchar": FontChar("hyphenchar"),

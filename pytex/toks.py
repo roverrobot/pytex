@@ -95,7 +95,19 @@ def readGeneralText(parser, expand: bool = True):
     return readBalancedText(parser, expand)
 
 
-class ToksValuePointer(accessor.ValuePointer):
+class ToksValueAccessor:
+    """
+    access a token list value
+    """
+    def toksValue(self, parser):
+        """
+        get the token list value
+        @param parser: the parser
+        """
+        return self.getValue(parser)
+
+
+class ToksValuePointer(accessor.ValuePointer, ToksValueAccessor):
     """
     a pointer to the token list
     """
@@ -105,13 +117,34 @@ class ToksValuePointer(accessor.ValuePointer):
         @param parser: the parser
         """
         return readBalancedText(parser, expand=False)
-    
-    def toksValue(self, parser):
+
+
+class ToksCommand(ToksValueAccessor):
+    """
+    access the toks value of a command
+    """
+    def getValue(self, parser):
         """
-        get the token list value
+        get the value of the command
         @param parser: the parser
         """
-        return self.getValue(parser)
+        return self.pointer(parser).getValue(parser)
+    
+
+class ToksArrayAccessor(accessor.ArrayAccessor, ToksCommand):
+    """
+    an accessor for the token list array
+    """
+    def __init__(self, domain):
+        super().__init__(domain, ToksValuePointer)
+
+
+class ToksParameterAccessor(accessor.ParameterAccessor, ToksCommand):
+    """
+    an accessor for the token list parameters
+    """
+    def __init__(self, domain, name):
+        super().__init__(domain, name, ToksValuePointer)
 
 
 class AfterGroup(Command):
@@ -172,18 +205,18 @@ mod = Module("toks",
         "lowercase": Case(False),
     },
     domains = {
-        "toks": {"generator": lambda: Array([]), "accessor": accessor.ArrayAccessor, "type": ToksValuePointer},
+        "toks": {"generator": lambda: Array([]), "accessor": ToksArrayAccessor},
     },
     parameters={
         "aftergroup": {"value": list, "accessor": None, "domain": "globals"},
-        "output": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
-        "everyhbox": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
-        "everyvbox": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
-        "everyjob": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
-        "everycr": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
-        "errhelp": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
-        "everypar": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
-        "everymath": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
-        "everydisplay": {"value": list, "accessor": accessor.ParameterAccessor, "domain": "parameters", "type": ToksValuePointer},
+        "output": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everyhbox": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everyvbox": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everyjob": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everycr": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "errhelp": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everypar": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everymath": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everydisplay": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
     }
 )

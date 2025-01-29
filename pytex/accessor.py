@@ -1,9 +1,14 @@
 """
 Assignment commands are commands that assign values to registers or parameters
+
+Most assignments also access the value of the register or parameter. For example,
+the \\count command assigns a value to a count register and also returns the value
+of the count register.
+
+We let the assignment command return a pointer to the value in the domain. The pointer
+can then be used to access the value of the register or parameter.
 """
 
-
-import typing
 from pytex import token
 from pytex.module import Module
 from pytex import token
@@ -38,9 +43,9 @@ class ValuePointer(token.Command):
         self.index = index
         self.eq = eq
         self.prefixes = []
-
-    # by default, the assignment is may be global
-    allow_global = True
+        self.range = None
+        # by default, the assignment is may be global
+        self.allow_global = True
 
     def readEq(self, parser):
         """
@@ -84,6 +89,16 @@ class ValuePointer(token.Command):
         if self.eq:
             self.readEq(parser)
         value = self.readValue(parser)
+        if self.range is not None:
+            min, max = self.range
+            if (min is not None and value < min) or (max is not None and value > max):
+                if min is Mone:
+                    range = f("at least {max}")
+                elif max is Mone:
+                    range = f("at most {min}")
+                else:
+                    range = f("between {min} and {max}")
+                raise ValueError(f"value out of range: {value} must be {range}")
         globally = parser.state.parameters["globaldefs"] != 0
         for p in self.prefixes:
             value, globally = p.modify(value, globally)

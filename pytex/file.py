@@ -23,9 +23,8 @@ class OpenOp(ValuePointer):
         self.file_array = file_array
         self.filename = filename
         ValuePointer.__init__(self, file_array, file_id, eq=True)
+        self.allow_global = False
     
-    allow_global = False 
-
     def execute(self, parser):
         ValuePointer.execute(self, parser)
 
@@ -248,8 +247,6 @@ class Read(FileCommand, Accessor):
     def pointer(self, parser):
         file_id = parser.readInteger()
         return self.fileOp(parser, file_id)
-
-
 
 
 class Immediate(token.Command):

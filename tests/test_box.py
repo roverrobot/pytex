@@ -265,3 +265,36 @@ def test_accent(cmr10):
     assert char.node_type == NODE_TYPE.CHAR
     assert char.char == "1"
 
+
+def test_lastbox(cmr10):
+    cmr10.parse("1\\hbox{Hello, world!}\\setbox0=\\lastbox")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 2
+    box = cmr10.state.box[0]
+    assert len(box.list) == 13
+
+
+def test_lastbox_empty(cmr10):
+    cmr10.parse("1\\setbox0=\\lastbox")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 2
+    box = cmr10.state.box[0]
+    assert isinstance(box, bx.VoidBox)
+
+
+def test_lastbox_vmode(cmr10):
+    cmr10.parse("\\vbox{\\setbox0=\\lastbox}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
+    vbox = top[0]
+    assert len(vbox.list) == 0
+    box = cmr10.state.box[0]
+    assert isinstance(box, bx.VoidBox)
+    try:
+        cmr10.parse("\\hbox{Hello, world!}\\setbox0=\\lastbox")
+        assert False
+    except ValueError as e:
+        assert "\\lastbox" in str(e)

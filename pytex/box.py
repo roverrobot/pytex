@@ -672,6 +672,21 @@ class Leaders(Command):
         parser.lists[-1].append(node)
 
 
+class LastBox(Command):
+    """
+    The \\lastbox command.
+    """
+    def boxValue(self, parser):
+        top = parser.lists[-1]
+        if top.type == LISTTYPE.VERTICAL and not top.inner:
+            raise ValueError("\\lastbox cannot be used in vertical mode")
+        box = top.pop() if len(top) > 0 and isinstance(top[-1], Box) else VoidBox()
+        return box
+    
+    def execute(self, parser):
+        self.boxValue(parser)
+
+
 mod = Module("hbox", 
     domains={
         "box": {"generator": lambda: Array(VoidBox), "accessor": None},
@@ -702,5 +717,6 @@ mod = Module("hbox",
         "leaders": Leaders(LEADERS_TYPE.LEADERS),
         "cleaders": Leaders(LEADERS_TYPE.CLEADERS),
         "xleaders": Leaders(LEADERS_TYPE.XLEADERS),
+        "lastbox": LastBox(),
     }
 )

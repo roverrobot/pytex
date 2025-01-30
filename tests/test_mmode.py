@@ -193,3 +193,20 @@ def test_mathstyle(math, cmd, style):
     assert node.node_type == nd.NODE_TYPE.MATHNODE
     assert node.style == style
     math.parse("$")
+
+
+@pytest.mark.parametrize("cmd, limits", [
+    ["\\nolimits", mmode.MATH_LIMITS.NONE],
+    ["\\limits", mmode.MATH_LIMITS.NORMAL],
+    ["\\displaylimits", mmode.MATH_LIMITS.DISPLAY],
+])
+def test_limits(math, cmd, limits):
+    math.parse(f"\\mathchardef\\sum=\"1350$\\sum{cmd}")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Atom)
+    assert node.atom_type == mmode.ATOM_TYPE.OP
+    assert node.limits == limits
+    math.parse("$")

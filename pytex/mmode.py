@@ -354,6 +354,26 @@ class MathStyle(lists.ModeDependentCommand):
         mlist.append(Style(self.style))
 
 
+class MATH_LIMITS(enum.Enum):
+    DISPLAY = 0
+    NORMAL = 1
+    NONE = 2
+
+
+class Limits(lists.ModeDependentCommand):
+    """
+    set the limits of a math operator if the last item is an OP atom
+    """
+    def __init__(self, limits):
+        self.limits = limits
+
+    def math(self, parser, mlist):
+        if len(mlist) > 0:
+            node = mlist[-1]
+            if isinstance(node, Atom) and node.atom_type == ATOM_TYPE.OP:
+                node.limits = self.limits
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -379,5 +399,8 @@ mod = Module("mmode",
         "textstyle": MathStyle(MATH_STYLE.TEXT),
         "scriptstyle": MathStyle(MATH_STYLE.SCRIPT),
         "scriptscriptstyle": MathStyle(MATH_STYLE.SCRIPTSCRIPT),
+        "displaylimits": Limits(MATH_LIMITS.DISPLAY),
+        "limits": Limits(MATH_LIMITS.NORMAL),
+        "nolimits": Limits(MATH_LIMITS.NONE),
     },
 )

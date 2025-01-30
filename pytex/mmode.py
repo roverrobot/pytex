@@ -128,6 +128,7 @@ def readField(parser):
     @param parser: the parser
     @return: the field
     """
+    parser.skipFiller()
     t = parser.token()
     if t is None:
         raise ValueError("missing field")

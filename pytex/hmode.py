@@ -9,6 +9,7 @@ from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command
 from pytex.state import GROUP_TYPE
+from pytex import mmode
 
 
 class Ligature(nd.CharNode):
@@ -210,6 +211,16 @@ class Par(HorizontalCommand):
         pass
 
 
+class IndentBox(nd.Box):
+    """
+    An box for indentation
+    """
+    node_type = nd.NODE_TYPE.HLIST
+    def __init__(self, parser):
+        width = parser.state.parameters["parindent"]
+        super().__init__(width, 0, 0)
+
+
 class Indent(lists.ModeDependentCommand):
     """
     The \\indent command.
@@ -226,22 +237,13 @@ class Indent(lists.ModeDependentCommand):
     def horizontal(self, parser, hlist):
         # An empty box of width \parindent is appended to the current list,
         # and the space factor is set to 1000. (The TeX Book pp.286)
-        hlist.append(nd.Box(parser.state.parameters["parskip"], 0, 0))
+        hlist.append(IndentBox(parser))
         parser.state.globals.spacefactor = 1000
 
     def math(self, parser, mlist):
         # An empty box of width \parindent is appended to the current list,
         # as the nucleus of a new Ord atom.
-        raise NotImplementedError("indent in math mode")
-
-
-class IndentBox(nd.Box):
-    """
-    An box for indentation
-    """
-    node_type = nd.NODE_TYPE.HLIST
-    def __init__(self, width):
-        super().__init__(width, 0, 0)
+        mlist.append(mmode.Box(IndentBox(parser)))
 
 
 class NoIndent(lists.ModeDependentCommand):

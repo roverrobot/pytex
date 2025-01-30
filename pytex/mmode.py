@@ -10,6 +10,7 @@ from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor
 from pytex.define import Define
 from pytex.integer import IntegerCommand
+from pytex.glue import Glue, Stretchness
 import enum
 
 
@@ -78,6 +79,15 @@ class Subformula(Atom):
 
     def nucleus(self):
         return self.list
+
+
+class Box(Atom):
+    def __init__(self, box):
+        super().__init__(ATOM_TYPE.ORD)
+        self.box = box
+
+    def nucleus(self):
+        return self.box
 
 
 def mathShift(parser):
@@ -232,6 +242,79 @@ class MathCharDef(IntegerCommand, Define):
         return MathCharDefAccesor(self.domain, index)
 
 
+def mudimen(parser, dimen):
+    """
+    calculate the actual dimension of a mu dimen
+    @param parser: the parser
+    @param dimen: the mu dimen
+    @return: the true dimension
+
+    The mu unit is 1/18 of the em unit of \\textfont[2]
+    """
+    return dimen * parser.state.textfont[2].param[5] / 18 # fontdimen 6 is em
+
+
+def muglue(parser, glue):
+    """
+    calculate the actual dimension of a mu glue
+    @param parser: the parser
+    @param glue: the mu glue
+    @return: the true dimension
+    """
+    dimen = mudimen(parser, glue.dimen)
+    stretch = nustretchness(parser, glue.stretch)
+    shrink = nustretchness(parser, glue.shrink)
+    return Glue(dimen, stretch, shrink)
+
+
+def nustretchness(parser, stretch):
+    """
+    calculate the actual stretchness of a mu glue
+    @param parser: the parser
+    @param stretch: the stretchness
+    @return: the true stretchness
+    """
+    factor = mudimen(parser, stretch.factor) if stretch.order == 0 else stretch.factor
+    return Stretchness(factor, stretch.order)
+
+
+class MuKern(nd.Kern):
+    def __init__(self, dimen):
+        super().__init__(dimen)
+        self.mu = True
+
+    def typeset(self, parser, hlist):
+        dimen = mudimen(self.kern, parser)
+        hlist.append(nd.Kern(dimen))
+
+
+class MKern(lists.ModeDependentCommand):
+    """
+    the \\mkern command
+    """
+    def math(self, parser, mlist):
+        dimen = parser.readDimen(mu=True)
+        mlist.append(MuKern(dimen))
+
+
+class MuGlue(nd.Glue):
+    def __init__(self, glue):
+        super().__init__(glue)
+        self.mu = True
+
+    def typeset(self, parser, hlist):
+        hlist.append(nd.Glue(self.glue))
+
+
+class MSkip(lists.ModeDependentCommand):
+    """
+    the \\mskip command
+    """
+    def math(self, parser, mlist):
+        glue = parser.readGlue(mu=True)
+        mlist.append(MuGlue(glue))
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -241,5 +324,7 @@ mod = Module("mmode",
     commands= {
         "mathchar": MathChar(),
         "mathchardef": MathCharDef(),
+        "mkern": MKern(),
+        "mskip": MSkip(),
     },
 )

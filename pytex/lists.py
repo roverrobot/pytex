@@ -248,6 +248,20 @@ class GlueCommand:
         return nd.Glue(self.glueValue(parser))
 
 
+class Remove(Command):
+    """
+    Remove the last node from the current list if it is of the given type
+    """
+    def __init__(self, node_type):
+        self.node_type = node_type
+
+    def execute(self, parser):
+        top = parser.lists[-1]
+        if len(top) > 0:
+            if top[-1].node_type == self.node_type:
+                top.pop()
+
+
 mod = Module("lists",
     commands={
         "kern": Kern(),
@@ -262,6 +276,9 @@ mod = Module("lists",
         "insert": Insert(),
         "mark": Mark(),
         "special": Special(),
+        "unkern": Remove(nd.NODE_TYPE.KERN),
+        "unpenalty": Remove(nd.NODE_TYPE.PENALTY),
+        "unskip": Remove(nd.NODE_TYPE.GLUE),
     },
     attributes={
         "readList": readList,

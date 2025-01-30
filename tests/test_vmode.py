@@ -124,3 +124,15 @@ def test_leaders(cmr10, cmd, type):
         assert False
     except ValueError as e:
         assert "mode" in str(e)
+
+
+@pytest.mark.parametrize("cmd", [
+    "\\kern 1cm\\unkern",
+    "\\penalty 10000\\unpenalty",
+    "\\vfil\\unskip",
+])
+def test_unkern(cmr10, cmd):
+    cmr10.parse(f"{cmd}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 0

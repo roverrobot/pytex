@@ -185,9 +185,7 @@ class Rule(ModeDependentCommand):
         vlist.append(self.readRule(parser))
     
     def math(self, parser, mlist):
-        if self.vert:
-            super().math(parser, mlist)
-        raise NotImplementedError("rule in math mode")
+        self.horizontal(parser, mlist)
 
 
 class Penalty(Command):

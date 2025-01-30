@@ -329,6 +329,31 @@ class MathAtom(lists.ModeDependentCommand):
         mlist.append(field)
 
 
+class MATH_STYLE(enum.Enum):
+    DISPLAY = 0
+    TEXT = 1
+    SCRIPT = 2
+    SCRIPTSCRIPT = 3
+
+
+class Style(nd.Node):
+    def __init__(self, style):
+        self.style = style
+
+    node_type = nd.NODE_TYPE.MATHNODE
+
+
+class MathStyle(lists.ModeDependentCommand):
+    """
+    set the math style: \\displaystyle, \\textstyle, \\scriptstyle, \\scriptscriptstyle
+    """
+    def __init__(self, style):
+        self.style = style
+
+    def math(self, parser, mlist):
+        mlist.append(Style(self.style))
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -350,5 +375,9 @@ mod = Module("mmode",
         "mathinner": MathAtom(ATOM_TYPE.INNER),
         "overline": MathAtom(ATOM_TYPE.OVER),
         "underline": MathAtom(ATOM_TYPE.UNDER),
+        "displaystyle": MathStyle(MATH_STYLE.DISPLAY),
+        "textstyle": MathStyle(MATH_STYLE.TEXT),
+        "scriptstyle": MathStyle(MATH_STYLE.SCRIPT),
+        "scriptscriptstyle": MathStyle(MATH_STYLE.SCRIPTSCRIPT),
     },
 )

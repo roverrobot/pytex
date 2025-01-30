@@ -175,3 +175,21 @@ def test_mathatom(math, cmd, atom_type):
     node = top[0]
     assert node.atom_type == atom_type
     math.parse("$")
+
+
+@pytest.mark.parametrize("cmd, style", [
+    ["\\displaystyle", mmode.MATH_STYLE.DISPLAY],
+    ["\\textstyle", mmode.MATH_STYLE.TEXT],
+    ["\\scriptstyle", mmode.MATH_STYLE.SCRIPT],
+    ["\\scriptscriptstyle", mmode.MATH_STYLE.SCRIPTSCRIPT],
+])
+def test_mathstyle(math, cmd, style):
+    math.parse(f"${cmd}")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Style)
+    assert node.node_type == nd.NODE_TYPE.MATHNODE
+    assert node.style == style
+    math.parse("$")

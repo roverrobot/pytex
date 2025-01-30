@@ -136,7 +136,7 @@ class FontChar(IntegerArrayAccessor):
         return FontCharAccessor(font, self.name, allow_global=False)
 
 
-class FontAccessor(Accessor):
+class FontDefineAccessor(Accessor):
     def readValue(self, parser):
         """
         read a font specification from the input stack
@@ -162,7 +162,7 @@ class FontCommand(Define):
     The \\font command
     """
     def newItemAccessor(self, index):
-        return FontAccessor(self.domain, index)
+        return FontDefineAccessor(self.domain, index)
 
 
 class FontDimenAccessor(DimenAccessor):

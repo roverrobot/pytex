@@ -191,7 +191,9 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
             infinity = 3
         dimen = f
     else:
-        dimen = f * UNITS[unit] * parser.state.layout["mag"] / 1000
+        # note that the everything is multiplied by \mag/1000. Thus, to produce 1 true pt,
+        # we need to multiply 1 pt by 1000/\mag to cancel the effect of \mag
+        dimen = f * UNITS[unit] * 1000 / parser.state.layout["mag"]
     if stretchness:
         return Dimen(dimen), infinity
     return Dimen(dimen)

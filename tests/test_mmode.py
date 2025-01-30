@@ -2,7 +2,36 @@ import pytest
 from pytex import mmode
 from pytex import lists
 from pytex import node as nd
+from pytex import texlive
+from pytex.dimen import Dimen
 
+
+@pytest.fixture()
+def math(parser):
+    fonts="""
+    \\font\\tenrm=cmr10 
+    \\font\\sevenrm=cmr7
+    \\font\\fiverm=cmr5
+    \\font\\teni=cmmi10 
+    \\font\\seveni=cmmi7
+    \\font\\fivei=cmmi5
+    \\font\\tensy=cmsy10
+    \\font\\sevensy=cmsy7
+    \\font\\preloaded=cmsy6
+    \\font\\fivesy=cmsy5
+    \\font\\tenex=cmex10
+    \\font\\tenbf=cmbx10
+    \\font\\sevenbf=cmbx7
+    \\font\\fivebf=cmbx5
+    \\font\\tentt=cmtt10
+    \\font\\tensl=cmsl10 
+    \\font\\tenit=cmti10
+    \\skewchar\\teni='177 \\skewchar\\seveni='177 \\skewchar\\fivei='177
+    \\skewchar\\tensy='60 \\skewchar\\sevensy='60 \\skewchar\\fivesy='60
+    \\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy
+    """
+    parser.parse(fonts)
+    return parser
 
 @pytest.mark.parametrize("inner", [True, False])
 def test_mlist(parser, inner):
@@ -94,7 +123,7 @@ def test_mathchar(parser, cmd):
     parser.parse("$")
 
 
-def test_acive(parser):
+def test_active(parser):
     parser.parse("\\def\\a{1}\\mathcode`a=\"8000$\\a")
     top = parser.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
@@ -103,3 +132,24 @@ def test_acive(parser):
     assert isinstance(node, mmode.MathSymbol)
     assert node.char == ord("1")
     parser.parse("$")
+
+
+def test_mkern(math):
+    math.parse("$a\\mkern 10mu b")
+    top = math.lists[-1]
+    assert len(top) == 3
+    node = top[1]
+    assert node.node_type == nd.NODE_TYPE.KERN
+    assert node.kern == 10
+    assert node.mu
+    math.parse("$")
+
+
+def test_indent(math):
+    math.parse("$a\\indent b")
+    top = math.lists[-1]
+    assert len(top) == 3
+    node = top[1]
+    assert node.atom_type == mmode.ATOM_TYPE.ORD
+    assert node.nucleus().node_type == nd.NODE_TYPE.HLIST
+    math.parse("$")

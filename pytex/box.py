@@ -490,6 +490,8 @@ class UnBox(Command):
         if isinstance(box, VoidBox):
             return
         top = parser.lists[-1]
+        if top.type == LISTTYPE.MATH and not self.vertical:
+            raise ValueError("the box must be void in math mode", pos)
         if (self.vertical and top.type != LISTTYPE.VERTICAL) or (
             not self.vertical and top.type != LISTTYPE.HORIZONTAL):
             raise ValueError("wrong mode", pos)

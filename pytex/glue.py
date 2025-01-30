@@ -122,12 +122,6 @@ class MuStretchness(Stretchness):
             return f"{self.factor}mu"
         return f"{self.factor}fi{'l'*self.order}"
     
-    def stretchness(self, parser):
-        """
-        return the stretchness value
-        """
-        raise NotImplementedError()
-    
     def __eq__(self, value):
         if not isinstance(value, MuStretchness):
             return False
@@ -151,12 +145,6 @@ class MuGlue(Glue):
             result += " minus " + str(self.shrink)
         return result
 
-    def glue(self, parser):
-        """
-        return the glue value
-        """
-        raise NotImplementedError()
-    
     def __eq__(self, value):
         if not isinstance(value, MuGlue):
             return False

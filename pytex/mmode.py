@@ -316,6 +316,19 @@ class MSkip(lists.ModeDependentCommand):
         mlist.append(MuGlue(glue))
 
 
+class MathAtom(lists.ModeDependentCommand):
+    """
+    specify the atom type of the field following the command
+    """
+    def __init__(self, atom_type):
+        self.atom_type = atom_type
+
+    def math(self, parser, mlist):
+        field = readField(parser)
+        field.atom_type = self.atom_type
+        mlist.append(field)
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -327,5 +340,15 @@ mod = Module("mmode",
         "mathchardef": MathCharDef(),
         "mkern": MKern(),
         "mskip": MSkip(),
+        "mathord": MathAtom(ATOM_TYPE.ORD),
+        "mathop": MathAtom(ATOM_TYPE.OP),
+        "mathbin": MathAtom(ATOM_TYPE.BIN),
+        "mathrel": MathAtom(ATOM_TYPE.REL),
+        "mathopen": MathAtom(ATOM_TYPE.OPEN),
+        "mathclose": MathAtom(ATOM_TYPE.CLOSE),
+        "mathpunct": MathAtom(ATOM_TYPE.PUNCT),
+        "mathinner": MathAtom(ATOM_TYPE.INNER),
+        "overline": MathAtom(ATOM_TYPE.OVER),
+        "underline": MathAtom(ATOM_TYPE.UNDER),
     },
 )

@@ -153,3 +153,25 @@ def test_indent(math):
     assert node.atom_type == mmode.ATOM_TYPE.ORD
     assert node.nucleus().node_type == nd.NODE_TYPE.HLIST
     math.parse("$")
+
+
+@pytest.mark.parametrize("cmd, atom_type", [
+    ["\\mathord", mmode.ATOM_TYPE.ORD],
+    ["\\mathop", mmode.ATOM_TYPE.OP],
+    ["\\mathbin", mmode.ATOM_TYPE.BIN],
+    ["\\mathrel", mmode.ATOM_TYPE.REL],
+    ["\\mathopen", mmode.ATOM_TYPE.OPEN],
+    ["\\mathclose", mmode.ATOM_TYPE.CLOSE],
+    ["\\mathpunct", mmode.ATOM_TYPE.PUNCT],
+    ["\\mathinner", mmode.ATOM_TYPE.INNER],
+    ["\\overline", mmode.ATOM_TYPE.OVER],
+    ["\\underline", mmode.ATOM_TYPE.UNDER],
+])
+def test_mathatom(math, cmd, atom_type):
+    math.parse(f"${cmd} a")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert node.atom_type == atom_type
+    math.parse("$")

@@ -122,6 +122,23 @@ def mathShift(parser):
     parser.lists.append(MList(inner=inner))
 
 
+def readSubformula(parser, lbrace=None):
+    """
+    read a subformula
+    @param parser: the parser
+    @return: the subformula
+    """
+    if lbrace is None:
+        parser.skipFiller()
+        lbrace = parser.token()
+        if lbrace.catcode != CATCODE.BEGIN_GROUP:
+            return None
+    parser.input.unread(lbrace)
+    parser.readList(None, GROUP_TYPE.SIMPLE)
+    top = parser.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH and isinstance(top[-1], Subformula)
+    return top.pop()
+
 def readField(parser):
     """
     read a field in a math list
@@ -137,11 +154,9 @@ def readField(parser):
         char = parser.mathChar(code)
         return char
     if t.catcode == CATCODE.BEGIN_GROUP:
-        parser.input.unread(t)
-        parser.readList(None, GROUP_TYPE.SIMPLE)
-        top = parser.lists[-1]
-        assert top.type == lists.LISTTYPE.MATH and isinstance(top[-1], Subformula)
-        return top.pop()
+        field = readSubformula(parser, lbrace=t)
+        if field is not None:
+            return field
     try:
         return t.mathCharValue(parser)
     except AttributeError:
@@ -374,6 +389,39 @@ class Limits(lists.ModeDependentCommand):
                 node.limits = self.limits
 
 
+class ChoiceNode(nd.Node):
+    """
+    a node representing \\mathchoice
+    """
+    def __init__(self, display, text, script, scriptscript):
+        self.display = display
+        self.text = text
+        self.script = script
+        self.scriptscript = scriptscript
+
+    node_type = nd.NODE_TYPE.MATHNODE
+
+
+class MathChoice(lists.ModeDependentCommand):
+    """
+    the \\mathchoice command
+    """
+    def math(self, parser, mlist):
+        display = readSubformula(parser)
+        if display is None:
+            raise ValueError("missing the display choice")
+        text = readSubformula(parser)
+        if text is None:
+            raise ValueError("missing the text choice")
+        script = readSubformula(parser)
+        if script is None:
+            raise ValueError("missing the script choice")
+        scriptscript = readSubformula(parser)
+        if scriptscript is None:
+            raise ValueError("missing the scriptscript choice")
+        mlist.append(ChoiceNode(display, text, script, scriptscript))
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -402,5 +450,6 @@ mod = Module("mmode",
         "displaylimits": Limits(MATH_LIMITS.DISPLAY),
         "limits": Limits(MATH_LIMITS.NORMAL),
         "nolimits": Limits(MATH_LIMITS.NONE),
+        "mathchoice": MathChoice(),
     },
 )

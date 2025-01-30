@@ -164,11 +164,11 @@ class IntegerCommand:
             min, max = self.range
             if (min is not None and value < min) or (max is not None and value > max):
                 if min is None:
-                    range = f("at least {max}")
+                    range = f"at least {max}"
                 elif max is None:
-                    range = f("at most {min}")
+                    range = f"at most {min}"
                 else:
-                    range = f("between {min} and {max}")
+                    range = f"between {min} and {max}"
                 raise ValueError(f"value out of range: {value} must be {range}")
         return value
 

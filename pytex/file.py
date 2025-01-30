@@ -4,31 +4,29 @@ File operations
 
 
 from pytex import node as nd
-from pytex.accessor import ValuePointer, Accessor
+from pytex.accessor import Accessor, ArrayAccessor
 from pytex.lexer import TokenListScanner, StringScanner
 from pytex import token
 from pytex import macro
 from pytex.module import Module
 
 
-class OpenOp(ValuePointer):
+class OpenOp(Accessor):
     """
     Open a file
     @param file_array: the file array
     @param file_id: the file number to operate on
     @param filename: the file name
     """
-    def __init__(self, file_array, file_id, filename, input: bool):
-        FileOp.__init__(self, input=True, file_id=file_id)
-        self.file_array = file_array
+    def __init__(self, input: bool, file_id, filename):
+        super().__init__(None, file_id, eq=True, allow_global=False)
+        self.file_array = "openin" if input else "openout"
         self.filename = filename
-        ValuePointer.__init__(self, file_array, file_id, eq=True)
-        self.allow_global = False
+
+    def setValue(self, parser, value, prefixes):
+        parser.state.globals[self.file_array][self.index] = value
+
     
-    def execute(self, parser):
-        ValuePointer.execute(self, parser)
-
-
 class OpenInOp(OpenOp):
     def readValue(self, parser):
         file = parser.resolver.openIn(self.filename, "source")
@@ -117,21 +115,22 @@ class WriteOp(FileOp):
             print(s)
 
 
-class ReadOp(FileOp, ValuePointer):
+class ReadOp(Accessor):
     """
     Read from a file
     @param file: the file number to operate on
     """
-    def __init__(self, file_id, domain, command):
-        FileOp.__init__(self, input=True, file_id=file_id)
-        ValuePointer.__init__(self, domain, command, eq=False)
+    def __init__(self, command):
+        super().__init__("equitable", command, eq=False)
+
+    def readEq(self, parser):
+        parser.readKeyword(["to"])
 
     def readValue(self, parser):
         tokens = []
         level = 0
-        file = self.file(parser)
-        while True:
-            s = file.readline()
+        file = self.file
+        for s in file:
             scanner = StringScanner(parser.state.catcode, s)
             scanner.terminate = True
             parser.input.push(scanner)
@@ -147,9 +146,8 @@ class ReadOp(FileOp, ValuePointer):
                         return macro.Macro([], tokens)
                     level -= 1
                 tokens.append(t)
-    
-    def execute(self, parser):
-        return ValuePointer.execute(self, parser)
+        raise ValueError("unblanced curly braces")
+
 
 class FileOpNode(nd.WhatsIt):
     """
@@ -197,8 +195,8 @@ class Open(FileCommand):
         parser.skipEq()
         filename = parser.readFileName()
         if self.input:
-            return OpenInOp(parser.state.globals["openin"], file_id, filename, input=True)  
-        return OpenOutOp(parser.state.globals["openout"], file_id, filename, input=True)
+            return OpenInOp(True, file_id, filename)  
+        return OpenOutOp(False, file_id, filename)
 
 
 class CloseIn(FileCommand):
@@ -226,13 +224,12 @@ class Write(FileCommand):
         return WriteOp(file_id, tokens)
 
 
-class Read(FileCommand, Accessor):
+class Read(FileCommand):
     """
     \\read
     """
     def __init__(self):
         FileCommand.__init__(self, immediate=True)
-        Accessor.__init__(self, "equitable", ReadOp, eq=True)
 
     def fileOp(self, parser, file_id):
         to = parser.readKeyword(["to"])
@@ -242,12 +239,10 @@ class Read(FileCommand, Accessor):
         t = parser.token()
         if not isinstance(t, token.CommandToken):
             raise ValueError(f"Expected a control sequence, got {t}")
-        return ReadOp(file_id, parser.state.equitable, t.name)
+        op = ReadOp(t.name)
+        op.file = parser.state.globals["openin"][file_id]
+        return op
     
-    def pointer(self, parser):
-        file_id = parser.readInteger()
-        return self.fileOp(parser, file_id)
-
 
 class Immediate(token.Command):
     """

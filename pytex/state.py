@@ -243,6 +243,13 @@ class Array(list):
             init = [default] * size
         super().__init__(init)
 
+    def __getitem__(self, index):
+        if index >= self.SIZE:
+            index = self.SIZE - 1
+        elif index < 0:
+            index = 0
+        return super().__getitem__(index)
+
 
 class State:
     """

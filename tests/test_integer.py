@@ -67,8 +67,9 @@ def test_global_integer(parser):
     checkValues(parser, "\\global\\spacefactor=1", [["globals", "spacefactor", 1]])
 
 def test_chardef(collector):
-    collector.parse("\\chardef\\a=65 \\a \\count0=\\a")
+    collector.parse("\\chardef\\a=65 \\a")
     assert collector.getString() == "A"
+    collector.parse("\\count0=\\a")
     assert collector.state.count[0] == 65
 
 def test_mathchardef(parser):

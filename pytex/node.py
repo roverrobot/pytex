@@ -40,9 +40,9 @@ class Box(Node):
     A box node.
     """
     def __init__(self, width, height, depth):
-        self.width = Dimen(width)
-        self.height = Dimen(height)
-        self.depth = Dimen(depth)
+        self.width = None if width is None else Dimen(width)
+        self.height = None if height is None else Dimen(height)
+        self.depth = None if depth is None else Dimen(depth)
 
 
 class CharNode(Box):
@@ -71,17 +71,6 @@ class Rule(Box):
     """
     node_type = NODE_TYPE.RULE
     
-    def __init__(self, width, height, depth):
-        w = 0 if width is None else width
-        h = 0 if height is None else height
-        d = 0 if depth is None else depth
-        super().__init__(w, h, d)
-        if width is None:
-            self.width = None
-        if height is None:
-            self.height = None
-        if depth is None:
-            self.depth = None
     def __repr__(self):
         return f"Rule({self.width}, {self.height}, {self.depth})"
 

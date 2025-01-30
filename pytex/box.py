@@ -5,18 +5,18 @@ parse and wrap up an hbox
 from pytex import node as nd
 from pytex import hmode
 from pytex import vmode
-from pytex.toks import relax
 from pytex.glue import Stretchness
 from pytex.module import Module
-from pytex.accessor import Accessor, ArrayAccessor, ValuePointer
+from pytex.accessor import Accessor, ArrayAccessor
 from pytex.state import Array
-from pytex.token import Command, CATCODE
-from pytex.dimen import Dimen, DimenCommand, DimenValuePointer
+from pytex.token import Command, CATCODE, relax
+from pytex.dimen import Dimen, DimenCommand
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
 from math import inf
 import enum
+import types
 
 
 class Box(nd.Box):
@@ -176,58 +176,9 @@ class VoidBox(nd.Box):
 
     def __repr__(self):
         return "Box()"
-    
-
-class BoxValueAccessor:
-    """
-    access a box value
-    """
-    def boxValue(self, parser):
-        """
-        get the box value
-        """
-        return self.getValue(parser)
 
 
-class BoxValuePointer(ValuePointer, BoxValueAccessor):
-    """
-    a value pointer for the \\hbox array
-    """
-    def __init__(self, domain, index, wipe):
-        super().__init__(domain, index, eq=True)
-        self.wipe = wipe
-        self.spec = None
-
-    def readValue(self, parser):
-        box = parser.readBox()
-        if isinstance(box, BoxSpecPointer):
-            self.spec = box
-            box = box.box
-        return box
-
-    def finalize(self, parser):
-        if self.spec is not None:
-            self.spec.finalize(parser)
-            parser.loop()
-            parser.run = True
-    
-    def getValue(self, parser):
-        box = super().getValue(parser)
-        if self.wipe:
-            self.domain[self.index] = VoidBox()
-            return box
-        return box.copy()
-
-
-class BoxValueCommand(BoxValueAccessor):
-    """
-    access the box value of a command
-    """
-    def getValue(self, parser):
-        return self.pointer(parser).getValue(parser)
-
-
-class BoxCommand(Command, BoxValueCommand):
+class BoxCommand(Command):
     """
     the \\box or \\copy command
     @param wipe whether to wipe the box register after use
@@ -240,63 +191,15 @@ class BoxCommand(Command, BoxValueCommand):
         if not isinstance(box, VoidBox):
             parser.lists[-1].append(box)
     
-    def pointer(self, parser):
-        pos = parser.input.position()
+    def boxValue(self, parser):
         index = parser.readInteger()
-        return BoxValuePointer(parser.state.box, index, self.wipe)
+        box = parser.state.box[index]
+        if self.wipe:
+            parser.state.box[index] = VoidBox()
+            return box
+        return box.copy()    
 
-
-class BoxSpecPointer(ValuePointer, BoxValueAccessor):
-    """
-    a pointer that read a box specification (not including the list)
-
-    @param command: the command that starts the box spec reading
-
-    Note that the box is only partially constructed by this pointer, i.e.,
-    the list is not read. According to the TeX Book, the \\afterassignment
-    token is put into the input stack after the openning { token. This means 
-    that the assignment is done after the { token, but before the list is read.
-    """
-    def __init__(self, command):
-        self.command = command
-        self.box = None
-        self.pos = None
-  
-    def getValue(self, parser):
-        spec = parser.readKeyword(["to", "spread"])
-        if spec is None:
-            to = None
-            spread = 0
-        else:
-            dim = parser.readDimen()
-            if spec == "to":
-                to = dim
-                spread = 0
-            else:
-                to = None
-                spread = dim
-        self.box = self.command.box(to, spread)
-        self.box.list = self.command.list()
-        parser.skipFiller()
-        self.pos = parser.input.position()
-        t = parser.token_expand()
-        if t.catcode != CATCODE.BEGIN_GROUP:
-            raise ValueError("expecting a {", self.pos)
-        parser.lists.append(self.box.list)
-        return self
-
-    def finalize(self, parser):
-        def callback():
-            while True:
-                top = parser.lists.pop()
-                if top == self.box.list:
-                    break
-                parser.lists[-1].append(top)
-            parser.run = False
-        parser.beginGroup(self.pos, self.command.reason(), callback)
-    
-
-class ReadBox(Command, BoxValueCommand):
+class BuildBox(Command):
     """
     the base class for \\hbox, \\vbox and \\vtop commands
     """
@@ -312,28 +215,48 @@ class ReadBox(Command, BoxValueCommand):
         """
         raise NotImplementedError
     
-    def reason(self):
+    def groupType(self):
         """
         return the reason for reading the box
         """
         raise NotImplementedError
     
-    def pointer(self, parser):
-        """
-        return a pointer that read a box specification (not including the list)
-        """
-        return BoxSpecPointer(self)
-    
     def execute(self, parser):
-        p = self.pointer(parser)
-        box = p.getValue(parser).box
-        p.finalize(parser)
-        parser.loop()
-        parser.run = True
+        box = self.boxValue(parser)
         parser.lists[-1].append(box)
 
+    def boxValue(self, parser):
+        spec = parser.readKeyword(["to", "spread"])
+        if spec is None:
+            to = None
+            spread = 0
+        else:
+            dim = parser.readDimen()
+            if spec == "to":
+                to = dim
+                spread = 0
+            else:
+                to = None
+                spread = dim
+        box = self.box(to, spread)
+        box.list = self.list()
+        parser.skipFiller()
+        pos = parser.input.position()
+        t = parser.token_expand()
+        if t.catcode != CATCODE.BEGIN_GROUP:
+            raise ValueError("expecting a {", self.pos)
+        t._exec = t.execute
+        reason = self.groupType()
+        def execute(self, parser):
+            t.execute = t._exec
+            parser.input.unread(t)
+            parser.readList(box.list, reason)
+        t.execute = types.MethodType(execute, t)
+        parser.input.unread(t)
+        return box
 
-class HBoxCommand(ReadBox):
+
+class HBoxCommand(BuildBox):
     """
     the \\hbox command
     """
@@ -343,7 +266,7 @@ class HBoxCommand(ReadBox):
     def box(self, to, spread):
         return HBox(to, spread)
     
-    def reason(self):
+    def groupType(self):
         return GROUP_TYPE.HBOX
     
 
@@ -361,14 +284,23 @@ def readBox(parser):
         raise ValueError("expecting a box", pos)
     
 
+class BoxAccessor(Accessor):
+    def readValue(self, parser):
+        return readBox(parser)
+    
+
 class SetBox(ArrayAccessor):
     """
     the \\setbox command
     """
     def __init__(self):
-        generator = lambda domain, index, eq: BoxValuePointer(domain, index, wipe=True)
-        super().__init__("box", generator)
+        super().__init__("box")
+    
+    def getValue(self, parser):
+        raise ValueError("\\setbox does not return a box")
 
+    def newItemAccessor(self, index):
+        return BoxAccessor("box", index, eq=True)
 
 class IfVoid(conditional.Conditional):
     """
@@ -378,11 +310,9 @@ class IfVoid(conditional.Conditional):
         super().__init__("\\ifinner")
     
     def condition(self, parser):
-        pos = parser.input.position()
         index = parser.readInteger()
-        if 0 <= index < len(parser.state.box.values):
-            return 0 if isinstance(parser.state.box[index], VoidBox) else 1
-        raise ValueError("box index out of range", pos)
+        box = parser.state.box[index]
+        return 0 if isinstance(box, VoidBox) else 1
 
 
 class VBoxWrapInfo:
@@ -493,7 +423,7 @@ class VBox(Box):
         return f"VBox({self.width}, {self.height}, {self.depth}, {self.content})"
 
 
-class VBoxCommand(ReadBox):
+class VBoxCommand(BuildBox):
     """
     the \\hbox command
     @param vtop: whether the box is a vtop
@@ -507,45 +437,36 @@ class VBoxCommand(ReadBox):
     def box(self, to, spread):
         return VBox(to, spread, self.vtop)
     
-    def reason(self):
+    def groupType(self):
         return GROUP_TYPE.VTOP if self.vtop else GROUP_TYPE.VBOX
     
 
-class BoxDimenValuePointer(DimenValuePointer):
-    """
-    a value pointer for the dimension of a box
-    """
-    def __init__(self, domain, index):
-        super().__init__(domain, index, eq=True)
-        self.allow_global = False
-
+class BoxDimenAccessor(Accessor):
     def readValue(self, parser):
         return parser.readDimen()
 
-    def setValue(self, parser, value, globally: bool):
-        setattr(self.domain, self.index, value)
+    def setValue(self, parser, value, prefixes):
+        box = parser.state.box[self.index]
+        setattr(box, self.dimen, value)
 
     def getValue(self, parser):
-        return getattr(self.domain, self.index)
- 
+        box = parser.state.box[self.index]
+        return getattr(box, self.dimen)
 
-class BoxDimenCommand(Accessor, DimenCommand):
+class BoxDimenCommand(DimenCommand, ArrayAccessor):
     """
     a command that accesses a dimension for a box
     """
     def __init__(self, dimen):
         self.dimen = dimen
-        super().__init__("box", BoxDimenValuePointer, eq=True)
+        super().__init__("box")
 
-    def pointer(self, parser):
-        pos = parser.input.position()
-        index = parser.readInteger()
-        if not (0 <= index < len(parser.state.box.values)):
-            raise ValueError("box index out of range", pos)
-        box = parser.state.box[index]
-        if box.width is None:
-            box.typeset()
-        return BoxDimenValuePointer(box, self.dimen)
+    def getItemAccessor(self, parser, index):
+        if index is None:
+            index = self.getIndex(parser)
+        p = BoxDimenAccessor("box", index)
+        p.dimen = self.dimen
+        return p
 
 
 class UnBox(Command):
@@ -729,15 +650,14 @@ class Leaders(Command):
         else: # box
             parser.input.unread(t)
             box = parser.readBox()
-            if isinstance(box, BoxSpecPointer):
-                box.finalize(parser)
-                parser.loop()
-                parser.run = True
-                box = box.box
             if (box.node_type == nd.NODE_TYPE.HLIST and top.type == LISTTYPE.VERTICAL) or (box.node_type == nd.NODE_TYPE.VLIST and top.type != LISTTYPE.VERTICAL):
                 raise ValueError("box in the wrong mode", pos)
         pos = parser.input.position()
         t = parser.token_expand()
+        if t.catcode == CATCODE.BEGIN_GROUP and hasattr(t, "_exec"):
+            # this is the list of the previous box
+            t.execute(parser)
+            t = parser.token_expand()
         if t is None:
             raise ValueError("expecting a glue", pos)
         if isinstance(t, GlueCommand):

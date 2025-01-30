@@ -8,7 +8,7 @@ parser to produce a result.
 
 import enum
 import typing
-
+from pytex.module import Module
 
 class CATCODE:
     """
@@ -242,3 +242,13 @@ Token.generators = [
     None,  # COMMENT = 14
     None,  # INVALID = 15
 ]
+
+
+relax = Command()
+
+
+mod = Module("token",
+    commands = {
+        "relax": relax,
+    },
+)

@@ -7,8 +7,9 @@ from pytex import node as nd
 from pytex.token import CATCODE
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import ValuePointer
+from pytex.accessor import Accessor
 from pytex.define import Define
+from pytex.integer import IntegerCommand
 import enum
 
 
@@ -218,20 +219,17 @@ class MathCharValue(lists.ModeDependentCommand):
         return parser.mathChar(self.mathcode)
     
 
-class MathCharPointer(ValuePointer):
-    """
-    a pointer to a math character
-    """
+class MathCharDefAccesor(Accessor):
     def readValue(self, parser):
         return MathCharValue(parser.readInteger())
 
 
-class MathCharDef(Define):
+class MathCharDef(IntegerCommand, Define):
     """
     the \\mathchardef command
     """
-    def __init__(self):
-        super().__init__(MathCharPointer)
+    def newItemAccessor(self, index):
+        return MathCharDefAccesor(self.domain, index)
 
 
 mod = Module("mmode",

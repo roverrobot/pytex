@@ -74,14 +74,19 @@ class Module:
         """
         if self.parameters is not None:
             for name, item in self.parameters.items():
+                # set the value in the domain
                 domain = item["domain"]
+                allow_global = domain != "globals"
                 value = item["value"]
                 if callable(value):
                     value = value()
-                accessor = item["accessor"]
                 parser.state[domain][name] = value
-                if accessor is not None:
-                    parser.state.equitable.setGlobal("\\"+name, accessor(domain, name))
+                # set the accessor in equitable
+                generator = item["accessor"]
+                if generator is not None:
+                    accessor = generator(domain, name, allow_global=allow_global)
+                    if accessor is not None:
+                        parser.state.equitable.setGlobal("\\"+name, accessor)
 
 
     def populate(self, parser):

@@ -6,7 +6,7 @@ This module implements macros.
 import typing
 from pytex.token import CATCODE, Command, Token
 from pytex.lexer import TokenListScanner
-from pytex.accessor import ValuePointer, Prefix, GlobalPrefix
+from pytex.accessor import Prefix, Accessor, GlobalPrefix
 from pytex.define import Define
 from pytex.module import Module
 from pytex.toks import Toks
@@ -188,10 +188,15 @@ class Macro(Command):
             return False
 
 
-class MacroValuePointer(ValuePointer):
+class MacroAccessor(Accessor):
     """
-    a pointer to a macro
+    an accessor for the \\def command
     """
+    def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        """
     def readValue(self, parser):
         """
         read the macro definition from the input stack
@@ -199,7 +204,7 @@ class MacroValuePointer(ValuePointer):
         The macro definition is a parameter text followed by a balanced text.
         @param parser: the parser
         """
-        parameters = Toks(included_braces=True)
+        parameters = Toks()
         arg = 1
         last = False
         # read the brackets
@@ -226,6 +231,11 @@ class MacroValuePointer(ValuePointer):
         # read the replacement text
         replacement = parser.readBalancedText(expand=self.expanded)
         return Macro(parameters, replacement)
+    
+    def setValue(self, parser, value, prefixes):
+        if self.globally:
+            prefixes.append(GlobalPrefix())
+        return super().setValue(parser, value, prefixes)
 
 
 class Def(Define):
@@ -235,32 +245,28 @@ class Def(Define):
     @param globally: whether the definition is global
     @param expanded: whether the replacement text is expanded
     """
-    def __init__(self, globally=False, expanded=False):
-        Define.__init__(self, MacroValuePointer, eq=False)
+    def __init__(self, globally, expanded):
+        Define.__init__(self)
         self.globally = globally
         self.expanded = expanded
     
-    def pointer(self, parser):
-        p = super().pointer(parser)
+    def getItemAccessor(self, parser, index):
+        p = MacroAccessor(self.domain, self.getIndex(parser), eq=False)
         p.expanded = self.expanded
-        if self.globally:
-            p.prefixes.append(GlobalPrefix())
+        p.globally = self.globally
         return p
 
 
-class MacroPrix(Prefix):
+class MacroPrefix(Prefix):
     """
     the base class for prefixes for macro definition
     """
-    def pointer(self, parser):
-        pos = parser.input.position()
-        p = super().pointer(parser)
-        if isinstance(p, MacroValuePointer):
-            return p
-        raise ValueError("expecting a macro", pos)
+    def validate(self, command):
+        if not isinstance(command, Def):
+            raise ValueError("expecting a macro definition", command)
 
 
-class Long(MacroPrix):
+class Long(MacroPrefix):
     """
     the \\long prefix
     """
@@ -269,7 +275,7 @@ class Long(MacroPrix):
         return value, globally
 
 
-class Outer(MacroPrix):
+class Outer(MacroPrefix):
     """
     the \\outer prefix
     """
@@ -280,9 +286,9 @@ class Outer(MacroPrix):
 
 mod = Module("macro",
   commands={
-    "def": Def(),
-    "gdef": Def(globally=True),
-    "edef": Def(expanded=True),
+    "def": Def(globally=False, expanded=False),
+    "gdef": Def(globally=True, expanded=False),
+    "edef": Def(globally=False, expanded=True),
     "xdef": Def(globally=True, expanded=True),
     "long": Long(),
     "outer": Outer()

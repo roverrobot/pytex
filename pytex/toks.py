@@ -4,7 +4,7 @@ This module defines the token list facilities.
 
 import typing
 from pytex.lexer import CATCODE, TokenListScanner
-from pytex.token import Command, CommandToken
+from pytex.token import Command, CommandToken, relax
 from pytex.module import Module
 from pytex.state import Array
 from pytex import accessor
@@ -62,9 +62,6 @@ def readBalancedText(parser, expand: bool = False):
         toks.append(t)
 
 
-relax = Command()
-
-
 def skipFiller(parser):
     """
     read a filler
@@ -95,10 +92,17 @@ def readGeneralText(parser, expand: bool = True):
     return readBalancedText(parser, expand)
 
 
-class ToksValueAccessor:
+class ToksCommand:
     """
     access a token list value
     """
+    def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        """
+        return readBalancedText(parser, expand=False)
+    
     def toksValue(self, parser):
         """
         get the token list value
@@ -107,44 +111,19 @@ class ToksValueAccessor:
         return self.getValue(parser)
 
 
-class ToksValuePointer(accessor.ValuePointer, ToksValueAccessor):
+class ToksAccessor(ToksCommand, accessor.Accessor):
     """
-    a pointer to the token list
+    aaccessor for a toks parameter
     """
-    def readValue(self, parser):
-        """
-        read the value from the input stack
-        @param parser: the parser
-        """
-        return readBalancedText(parser, expand=False)
-
-
-class ToksCommand(ToksValueAccessor):
-    """
-    access the toks value of a command
-    """
-    def getValue(self, parser):
-        """
-        get the value of the command
-        @param parser: the parser
-        """
-        return self.pointer(parser).getValue(parser)
+    pass
     
 
-class ToksArrayAccessor(accessor.ArrayAccessor, ToksCommand):
+class ToksArrayAccessor(ToksCommand, accessor.ArrayAccessor):
     """
     an accessor for the token list array
     """
-    def __init__(self, domain):
-        super().__init__(domain, ToksValuePointer)
-
-
-class ToksParameterAccessor(accessor.ParameterAccessor, ToksCommand):
-    """
-    an accessor for the token list parameters
-    """
-    def __init__(self, domain, name):
-        super().__init__(domain, name, ToksValuePointer)
+    def newItemAccessor(self, index):
+        return ToksAccessor(self.domain, index)
 
 
 class AfterGroup(Command):
@@ -199,7 +178,6 @@ mod = Module("toks",
         "readGeneralText": readGeneralText,
     },
     commands = {
-        "relax": relax,
         "aftergroup": AfterGroup(),
         "uppercase": Case(True),
         "lowercase": Case(False),
@@ -209,14 +187,14 @@ mod = Module("toks",
     },
     parameters={
         "aftergroup": {"value": list, "accessor": None, "domain": "globals"},
-        "output": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everyhbox": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everyvbox": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everyjob": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everycr": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "errhelp": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everypar": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everymath": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everydisplay": {"value": list, "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "output": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
+        "everyhbox": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
+        "everyvbox": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
+        "everyjob": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
+        "everycr": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
+        "errhelp": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
+        "everypar": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
+        "everymath": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
+        "everydisplay": {"value": list, "accessor": ToksAccessor, "domain": "parameters"},
     }
 )

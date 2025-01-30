@@ -3,11 +3,12 @@ The module implements font handling
 """
 
 
-from pytex.token import CATCODE, Command
+from pytex.token import Command
 from pytex.module import Module
 from pytex.tfm import TFM, nullfont as nullfont_tfm
-from pytex.accessor import ValuePointer, ParameterAccessor, ArrayAccessor, Accessor
-from pytex.integer import IntegerValuePointer, IntegerCommand
+from pytex.accessor import ArrayAccessor, Accessor
+from pytex.integer import IntegerArrayAccessor, IntegerAccessor
+from pytex.dimen import DimenAccessor, DimenArrayAccessor
 from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
 from pytex.define import Define
@@ -61,7 +62,22 @@ class Font(Command):
         return self
 
 
-class FontValueAccessor:
+def readFont(parser):
+    """
+    read a font from the input stack
+    @param parser: the parser
+    """
+    t = parser.token_expand()
+    if t is None:
+        raise ValueError("expecting a font")
+    # is the font specified by a command seqeunce?
+    try:
+        return t.fontValue(parser)
+    except AttributeError:
+        raise ValueError("expecting a font")
+
+
+class FontValue:   
     """
     A font value accessor
     """
@@ -69,69 +85,20 @@ class FontValueAccessor:
         return self.getValue(parser)
 
 
-class FontValuePointer(ValuePointer, FontValueAccessor):
+class FontAccessor(FontValue, Accessor):
     """
-    A font value pointer
+    A font accessor
     """
     def readValue(self, parser):
-        """
-        read a font specification from the input stack
-        @param parser: the parser
-        """
-        t = parser.token_expand()
-        if t is None:
-            raise ValueError("expecting a font")
-        # is the font specified by a command seqeunce?
-        if t.is_command:
-            try:
-                return t.fontValue(parser)
-            except AttributeError:
-                pass
-            # the font could be prefixed by a relax
-            parser.input.unread(t)
-            raise ValueError("expecting a font")
-        parser.input.unread(t)
-        # read the font specification
-        name = parser.readFileName()
-        if name is None:
-            raise ValueError("expecting a font name")
-        tfm = parser.loadTFM(name)
-        keyword = parser.readKeyword({"at", "scaled"})
-        if keyword == "at":
-            at = parser.readDimen()
-        elif keyword == "scaled":
-            at = parser.readInteger() / 1000 * tfm.header.size * parser.state.layout["mag"] / 1000
-        else:
-            at = tfm.header.size * parser.state.layout["mag"] / 1000
-        return Font(name, tfm, at)
-    
-
-class FontValueCommand(FontValueAccessor):
-    """
-    access the font value of command
-    """
-    def getValue(self, parser):
-        """
-        get the value of the command
-        @param parser: the parser
-        """
-        return self.pointer(parser).getValue(parser)
+        return readFont(parser)
 
 
-class FontArrayAccessor(ArrayAccessor, FontValueCommand):
+class FontArrayAccessor(FontValue, ArrayAccessor):
     """
-    A font array
+    A font array accessor
     """
-    def __init__(self, domain):
-        super().__init__(domain, FontValuePointer)
-
-
-class FontParameterAccessor(ParameterAccessor, FontValueCommand):
-    """
-    A font parameter accessor
-    """
-    def __init__(self, domain, name):
-        super().__init__(domain, name, FontValuePointer)
+    def newItemAccessor(self, index):
+        return FontAccessor(self.domain, index)
 
 
 nullfont = Font("nullfont", tfm=nullfont_tfm, at=0)
@@ -145,61 +112,88 @@ class FontArray(Array):
         super().__init__(nullfont)
 
 
-class FontChar(Accessor, IntegerCommand):
+class FontCharAccessor(IntegerAccessor):
+    def getValue(self, parser):
+        return self.domain.fontchar[self.index]
+
+    def setValue(self, parser, value, prefixes):
+        self.domain.fontchar[self.index] = value
+
+
+class FontChar(IntegerArrayAccessor):
     """
     A font character
     """
     def __init__(self, name):
-        super().__init__(None, None, eq=True)
+        super().__init__(None)
         self.name = name
 
     def getIndex(self, parser):
-        t = parser.token_expand()
-        if t is None:
-            raise ValueError("expecting a font")
-        if isinstance(t, Font):
-            return t
-        try:
-            pointer = t.pointer(parser)
-            return pointer.getValue(parser)
-        except AttributeError:
-            raise ValueError("expecting a font")
-
-    def pointer(self, parser):
-        """
-        get the value pointer
-        @param parser: the parser
-        @return: the value pointer and possible prefixes
-        """
+        return readFont(parser)
+    
+    def getItemAccessor(self, parser, index):
         font = self.getIndex(parser)
-        p = IntegerValuePointer(font.fontchar, self.name, eq=True)
-        p.allow_global = False
-        return p
+        return FontCharAccessor(font, self.name, allow_global=False)
+
+
+class FontAccessor(Accessor):
+    def readValue(self, parser):
+        """
+        read a font specification from the input stack
+        @param parser: the parser
+        """
+        # read the font specification
+        name = parser.readFileName()
+        if name is None:
+            raise ValueError("expecting a font name")
+        tfm = parser.loadTFM(name)
+        keyword = parser.readKeyword({"at", "scaled"})
+        if keyword == "at":
+            at = parser.readDimen()
+        elif keyword == "scaled":
+            at = parser.readInteger() / 1000 * tfm.header.size * parser.state.layout["mag"] / 1000
+        else:
+            at = tfm.header.size * parser.state.layout["mag"] / 1000
+        return Font(name, tfm, at)
 
 
 class FontCommand(Define):
     """
     The \\font command
     """
-    def __init__(self):
-        super().__init__(FontValuePointer, eq=True)
+    def newItemAccessor(self, index):
+        return FontAccessor(self.domain, index)
 
-    def pointer(self, parser):
-        """
-        get the value pointer
-        @param parser: the parser
-        @return: the value pointer and possible prefixes
-        """
-        return FontValuePointer(parser.state.parameter, "currentfont")
+
+class FontDimenAccessor(DimenAccessor):
+    def getIndex(self, parser):
+        index = parser.readInteger()
+        font = readFont(parser)
+        return (font, index)
     
-    def execute(self, parser):
-        p = super().pointer(parser)
-        p.execute(parser)
+    def getValue(self, parser):
+        font, index = self.getIndex(parser)
+        return font.param[index]
+    
+    def setValue(self, parser, value, prefixes):
+        font, index = self.getIndex(parser)
+        font.param[index] = value
+
+
+class FontDimen(DimenArrayAccessor):
+    """
+    the \\fontdimen command
+    """
+    def __init__(self):
+        super().__init__(None)
+
+    def newItemAccessor(self, index):
+        return FontDimenAccessor(None, index)
 
 
 mod = Module("font",
     parameters = {
-        "currentfont": {"value": nullfont, "accessor": FontParameterAccessor,  "domain": "parameters"},
+        "currentfont": {"value": nullfont, "accessor": FontAccessor,  "domain": "parameters"},
     },
     domains = {
         "textfont": {"generator": FontArray, "accessor": FontArrayAccessor},

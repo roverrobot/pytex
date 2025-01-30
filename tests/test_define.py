@@ -18,7 +18,9 @@ def test_chardef(collector):
     assert collector.getString() == "a"
 
 def test_countdef(parser):
-    checkValues(parser, "\\countdef\\a=0 \\a=1\\count1=-\\a", [["count", 0, 1], ["count", 1, -1]])
+    parser.parse("\\countdef\\a=0")
+    checkValues(parser, "\\a=1", [["count", 0, 1]])
+    checkValues(parser, "\\count1=-\\a", [["count", 1, -1]])
 
 def test_afterassignment(collector):
     collector.parse("\\afterassignment a{\\count0=1}")

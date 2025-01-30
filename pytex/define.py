@@ -5,11 +5,10 @@ This module implements command definition, such as \\let etc.
 
 from pytex import accessor
 from pytex.module import Module
-from pytex.integer import IntegerValuePointer, IntegerParameterAccessor
-from pytex.dimen import DimenValuePointer, DimenParameterAccessor
-from pytex.glue import GlueValuePointer, MuGlueValuePointer, GlueParameterAccessor, MuGlueParameterAccessor
-from pytex.accessor import Accessor, ParameterAccessor
-from pytex.toks import ToksValuePointer, relax, ToksParameterAccessor
+from pytex.integer import IntegerArrayAccessor
+from pytex.dimen import DimenArrayAccessor
+from pytex.glue import GlueArrayAccessor, MuGlueArrayAccessor
+from pytex.toks import ToksArrayAccessor
 from pytex import token
 
 
@@ -18,8 +17,8 @@ class Define(accessor.ArrayAccessor):
     the base class for defining commands
     @param pointer_generator: the generator for the pointer to the equitable item
     """
-    def __init__(self, pointer_generator, eq: bool = True):
-        super().__init__("equitable", pointer_generator, eq)
+    def __init__(self):
+        super().__init__("equitable")
 
     def getIndex(self, parser):
         """
@@ -34,31 +33,29 @@ class Define(accessor.ArrayAccessor):
         return t.name
 
 
-class LetItem(accessor.ValuePointer):
+class LetAccessor(accessor.Accessor):
     """
-    an item in the equitable.
+    An accessor for the \\let command
     """
     def readValue(self, parser):
-        """
-        read the value from the input stack
-        @param parser: the parser
-        """
-        return parser.token()
+        t = parser.token()
+        if t is None:
+            raise ValueError("a token is expected")
+        return t
 
 
 class Let(Define):
     """
     the \\let command
     """
-    def __init__(self):
-        super().__init__(LetItem)
+    def newItemAccessor(self, index):
+        return LetAccessor(self.domain, index)
 
 
-class FutureLetItem(LetItem):
+class FutureLetAccessor(accessor.Accessor):
     """
-    an item in the equitable.
+    An accessor for the \\futurelet command
     """
-
     def readValue(self, parser):
         """
         read the value from the input stack
@@ -78,8 +75,8 @@ class FutureLet(Define):
     """
     the \\futurelet command
     """
-    def __init__(self):
-        super().__init__(FutureLetItem)
+    def newItemAccessor(self, index):
+        return FutureLetAccessor(self.domain, index)
 
 
 class CharDefValue(token.Command):
@@ -112,9 +109,9 @@ class CharDefValue(token.Command):
         return chr(self.value)
 
 
-class CharDefItem(accessor.ValuePointer):
+class CharDefAccessor(accessor.Accessor):
     """
-    an item in the equitable.
+    An accessor for the \\chardef command
     """
     def readValue(self, parser):
         """
@@ -128,13 +125,13 @@ class CharDef(Define):
     """
     the \\chardef command
     """
-    def __init__(self):
-        super().__init__(CharDefItem)
+    def newItemAccessor(self, index):
+        return CharDefAccessor(self.domain, index)
 
 
-class RegisterItem(accessor.ValuePointer):
+class RegisterDefAccessor(accessor.Accessor):
     """
-    an value of a register definition such as \\countdef.
+    An accessor for the register definition commands
     """
     def readValue(self, parser):
         """
@@ -142,30 +139,26 @@ class RegisterItem(accessor.ValuePointer):
         @param parser: the parser
         """
         index = parser.readInteger()
-        domain = parser.state.domains[self.register]
-        return self.accessor(domain, index, eq=True)
+        return self.value_type.getItemAccessor(parser, index)
 
 
 class RegisterDef(Define):
     """
     commands such as \\countdef \\skipdef etc.
     @param register: the name of the register
-    @param item_generator: the generator for the register item
+    @param value_type: the generator for the register item
     """
-    def __init__(self, register: str, accessor: Accessor):
-        super().__init__(RegisterItem)
-        self.register = register
-        self.accessor = accessor
+    def __init__(self, register: str, value_type):
+        super().__init__()
+        self.value_type = value_type(register)
 
-    def pointer(self, parser):
+    def getItemAccessor(self, parser, index):
         """
-        get the value pointer
+        read the value from the input stack
         @param parser: the parser
-        @return: the value pointer and possible prefixes
         """
-        p = super().pointer(parser)
-        p.register = self.register
-        p.accessor = self.accessor
+        p = RegisterDefAccessor(self.domain, self.getIndex(parser), eq=True)
+        p.value_type = self.value_type
         return p
 
 
@@ -174,10 +167,10 @@ mod = Module("define",
         "let": Let(),
         "futurelet": FutureLet(),
         "chardef": CharDef(),
-        "countdef": RegisterDef("count", IntegerValuePointer),
-        "dimendef": RegisterDef("dimen", DimenValuePointer),
-        "skipdef": RegisterDef("skip", GlueValuePointer),
-        "muskipdef": RegisterDef("muskip", MuGlueValuePointer),
-        "toksdef": RegisterDef("toks", ToksValuePointer),
+        "countdef": RegisterDef("count", IntegerArrayAccessor),
+        "dimendef": RegisterDef("dimen", DimenArrayAccessor),
+        "skipdef": RegisterDef("skip", GlueArrayAccessor),
+        "muskipdef": RegisterDef("muskip", MuGlueArrayAccessor),
+        "toksdef": RegisterDef("toks", ToksArrayAccessor),
     }
 )

@@ -23,7 +23,7 @@ def test_read_true_dimen(parser):
     parser.state.layout["mag"] = 2000
     parser.readFrom("-1Truept")
     result = parser.readDimen()
-    assert result == -2
+    assert result == -0.5 # handling true dimension is done by reducing the unit by \mag/1000
     parser.readFrom("-1 true em")
     try:
         parser.readDimen()

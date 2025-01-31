@@ -5,7 +5,7 @@ from pytex import lists
 from pytex import texlive
 from pytex import hmode
 from pytex.box import LEADERS_TYPE
-import math
+from pytex import texlive
 
 
 def test_new_paragraph(cmr10):
@@ -274,3 +274,16 @@ def test_unkern(cmr10, cmd):
     assert len(top) == 2
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.CHAR
+
+
+def test_italic_correction(cmr10):
+    cmr10.parse("\\font\it=cmti10 \\it l\\/")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 4
+    node = top[1]
+    assert node.node_type == nd.NODE_TYPE.CHAR
+    assert node.char == "l"
+    node = top[2]
+    assert node.node_type == nd.NODE_TYPE.KERN
+    assert node.kern == cmr10.state.parameters["currentfont"]["l"].italic

@@ -28,6 +28,7 @@ def math(parser):
     \\font\\tenit=cmti10
     \\skewchar\\teni='177 \\skewchar\\seveni='177 \\skewchar\\fivei='177
     \\skewchar\\tensy='60 \\skewchar\\sevensy='60 \\skewchar\\fivesy='60
+    \\textfont1=\\teni \\scriptfont1=\\seveni \\scriptscriptfont2=\\fivei
     \\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy
     \\delcode`(=\"028300 \\delcode`)=\"029301 \\delcode`.=0
     """
@@ -365,3 +366,16 @@ def test_eqno_subformula(math):
         assert False
     except ValueError as e:
         assert "equation" in str(e)
+
+
+def test_italic_correction(cmr10):
+    cmr10.parse("$l \\/")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 2
+    node = top[0]
+    assert isinstance(node, mmode.MathSymbol)
+    assert node.nucleus == (1, "l")
+    node = top[1]
+    assert node.node_type == nd.NODE_TYPE.KERN
+    assert node.kern == 0

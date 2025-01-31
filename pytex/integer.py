@@ -318,7 +318,7 @@ module = Module("integer",
         # escapechar is a layout parameter because \write may use it
         "escapechar": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
         # control parameters
-        "fam": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
+        "fam": {"value": -1, "accessor": IntegerAccessor, "domain": "parameters"},
         "pausing": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
         "holdinginserts": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
         "tracingonline": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},

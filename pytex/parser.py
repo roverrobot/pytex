@@ -253,7 +253,11 @@ class Parser:
                 den.fraction = None
                 num, _, bar, thickness = fraction.nucleus
                 fraction.nucleus = (mmode.Subformula(num), mmode.Subformula(den), bar, thickness)
-            if group_type != state.GROUP_TYPE.MATH_SHIFT:
+            # now, on the list stack, we are either in a subformula, or an equation number,
+            # or the base math list started by a math shift. In the first two cases, we pop
+            # off the list as we do not need them
+            enclosing = self.lists[-2]
+            if enclosing.type == lists.LISTTYPE.MATH:
                 # this is a subformula. pop it.
                 self.lists.pop()
         aftergroup = self.state.domains["globals"]["aftergroup"]

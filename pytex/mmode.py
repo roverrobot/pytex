@@ -89,7 +89,12 @@ class MList(lists.List):
     """
     def __init__(self, inner=True):
         super().__init__(lists.LISTTYPE.MATH, inner)
-        self.fraction = None
+        # is this list a denominator? if so, this points to the fraction node
+        self.fraction = None 
+        # the equation number. If there is one, this holds a tuple (MList, bool)
+        # where the MList points to the equation number material, and the bool indicates
+        # whether the equation number is on the left
+        self.eqno = None
     
     node_type = nd.NODE_TYPE.MATH
 
@@ -216,7 +221,14 @@ def mathShift(parser):
     # if so, we are terminating the math mode
     # otherwise, we are starting a new math mode
     if top.type == lists.LISTTYPE.MATH:
-        # if the current list is a math list, we are terminating the math mode
+        # Now we are in math mode. We terminates the current group.
+        # if the current math list is not the base math list started by a math shift,
+        # nor is it an equation number, doing so will raise an error for mismatched groups.
+        parser.endGroup(pos, GROUP_TYPE.MATH_SHIFT)
+        # Now, if we are parsing equation numbers, ending the group will pop off
+        # the current list, leave us at the base math list. Otherwise, we are in the base list
+        # and ending the group will not pop the list off. So by now, we are at the base list.
+        top = parser.lists[-1]
         # are we in display math or inline math?
         if not top.inner:
             # we are in display math mode. We should match $$, i.e., an additional $
@@ -224,7 +236,6 @@ def mathShift(parser):
             t = parser.token()
             if t is None or t.catcode != CATCODE.MATH_SHIFT:
                 raise ValueError("missing $", pos)
-        parser.endGroup(pos, GROUP_TYPE.MATH_SHIFT)
         # now the top list may have changed because of endGroup (during fraction handling)
         top = parser.lists.pop()
         parser.lists[-1].append(top)
@@ -697,6 +708,31 @@ class MathAccent(lists.ModeDependentCommand):
         mlist.append(Accent(accent, base))
 
 
+class Eqno(lists.ModeDependentCommand):
+    """
+    the \\eqno command
+    @param left: whether the equation number is on the left
+    """
+    def __init__(self, left: bool):
+        self.left = left
+
+    def math(self, parser, mlist):
+        # we must be at the bottom of the math lists
+        enclosing = parser.lists[-2]
+        if enclosing.type == lists.LISTTYPE.MATH:
+            raise ValueError("misplaced equation number", parser.input.position())
+        if mlist.inner:
+            raise ValueError("only display math can have an equation number", parser.input.position())
+        # We start a new group, parsing the equation number, then we pop it off during the 
+        # mathShift function before ending the math mode.
+        parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT)
+        # now we have a new subformula for the equation number
+        eqno = parser.lists[-1]
+        mlist.eqno = (eqno, self.left)
+        # the last entry of mlist should be the subformula. We do not need it
+        mlist.pop()
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -737,5 +773,7 @@ mod = Module("mmode",
         "overwithdelims": GeneralFraction(True, delim=True, thickness=False),
         "atopwithdelims": GeneralFraction(False, delim=True, thickness=False),
         "abovewithdelims": GeneralFraction(True, delim=True, thickness=True),
+        "eqno": Eqno(False),
+        "leqno": Eqno(True),
     },
 )

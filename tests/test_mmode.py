@@ -76,6 +76,14 @@ def test_subformula(parser):
     assert len(node.nucleus) == 2
 
 
+def test_subformula_unclosed(parser):
+    try:
+        parser.parse("${ab$")
+        assert False
+    except ValueError as e:
+        assert "mismatch" in str(e)
+
+
 @pytest.mark.parametrize("field, value, type", [
     ["sub", "b", mmode.MathSymbol],
     ["sup", "b", mmode.MathSymbol],
@@ -320,3 +328,40 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     else:
         assert frac.right.small.nucleus == right 
     math.parse("$")
+
+
+@pytest.mark.parametrize("left", [True, False])
+def test_eqno(math, left):
+    cmd = "\\leqno" if left else "\\eqno"
+    math.parse(f"$$a{cmd}1$$")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 3
+    mlist = top[1]
+    assert mlist.node_type == nd.NODE_TYPE.MATH
+    assert len(mlist) == 1
+    atom = mlist[0]
+    assert isinstance(atom, mmode.MathSymbol)
+    assert atom.nucleus == (1, "a")
+    assert mlist.eqno is not None
+    eqno, eqno_left = mlist.eqno
+    assert eqno_left == left
+    assert isinstance(eqno, mmode.MList)
+    assert len(eqno) == 1
+    node = eqno[0]
+    assert isinstance(node, mmode.MathSymbol)
+    assert node.nucleus == (0, "1")
+
+def test_eqno_inline(math):
+    try:
+        math.parse("$a\\eqno1$")
+        assert False
+    except ValueError as e:
+        assert "equation" in str(e)
+
+def test_eqno_subformula(math):
+    try:
+        math.parse("$\left(a\\eqno1$")
+        assert False
+    except ValueError as e:
+        assert "equation" in str(e)

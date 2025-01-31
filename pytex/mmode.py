@@ -212,16 +212,24 @@ def mathShift(parser):
     """
     pos = parser.input.position()
     top = parser.lists[-1]
+    # are we current in math mode or not?
+    # if so, we are terminating the math mode
+    # otherwise, we are starting a new math mode
     if top.type == lists.LISTTYPE.MATH:
+        # if the current list is a math list, we are terminating the math mode
+        # are we in display math or inline math?
         if not top.inner:
+            # we are in display math mode. We should match $$, i.e., an additional $
             pos = parser.input.position()
             t = parser.token()
             if t is None or t.catcode != CATCODE.MATH_SHIFT:
                 raise ValueError("missing $", pos)
         parser.endGroup(pos, GROUP_TYPE.MATH_SHIFT)
-        parser.lists.pop()
+        # now the top list may have changed because of endGroup (during fraction handling)
+        top = parser.lists.pop()
         parser.lists[-1].append(top)
         return
+    # otherwie, we are starting a new math mode
     if top.type == lists.LISTTYPE.VERTICAL:
         parser.newParagraph()
     t = parser.token()
@@ -657,6 +665,7 @@ class GeneralFraction(lists.ModeDependentCommand):
         denominator = MList(mlist.inner)
         parser.lists.append(denominator)
         fraction = Over(mlist, None, self.bar, thickness)
+        replacement.append(fraction)
         if self.delim:
             fraction.left = left
             fraction.right = right

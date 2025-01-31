@@ -277,6 +277,29 @@ def test_delimiter(math):
     ["\\abovewithdelims()10pt", True, 10, (0, chr(0x28)), (0, chr(0x29))],
 ])
 def test_fractions(math, cmd, bar, thickness, left, right):
+    math.parse(f"\\noindent$a{cmd} b$\\relax")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 1
+    assert top[0].node_type == nd.NODE_TYPE.MATH
+    assert len(top[0]) == 1
+    frac = top[0][0]
+    assert isinstance(frac, mmode.Over)
+    if left is None:
+        assert frac.left is None
+    else:
+        assert frac.left.small.nucleus == left
+    if right is None:
+        assert frac.right is None
+    else:
+        assert frac.right.small.nucleus == right 
+    num, den, bar, thickness = frac.nucleus
+    assert len(num.nucleus) == 1
+    assert num.nucleus[0].nucleus == (1, "a")
+    assert len(den.nucleus) == 1
+    assert den.nucleus[0].nucleus == (1, "b")
+    assert bar == bar
+    assert thickness == thickness
     math.parse(f"$\\left(a{cmd} b\\right)")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
@@ -296,11 +319,4 @@ def test_fractions(math, cmd, bar, thickness, left, right):
         assert frac.right is None
     else:
         assert frac.right.small.nucleus == right 
-    num, den, bar, thickness = frac.nucleus
-    assert len(num.nucleus) == 1
-    assert num.nucleus[0].nucleus == (1, "a")
-    assert len(den.nucleus) == 1
-    assert den.nucleus[0].nucleus == (1, "b")
-    assert bar == bar
-    assert thickness == thickness
     math.parse("$")

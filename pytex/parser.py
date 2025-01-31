@@ -253,7 +253,6 @@ class Parser:
                 den.fraction = None
                 num, _, bar, thickness = fraction.nucleus
                 fraction.nucleus = (mmode.Subformula(num), mmode.Subformula(den), bar, thickness)
-                self.lists[-1].append(fraction)
             if group_type != state.GROUP_TYPE.MATH_SHIFT:
                 # this is a subformula. pop it.
                 self.lists.pop()

@@ -29,6 +29,7 @@ def math(parser):
     \\skewchar\\teni='177 \\skewchar\\seveni='177 \\skewchar\\fivei='177
     \\skewchar\\tensy='60 \\skewchar\\sevensy='60 \\skewchar\\fivesy='60
     \\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy
+    \\delcode`(=\"028300 \\delcode`)=\"029301 \\delcode`.=0
     """
     parser.parse(fonts)
     return parser
@@ -226,7 +227,7 @@ def test_radical(math):
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, mmode.Radical)
+    assert isinstance(node, mmode.Rad)
     delim, oprand = node.nucleus
     assert delim.small.nucleus == (2, chr(0x70))
     assert delim.large.nucleus == (3, chr(0x70))
@@ -248,7 +249,6 @@ def test_mathaccent(math):
 
 
 def test_delimiter(math):
-    math.parse("\\delcode`(=\"028300 \\delcode`)=\"029301 \\delcode`.=0")
     math.parse("$\\delimiter\"1270370")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
@@ -265,4 +265,42 @@ def test_delimiter(math):
     assert len(node.nucleus) == 3
     assert node.left.small.nucleus == (0, chr(0x28))
     assert node.right.small.nucleus == (0, chr(0x29))
+    math.parse("$")
+
+
+@pytest.mark.parametrize("cmd, bar, thickness, left, right", [
+    ["\\over", True, None, None, None],
+    ["\\overwithdelims()", True, None, (0, chr(0x28)), (0, chr(0x29))],
+    ["\\atop", False, None, None, None],
+    ["\\atopwithdelims()", False, None, (0, chr(0x28)), (0, chr(0x29))],
+    ["\\above10pt", True, 10, None, None],
+    ["\\abovewithdelims()10pt", True, 10, (0, chr(0x28)), (0, chr(0x29))],
+])
+def test_fractions(math, cmd, bar, thickness, left, right):
+    math.parse(f"$\\left(a{cmd} b\\right)")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Subformula)
+    assert node.left.small.nucleus == (0, chr(0x28))
+    assert node.right.small.nucleus == (0, chr(0x29))
+    assert len(node.nucleus) == 1
+    frac = node.nucleus[0]
+    assert isinstance(frac, mmode.Over)
+    if left is None:
+        assert frac.left is None
+    else:
+        assert frac.left.small.nucleus == left
+    if right is None:
+        assert frac.right is None
+    else:
+        assert frac.right.small.nucleus == right 
+    num, den, bar, thickness = frac.nucleus
+    assert len(num.nucleus) == 1
+    assert num.nucleus[0].nucleus == (1, "a")
+    assert len(den.nucleus) == 1
+    assert den.nucleus[0].nucleus == (1, "b")
+    assert bar == bar
+    assert thickness == thickness
     math.parse("$")

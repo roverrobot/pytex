@@ -83,8 +83,13 @@ class Style:
 
 
 class MList(lists.List):
+    """
+    a math list
+    @param inner: whether the list is in internal mode (inline or subformula)
+    """
     def __init__(self, inner=True):
         super().__init__(lists.LISTTYPE.MATH, inner)
+        self.fraction = None
     
     node_type = nd.NODE_TYPE.MATH
 
@@ -137,13 +142,18 @@ class Atom(nd.Node):
         self.sub = None
         self.sup = None
         self.atom_type = atom_type
+        # the left and right delimiters, assigned by \left and \right or fractions with delimiters
+        self.left = None 
+        self.right = None
 
     node_type = nd.NODE_TYPE.MATHNODE
 
     def __repr__(self):
         sub = f"_{self.sub}" if self.sub is not None else ""
         sup = f"^{self.sup}" if self.sup is not None else ""
-        return f"{self.nucleus()}{sub}{sup}"
+        left = f"{self.left}" if self.left is not None else ""
+        right = f"{self.right}" if self.right is not None else ""
+        return f"{left}{self.__class__.__name__}({self.nucleus}{sub}{sup}){right}"
     
 
 class MathSymbol(Atom):
@@ -208,7 +218,7 @@ def mathShift(parser):
             t = parser.token()
             if t is None or t.catcode != CATCODE.MATH_SHIFT:
                 raise ValueError("missing $", pos)
-        parser.endGroup(pos, GROUP_TYPE.MATH)
+        parser.endGroup(pos, GROUP_TYPE.MATH_SHIFT)
         parser.lists.pop()
         parser.lists[-1].append(top)
         return
@@ -224,14 +234,15 @@ def mathShift(parser):
         parser.input.unread(t)
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
-    parser.beginGroup(pos, GROUP_TYPE.MATH)
+    parser.beginGroup(pos, GROUP_TYPE.MATH_SHIFT)
     parser.lists.append(MList(inner=inner))
 
 
-def readSubformula(parser, lbrace=None):
+def readSubformula(parser, group_type, lbrace=None):
     """
     read a subformula
     @param parser: the parser
+    @param group_type: the type of the new group
     @param style: the current math style
     @return: the subformula
     """
@@ -241,8 +252,8 @@ def readSubformula(parser, lbrace=None):
         if lbrace.catcode != CATCODE.BEGIN_GROUP:
             return None
     parser.input.unread(lbrace)
-    list = MList(True)
-    parser.readList(list, GROUP_TYPE.SIMPLE)
+    list = MList()
+    parser.readList(list, group_type)
     assert len(list)== 1 and isinstance(list[-1], Subformula)
     return list[-1]
 
@@ -250,6 +261,7 @@ def readField(parser):
     """
     read a field in a math list
     @param parser: the parser
+    @param group_type: the type of the new group
     @return: the field
     """
     parser.skipFiller()
@@ -261,7 +273,7 @@ def readField(parser):
         char = parser.mathChar(code)
         return char
     if t.catcode == CATCODE.BEGIN_GROUP:
-        field = readSubformula(parser, lbrace=t)
+        field = readSubformula(parser, GROUP_TYPE.SIMPLE, lbrace=t)
         if field is not None:
             return field
     try:
@@ -489,16 +501,16 @@ class MathChoice(lists.ModeDependentCommand):
     the \\mathchoice command
     """
     def math(self, parser, mlist):
-        display = readSubformula(parser)
+        display = readSubformula(parser, GROUP_TYPE.MATH_CHOICE)
         if display is None:
             raise ValueError("missing the display choice")
-        text = readSubformula(parser)
+        text = readSubformula(parser, GROUP_TYPE.MATH_CHOICE)
         if text is None:
             raise ValueError("missing the text choice")
-        script = readSubformula(parser)
+        script = readSubformula(parser, GROUP_TYPE.MATH_CHOICE)
         if script is None:
             raise ValueError("missing the script choice")
-        scriptscript = readSubformula(parser)
+        scriptscript = readSubformula(parser, GROUP_TYPE.MATH_CHOICE)
         if scriptscript is None:
             raise ValueError("missing the scriptscript choice")
         mlist.append(ChoiceNode(display, text, script, scriptscript))
@@ -514,6 +526,9 @@ class Delim:
         self.small = MathSymbol((delcode >> 12) & 0x7ff, fam)
         self.large = MathSymbol(delcode & 0x7ff, fam)
         self.type = ATOM_TYPE(delcode >> 24 & 7)
+    
+    def __repr__(self):
+        return f"Delim({self.type}, {self.small}, {self.large})"
 
 
 class Rad(Atom):
@@ -572,7 +587,7 @@ class Radical(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         delim = Delim(parser.readInteger(), parser.state.parameters["fam"])
         oprand = readField(parser)
-        mlist.append(Radical(delim, oprand))
+        mlist.append(Rad(delim, oprand))
 
 
 class Left(lists.ModeDependentCommand):
@@ -582,7 +597,7 @@ class Left(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         delim = readDelimiter(parser)
         parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_LEFT)
-        parser.lists[-1].left = delim
+        parser.lists[-2][-1].left = delim
 
 
 class Right(lists.ModeDependentCommand):
@@ -591,11 +606,63 @@ class Right(lists.ModeDependentCommand):
     """
     def math(self, parser, mlist):
         delim = readDelimiter(parser)
-        parser.lists[-1].right = delim
         parser.endGroup(parser.input.position(), GROUP_TYPE.MATH_LEFT)
         atom = lastAtom(parser.lists[-1])
-        atom.left = atom.nucleus.left
-        atom.right = atom.nucleus.right
+        atom.right = delim
+
+
+class Over(Atom):
+    """
+    a node representing a general fraction
+    @param num: the numerator
+    @param den: the denominator
+    @param bar: whether it has a bar
+    @param thickness: the thickness of the bar
+    """
+    def __init__(self, num, den, bar, thickness):
+        super().__init__(ATOM_TYPE.OVER)
+        self.nucleus = (num, den, bar, thickness)
+
+    node_type = nd.NODE_TYPE.MATHNODE
+
+
+class GeneralFraction(lists.ModeDependentCommand):
+    """
+    the \\over command and its variants
+    @param bar: whether it has a bar
+    @param delim: whether it has a pair delimiter
+    @param thickness: the thickness of the ba
+    """
+    def __init__(self, bar: bool, delim: bool, thickness: bool):
+        self.delim = delim
+        self.bar = bar
+        self.thickness = thickness
+
+    def math(self, parser, mlist):
+        # when TeX sees this command, it will change the current list to the numerator
+        # Then it will start a new math list, and parse the denominator in the new list.
+        if mlist.fraction is not None:
+            raise ValueError("double fraction", parser.input.position())
+        if self.delim:
+            left = readDelimiter(parser)
+            right = readDelimiter(parser)
+        thickness = parser.readDimen() if self.thickness else None            
+        replacement = MList(mlist.inner)
+        mlist.inner = True
+        parser.lists[-1] = replacement
+        enclosing = parser.lists[-2]
+        if enclosing.type == lists.LISTTYPE.MATH:
+            # we are parsing a subformula, replace the last atom with the new list
+            enclosing[-1].nucleus = replacement
+        denominator = MList(mlist.inner)
+        parser.lists.append(denominator)
+        fraction = Over(mlist, None, self.bar, thickness)
+        if self.delim:
+            fraction.left = left
+            fraction.right = right
+        if self.thickness:
+            fraction.thickness = thickness
+        denominator.fraction = fraction
 
 
 class Accent(Atom):
@@ -655,5 +722,11 @@ mod = Module("mmode",
         "mathaccent": MathAccent(),
         "left": Left(),
         "right": Right(),
+        "over": GeneralFraction(True, delim=False, thickness=False),
+        "atop": GeneralFraction(False, delim=False, thickness=False),
+        "above": GeneralFraction(True, delim=False, thickness=True),
+        "overwithdelims": GeneralFraction(True, delim=True, thickness=False),
+        "atopwithdelims": GeneralFraction(False, delim=True, thickness=False),
+        "abovewithdelims": GeneralFraction(True, delim=True, thickness=True),
     },
 )

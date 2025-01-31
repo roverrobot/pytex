@@ -76,9 +76,9 @@ class Group:
         """
         if group_type == self.group_type:
             return True
-        if self.group_type == GROUP_TYPE.SEMI_SIMPLE or self.group_type == GROUP_TYPE.MATH:
-            return group_type ==  GROUP_TYPE.SIMPLE
-        return False
+        if self.group_type == GROUP_TYPE.SEMI_SIMPLE or self.group_type == GROUP_TYPE.MATH_SHIFT:
+            return False
+        return group_type ==  GROUP_TYPE.SIMPLE
 
     def end(self, position, group_type: GROUP_TYPE):
         """

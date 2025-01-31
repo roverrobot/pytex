@@ -234,6 +234,7 @@ class Parser:
         """
         if self.lists[-1].type == lists.LISTTYPE.MATH:
             mlist = mmode.MList()
+            self.lists[-1].append(mmode.Subformula(mlist))
             self.lists.append(mlist)
         self.state.beginGroup(position, group_type, callback)
     
@@ -244,10 +245,18 @@ class Parser:
         @param group_type: the type of the group
         """
         self.state.endGroup(position, group_type)
-        if self.lists[-1].type == lists.LISTTYPE.MATH and group_type != state.GROUP_TYPE.MATH:
-            # this is a subformula. pop it.
-            mlist = self.lists.pop()
-            self.lists[-1].append(mmode.Subformula(mlist))
+        if self.lists[-1].type == lists.LISTTYPE.MATH:
+            # check if we are building a general fraction
+            if self.lists[-1].fraction is not None:
+                den = self.lists.pop()
+                fraction = den.fraction
+                den.fraction = None
+                num, _, bar, thickness = fraction.nucleus
+                fraction.nucleus = (mmode.Subformula(num), mmode.Subformula(den), bar, thickness)
+                self.lists[-1].append(fraction)
+            if group_type != state.GROUP_TYPE.MATH_SHIFT:
+                # this is a subformula. pop it.
+                self.lists.pop()
         aftergroup = self.state.domains["globals"]["aftergroup"]
         if len(aftergroup) > 0:
             self.input.push(lexer.TokenListScanner(aftergroup))

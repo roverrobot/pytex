@@ -260,6 +260,21 @@ class Remove(Command):
                 top.pop()
 
 
+class ItalicCorrection(ModeDependentCommand):
+    """
+    The \\/ command.
+    """
+    def horizontal(self, parser, hlist):
+        if len(hlist) > 1:
+            last = hlist[-1]
+            if isinstance(last, nd.CharNode):
+                hlist.append(nd.Kern(last.italic))
+    
+    def math(self, parser, mlist):
+        # append a 0-width kern
+        mlist.append(nd.Kern(0))
+
+
 mod = Module("lists",
     commands={
         "kern": Kern(),
@@ -277,6 +292,7 @@ mod = Module("lists",
         "unkern": Remove(nd.NODE_TYPE.KERN),
         "unpenalty": Remove(nd.NODE_TYPE.PENALTY),
         "unskip": Remove(nd.NODE_TYPE.GLUE),
+        "/" : ItalicCorrection(),
     },
     attributes={
         "readList": readList,

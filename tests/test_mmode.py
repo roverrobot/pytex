@@ -45,9 +45,8 @@ def test_mlist(parser, inner):
     assert isinstance(node, mmode.Atom)
     assert node.sub is None
     assert node.sup is None
-    assert node.char == ord("a")
+    assert node.nucleus == (1, "a")
     assert node.atom_type == mmode.ATOM_TYPE.ORD
-    assert node.fam == 0
     parser.parse(f"{close}")
     top = parser.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
@@ -73,7 +72,7 @@ def test_subformula(parser):
     assert isinstance(node, mmode.Subformula)
     assert node.sub is None
     assert node.sup is None
-    assert len(node.list) == 2
+    assert len(node.nucleus) == 2
 
 
 @pytest.mark.parametrize("field, value, type", [
@@ -95,7 +94,7 @@ def test_scripts(parser, field, value, type):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert node.char == ord("a")
+    assert node.nucleus == (1, "a")
     script = getattr(node, field)
     other = getattr(node, other)
     assert script is not None
@@ -117,8 +116,7 @@ def test_mathchar(parser, cmd):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.MathSymbol)
-    assert node.char == 0x34
-    assert node.fam == 2
+    assert node.nucleus == (2, chr(0x34))
     assert node.atom_type == mmode.ATOM_TYPE.OP
     parser.parse("$")
 
@@ -130,7 +128,7 @@ def test_active(parser):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.MathSymbol)
-    assert node.char == ord("1")
+    assert node.nucleus == (0, "1")
     parser.parse("$")
 
 
@@ -151,7 +149,7 @@ def test_indent(math):
     assert len(top) == 3
     node = top[1]
     assert node.atom_type == mmode.ATOM_TYPE.ORD
-    assert node.nucleus().node_type == nd.NODE_TYPE.HLIST
+    assert node.nucleus.node_type == nd.NODE_TYPE.HLIST
     math.parse("$")
 
 
@@ -178,10 +176,10 @@ def test_mathatom(math, cmd, atom_type):
 
 
 @pytest.mark.parametrize("cmd, style", [
-    ["\\displaystyle", mmode.MATH_STYLE.DISPLAY],
-    ["\\textstyle", mmode.MATH_STYLE.TEXT],
-    ["\\scriptstyle", mmode.MATH_STYLE.SCRIPT],
-    ["\\scriptscriptstyle", mmode.MATH_STYLE.SCRIPTSCRIPT],
+    ["\\displaystyle", mmode.MATH_STYLE.D],
+    ["\\textstyle", mmode.MATH_STYLE.T],
+    ["\\scriptstyle", mmode.MATH_STYLE.S],
+    ["\\scriptscriptstyle", mmode.MATH_STYLE.SS],
 ])
 def test_mathstyle(math, cmd, style):
     math.parse(f"${cmd}")
@@ -189,7 +187,7 @@ def test_mathstyle(math, cmd, style):
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, mmode.Style)
+    assert isinstance(node, mmode.StyleNode)
     assert node.node_type == nd.NODE_TYPE.MATHNODE
     assert node.style == style
     math.parse("$")
@@ -209,4 +207,62 @@ def test_limits(math, cmd, limits):
     assert isinstance(node, mmode.Atom)
     assert node.atom_type == mmode.ATOM_TYPE.OP
     assert node.limits == limits
+    math.parse("$")
+
+
+def test_mathchoice(math):
+    math.parse("$\\mathchoice{a}{b}{c}{d}")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.ChoiceNode)
+    math.parse("$")
+
+
+def test_radical(math):
+    math.parse("$\\radical\"270370 a")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Radical)
+    delim, oprand = node.nucleus
+    assert delim.small.nucleus == (2, chr(0x70))
+    assert delim.large.nucleus == (3, chr(0x70))
+    assert oprand.nucleus == (1, "a")
+    math.parse("$")
+
+
+def test_mathaccent(math):
+    math.parse("$\\mathaccent\"362 a")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Accent)
+    accent, base = node.nucleus
+    assert base.nucleus == (1, "a")
+    assert accent.nucleus == (3, chr(0x62))
+    math.parse("$")
+
+
+def test_delimiter(math):
+    math.parse("\\delcode`(=\"028300 \\delcode`)=\"029301 \\delcode`.=0")
+    math.parse("$\\delimiter\"1270370")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.MathSymbol)
+    assert node.nucleus == (2, chr(0x70))
+    assert node.atom_type == mmode.ATOM_TYPE.OP
+    math.parse("$ $\\left(a+b\\right)")
+    top = math.lists[-1]
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Subformula)
+    assert len(node.nucleus) == 3
+    assert node.left.small.nucleus == (0, chr(0x28))
+    assert node.right.small.nucleus == (0, chr(0x29))
     math.parse("$")

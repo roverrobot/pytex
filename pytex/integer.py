@@ -352,6 +352,7 @@ module = Module("integer",
         "lccode": {"generator": LCCode, "accessor": IntegerArrayAccessor},
         "uccode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
         "sfcode": {"generator": SFCode, "accessor": IntegerArrayAccessor},
+        "delcode": {"generator": lambda: Array(-1), "accessor": IntegerArrayAccessor},
         "mathcode": {"generator": MathCode, "accessor": IntegerArrayAccessor},
         "count": {"generator": lambda: Array(0), "accessor": IntegerArrayAccessor},
     }

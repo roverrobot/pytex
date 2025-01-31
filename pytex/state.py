@@ -74,9 +74,11 @@ class Group:
         @param group_type: the group type
         @return: True if the group type matches, False otherwise
         """
+        if group_type == self.group_type:
+            return True
         if self.group_type == GROUP_TYPE.SEMI_SIMPLE or self.group_type == GROUP_TYPE.MATH:
-            return group_type == self.group_type
-        return group_type ==  GROUP_TYPE.SIMPLE
+            return group_type ==  GROUP_TYPE.SIMPLE
+        return False
 
     def end(self, position, group_type: GROUP_TYPE):
         """

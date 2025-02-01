@@ -9,7 +9,6 @@ from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command
 from pytex.state import GROUP_TYPE
-from pytex import mmode
 
 
 class Ligature(nd.CharNode):
@@ -250,7 +249,7 @@ class Indent(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         # An empty box of width \parindent is appended to the current list,
         # as the nucleus of a new Ord atom.
-        mlist.append(mmode.Box(IndentBox(parser)))
+        mlist.addBox(IndentBox(parser))
 
 
 class NoIndent(lists.ModeDependentCommand):

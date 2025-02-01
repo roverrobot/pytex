@@ -5,7 +5,6 @@ parse and wrap up an hbox
 from pytex import node as nd
 from pytex import hmode
 from pytex import vmode
-from pytex import mmode
 from pytex.glue import Stretchness
 from pytex.module import Module
 from pytex.accessor import Accessor, ArrayAccessor
@@ -228,10 +227,7 @@ class BuildBox(Command):
     
     def execute(self, parser):
         box = self.boxValue(parser, False)
-        top = parser.lists[-1]
-        if top.type == LISTTYPE.MATH:
-            box = mmode.Box(box)
-        top.append(box)
+        parser.lists[-1].append(box)
 
     def boxValue(self, parser, setbox):
         spec = parser.readKeyword(["to", "spread"])
@@ -538,7 +534,7 @@ class Shift(ModeDependentCommand):
         if self.vertical:
             super().math(parser, mlist)
         box = self.shift(parser)
-        mlist.append(mmode.Box(box))
+        mlist.append(box)
     
     def shift(self, parser):
         """

@@ -16,6 +16,7 @@ from pytex.accessor import Accessor
 from pytex.define import Define
 from pytex.integer import IntegerCommand
 from pytex.glue import Glue, Stretchness
+from pytex import box
 import enum
 
 
@@ -98,6 +99,11 @@ class MList(lists.List):
         self.eqno = None
     
     node_type = nd.NODE_TYPE.MATH
+
+    def append(self, node):
+        if isinstance(node, box.Box):
+            node = Box(node)
+        super().append(node)
 
     def pack(self):
         raise NotImplementedError

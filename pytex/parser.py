@@ -36,7 +36,7 @@ class Parser:
         # command and its position in the input.
         self.ifstack = []
         # the list stack
-        self.lists = [vmode.VList(inner=False)]
+        self.lists = [vmode.VList(self, inner=False)]
         # for now, characters and spaces are collected in a string
         for name, mod in ModuleManager.items():
             mod.populate(self)
@@ -232,8 +232,9 @@ class Parser:
         @param group_type: the type of the group
         @param callback: the callback function
         """
+        # if we are already in math mode, then we are reading a subformula
         if self.lists[-1].type == lists.LISTTYPE.MATH:
-            mlist = mmode.MList()
+            mlist = mmode.MList(self)
             self.lists[-1].append(mmode.Subformula(mlist))
             self.lists.append(mlist)
         self.state.beginGroup(position, group_type, callback)
@@ -272,7 +273,7 @@ class Parser:
         # TeX’s input. The page builder is exercised. When the paragraph is 
         # eventually completed, horizontal mode will come to an end as described 
         # in Chapter 25. (The TeX Book pp.282)        """
-        hlist = hmode.HList(inner=False)
+        hlist = hmode.HList(self, inner=False)
         if indent:
             hlist.append(hmode.IndentBox(self))
         self.lists.append(hlist)

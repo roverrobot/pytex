@@ -7,7 +7,7 @@ from pytex.dimen import Dimen
 
 
 @pytest.fixture()
-def math(parser):
+def math(cmr10):
     fonts="""
     \\font\\tenrm=cmr10 
     \\font\\sevenrm=cmr7
@@ -32,8 +32,8 @@ def math(parser):
     \\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy
     \\delcode`(=\"028300 \\delcode`)=\"029301 \\delcode`.=0
     """
-    parser.parse(fonts)
-    return parser
+    cmr10.parse(fonts)
+    return cmr10
 
 @pytest.mark.parametrize("inner", [True, False])
 def test_mlist(parser, inner):
@@ -254,7 +254,11 @@ def test_mathaccent(math):
     accent, base = node.nucleus
     assert base.nucleus == (1, "a")
     assert accent.nucleus == (3, chr(0x62))
-    math.parse("$")
+    try:
+        math.parse("\\accent`^a$")
+        assert False
+    except ValueError as e:
+        assert "accent" in str(e)
 
 
 def test_delimiter(math):
@@ -368,9 +372,9 @@ def test_eqno_subformula(math):
         assert "equation" in str(e)
 
 
-def test_italic_correction(cmr10):
-    cmr10.parse("$l \\/")
-    top = cmr10.lists[-1]
+def test_italic_correction(math):
+    math.parse("$l \\/")
+    top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 2
     node = top[0]
@@ -379,3 +383,17 @@ def test_italic_correction(cmr10):
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.KERN
     assert node.kern == 0
+
+
+def test_box(math):
+    math.parse("$\\hbox{a}")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Box)
+    box = node.nucleus
+    assert box.node_type == nd.NODE_TYPE.HLIST
+    assert len(box.list) == 1
+    assert box.list[0].char == "a"
+    math.parse("$")

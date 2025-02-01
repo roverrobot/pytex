@@ -85,10 +85,11 @@ class Style:
 class MList(lists.List):
     """
     a math list
+    @param parser: the parser that created the list
     @param inner: whether the list is in internal mode (inline or subformula)
     """
-    def __init__(self, inner=True):
-        super().__init__(lists.LISTTYPE.MATH, inner)
+    def __init__(self, parser, inner=True):
+        super().__init__(parser, lists.LISTTYPE.MATH, inner)
         # is this list a denominator? if so, this points to the fraction node
         self.fraction = None 
         # the equation number. If there is one, this holds a tuple (MList, bool)
@@ -254,7 +255,7 @@ def mathShift(parser):
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
     parser.beginGroup(pos, GROUP_TYPE.MATH_SHIFT)
-    parser.lists.append(MList(inner=inner))
+    parser.lists.append(MList(parser, inner=inner))
 
 
 def readSubformula(parser, group_type, lbrace=None):
@@ -271,7 +272,7 @@ def readSubformula(parser, group_type, lbrace=None):
         if lbrace.catcode != CATCODE.BEGIN_GROUP:
             return None
     parser.input.unread(lbrace)
-    list = MList()
+    list = MList(parser)
     parser.readList(list, group_type)
     assert len(list)== 1 and isinstance(list[-1], Subformula)
     return list[-1]
@@ -315,7 +316,7 @@ def lastAtom(mlist):
         if not isinstance(atom, Atom):
             atom = None
     if atom is None:
-        atom = Subformula(MList())
+        atom = Subformula(MList(mlist.parser))
         mlist.append(atom)
     return atom
 
@@ -666,14 +667,14 @@ class GeneralFraction(lists.ModeDependentCommand):
             left = readDelimiter(parser)
             right = readDelimiter(parser)
         thickness = parser.readDimen() if self.thickness else None            
-        replacement = MList(mlist.inner)
+        replacement = MList(mlist.parser, mlist.inner)
         mlist.inner = True
         parser.lists[-1] = replacement
         enclosing = parser.lists[-2]
         if enclosing.type == lists.LISTTYPE.MATH:
             # we are parsing a subformula, replace the last atom with the new list
             enclosing[-1].nucleus = replacement
-        denominator = MList(mlist.inner)
+        denominator = MList(mlist.parser, mlist.inner)
         parser.lists.append(denominator)
         fraction = Over(mlist, None, self.bar, thickness)
         replacement.append(fraction)

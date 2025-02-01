@@ -71,9 +71,16 @@ class HList(lists.List):
     """
     A horizontal list.
     """
-    def __init__(self, inner=True):
-        super().__init__(lists.LISTTYPE.HORIZONTAL, inner=inner)
+    def __init__(self, parser, inner=True):
+        super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner)
 
+    def append(self, node):
+        # \spacefactor for characters has been handled in parser.addChar. Now we need to set
+        # \spacefactor to 1000 for other nodes.
+        if node.node_type != nd.NODE_TYPE.CHAR:
+            self.parser.state.globals["spacefactor"] = 1000
+        super().append(node)
+    
     def pack(self):
         """
         prepare the list for typesetting.
@@ -300,11 +307,12 @@ class DiscHList(HList):
     A horizontal list that can contain discretionary nodes.
     """
     def __init__(self):
-        super().__init__(inner=True)
+        # this list probably does not need to know the parser
+        super().__init__(None, inner=True)
 
     def append(self, node):
         if isinstance(node, nd.Box) or isinstance(node, nd.Kern):
-            super().append(node)
+            list.append(self, node)
         else:
             raise ValueError("invalid node in this \\disctretionary")
 
@@ -313,8 +321,7 @@ class Discretionary(HorizontalCommand):
     """
     The \\discretionary command.
     """
-    def horizontal(self, parser, hlist):
-        # Read the three arguments
+    def readValue(self, parser):
         pre = DiscHList()
         parser.readList(pre, GROUP_TYPE.DISC)
         post = DiscHList()
@@ -322,7 +329,17 @@ class Discretionary(HorizontalCommand):
         replace = DiscHList()
         parser.readList(replace, GROUP_TYPE.DISC)
         # Add the discretionary node
-        hlist.append(nd.Disc(pre, post, replace))
+        return nd.Disc(pre, post, replace)
+    
+    def horizontal(self, parser, hlist):
+        # Read the three arguments
+        hlist.append(self.readValue(parser))
+
+    def math(self, parser, mlist):
+        node = self.readValue(parser)
+        if len(node.replace) > 0:
+            raise ValueError("replace part of discretionary must be empty in math mode")
+        mlist.append(node)
 
 
 class VAdjust(HorizontalCommand):

@@ -12,9 +12,11 @@ from pytex.module import Module
 class VList(lists.List):
     """
     A vertical list.
+    @param parser: the parser that created the list
+    @param inner: whether the list is in internal mode
     """
-    def __init__(self, inner=True):
-        super().__init__(lists.LISTTYPE.VERTICAL, inner=inner)
+    def __init__(self, parser, inner=True):
+        super().__init__(parser, lists.LISTTYPE.VERTICAL, inner=inner)
 
     def pack(self):
         """
@@ -117,7 +119,7 @@ def readVList(parser, reason):
     @param parser: the parser
     @param reason: the reason for reading the list
     """
-    vlist = VList()
+    vlist = VList(parser)
     return parser.readList(vlist, reason)
 
 

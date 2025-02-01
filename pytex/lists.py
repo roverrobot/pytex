@@ -20,13 +20,15 @@ class LISTTYPE(enum.Enum):
 class List(list):
     """
     A list of nodes.
-    @type: The type of list.
-    @inner: Whether the list is in internal mode.
+    @param parser: The parser the created the list
+    @param type: The type of list.
+    @param inner: Whether the list is in internal mode.
 
     The internal mode means an internal vlist, or restricted hlist, or nondisplay mlist.
     """
-    def __init__(self, type: LISTTYPE, inner: bool=True):
+    def __init__(self, parser, type: LISTTYPE, inner: bool=True):
         super().__init__()
+        self.parser = parser
         self.type = type
         self.inner = inner
 

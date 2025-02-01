@@ -254,8 +254,6 @@ def test_accent(cmr10):
     assert kern.kern == -1.25000
     accent = top[1] 
     assert accent.node_type == NODE_TYPE.HLIST
-    assert accent.content is None
-    accent.typeset()
     assert len(accent.content) == 1
     assert accent.content[0].char == "A"
     kern = top[2]

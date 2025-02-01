@@ -5,6 +5,7 @@ parse and wrap up an hbox
 from pytex import node as nd
 from pytex import hmode
 from pytex import vmode
+from pytex import mmode
 from pytex.glue import Stretchness
 from pytex.module import Module
 from pytex.accessor import Accessor, ArrayAccessor
@@ -188,8 +189,12 @@ class BoxCommand(Command):
     
     def execute(self, parser):
         box = self.boxValue(parser)
-        if not isinstance(box, VoidBox):
-            parser.lists[-1].append(box)
+        if isinstance(box, VoidBox):
+            return
+        top = parser.lists[-1]
+        if top.type == LISTTYPE.MATH:
+            box = mmode.Box(box)
+        top[-1].append(box)
     
     def boxValue(self, parser):
         index = parser.readInteger()
@@ -203,7 +208,7 @@ class BuildBox(Command):
     """
     the base class for \\hbox, \\vbox and \\vtop commands
     """
-    def list(self):
+    def list(self, parser):
         """
         create a new list
         """
@@ -223,7 +228,10 @@ class BuildBox(Command):
     
     def execute(self, parser):
         box = self.boxValue(parser)
-        parser.lists[-1].append(box)
+        top = parser.lists[-1]
+        if top.type == LISTTYPE.MATH:
+            box = mmode.Box(box)
+        top.append(box)
 
     def boxValue(self, parser):
         spec = parser.readKeyword(["to", "spread"])
@@ -239,7 +247,7 @@ class BuildBox(Command):
                 to = None
                 spread = dim
         box = self.box(to, spread)
-        box.list = self.list()
+        box.list = self.list(parser)
         parser.skipFiller()
         pos = parser.input.position()
         t = parser.token_expand()
@@ -260,8 +268,8 @@ class HBoxCommand(BuildBox):
     """
     the \\hbox command
     """
-    def list(self):
-        return hmode.HList()
+    def list(self, parser):
+        return hmode.HList(parser)
     
     def box(self, to, spread):
         return HBox(to, spread)
@@ -431,8 +439,8 @@ class VBoxCommand(BuildBox):
     def __init__(self, vtop):
         self.vtop = vtop
 
-    def list(self):
-        return vmode.VList()
+    def list(self, parser):
+        return vmode.VList(parser)
     
     def box(self, to, spread):
         return VBox(to, spread, self.vtop)
@@ -528,8 +536,7 @@ class Shift(ModeDependentCommand):
         if self.vertical:
             super().math(parser, mlist)
         box = self.shift(parser)
-        # TODO: add the box to the mlist
-        raise NotImplementedError("shift in math mode")
+        mlist.append(mmode.Box(box))
     
     def shift(self, parser):
         """
@@ -563,8 +570,11 @@ class AccentNode(nd.Node):
         if dx != 0:
             hlist.append(nd.Kern(dx))
         accentbox = HBox(None, 0)
-        accentbox.list = hmode.HList()
-        accentbox.list.append(accent)
+        accentbox.list = [accent]
+        accentbox.content = [accent]
+        accentbox.width = accent.width
+        accentbox.height = accent.height
+        accentbox.depth = accent.depth
         ex = char.font.param[4] # font dimen 5 is ex
         dy = ex - char.height
         if dy < 0:
@@ -620,8 +630,7 @@ class Accent(hmode.HorizontalCommand):
         hlist.append(AccentNode(accent, char))
 
     def math(self, parser, mlist):
-        char, accent = self.readArgs(parser)
-        raise NotImplementedError("accent in math mode")
+        raise ValueError("please use \\mathaccent in math mode")
 
 
 class LEADERS_TYPE(enum.Enum):
@@ -671,6 +680,7 @@ class Leaders(Command):
             raise ValueError("expecting a glue", pos)
         node = nd.Glue(glue)
         node.leaders = (self.type, box)
+        top = parser.lists[-1]
         parser.lists[-1].append(node)
 
 

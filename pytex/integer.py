@@ -61,7 +61,7 @@ def readUnsigned(parser):
     if t is None:
         raise ValueError("expecting an integer", pos)
     try:
-        return t.intValue(parser)
+        return t.meaning.intValue(parser)
     except AttributeError:
         pass
     # a normal integer is either a ` followed by a character, or a ' followed by

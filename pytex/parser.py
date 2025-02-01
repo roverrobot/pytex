@@ -40,6 +40,8 @@ class Parser:
         # for now, characters and spaces are collected in a string
         for name, mod in ModuleManager.items():
             mod.populate(self)
+        log = resolver.InMemoryTextFile("log")
+        self.log = log.open(for_read=False)
     
     def token(self):
         """
@@ -57,7 +59,7 @@ class Parser:
         while True:
             if t is None:
                 return None
-            t1 = t.expand(self)
+            t1 = t.expand(self, t)
             # if the token is consumed, get the next token
             if t1 is None:
                 t = self.token()

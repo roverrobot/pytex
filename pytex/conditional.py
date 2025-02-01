@@ -45,9 +45,9 @@ class Branch(Command):
                 parser.ifstack.pop()
                 return
 
-    def expand(self, parser):
+    def expand(self, parser, token):
         if len(parser.ifstack) == 0:
-            raise ValueError("unexpected " + self.command_name)
+            raise ValueError("unexpected " + self.command_name, parser.input.position())
         self.skipAll(parser)
 
 
@@ -62,7 +62,7 @@ class Or(Branch):
     def __init__(self):
         super().__init__("\\or")
 
-    def expand(self, parser):
+    def expand(self, parser, token):
         if len(parser.ifstack) == 0 or not parser.ifstack[-1][0].is_case:
             raise ValueError("unexpected \\or")
         self.skipAll(parser)
@@ -118,7 +118,7 @@ class Conditional(Command):
                 parser.ifstack.pop()
                 return
 
-    def expand(self, parser):
+    def expand(self, parser, token):
         pos = parser.input.position()
         condition = self.condition(parser)
         parser.ifstack.append((self, pos))

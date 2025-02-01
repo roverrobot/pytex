@@ -26,7 +26,7 @@ def token_expand(parser):
     t = parser.token()
     if t is None or t.protected:
         return t
-    t1 = t.expand(parser)
+    t1 = t.expand(parser, t)
     if t1 is None:
         return token_expand(parser)
     if isinstance(t1, CommandToken) and t1 == t:
@@ -73,7 +73,7 @@ def skipFiller(parser):
         t = parser.token_expand()
         if t is None:
             return
-        if t.catcode == CATCODE.SPACE or t == relax:
+        if t.catcode == CATCODE.SPACE or t.meaning == relax:
             continue
         parser.input.unread(t)
         break

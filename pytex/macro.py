@@ -143,7 +143,7 @@ class Macro(Command):
             else:
                 result.append(t)
 
-    def expand(self, parser):
+    def expand(self, parser, token):
         """
         expand the macro
         @param parser: the parser

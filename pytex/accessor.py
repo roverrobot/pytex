@@ -32,13 +32,12 @@ def skipEq(parser):
     if t is None:
         return
     # read the equal sign
-    if t.catcode != token.CATCODE.OTHER or t.name != "=":
-        parser.input.unread(t)
+    if t.catcode == token.CATCODE.OTHER and t.name == "=":
         return
-    # skip a space
-    t = parser.token_expand()
-    if t.catcode != token.CATCODE.SPACE:
-        parser.input.unread(t)
+    if t.catcode == token.CATCODE.SPACE:
+        return
+    parser.input.unread(t)
+    return
 
 class Accessor(token.Command):
     """
@@ -126,7 +125,7 @@ class Accessor(token.Command):
         """
         self.assign(parser, prefixes=[])
 
-    def getItemAccessor(self, index):
+    def getItemAccessor(self, parser, index):
         """
         get the accessor for the item
         @param index: the index
@@ -223,7 +222,7 @@ class Prefix(token.Command):
         prefixes.append(self)
         pos = parser.input.position()
         while True:
-            t = parser.token_expand()
+            t = parser.token_expand().meaning
             if t != token.relax:
                 break
         self.validate(t)

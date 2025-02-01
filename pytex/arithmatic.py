@@ -30,6 +30,9 @@ class Arithmatics(Command):
         """
         pos = parser.input.position()
         t = parser.token_expand()
+        if t.meaning is None:
+            raise ValueError("expecting a register or a parameter", pos)
+        t = t.meaning
         try:
             p = t.getItemAccessor(parser, None)
         except AttributeError:

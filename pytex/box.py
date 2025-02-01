@@ -280,7 +280,7 @@ def readBox(parser, setbox=False):
     @param setbox: whether the this function is called from setbox
     """
     pos = parser.input.position()
-    command = parser.token_expand()
+    command = parser.token_expand().meaning
     if command is None:
         raise ValueError("expecting a box", pos)
     try:
@@ -557,6 +557,8 @@ class AccentBox(Box):
         self.depth = accent.depth
         self.content = [accent]
 
+    node_type = nd.NODE_TYPE.HLIST
+
     def typeset(self, hlist):
         # there is not need to typeset the box
         pass
@@ -583,7 +585,7 @@ class AccentNode(nd.Node):
         dx = (w - accent.width) / 2
         if dx != 0:
             hlist.append(nd.Kern(dx))
-        accentbox = AccentBox(accent, 0)
+        accentbox = AccentBox(accent)
         ex = char.font.param[4] # font dimen 5 is ex
         dy = ex - char.height
         if dy < 0:
@@ -643,11 +645,7 @@ class Leaders(Command):
             if (box.node_type == nd.NODE_TYPE.HLIST and top.type == LISTTYPE.VERTICAL) or (box.node_type == nd.NODE_TYPE.VLIST and top.type != LISTTYPE.VERTICAL):
                 raise ValueError("box in the wrong mode", pos)
         pos = parser.input.position()
-        t = parser.token_expand()
-        if t.catcode == CATCODE.BEGIN_GROUP and hasattr(t, "_exec"):
-            # this is the list of the previous box
-            t.execute(parser)
-            t = parser.token_expand()
+        t = parser.token_expand().meaning
         if t is None:
             raise ValueError("expecting a glue", pos)
         if isinstance(t, GlueCommand):

@@ -3,6 +3,16 @@ Tokens are the product of lexers, and the input to the parser. The tokens are
 classified by its catcode, which is a number between 0 and 15. A token is a command, and 
 a command can either be expanded into a sequence of other tokens, or be executed by the
 parser to produce a result.
+
+However, commands are not tokens. This is demonstrated by the following example:
+\\write-1{\\count0=0}. This writes the literal string "\\count0=0" to the output file, not the
+primitive command that \\count points to. This means that, when expanding tokens, control
+sequences that points to non-expandable commands are not expanded. On the other hand, the 
+expandable commands are expanded. Thus, when expanding a control sequence token, we put the 
+command that it points to into a instance variable named meaning. In addition, the expand
+method takes the original token as an argument, in addition to the parser. Non-expandable 
+commands returns the original token. Executing the token, or examining its value, is done 
+by calling the execute method of the meaning command. 
 """
 
 
@@ -55,14 +65,15 @@ class Command:
         """
         pass
 
-    def expand(self, parser):
+    def expand(self, parser, token):
         """
         if the command is not expandable, the command should return itself.
         otherwise, it should put the expanded tokens in the input stack.
         Here, by default, it is not expandable.
         @param parser: the parser 
+        @param token: the command token
         """
-        return self
+        return token
 
 
 class Token(Command):
@@ -93,6 +104,15 @@ class Token(Command):
         @param parser: the parser
         """
         raise ValueError("invalid token: " + str(self))
+    
+    def expand(self, parser, token):
+        """
+        expand the token. The default behavior is to return itself.
+        @param parser: the parser
+        @param token: the token
+        @return: the expanded token
+        """
+        return self
 
     # the token generators for each category code
     generators = None
@@ -136,24 +156,29 @@ class CommandToken(Token):
     def __init__(self, name: str):
         super().__init__(name, None)
 
-    def expand(self, parser):
+    def expand(self, parser, token):
         """
         expand the command. If the command is not expandable, the command should return
         itself. Otherwise, it should put the expanded tokens in the input stack.
         @param parser: the parser
+        @param token: the token that represents the command
         @return: the expanded command
         """
         command = parser.lookup(self.name)
         if command is None:
             return self
-        return command.expand(parser)
+        self.meaning = command
+        return command.expand(parser, self)
 
     def execute(self, parser):
         """
         Execute the command. The default behavior is to raise an error.
         @param parser: the parser
         """
-        raise ValueError("command not defined: ", self.name)
+        if self.meaning is not None:
+            self.meaning.execute(parser)
+        else:
+            raise ValueError(f"command not defined: {self.name}")
 
     def charValue(self, parser):
         """ 

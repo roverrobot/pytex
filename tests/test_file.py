@@ -47,16 +47,16 @@ def test_openout_immediate(parser):
     file = parser.state.globals["openout"][1]
     assert file is not None
     assert "output.tex" in parser.resolver.in_memory_files
-    parser.parse("\\immediate\\write-1{\\a xyz}")
+    parser.parse("\\immediate\\write1{\\a xyz}")
     parser.parse("\\immediate\\closeout 1")
     file = parser.state.globals["openout"][1]
     assert file is None
     file = parser.resolver.in_memory_files["output.tex"]
-    assert file.content == "123xyz"
+    assert file.content == "123xyz\n"
 
 
 def test_openout(parser):
-    parser.parse("\\def\\a{123}\\openout 1=output1.tex \\write-1{\\a xyz}\\closeout 1")
+    parser.parse("\\def\\a{123}\\openout 1=output1.tex \\write1{\\a xyz}\\closeout 1")
     file = parser.state.globals["openout"][1]
     assert file is None
     top = parser.lists[-1]
@@ -76,7 +76,7 @@ def test_openout(parser):
     file = parser.state.globals["openout"][1]
     assert file is None
     file = parser.resolver.in_memory_files["output1.tex"]
-    assert file.content == "123xyz"
+    assert file.content == "123xyz\n"
 
 
 def test_read(read_tex):

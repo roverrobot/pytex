@@ -368,17 +368,18 @@ class Accent(HorizontalCommand):
             t = parser.token_expand()
             if t is None:
                 break
+            meaning = t.meaning
             # is t is an assignment, run it
-            if isinstance(t, Accessor) and not isinstance(t, SetBox):
-                t.execute(parser)
-            elif t != relax:
+            if isinstance(meaning, Accessor) and not isinstance(meaning, SetBox):
+                meaning.execute(parser)
+            elif meaning != relax:
                 break
         if t is not None:
             if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
                 c = t.name
             else:
                 try:
-                    c = t.charValue(parser)
+                    c = meaning.charValue(parser)
                 except AttributeError:
                     parser.input.unread(t)
                 c = None

@@ -9,6 +9,7 @@ from pytex.lexer import TokenListScanner, StringScanner
 from pytex import token
 from pytex import macro
 from pytex.module import Module
+from pytex.expandable import toksToString
 
 
 class OpenOp(Accessor):
@@ -20,6 +21,8 @@ class OpenOp(Accessor):
     """
     def __init__(self, input: bool, file_id, filename):
         super().__init__(None, file_id, eq=True, allow_global=False)
+        if file_id < 0 or file_id >= 16:
+            raise ValueError("file number out of range: {file_id}")
         self.file_array = "openin" if input else "openout"
         self.filename = filename
 
@@ -63,7 +66,8 @@ class FileOp:
         """
         Get the file object
         """
-        return parser.state.globals[self.files][self.file_id]
+        files = parser.state.globals[self.files]
+        return files[self.file_id] if 0 < self.file_id < len(files) else None
 
 
 class CloseOp(FileOp):
@@ -73,8 +77,10 @@ class CloseOp(FileOp):
     @param file: the file number to operate on
     """
     def execute(self, parser):
-        parser.state.globals[self.files][self.file_id].close()
-        parser.state.globals[self.files][self.file_id] = None
+        files = parser.state.globals[self.files]
+        if 0 <= self.file_id < len(files) and files[self.file_id] is not None:
+            files[self.file_id].close()
+            files[self.file_id] = None
 
 
 class WriteOp(FileOp):
@@ -84,8 +90,7 @@ class WriteOp(FileOp):
     @param file_id: the file number to operate on
     """
     def __init__(self, file_id, tokens):
-        FileOp.__init__(self, input=False, file_id=abs(file_id))
-        self.print = file_id >= 0
+        FileOp.__init__(self, input=False, file_id=file_id)
         self.tokens = tokens
     
     def execute(self, parser):
@@ -93,26 +98,14 @@ class WriteOp(FileOp):
         scanner.terminate = True
         parser.input.push(scanner)
         file = self.file(parser)
-        s = ""
+        tokens = []
         while True:
             t = parser.token_expand()
             if t is None:
                 break
-            if isinstance(t, token.CommandToken):
-                raise ValueError(f"Undefined control sequence {t.name}")
-            elif isinstance(t, token.Command):
-                if len(t.name) > 1:
-                    s += chr(parser.state.layout["escapechar"])
-                    s += t.name[1:]
-                    continue
-                s += t.name
-            elif isinstance(t, token.CharToken):
-                s += t.name
-            else:
-                raise ValueError(f"Unexpected token {t}")
-        file.write(s)
-        if self.print:
-            print(s)
+            tokens.append(t)
+        s = toksToString(parser, tokens)
+        print(s, file=file)
 
 
 class ReadOp(Accessor):
@@ -130,6 +123,8 @@ class ReadOp(Accessor):
         tokens = []
         level = 0
         file = self.file
+        if file is None:
+            raise FileNotFoundError(f"file {self.index} is not open")
         for s in file:
             scanner = StringScanner(parser.state.catcode, s)
             scanner.terminate = True
@@ -249,11 +244,31 @@ class Immediate(token.Command):
     \\immediate
     """
     def execute(self, parser):
-        t = parser.token_expand()
+        t = parser.token_expand().meaning
         if isinstance(t, FileCommand):
             t.execute(parser, immediate=True)
         else:
-            raise ValueError(f"Expected a file operation, got {t}")
+            raise ValueError(f"Expected a file operation")
+
+
+class Message(token.Command):
+    """
+    \\message
+    """
+    def __init__(self, error: bool):
+        self.error = error
+    
+    def write(self, parser, s):
+        parser.log.write(s)
+        print(s)
+
+    def execute(self, parser):
+        tokens = parser.readGeneralText(expand=True)
+        self.write(parser, toksToString(parser, tokens))
+        if self.error:
+            help = parser.state.parameters["errhelp"]
+            if len(help) > 0:
+                self.write(parser, toksToString(parser, help))
 
 
 mod = Module("file",
@@ -264,7 +279,9 @@ mod = Module("file",
         "closeout": CloseOut(immediate=False),
         "write": Write(immediate=False),
         "read": Read(),
-        "immediate": Immediate()
+        "immediate": Immediate(),
+        "message": Message(error=False),
+        "errmessage": Message(error=True),
     },
     parameters={
         "openin": {"value": [None] * 16, "accessor": None, "domain": "globals"},

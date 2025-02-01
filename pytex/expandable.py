@@ -13,10 +13,11 @@ class NoExpand(Command):
     """
     The \\noexpand command.
     """
-    def expand(self, parser):
+    def expand(self, parser, token):
         """
         Expand the command. The noexpand command prevents the next token from being expanded.
         @param parser: the parser
+        @param token: the command token
         @return: the expanded command
         """
         return parser.token()
@@ -26,7 +27,7 @@ class ExpandAfter(Command):
     """
     The \\expandafter command.
     """
-    def expand(self, parser):
+    def expand(self, parser, token):
         """
         Expand the command. The expandafter command expands the next token after the next token.
         @param parser: the parser
@@ -61,11 +62,12 @@ class CSName(Command):
     """
     The \\csname command.
     """
-    def expand(self, parser):
+    def expand(self, parser, token):
         """
         Expand the command. The csname command expands the tokens until the endcsname command.
         and returns the control sequence name.
         @param parser: the parser
+        @param token: the command token
         @return: the expanded command
         """
         name = "\\"
@@ -74,14 +76,14 @@ class CSName(Command):
             if t is None:
                 raise ValueError("expecting \\endcsname")
             if t.is_command:
-                if t == endcsname:
+                if t.meaning == endcsname:
                     break
                 else:
                     raise ValueError("expecting \\endcsname")
             name += t.name
         c = parser.lookup(name)
         if c is not None:
-            return c.expand(parser)
+            return c.expand(parser, token)
         c = Command()
         parser.state.domains["equitable"][name] = c
         return c
@@ -106,7 +108,7 @@ class Number(Command):
     def str(self, n):
         return str(n)
 
-    def expand(self, parser):
+    def expand(self, parser, token):
         n = parser.readInteger()
         s = self.str(n)
         parser.input.push(TokenListScanner(toToks(s)))
@@ -133,19 +135,49 @@ class RomanNumeral(Number):
         return s
 
 
+def tokenToString(token, escapechar, space_after_command=False):
+    """
+    Convert a token to a string
+    @param token: the token
+    @param escapechar: the escape character
+    @param space_after_command: add a space after a command
+    @return: the string
+    """
+    if token.name is None:
+        raise ValueError("no name:", token)
+    if token.catcode is None:
+        s = escapechar + token.name[1:]
+        if space_after_command:
+            s += " "
+    else:
+        s = token.name
+    return s
+
+
+def toksToString(parser, tokens, space_after_command=False):
+    """
+    Convert a list of tokens to a string
+    @param parser: the parser
+    @param tokens: the list of tokens
+    @param space_after_command: add a space after a command
+    @return: the string
+    """
+    escapechar = chr(parser.state.layout["escapechar"])
+    return "".join(map(lambda x: tokenToString(x, escapechar, space_after_command), tokens))
+
+
 class String(Command):
     """
     the \\string command, that converts a token to a string
     """
-    def expand(self, parser):
+    def expand(self, parser, token):
         pos = parser.input.position()
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token", pos)
-        if t.catcode is None:
-            s = chr(parser.state.domains["layout"]["escapechar"]) + t.name[1:]
-        else:
-            s = t.name
+        escapechar = parser.state.layout["escapechar"]
+        escapechar = "" if escapechar <= 0 else chr(escapechar)
+        s = tokenToString(t, escapechar)
         parser.input.push(TokenListScanner(toToks(s)))
 
 
@@ -167,11 +199,12 @@ class The(Command):
     """
     The \\the command.
     """
-    def expand(self, parser):
+    def expand(self, parser, token):
         pos = parser.input.position()
         t = parser.token_expand()
-        if t is None or not t.is_command:
+        if t is None or t.meaning is None:
             raise ValueError("invalid token after \\the", pos)
+        t = t.meaning
         if hasattr(t, "glueValue"):
             value = str(t.glueValue(parser))
         elif hasattr(t, "dimenValue"):
@@ -196,14 +229,14 @@ class Input(Command):
     """
     The \\input command.
     """
-    def expand(self, parser):
+    def expand(self, parser, token):
         pos = parser.input.position()
         name = parser.readFileName()
         if name is None:
             raise ValueError("expecting a file name", pos)
         f = parser.resolver.openIn(name, "source")
         if f is None:
-            raise ValueError("file not found", pos)
+            raise ValueError(f"file {name} not found", pos)
         parser.input.push(Scanner(parser.state.catcode, f, name))
 
 

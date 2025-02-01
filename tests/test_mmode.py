@@ -427,3 +427,13 @@ def test_vcenter_nobox(parser):
         assert False
     except ValueError as e:
         assert "\\vcenter" in str(e)
+
+
+def test_nonscript(parser):
+    parser.parse("$\\nonscript")
+    top = parser.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.NonscriptGlue)
+    parser.parse("$")

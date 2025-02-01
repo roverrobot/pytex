@@ -770,6 +770,23 @@ class VCenter(box.VBoxCommand):
         raise ValueError("\\vcenter does not return a be used in math mode")
 
 
+class NonscriptGlue(nd.Glue):
+    """
+    a class representing a non-script glue
+    """
+    def __init__(self):
+        super().__init__(Glue())
+        self.nonscript = True
+
+
+class Nonscript(lists.ModeDependentCommand):
+    """
+    the \\nonscript command
+    """
+    def math(self, parser, mlist):
+        mlist.append(NonscriptGlue())
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -813,5 +830,6 @@ mod = Module("mmode",
         "eqno": Eqno(False),
         "leqno": Eqno(True),
         "vcenter": VCenter(),
+        "nonscript": Nonscript(),
     },
 )

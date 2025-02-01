@@ -296,3 +296,11 @@ def test_lastbox_vmode(cmr10):
         assert False
     except ValueError as e:
         assert "\\lastbox" in str(e)
+
+
+def test_afterassignment(cmr10):
+    cmr10.parse("\\afterassignment a\\setbox1=\\hbox{}")
+    box1 = cmr10.state.box[1]
+    assert len(box1.list) == 1
+    assert box1.list[0].char == "a"
+    assert cmr10.state.globals["afterassignment"] is None

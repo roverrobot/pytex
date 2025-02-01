@@ -188,15 +188,15 @@ class BoxCommand(Command):
         self.wipe = wipe
     
     def execute(self, parser):
-        box = self.boxValue(parser)
+        box = self.boxValue(parser, False)
         if isinstance(box, VoidBox):
             return
         top = parser.lists[-1]
         if top.type == LISTTYPE.MATH:
             box = mmode.Box(box)
-        top[-1].append(box)
+        top.append(box)
     
-    def boxValue(self, parser):
+    def boxValue(self, parser, setbox):
         index = parser.readInteger()
         box = parser.state.box[index]
         if self.wipe:
@@ -227,13 +227,13 @@ class BuildBox(Command):
         raise NotImplementedError
     
     def execute(self, parser):
-        box = self.boxValue(parser)
+        box = self.boxValue(parser, False)
         top = parser.lists[-1]
         if top.type == LISTTYPE.MATH:
             box = mmode.Box(box)
         top.append(box)
 
-    def boxValue(self, parser):
+    def boxValue(self, parser, setbox):
         spec = parser.readKeyword(["to", "spread"])
         if spec is None:
             to = None
@@ -253,14 +253,14 @@ class BuildBox(Command):
         t = parser.token_expand()
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", self.pos)
-        t._exec = t.execute
-        reason = self.groupType()
-        def execute(self, parser):
-            t.execute = t._exec
-            parser.input.unread(t)
-            parser.readList(box.list, reason)
-        t.execute = types.MethodType(execute, t)
+        if setbox:
+            # \afterassignment is put after the { token.
+            afterassignment = parser.state.globals["afterassignment"]
+            if afterassignment is not None:
+                parser.state.globals["afterassignment"] = None
+                parser.input.unread(afterassignment)
         parser.input.unread(t)
+        parser.readList(box.list, self.groupType())
         return box
 
 
@@ -278,23 +278,25 @@ class HBoxCommand(BuildBox):
         return GROUP_TYPE.HBOX
     
 
-def readBox(parser):
+def readBox(parser, setbox=False): 
     """
     read a box from the input stack
+    @param parser: the parser
+    @param setbox: whether the this function is called from setbox
     """
     pos = parser.input.position()
     command = parser.token_expand()
     if command is None:
         raise ValueError("expecting a box", pos)
     try:
-        return command.boxValue(parser)
+        return command.boxValue(parser, setbox)
     except AttributeError:
         raise ValueError("expecting a box", pos)
     
 
 class BoxAccessor(Accessor):
     def readValue(self, parser):
-        return readBox(parser)
+        return readBox(parser, setbox=True)
     
 
 class SetBox(ArrayAccessor):
@@ -688,7 +690,7 @@ class LastBox(Command):
     """
     The \\lastbox command.
     """
-    def boxValue(self, parser):
+    def boxValue(self, parser, setbox):
         top = parser.lists[-1]
         if top.type == LISTTYPE.VERTICAL and not top.inner:
             raise ValueError("\\lastbox cannot be used in vertical mode")
@@ -696,7 +698,7 @@ class LastBox(Command):
         return box
     
     def execute(self, parser):
-        self.boxValue(parser)
+        self.boxValue(parser, False)
 
 
 mod = Module("hbox", 

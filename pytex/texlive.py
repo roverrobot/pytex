@@ -76,7 +76,10 @@ class TexliveResolver(FileResolver):
         """
         Get the type information
         """
-        return TexliveTypeInfo(exts, False, self.paths, [os.path.join("tex", self.format)])
+        return TexliveTypeInfo(exts, False, self.paths, [
+            os.path.join("tex", self.format),
+            "tex/generic",
+        ])
 
     @staticmethod
     def defaultTeXLivePath():

@@ -275,7 +275,7 @@ class Parser:
         # in Chapter 25. (The TeX Book pp.282)        """
         hlist = hmode.HList(self, inner=False)
         if indent:
-            hlist.append(hmode.IndentBox(self))
+            hlist.append(box.IndentBox(self))
         self.lists.append(hlist)
         everypar = self.state.parameters["everypar"]
         if len(everypar) > 0:
@@ -300,3 +300,15 @@ class Parser:
         hlist.append(node.Glue(self.state.parameters["parfillskip"]))
         self.lists.pop()
         self.lists[-1].append(hlist)
+
+    def newHList(self):
+        """
+        create a new restricted horizontal list
+        """
+        return hmode.HList(self, True)
+    
+    def newIndentBox(self):
+        """
+        create a new indent box
+        """
+        return hmode.IndentBox(self)

@@ -3,7 +3,6 @@ parse and wrap up an hbox
 """
 
 from pytex import node as nd
-from pytex import hmode
 from pytex import vmode
 from pytex.glue import Stretchness
 from pytex.module import Module
@@ -265,7 +264,7 @@ class HBoxCommand(BuildBox):
     the \\hbox command
     """
     def list(self, parser):
-        return hmode.HList(parser)
+        return parser.newHList()
     
     def box(self, to, spread):
         return HBox(to, spread)
@@ -546,6 +545,23 @@ class Shift(ModeDependentCommand):
         return box
 
 
+class AccentBox(Box):
+    """
+    An accent box.
+    """
+    def __init__(self, accent):
+        super().__init__(None, None)
+        self.accent = accent
+        self.width = accent.width
+        self.height = accent.height
+        self.depth = accent.depth
+        self.content = [accent]
+
+    def typeset(self, hlist):
+        # there is not need to typeset the box
+        pass
+
+
 class AccentNode(nd.Node):
     """
     An accent node.
@@ -567,12 +583,7 @@ class AccentNode(nd.Node):
         dx = (w - accent.width) / 2
         if dx != 0:
             hlist.append(nd.Kern(dx))
-        accentbox = HBox(None, 0)
-        accentbox.list = [accent]
-        accentbox.content = [accent]
-        accentbox.width = accent.width
-        accentbox.height = accent.height
-        accentbox.depth = accent.depth
+        accentbox = AccentBox(accent, 0)
         ex = char.font.param[4] # font dimen 5 is ex
         dy = ex - char.height
         if dy < 0:
@@ -583,52 +594,22 @@ class AccentNode(nd.Node):
         hlist.append(char)
 
 
-class Accent(hmode.HorizontalCommand):
+class IndentBox(Box):
     """
-    The \\accent command.
+    An indent box.
     """
+    def __init__(self, parser):
+        super().__init__(None, None)
+        self.width = parser.state.parameters["parindent"]
+        self.height = Dimen()
+        self.depth = Dimen()
+        self.content = None
 
-    def readArgs(self, parser):
-        """
-        read the accent char and the accented char
-        """
-        pos = parser.input.position()
-        c = parser.readInteger()
-        font = parser.state.parameters["currentfont"]
-        if c < font.bc or c > font.ec:
-            raise ValueError("invalid accent", pos)
-        accent = font[chr(c)]
-        while True:
-            t = parser.token_expand()
-            if t is None:
-                break
-            # is t is an assignment, run it
-            if isinstance(t, Accessor) and not isinstance(t, SetBox):
-                t.execute(parser)
-            elif t != relax:
-                break
-        if t is not None:
-            if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
-                c = t.name
-            else:
-                try:
-                    c = t.charValue(parser)
-                except AttributeError:
-                    parser.input.unread(t)
-                c = None
-            if c is not None:
-                # the font may have changed in the assignments
-                font = parser.state.parameters["currentfont"]
-                char = font[c]
-                return char, accent
-        return None, accent
+    node_type = nd.NODE_TYPE.HLIST
 
-    def horizontal(self, parser, hlist):
-        char, accent = self.readArgs(parser)
-        hlist.append(AccentNode(accent, char))
-
-    def math(self, parser, mlist):
-        raise ValueError("please use \\mathaccent in math mode")
+    def typeset(self, hlist):
+        # there is not need to typeset the box
+        pass
 
 
 class LEADERS_TYPE(enum.Enum):
@@ -719,7 +700,6 @@ mod = Module("hbox",
         "unvbox": UnBox(True, True),
         "unhcopy": UnBox(False, False),
         "unvcopy": UnBox(True, False),
-        "accent": Accent(),
         "raise": Shift(False, -1),
         "lower": Shift(False, 1),
         "moveleft": Shift(True, 1),

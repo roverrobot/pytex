@@ -397,3 +397,33 @@ def test_box(math):
     assert len(box.list) == 1
     assert box.list[0].char == "a"
     math.parse("$")
+
+
+def test_vcenter(math):
+    math.parse("$\\vcenter{\\vskip 10pt}")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert node.atom_type == mmode.ATOM_TYPE.VCENT
+    box = node.nucleus
+    assert box.node_type == nd.NODE_TYPE.VLIST
+    assert len(box.list) == 1
+    assert box.list[0].node_type == nd.NODE_TYPE.GLUE
+    math.parse("$")
+
+
+def test_vcenter_wrongmode(parser):
+    try:
+        parser.parse("\\vcenter{a}")
+        assert False
+    except ValueError as e:
+        assert "math" in str(e)
+
+
+def test_vcenter_nobox(parser):
+    try:
+        parser.parse("$\setbox0=\\vcenter{}")
+        assert False
+    except ValueError as e:
+        assert "\\vcenter" in str(e)

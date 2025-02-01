@@ -740,6 +740,36 @@ class Eqno(lists.ModeDependentCommand):
         mlist.pop()
 
 
+class VCent(Box):
+    """
+    a vcent box
+    """
+    def __init__(self, box):
+        super().__init__(box)
+        self.atom_type = ATOM_TYPE.VCENT
+
+
+class VCenter(box.VBoxCommand):
+    """
+    the \\vcenter command
+
+    As if it is a \\vbox command, but put the box into a VCent atom. In addition
+    this command cannot be used to access the box value.
+    """
+    def __init__(self):
+        super().__init__(False)
+
+    def execute(self, parser):
+        top = parser.lists[-1]
+        if top.type != lists.LISTTYPE.MATH:
+            raise ValueError("\\vcenter can only be used in math mode", parser.input.position())
+        box = super().boxValue(parser, False)
+        top.append(VCent(box))
+
+    def boxValue(self, parser, inner):
+        raise ValueError("\\vcenter does not return a be used in math mode")
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -782,5 +812,6 @@ mod = Module("mmode",
         "abovewithdelims": GeneralFraction(True, delim=True, thickness=True),
         "eqno": Eqno(False),
         "leqno": Eqno(True),
+        "vcenter": VCenter(),
     },
 )

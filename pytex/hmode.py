@@ -7,8 +7,10 @@ from pytex import node as nd
 from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
-from pytex.token import Command
+from pytex.token import Command, CATCODE, relax
 from pytex.state import GROUP_TYPE
+from pytex.box import SetBox, AccentNode, IndentBox
+from pytex.accessor import Accessor
 
 
 class Ligature(nd.CharNode):
@@ -217,16 +219,6 @@ class Par(HorizontalCommand):
         pass
 
 
-class IndentBox(nd.Box):
-    """
-    An box for indentation
-    """
-    node_type = nd.NODE_TYPE.HLIST
-    def __init__(self, parser):
-        width = parser.state.parameters["parindent"]
-        super().__init__(width, 0, 0)
-
-
 class Indent(lists.ModeDependentCommand):
     """
     The \\indent command.
@@ -249,7 +241,7 @@ class Indent(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         # An empty box of width \parindent is appended to the current list,
         # as the nucleus of a new Ord atom.
-        mlist.addBox(IndentBox(parser))
+        mlist.append(IndentBox(parser))
 
 
 class NoIndent(lists.ModeDependentCommand):
@@ -357,6 +349,54 @@ class VAdjust(HorizontalCommand):
         self.horizontal(parser, mlist)
 
 
+class Accent(HorizontalCommand):
+    """
+    The \\accent command.
+    """
+
+    def readArgs(self, parser):
+        """
+        read the accent char and the accented char
+        """
+        pos = parser.input.position()
+        c = parser.readInteger()
+        font = parser.state.parameters["currentfont"]
+        if c < font.bc or c > font.ec:
+            raise ValueError("invalid accent", pos)
+        accent = font[chr(c)]
+        while True:
+            t = parser.token_expand()
+            if t is None:
+                break
+            # is t is an assignment, run it
+            if isinstance(t, Accessor) and not isinstance(t, SetBox):
+                t.execute(parser)
+            elif t != relax:
+                break
+        if t is not None:
+            if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
+                c = t.name
+            else:
+                try:
+                    c = t.charValue(parser)
+                except AttributeError:
+                    parser.input.unread(t)
+                c = None
+            if c is not None:
+                # the font may have changed in the assignments
+                font = parser.state.parameters["currentfont"]
+                char = font[c]
+                return char, accent
+        return None, accent
+
+    def horizontal(self, parser, hlist):
+        char, accent = self.readArgs(parser)
+        hlist.append(AccentNode(accent, char))
+
+    def math(self, parser, mlist):
+        raise ValueError("please use \\mathaccent in math mode")
+    
+    
 mod = Module("hmode",
     commands={
         "char": Char(),
@@ -371,6 +411,7 @@ mod = Module("hmode",
         "parshape": ParShape(),
         " ": ControlledSpace(),
         "discretionary": Discretionary(),
+        "accent": Accent(),
     },
     parameters={
         "parshape": {"value": list, "accessor": None, "domain": "globals"},

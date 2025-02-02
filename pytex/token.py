@@ -55,7 +55,6 @@ class Command:
     # a command is a special type of token that has no name and category code
     name = None
     catcode = None
-    is_command = True
     # the command is protected from expansion when constructing an expended token list
     protected = False
     def execute(self, parser):
@@ -88,8 +87,13 @@ class Token(Command):
         self.catcode = catcode
         self.meaning = None
 
-    is_command = False
-
+    def isCommand(self):
+        """ 
+        A token is not a command. 
+        @return: False
+        """
+        return self.catcode is None or self.catcode == CATCODE.ACTIVE
+    
     def __str__(self):
         name = "\\r" if self.name == "\r" else self.name
         cat = "" if self.catcode is None else " (%d)" % self.catcode
@@ -150,9 +154,6 @@ class CommandToken(Token):
     contexts.
     @param name: the name of the command
     """
-
-    is_command = True
-
     def __init__(self, name: str):
         super().__init__(name, None)
 

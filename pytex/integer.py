@@ -70,15 +70,12 @@ def readUnsigned(parser):
         raise ValueError("expecting an integer", pos)
     if t.name == "`":
         t = parser.token()
-        if t.is_command:
-            if t.name[0] == "\\" and len(t.name) == 2:
-                value = ord(t.name[1])
-            elif len(t.name) == 1:
-                value =  ord(t.name)
-            else:
-                raise ValueError("expecting a character", pos)
+        if t.name[0] == "\\" and len(t.name) == 2:
+            value = ord(t.name[1])
+        elif len(t.name) == 1:
+            value =  ord(t.name)
         else:
-            value = ord(t.name)
+            raise ValueError("expecting a character", pos)
     elif t.name == "'":
         value = int(readDigits(parser, 8), 8)
     elif t.name == '"':

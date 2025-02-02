@@ -26,7 +26,7 @@ class Define(accessor.ArrayAccessor):
         @param parser: the parser
         """
         t = parser.token()
-        if t is None or not t.is_command:
+        if t is None or not t.isCommand():
             raise ValueError("command name expected")
         # command t is going to be redefined. We make it relax
         parser.state.equitable[t.name] = None

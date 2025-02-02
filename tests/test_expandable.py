@@ -23,8 +23,8 @@ def test_expandafter(collector):
 def test_csname(collector):
     collector.readFrom("\\csname test\\endcsname")
     t = collector.token_expand()
-    assert t is not None
-    assert t.is_command
+    print(t)
+    assert t is not None and t.isCommand()
     t = collector.token_expand()
     assert t is None
     collector.parse("\\test")
@@ -46,7 +46,7 @@ def test_unexpected_command(parser):
         parser.parse("\\csname \\count\\endcsname")
         assert False, "expecting \\endcsname"
     except ValueError as e:
-        assert "expecting \\endcsname" in str(e)
+        assert "unexpected \\count" in e.args[0]
 
 
 def test_misplaced_endcsname(parser):

@@ -18,10 +18,8 @@ def skipBranch(parser):
         if t is None:
             c, cpos = parser.ifstack[-1]
             raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", pos)
-        if t.is_command:
+        if t.isCommand():
             c = parser.lookup(t.name)
-            if c is None:
-                continue
             if isinstance(c, Branch):
                 return c
 
@@ -147,9 +145,9 @@ class IfCompareToken(Conditional):
         else:
             t1 = parser.token()
             t2 = parser.token()
-            if t1 is not None and t1.is_command:
+            if t1 is not None and t1.isCommand():
                 t1 = parser.lookup(t1.name)
-            if t2 is not None and t2.is_command:
+            if t2 is not None and t2.isCommand():
                 t2 = parser.lookup(t2.name)
         if t1 is None or t2 is None:
             raise ValueError("expecting two tokens", pos)

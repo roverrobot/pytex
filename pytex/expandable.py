@@ -3,7 +3,7 @@ This module implements various expandable commands.
 """
 
 
-from pytex.token import Command, CATCODE, CommandToken, Token
+from pytex.token import Command, CATCODE, CommandToken, Token, relax
 from pytex.module import Module
 from pytex.toks import Toks
 from pytex.lexer import TokenListScanner, Scanner
@@ -36,6 +36,8 @@ class ExpandAfter(Command):
         t = parser.token()
         if t is None:
             return None
+        t1 = parser.token()
+        parser.input.unread(t1)
         t1 = parser.token_expand()
         if t1 is not None:
             parser.input.unread(t1)
@@ -74,19 +76,20 @@ class CSName(Command):
         while True:
             t = parser.token_expand()
             if t is None:
-                raise ValueError("expecting \\endcsname")
-            if t.is_command:
-                if t.meaning == endcsname:
-                    break
-                else:
-                    raise ValueError("expecting \\endcsname")
+                raise ValueError("expecting \\endcsname", parser.input.position())
+            if t.meaning == endcsname:
+                break
+            elif t.catcode is None:
+                raise ValueError(f"unexpected {t.name}", parser.input.position())
             name += t.name
         c = parser.lookup(name)
         if c is not None:
             return c.expand(parser, token)
-        c = Command()
+        c = relax
         parser.state.domains["equitable"][name] = c
-        return c
+        token = CommandToken(name)
+        token.meaning = c
+        return token
 
 
 def toToks(s: str) -> Toks:

@@ -23,6 +23,7 @@ from pytex import hmode
 from pytex import box
 from pytex import file
 from pytex import mmode
+from pytex import paragraph
 
 
 class Parser:
@@ -268,6 +269,18 @@ class Parser:
             self.input.push(lexer.TokenListScanner(aftergroup))
             self.state.domains["globals"]["aftergroup"] = []
 
+    def newHList(self):
+        """
+        create a new restricted horizontal list
+        """
+        return hmode.HList(self, True)
+    
+    def newIndentBox(self):
+        """
+        create a new indent box
+        """
+        return hmode.IndentBox(self)
+
     def newParagraph(self, indent: bool = True):
         """
         start a new paragraph: starting the horizontal list with an empty 
@@ -275,9 +288,7 @@ class Parser:
         # TeX’s input. The page builder is exercised. When the paragraph is 
         # eventually completed, horizontal mode will come to an end as described 
         # in Chapter 25. (The TeX Book pp.282)        """
-        hlist = hmode.HList(self, inner=False)
-        if indent:
-            hlist.append(box.IndentBox(self))
+        hlist = paragraph.Paragraph(self, indent)
         self.lists.append(hlist)
         everypar = self.state.parameters["everypar"]
         if len(everypar) > 0:
@@ -303,14 +314,10 @@ class Parser:
         self.lists.pop()
         self.lists[-1].append(hlist)
 
-    def newHList(self):
+    def hyphenChar(self):
         """
-        create a new restricted horizontal list
+        get the hyphen character
         """
-        return hmode.HList(self, True)
-    
-    def newIndentBox(self):
-        """
-        create a new indent box
-        """
-        return hmode.IndentBox(self)
+        font = self.state.parameters["currentfont"]
+        c = font.fontchar["hyphenchar"]
+        return self.state.parameters["defaulthyphenchar"] if c == 0 else c

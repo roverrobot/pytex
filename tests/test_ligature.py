@@ -19,7 +19,7 @@ def test_ligatures(cmr10, input, char):
     cmr10.parse(input)
     top = cmr10.lists[-1]
     nodes, glues, migrate = top.pack()
-    assert len(nodes) == 3
+    assert len(nodes) == 3 + (input[-1] == "-")
     assert len(glues) == 1
     lig = nodes[1]
     assert ord(lig.char) == char

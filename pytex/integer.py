@@ -4,7 +4,7 @@ This module handles reading and processing integers.
 
 
 import typing
-from pytex.token import Token, CATCODE
+from pytex.token import CATCODE
 from pytex.module import Module
 from pytex.state import Array
 from pytex.accessor import Accessor, ArrayAccessor

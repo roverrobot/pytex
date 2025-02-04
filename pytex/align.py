@@ -71,6 +71,14 @@ class Span(token.Command):
         raise ValueError("\\span not in alignment")
 
 
+class Omit(token.Command):
+    """
+    A span command.
+    """
+    def execute(self, parser):
+        raise ValueError("\\omit not in alignment")
+
+
 class NoAlign(token.Command):
     """
     A \\noalign command.
@@ -90,6 +98,7 @@ class TabSkip(glue.GlueAccessor):
 cr = Cr()
 crcr = CrCr()
 span = Span()
+omit = Omit()
 noalign = NoAlign()
 tabskip = TabSkip()
 
@@ -210,16 +219,24 @@ class AlignCommand(lists.ModeDependentCommand):
             columns.append(header)
         return columns, tabskips
 
-    def readCell(self, parser, header):
+    def readCell(self, parser, header, cell=None):
         """
         Read a cell.
         @param parser: the parser
         @param header: the template for the cell (a tuple of two lists representing the tokens
         before and after the #)
+        @param cell: the cell to read into (if None, a new cell is created) 
+
+        The cell parameter is the previous cell if it is spanned
         """
-        left, right = header
-        cell = parser.newHList() if self.vert else parser.newVList()
-        parser.input.push(lexer.TokenListScanner(left))
+        t = parser.token_expand()
+        read_template = t.meaning != omit
+        if read_template:
+            parser.input.unread(t)
+            left, right = header
+            parser.input.push(lexer.TokenListScanner(left))
+        if cell is None:
+            cell = parser.newHList() if self.vert else parser.newVList()
         parser.lists.append(cell)
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         terminator = None
@@ -229,15 +246,16 @@ class AlignCommand(lists.ModeDependentCommand):
                 raise ValueError("expecting a \\cr", parser.input.position())
             if terminator is None:
                 t.execute(parser)
-        scanner = lexer.TokenListScanner(right)
-        scanner.terminate = True
-        parser.input.push(scanner)
-        while True:
-            t = parser.token_expand()
-            if t is None:
-                break
-            t.execute(parser)
-        parser.input.pop(scanner)
+        if read_template:
+            scanner = lexer.TokenListScanner(right)
+            scanner.terminate = True
+            parser.input.push(scanner)
+            while True:
+                t = parser.token_expand()
+                if t is None:
+                    break
+                t.execute(parser)
+            parser.input.pop(scanner)
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         assert parser.lists[-1] == cell
         cell.span = terminator == span
@@ -342,6 +360,7 @@ mod = Module("align",
         "cr": cr,
         "crcr": crcr,
         "span": span,
+        "omit": omit,
         "noalign": noalign,
         "tabskip": tabskip
     }

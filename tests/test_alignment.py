@@ -31,7 +31,7 @@ def test_tabskip(cmr10):
 
 
 def test_noalign(cmr10):
-    cmr10.parse("\\tabskip 1pt\\halign{1 #& 2 #\\cr\\noalign{\\vskip1pt} a & b\\cr\\noalign{\\vskip2pt}}")
+    cmr10.parse("\\halign{1 #& 2 #\\cr\\noalign{\\vskip1pt} a & b\\cr\\noalign{\\vskip2pt}}")
     top = cmr10.lists[-1]
     node = top[0]
     assert node.noalign is not None
@@ -47,10 +47,19 @@ def test_noalign(cmr10):
 
 
 def test_span(cmr10):
-    cmr10.parse("\\tabskip 1pt\\halign{1 #\\tabskip 2pt& 2 #\\cr a \\span b\\cr}")
+    cmr10.parse("\\halign{1 # & 2 #\\cr a \\span b\\cr}")
     top = cmr10.lists[-1]
     node = top[0]
     row = node.rows[0]
     len(row.cells) == 2
     assert row.cells[0].span == True
     assert row.cells[1].span == False
+
+
+def test_omit(cmr10):
+    cmr10.parse("\\halign{1 # & 2 #\\cr a \\span\\omit b\\cr}")
+    top = cmr10.lists[-1]
+    node = top[0]
+    row = node.rows[0]
+    len(row.cells) == 2
+    assert len(row.cells[1]) == 1

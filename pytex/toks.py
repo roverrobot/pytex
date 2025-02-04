@@ -15,7 +15,7 @@ class Toks(list):
     a token list
     """
     def __repr__(self):
-        return "".join(map(lambda x: x.name, self))
+        return "".join(map(lambda x: str(x), self))
 
 
 def token_expand(parser):

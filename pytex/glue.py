@@ -277,12 +277,13 @@ mod = Module("glue",
         "rightskip": {"value": Glue(), "accessor": GlueAccessor, "domain": "layout"},
         "topskip": {"value": Glue(), "accessor": GlueAccessor, "domain": "layout"},
         "splittopskip": {"value": Glue(), "accessor": GlueAccessor, "domain": "layout"},
-        "tabskip": {"value": Glue(), "accessor": GlueAccessor, "domain": "layout"},
         "parfillskip": {"value": Glue(0, Stretchness(1,1)), "accessor": GlueAccessor, "domain": "parameters"},
         "thinmuskip": {"value": MuGlue(), "accessor": MuGlueAccessor, "domain": "layout"},
         "medmuskip": {"value": MuGlue(), "accessor": MuGlueAccessor, "domain": "layout"},
         "thickmuskip": {"value": MuGlue(), "accessor": MuGlueAccessor, "domain": "layout"},
         "spaceskip": {"value": Glue(), "accessor": GlueAccessor, "domain": "parameters"},
         "xspaceskip": {"value": Glue(), "accessor": GlueAccessor, "domain": "parameters"},
+        # \tabskip accessor is implemented in align.py
+        "tabskip": {"value": Glue(), "accessor": None, "domain": "parameters"},
     }
 )

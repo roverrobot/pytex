@@ -208,17 +208,26 @@ class TokenListScanner:
     @param toks: the list of tokens
     """
     def __init__(self, toks: typing.List[Token]):
-        self.toks = iter(toks)
+        self.toks = toks
+        self.pos = 0
 
     def read(self) -> typing.Optional[Token]:
         """
         read the next token from the list
         @return: the next token, or None if the end of the list is reached
         """
-        try:
-            return next(self.toks)
-        except StopIteration:
+        if self.eof():
             return None
+        t = self.toks[self.pos]
+        self.pos += 1
+        return t
+
+    def eof(self):
+        """
+        check if the end of the list is reached
+        @return: True if the end of the list is reached, False otherwise
+        """
+        return self.pos >= len(self.toks)
     
     # this scanner does not support token position
     position = None
@@ -246,22 +255,16 @@ class InputStack:
         """
         if len(self.saved) > 0:
             return self.saved.pop()
-        try:
-            t = self.stack[-1].read()
-            if t is None:
-                top = self.stack.pop()
-                for s in reversed(self.stack):
-                    if s.position is not None:
-                        self.active = s
-                        break
-                try:
-                    if top.terminate:
-                        return None
-                except AttributeError:
-                    return self.read()
-            return t
-        except IndexError:
+        if len(self.stack) == 0:
             return None
+        top = self.stack[-1]
+        t = top.read()
+        if t is None:
+            if hasattr(top, "terminate") and top.terminate:
+                return None
+            self.stack.pop()
+            return self.read()
+        return t
 
     def unread(self, token):
         """
@@ -282,6 +285,25 @@ class InputStack:
         self.stack.append(lexer)
         if lexer.position is not None:
             self.active = lexer
+    
+    def pop(self, to=None):
+        """
+        pop the top scanner if it is terminated
+        @param to: the scanner to pop to (including to)
+        return the list of scanners that were popped
+        """
+        if len(self.stack) == 0:
+            return
+        top = self.stack.pop()
+        if self.active == top:
+            for s in reversed(self.stack):
+                if s.position is not None:
+                    self.active = s
+                    break
+        if to is None or top == to:
+            return [top]
+        return self.pop(to)
+
 
     def position(self):
         """

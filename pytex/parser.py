@@ -24,6 +24,7 @@ from pytex import box
 from pytex import file
 from pytex import mmode
 from pytex import paragraph
+from pytex import align
 
 
 class Parser:
@@ -89,7 +90,6 @@ class Parser:
                 self.run = False
                 break
             t.execute(self)
-
 
     def readFrom(self, input, name: typing.Optional[str] = None):
         """
@@ -274,6 +274,12 @@ class Parser:
         create a new restricted horizontal list
         """
         return hmode.HList(self, True)
+    
+    def newVList(self):
+        """
+        create a new vertical list
+        """
+        return vmode.VList(self)
     
     def newIndentBox(self):
         """

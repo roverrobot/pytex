@@ -102,6 +102,7 @@ class WriteOp(FileOp):
         while True:
             t = parser.token_expand()
             if t is None:
+                parser.input.pop(scanner)
                 break
             tokens.append(t)
         s = toksToString(parser, tokens)
@@ -133,6 +134,7 @@ class ReadOp(Accessor):
                 pos = parser.input.position()
                 t = parser.token()
                 if t is None:
+                    parser.input.pop(scanner)
                     break
                 if t.catcode == token.CATCODE.BEGIN_GROUP:
                     level += 1

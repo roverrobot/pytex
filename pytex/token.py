@@ -94,13 +94,8 @@ class Token(Command):
         """
         return self.catcode is None or self.catcode == CATCODE.ACTIVE
     
-    def __str__(self):
-        name = "\\r" if self.name == "\r" else self.name
-        cat = "" if self.catcode is None else " (%d)" % self.catcode
-        return name + cat
-
     def __repr__(self):
-        return str(self)
+        return f"{self.name}({self.catcode})"
 
     def execute(self, parser):
         """
@@ -189,6 +184,9 @@ class CommandToken(Token):
         """
         return None
 
+    def __repr__(self):
+        return f"{self.name} "
+
 
 class ActiveToken(CommandToken):
     """ an active token """
@@ -224,11 +222,17 @@ class SpaceToken(Token):
     def execute(self, parser):
         parser.addSpace()
 
+    def __repr__(self):
+        return " "
+
 
 class CharToken(Token):
     """ a letter or other character """
     def execute(self, parser):
         parser.addChar(self.name)
+    
+    def __repr__(self):
+        return self.name
     
 
 class MathShiftToken(Token):

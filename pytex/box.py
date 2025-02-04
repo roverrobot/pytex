@@ -189,10 +189,7 @@ class BoxCommand(Command):
         box = self.boxValue(parser, False)
         if isinstance(box, VoidBox):
             return
-        top = parser.lists[-1]
-        if top.type == LISTTYPE.MATH:
-            box = mmode.Box(box)
-        top.append(box)
+        parser.lists[-1].append(box)
     
     def boxValue(self, parser, setbox):
         index = parser.readInteger()
@@ -450,7 +447,7 @@ class BoxDimenAccessor(Accessor):
     def readValue(self, parser):
         return parser.readDimen()
 
-    def setValue(self, parser, value, prefixes):
+    def setValue(self, parser, value, globally):
         box = parser.state.box[self.index]
         setattr(box, self.dimen, value)
 

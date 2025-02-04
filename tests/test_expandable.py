@@ -23,7 +23,6 @@ def test_expandafter(collector):
 def test_csname(collector):
     collector.readFrom("\\csname test\\endcsname")
     t = collector.token_expand()
-    print(t)
     assert t is not None and t.isCommand()
     t = collector.token_expand()
     assert t is None

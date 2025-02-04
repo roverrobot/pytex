@@ -116,7 +116,7 @@ class FontCharAccessor(IntegerAccessor):
     def getValue(self, parser):
         return self.domain.fontchar[self.index]
 
-    def setValue(self, parser, value, prefixes):
+    def setValue(self, parser, value, globally):
         self.domain.fontchar[self.index] = value
 
 
@@ -133,7 +133,7 @@ class FontChar(IntegerArrayAccessor):
     
     def getItemAccessor(self, parser, index):
         font = self.getIndex(parser)
-        return FontCharAccessor(font, self.name, allow_global=False)
+        return FontCharAccessor(font, self.name)
 
 
 class FontDefineAccessor(Accessor):
@@ -175,7 +175,7 @@ class FontDimenAccessor(DimenAccessor):
         font, index = self.getIndex(parser)
         return font.param[index]
     
-    def setValue(self, parser, value, prefixes):
+    def setValue(self, parser, value, globally):
         font, index = self.getIndex(parser)
         font.param[index] = value
 

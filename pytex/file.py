@@ -20,13 +20,13 @@ class OpenOp(Accessor):
     @param filename: the file name
     """
     def __init__(self, input: bool, file_id, filename):
-        super().__init__(None, file_id, eq=True, allow_global=False)
+        super().__init__(None, file_id, eq=True)
         if file_id < 0 or file_id >= 16:
             raise ValueError("file number out of range: {file_id}")
         self.file_array = "openin" if input else "openout"
         self.filename = filename
 
-    def setValue(self, parser, value, prefixes):
+    def setValue(self, parser, value, globally):
         parser.state.globals[self.file_array][self.index] = value
 
     

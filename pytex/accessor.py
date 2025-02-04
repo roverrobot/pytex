@@ -47,13 +47,11 @@ class Accessor(token.Command):
     @param eq: whether there is an equal sign in the assignment
     @param range: the range of valid values
     """
-    def __init__(self, domain, index, eq: bool=True, allow_global=True):
+    def __init__(self, domain, index, eq: bool=True):
         self.domain = domain
         self.index = index
         self.eq = eq
         self.range = None
-        # by default, the assignment is may be global
-        self.allow_global = allow_global
 
     def readEq(self, parser):
         """
@@ -85,21 +83,18 @@ class Accessor(token.Command):
         """
         return self.index
 
-    def setValue(self, parser, value, prefixes):
+    def setValue(self, parser, value, globally: bool):
         """
         set the value in the domain.
         @param parser: the parser
         @param value: the value
-        @param prefixes: the prefixes
+        @param globally: whether the assignment is global
 
         We must pass an index to the setValue method, because the index may be read 
         from the input stack, in this case, it imust be read before the value.
         """
-        globally = parser.state.parameters["globaldefs"] != 0
-        for p in prefixes:
-            value, globally = p.modify(value, globally)
         domain = parser.state.domains[self.domain]
-        if globally and self.allow_global:
+        if globally and hasattr(domain, "setGlobal"):
             domain.setGlobal(self.index, value)
         else:
             domain[self.index] = value
@@ -113,6 +108,10 @@ class Accessor(token.Command):
         if self.eq:
             self.readEq(parser)
         value = self.readValue(parser)
+        globally = parser.state.parameters["globaldefs"] != 0
+        for p in prefixes:
+            value, globally = p.modify(value, globally)
+        self.setValue(parser, value, globally)
         t = parser.state.globals["afterassignment"]
         if t is not None:
             parser.input.unread(t)
@@ -140,11 +139,6 @@ class ArrayAccessor(token.Command):
     register or parameter.
 
     @param domain: the domain of the assignment
-    @param eq: whether there is an equal sign in the assignment
-    @param range: the range of valid values
-    @param allow_global: whether the global assignment is allowed
-
-    The range and allow_global parameters are passed to the Accessor class.
     """ 
     def __init__(self, domain: str):
         self.domain = domain

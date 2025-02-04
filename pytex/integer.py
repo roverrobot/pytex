@@ -177,8 +177,8 @@ class IntegerAccessor(IntegerCommand, Accessor):
     """
     integer accessor common functions
     """
-    def __init__(self, domain, index, range=None, allow_global=True):
-        super().__init__(domain, index, True, allow_global)
+    def __init__(self, domain, index, range=None):
+        super().__init__(domain, index, True)
         self.range = range
 
 
@@ -186,13 +186,12 @@ class IntegerArrayAccessor(IntegerCommand, ArrayAccessor):
     """
     integer array accessor
     """
-    def __init__(self, domain, range=None, allow_global=True):
+    def __init__(self, domain, range=None):
         super().__init__(domain)
         self.range = range
-        self.allow_global = allow_global
 
     def newItemAccessor(self, index):
-        return IntegerAccessor(self.domain, index, self.range, self.allow_global)
+        return IntegerAccessor(self.domain, index, self.range)
 
 
 class CatCode(Array):

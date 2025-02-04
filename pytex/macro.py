@@ -232,10 +232,8 @@ class MacroAccessor(Accessor):
         replacement = parser.readBalancedText(expand=self.expanded)
         return Macro(parameters, replacement)
     
-    def setValue(self, parser, value, prefixes):
-        if self.globally:
-            prefixes.append(GlobalPrefix())
-        return super().setValue(parser, value, prefixes)
+    def setValue(self, parser, value, globally):
+        return super().setValue(parser, value, True)
 
 
 class Def(Define):

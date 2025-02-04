@@ -76,7 +76,6 @@ class Module:
             for name, item in self.parameters.items():
                 # set the value in the domain
                 domain = item["domain"]
-                allow_global = domain != "globals"
                 value = item["value"]
                 if callable(value):
                     value = value()
@@ -84,7 +83,7 @@ class Module:
                 # set the accessor in equitable
                 generator = item["accessor"]
                 if generator is not None:
-                    accessor = generator(domain, name, allow_global=allow_global)
+                    accessor = generator(domain, name)
                     if accessor is not None:
                         parser.state.equitable.setGlobal("\\"+name, accessor)
 

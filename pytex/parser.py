@@ -25,6 +25,7 @@ from pytex import file
 from pytex import mmode
 from pytex import paragraph
 from pytex import align
+from pytex import hyphen
 
 
 class Parser:

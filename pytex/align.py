@@ -240,6 +240,7 @@ class AlignCommand(lists.ModeDependentCommand):
         parser.input.pop(scanner)
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         assert parser.lists[-1] == cell
+        cell.span = terminator == span
         return parser.lists.pop(), terminator
 
     def readNoAlign(self, parser):
@@ -248,6 +249,7 @@ class AlignCommand(lists.ModeDependentCommand):
         @param parser: the parser
         @param scanner: an AlignScanner instance
         """
+        parser.skipSpaces()
         t = parser.token_expand()
         if t is None:
             return None
@@ -267,16 +269,9 @@ class AlignCommand(lists.ModeDependentCommand):
         columns, tabskips = template
         row = Row(parser)
         row.tabskips = tabskips
-        span = False
         for header in columns:
-            if span:
-                row.cells.append(None)
-                span = False
-                continue
             cell, terminator = self.readCell(parser, header)
             row.cells.append(cell)
-            if terminator == span:
-                span = True
             if terminator == cr:
                 return row
         raise ValueError("expecting a \\cr", parser.input.position())

@@ -44,3 +44,13 @@ def test_noalign(cmr10):
     assert len(row.noalign) == 1
     assert row.noalign[0].node_type == nd.NODE_TYPE.GLUE
     assert row.noalign[0].glue == glue.Glue(2)
+
+
+def test_span(cmr10):
+    cmr10.parse("\\tabskip 1pt\\halign{1 #\\tabskip 2pt& 2 #\\cr a \\span b\\cr}")
+    top = cmr10.lists[-1]
+    node = top[0]
+    row = node.rows[0]
+    len(row.cells) == 2
+    assert row.cells[0].span == True
+    assert row.cells[1].span == False

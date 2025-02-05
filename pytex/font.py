@@ -22,8 +22,7 @@ class Font(Command):
     @param tfm: the tfm data
     @param at: the size of the font
     """
-    def __init__(self, name, tfm: TFM, at):
-        self.name = name
+    def __init__(self, tfm: TFM, at):
         self.tfm = tfm
         self.at = at
         # nullfont
@@ -34,7 +33,9 @@ class Font(Command):
             self.param[i] = tfm.param[i] * at
         self.bc = tfm.bc
         self.ec = tfm.ec
-        self.charnode = [CharNode(info, self) for info in tfm.char_info]
+        self.charnode = [None] * (self.ec-self.bc+1)
+        for i in range(self.bc, self.ec+1):
+            self.charnode[i] = CharNode(chr(i), self)
         self.spaceglue = Glue(self.param[1], Stretchness(self.param[2], 0), Stretchness(self.param[3], 0))
         # special characters
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}
@@ -101,7 +102,7 @@ class FontArrayAccessor(FontValue, ArrayAccessor):
         return FontAccessor(self.domain, index)
 
 
-nullfont = Font("nullfont", tfm=nullfont_tfm, at=0)
+nullfont = Font(tfm=nullfont_tfm, at=0)
 
 
 class FontArray(Array):
@@ -154,7 +155,7 @@ class FontDefineAccessor(Accessor):
             at = parser.readInteger() / 1000 * tfm.header.size * parser.state.layout["mag"] / 1000
         else:
             at = tfm.header.size * parser.state.layout["mag"] / 1000
-        return Font(name, tfm, at)
+        return Font(tfm, at)
 
 
 class FontCommand(Define):

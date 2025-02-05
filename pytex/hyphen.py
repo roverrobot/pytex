@@ -27,7 +27,7 @@ class Hyphenation(token.Command):
                 word = ""
                 positions = []
             elif t.catcode == token.CATCODE.LETTER:
-                word += t.char
+                word += t.name
             elif t.name == hyphenchar:
                 positions.append(len(word))
         parser.hyphenator.addWords(words)

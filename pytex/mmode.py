@@ -364,12 +364,6 @@ class MathChar(lists.ModeDependentCommand):
         code = parser.readInteger()
         return parser.mathChar(code)
     
-    def __repr__(self):
-        c = self.mathcode >> 12
-        f = (self.mathcode >> 8) & 0xf
-        p = self.mathcode & 0xff
-        return f"\\mathchar{{{c}, {f}, {p}}}"
-
 
 class MathCharValue(lists.ModeDependentCommand):
     """
@@ -389,6 +383,12 @@ class MathCharValue(lists.ModeDependentCommand):
     def mathCharValue(self, parser):
         return parser.mathChar(self.mathcode)
     
+    def __repr__(self):
+        c = self.mathcode >> 12
+        f = (self.mathcode >> 8) & 0xf
+        p = self.mathcode & 0xff
+        return f"\\mathchar{{{c}, {f}, {p}}}"
+
 
 class MathCharDefAccesor(Accessor):
     def readValue(self, parser):

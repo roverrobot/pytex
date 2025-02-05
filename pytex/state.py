@@ -61,7 +61,7 @@ class Group:
         else:
             save = domain[index]
         if domain.name not in self.values:
-            store = (domain, {})
+            store = [domain, {}]
             self.values[domain.name] = store
         else:
             store = self.values[domain.name]
@@ -155,17 +155,53 @@ class GroupStack(list):
             group.remove(domain, index)
 
 
-class Domain:
+class Dumpable:
     """
-    a Domamin is a dict or list to store values that can be changed and restored. 
-    It is used to implement groups.
+    a class that can be dumped and restored.
+    """
+    def __init__(self, values):
+        self.values = values
+        self.changed = {}
+    
+    def __setitem__(self, index, value):
+        self.values[index] = value
+        self.changed[index] = value
+    
+    def __getitem__(self, index):
+        return self.values[index]
+
+    def __delitem__(self, index):
+        del self.values[index]
+        del self.changed[index]
+
+    def dump(self):
+        """
+        dump the object
+        @return: a dict that represents the object
+        """
+        changed = self.changed
+        self.changed = {}
+        return changed
+
+    def load(self, data):
+        """
+        restore the object
+        @param data: the data to restore the object
+        """
+        for i, v in enumerate(data):
+            self[i] = v
+
+
+class Domain(Dumpable):
+    """
+    a Domamin is a dict or list that respect groups.
     @param name: the name of the domain
     @param values: the values in the domain
     @param group_stack: the group stack to store the values
     """
     def __init__(self, name: str, values, group_stack: GroupStack):
+        super().__init__(values)
         self.name = name
-        self.values = values
         self.group_stack = group_stack
 
     def __setitem__(self, index, value):
@@ -177,24 +213,16 @@ class Domain:
         group = self.group_stack.top()
         if group is not None:
             group.store(self, index)
-        self.values[index] = value
-    
-    def __getitem__(self, index):
-        """
-        get the value of the domain at the index
-        @param index: the index of the value
-        @return: the value
-        """
-        return self.values[index]
-    
+        super().__setitem__(index, value)
+        
     def setGlobal(self, index, value):
         """
         set the value of the domain at the index globally
         @param index: the index of the value
         @param: the value
         """
+        super().__setitem__(index, value)
         self.group_stack.remove(self, index)
-        self.values[index] = value
 
     def restore(self, index, value):
         """
@@ -203,38 +231,18 @@ class Domain:
         @param: the value
         """
         if value is None:
-            del self.values[index]
+            del self[index]
         else:
-            self.values[index] = value
+            self[index] = value
 
     def __repr__(self):
         return self.values.__repr__()
 
 
-class LayoutParameters(dict):
-    """
-    a class to store the parameters of a parser
-    """
-    def __init__(self):
-        self.changed = {}
-
-    def __setitem__(self, index, value):
-        super().__setitem__(index, value)
-        self.changed[index] = value
-
-    def getChanged(self):
-        """
-        get the changed parameters, and clear the changed dict
-        """
-        changed = self.changed
-        self.changed = {}
-        return changed
-
-
 class Array(list):
     SIZE = 65536
     """
-    a character code
+    an array of values
     """
     def __init__(self, default=None, size: typing.Optional[int]=None):
         if size is None:
@@ -259,9 +267,9 @@ class State:
     """
     def __init__(self):
         self.groups = GroupStack()
-        self.domains = {"globals": {}}
+        self.domains = {"globals": Dumpable({})}
         self.addDomain("equitable", {})
-        self.addDomain("layout", LayoutParameters())
+        self.addDomain("layout", {})
         self.addDomain("parameters", {})
         def setattr(self, index, value):
             self.domains[index] = value
@@ -303,6 +311,18 @@ class State:
         :param values: the values of the domain
         """
         self.domains[name] = Domain(name, values, self.groups)
+    
+    def dump(self):
+        """
+        dump the state
+        @return: a dict that represents the state
+        """
+        data = {}
+        for name, domain in self.domains.items():
+            changed = domain.dump()
+            if changed:
+                data[name] = changed
+        return data
 
 
 class BeginGroup(Command):

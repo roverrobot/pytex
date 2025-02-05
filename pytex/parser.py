@@ -34,15 +34,18 @@ class Parser:
     """
     def __init__(self):
         self.state = state.State()
+        # for now, characters and spaces are collected in a string
+        for name, mod in ModuleManager.items():
+            mod.populate(self)
+        # now we are at a similar stage to INITEX. We do not need to keep the current state.
+        # clear the dump state.
+        self.state.dump()
         self.input = lexer.InputStack()
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
         self.ifstack = []
         # the list stack
         self.lists = [vmode.VList(self, inner=False)]
-        # for now, characters and spaces are collected in a string
-        for name, mod in ModuleManager.items():
-            mod.populate(self)
         log = resolver.InMemoryTextFile("log")
         self.log = log.open(for_read=False)
     

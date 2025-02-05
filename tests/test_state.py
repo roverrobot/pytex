@@ -90,3 +90,15 @@ def test_parser_group_mismatch(parser):
         assert False, "group matching failed"
     except ValueError as e:
         assert "mismatch" in str(e)
+
+
+def test_dump(parser):
+    parser.parse("\\count0=1{\\count0=2}\\def\\a{123}")
+    data = parser.state.dump()
+    assert len(data) == 2
+    assert "count" in data
+    assert data["count"] == {0:1}
+    assert "equitable" in data
+    assert "\\a" in data["equitable"]
+    parser.parse("{\\def\\b{456}}")
+    assert not parser.state.dump()

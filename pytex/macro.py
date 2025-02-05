@@ -194,11 +194,6 @@ class MacroAccessor(Accessor):
     """
     def readValue(self, parser):
         """
-        read the value from the input stack
-        @param parser: the parser
-        """
-    def readValue(self, parser):
-        """
         read the macro definition from the input stack
 
         The macro definition is a parameter text followed by a balanced text.
@@ -233,7 +228,7 @@ class MacroAccessor(Accessor):
         return Macro(parameters, replacement)
     
     def setValue(self, parser, value, globally):
-        return super().setValue(parser, value, True)
+        return super().setValue(parser, value, self.globally)
 
 
 class Def(Define):

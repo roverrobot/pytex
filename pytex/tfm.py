@@ -222,7 +222,8 @@ class Extend:
 
 
 class TFM:
-    def __init__(self, stream):
+    def __init__(self, name, stream):
+        self.name = name
         if stream is None:
             # \nullfont
             x = [6 + 2 + 5 + 7, 2, 0, 0, 1, 1, 1, 1, 0, 0, 0, 7, 0, 0]
@@ -275,7 +276,7 @@ class TFM:
         data.close()
 
 
-nullfont = TFM(None)
+nullfont = TFM("nullfont", None)
 
 
 class TFMDict(dict):
@@ -300,7 +301,7 @@ def loadTFM(parser, name: str):
     file = parser.resolver.openIn(name, "tfm")
     if file is None:
         raise FileNotFoundError(f"TFM file {name} not found")
-    tfm = TFM(file)
+    tfm = TFM(name, file)
     parser.state.globals["tfm"][name] = tfm
     file.close()
     return tfm

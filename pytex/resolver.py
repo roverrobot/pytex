@@ -43,6 +43,7 @@ class InMemoryTextFile:
                 self.readers.remove(f)
             if f == self.writer:
                 self.writer = None
+            StringIO.close(f)
         s.close = MethodType(close, s)
         if not for_read:
             self.writer = s

@@ -55,7 +55,7 @@ class Parser:
         get the log file
         @return: the log file
         """
-        self.logfile = resolver.InMemoryTextFile("log")
+        self.logfile = resolver.InMemoryTextFile("")
         return self.logfile.open(for_read=False)
 
     def logContent(self):

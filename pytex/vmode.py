@@ -7,6 +7,7 @@ from pytex import node as nd
 from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
+from pytex.token import Command
 
 
 class VList(lists.List):
@@ -99,6 +100,26 @@ def readVList(parser, reason):
     return parser.readList(vlist, reason)
 
 
+class End(Command):
+    """
+    End the current vertical list.
+    """
+    def execute(self, parser):
+        top = parser.lists[-1]
+        if top.type == lists.LISTTYPE.HORIZONTAL:
+            if top.inner:
+                raise ValueError("end in internal horizontal mode")
+            parser.endParagraph()
+        elif top.type == lists.LISTTYPE.MATH:
+            raise ValueError("end in math mode")
+        top = parser.lists[-1]
+        if top.type != lists.LISTTYPE.VERTICAL or top.inner:
+            raise ValueError("did not end in the main vertical list")
+        # \vfill\penalty-'10000000000
+        top.append(nd.Glue(Glue(0, Stretchness(1, 2))))
+        top.append(nd.Penalty(-0x100000))
+
+
 mod = Module("vmode",
     commands={
         "vskip": VSkip(),
@@ -106,6 +127,7 @@ mod = Module("vmode",
         "vfill": VSkip(Glue(0, Stretchness(1, 2))),
         "vss": VSkip(Glue(0, Stretchness(1, 1), Stretchness(1, 1))),
         "vnegfil": VSkip(Glue(0, Stretchness(-1, 1))),
+        "end": End(),
     },
     attributes={
         "readVList": readVList

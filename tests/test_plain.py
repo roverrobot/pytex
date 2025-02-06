@@ -31,8 +31,11 @@ def plain(parser, plain_dump):
 
 import time
 def test_plain(plain):
-    plain.parse("Hello, world! $\int_0^1 f(x) dx$")
+    plain.parse("Hello, world! $\int_0^1 f(x) dx$\end")
     top = plain.lists[-1]
-    assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 17
-    assert top[-2].node_type == nd.NODE_TYPE.MATH
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 3
+    hlist = top[0]
+    assert hlist.type == lists.LISTTYPE.HORIZONTAL
+    assert len(hlist) == 18
+    assert hlist[-3].node_type == nd.NODE_TYPE.MATH

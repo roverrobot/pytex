@@ -5,6 +5,7 @@ This module implement paragraph handling (unrestricted hlist).
 from pytex import hmode
 from pytex import node as nd
 from pytex import box as bx
+from pytex.module import Module
 
 
 class Language(nd.WhatsIt):
@@ -53,3 +54,21 @@ class Paragraph(hmode.HList):
             self.disc = True
         elif self.disc:
             self.discretionary()
+
+
+def lineBreak(parser):
+    """
+    break a line into paragraphs
+    @param parser: the parser
+    """
+    top = parser.lists[-1]
+    if not isinstance(top, Paragraph):
+        return
+    raise NotImplementedError("lineBreak")
+
+
+mod = Module("paragraph",
+    attributes={
+        "lineBreak": lineBreak,
+    },
+)

@@ -4,8 +4,9 @@ This file defines facilities to implement versioned values and groups.
 
 
 import typing
+from pytex import serialization
 from pytex.module import Module
-from pytex.token import Command, Serializable
+from pytex.token import Command
 import enum
 
 class GROUP_TYPE(enum.IntEnum):
@@ -336,7 +337,7 @@ class State:
             changed = domain.dump()
             if changed:
                 for key, value in changed.items():
-                    if isinstance(value, Serializable):
+                    if isinstance(value, serialization.Serializable):
                         value = value.serialize()
                         changed[key] = value
                 data[name] = changed

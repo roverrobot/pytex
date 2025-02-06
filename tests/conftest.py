@@ -5,7 +5,6 @@ Module level fixtures
 
 import pytest
 import types
-from unittest.mock import patch
 from pytex.parser import Parser
 
 

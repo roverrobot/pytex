@@ -1,5 +1,6 @@
 import typing
 import json
+from pytex import serialization
 from pytex import token
 from pytex import lexer
 from pytex import state
@@ -353,7 +354,7 @@ class Parser:
         dump the state as a format file
         @param file: the file to dump the state
         """
-        dump = token.serialize(self.state.dump())
+        dump = serialization.serialize(self.state.dump())
         format = json.dumps(dump)
         file.write(format)
 
@@ -363,7 +364,7 @@ class Parser:
         @param file: the file to load the state
         """
         format = json.loads(file.read())
-        self.state.load(token.deserialize(self, format))
+        self.state.load(serialization.deserialize(self, format))
 
     def end(self):
         """

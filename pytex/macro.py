@@ -6,10 +6,9 @@ This module implements macros.
 import typing
 from pytex.token import CATCODE, Command, Token
 from pytex.lexer import TokenListScanner
-from pytex.accessor import Prefix, Accessor, GlobalPrefix
+from pytex.accessor import Prefix, Accessor
 from pytex.define import Define
 from pytex.module import Module
-from pytex.toks import Toks
 
 
 class MacroScanner(TokenListScanner):
@@ -212,7 +211,7 @@ class MacroAccessor(Accessor):
         The macro definition is a parameter text followed by a balanced text.
         @param parser: the parser
         """
-        parameters = Toks()
+        parameters = []
         arg = 1
         last = False
         # read the brackets

@@ -3,8 +3,9 @@ The horizontal and vertical lists of TeX.
 """
 
 
+from pytex import serialization
 from pytex import node as nd
-from pytex.token import Command, CATCODE, Serializable
+from pytex.token import Command, CATCODE
 import enum
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
@@ -17,7 +18,7 @@ class LISTTYPE(enum.Enum):
     MATH = 2
 
 
-class List(list, Serializable):
+class List(list, serialization.Serializable):
     """
     A list of nodes.
     @param parser: The parser the created the list
@@ -46,7 +47,7 @@ class List(list, Serializable):
         return {
             "init": {
                 "inner": self.inner,
-                "nodes": list(map(lambda x: x.serialize(), self))
+                "nodes": [x for x in self],
             }
         }
     

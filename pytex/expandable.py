@@ -5,7 +5,6 @@ This module implements various expandable commands.
 
 from pytex.token import Command, CATCODE, CommandToken, Token, relax
 from pytex.module import Module
-from pytex.toks import Toks
 from pytex.lexer import TokenListScanner, Scanner
 
 
@@ -92,13 +91,13 @@ class CSName(Command):
         return token
 
 
-def toToks(s: str) -> Toks:
+def toToks(s: str) -> list:
     """
     Convert a string to a token list.
     @param s: the string
     @return: the token list
     """
-    toks = Toks()
+    toks = []
     for c in s:
         toks.append(Token.token(c, CATCODE.OTHER))
     return toks

@@ -8,7 +8,7 @@ from pytex.glue import Stretchness
 from pytex.module import Module
 from pytex.accessor import Accessor, ArrayAccessor
 from pytex.state import Array
-from pytex.token import Command, CATCODE, Serializable
+from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen, DimenCommand
 from pytex import conditional
 from pytex.state import GROUP_TYPE

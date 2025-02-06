@@ -16,102 +16,9 @@ by calling the execute method of the meaning command.
 """
 
 
-import enum
 import typing
 from pytex.module import Module
-
-
-def serialize(obj):
-    """
-    serialize the object into a dictionary
-    """
-    if isinstance(obj, Serializable):
-        return obj.serialize()
-    elif hasattr(obj, "items"):
-        for key, value in obj.items():
-            obj[key] = serialize(value)
-    elif isinstance(obj, enum.Enum):
-        return obj.value
-    return obj
-
-
-def getClass(module, name):
-    """
-    get the class from the module
-    """
-    # check if module has the form pytex.module
-    if module.startswith("pytex."):
-        module = module[6:]
-        mod = getattr(__import__("pytex"), module)
-    else:
-        mod = __import__(module)
-    return getattr(mod, name)
-
-
-def deserialize(parser, data):
-    """
-    deserialize the object from a dictionary or a list
-    """
-    if isinstance(data, list):
-        items = enumerate(data)
-    elif isinstance(data, dict):
-        items = data.items()
-    else:
-        items = None
-    if items is not None:
-        for key, value in items:
-            data[key] = deserialize(parser, value)
-    if isinstance(data, dict) and "serializable" in data and data["serializable"]:
-        cls = getClass(data["module"], data["classname"])
-        data = cls.deserialize(parser, data)
-    return data
-
-
-class Serializable:
-    """
-    The base class for all serializable objects. The serialization will be used to dump
-    the parser state into a dump file
-    """
-    def saveInfo(self):
-        """
-        save the information of the command into a dictionary
-
-        One component of the information is argument needed to construct the command, which
-        is stored in the "init" element. The other component is the extra attributed,
-        which is stored in the "extra" element. If either is empty, the element is not
-        included in the dictionary.
-        """
-        return {}
-
-    def serialize(self):
-        info = serialize(self.saveInfo())
-        info["classname"] = self.__class__.__name__
-        info["module"] = self.__module__
-        info["serializable"] = True
-        return info
-
-    @classmethod
-    def new(cls, parser, **kwargs):
-        """
-        create a new object from the dictionary
-        """
-        return cls(**kwargs)
-
-    @classmethod
-    def deserialize(cls, parser, data):
-        """
-        deserialize the object from a string
-        """
-        init = deserialize(parser, data["init"]) if "init" in data else {}
-        cls = getClass(data["module"], data["classname"])
-        obj = cls.new(parser, **init)
-        if "extra" in data:
-            for key, value in data["extra"].items():
-                if isinstance(value, dict) and "serializable" in value:
-                    cls = getClass(value["module"], value["classname"])
-                    value = cls.deserialize(parser, value)
-                setattr(obj, key, value)
-        return obj
+from pytex import serialization
 
 
 class CATCODE:
@@ -140,7 +47,7 @@ class CATCODE:
     __slots__ = ()
 
 
-class Command(Serializable):
+class Command(serialization.Serializable):
     """ 
     a command represents a tex functionality. It could represent a sequence of tokens
     to be expanded to, such as a macro, or a primitive command that is executed by the

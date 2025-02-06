@@ -6,7 +6,7 @@ from pytex import texlive
 from pytex import hmode
 from pytex.box import LEADERS_TYPE
 from pytex import texlive
-
+from pytex.expandable import toksToString
 
 def test_new_paragraph(cmr10):
     s = "Hello, world!"
@@ -197,6 +197,9 @@ def test_insert_migrate(cmr10):
     assert node.vlist[0].glue == glue.Glue(72.26999)
 
 
+def string(token_list):
+    return "".join([t.char for t in token_list])
+
 def test_mark(cmr10):
     cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
     top = cmr10.lists[-1]
@@ -209,7 +212,7 @@ def test_mark(cmr10):
     box.typeset()
     assert len(box.content) == 0
     assert len(box.migrate) == 1
-    assert str(box.migrate[0].tokens) == "123"
+    assert toksToString(cmr10, box.migrate[0].tokens) == "123"
 
 
 def test_special(cmr10):
@@ -219,7 +222,7 @@ def test_special(cmr10):
     assert len(top) == 4
     node = top[2]
     assert node.node_type == nd.NODE_TYPE.WHATSIT
-    assert str(node.text) == "abc"
+    assert toksToString(cmr10, node.text) == "abc"
 
 
 @pytest.mark.parametrize("cmd, type", [

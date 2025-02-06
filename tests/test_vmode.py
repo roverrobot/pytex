@@ -4,6 +4,7 @@ from pytex import glue
 from pytex import lists
 from pytex import texlive
 from pytex.box import LEADERS_TYPE
+from pytex.expandable import toksToString
 
 
 @pytest.mark.parametrize(
@@ -73,7 +74,7 @@ def test_mark(cmr10):
     assert len(top) == 1
     node = top[0]
     assert node.node_type == nd.NODE_TYPE.MARK
-    assert str(node.tokens) == "123"
+    assert toksToString(cmr10, node.tokens) == "123"
 
 
 def test_special(cmr10):
@@ -83,7 +84,7 @@ def test_special(cmr10):
     assert len(top) == 1
     node = top[0]
     assert node.node_type == nd.NODE_TYPE.WHATSIT
-    assert str(node.text) == "abc"
+    assert toksToString(cmr10, node.text) == "abc"
 
 
 @pytest.mark.parametrize("cmd, type", [

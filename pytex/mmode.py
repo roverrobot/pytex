@@ -7,9 +7,10 @@ current list became the numerator and change its style. So, the style cannot be 
 when parsing the math list, but after the list is parsed.
 """
 
+from pytex import serialization
 from pytex import lists
 from pytex import node as nd
-from pytex.token import CATCODE, Serializable
+from pytex.token import CATCODE
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor
@@ -27,7 +28,7 @@ class MATH_STYLE(enum.IntEnum):
     SS = 3 # script script style
 
 
-class Style(Serializable):
+class Style(serialization.Serializable):
     def __init__(self, style: MATH_STYLE, cramped: bool = False):
         self.style = style
         self.cramped = cramped
@@ -603,7 +604,7 @@ class MathChoice(lists.ModeDependentCommand):
         mlist.append(ChoiceNode(display, text, script, scriptscript))
 
 
-class Delim(Serializable):
+class Delim(serialization.Serializable):
     """
     a class represent a delimiter
     @param delcode: the delimiter code

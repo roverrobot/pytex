@@ -3,31 +3,12 @@ This module defines the token list facilities.
 """
 
 import typing
+from pytex import serialization
 from pytex.lexer import CATCODE, TokenListScanner
-from pytex.token import Command, CommandToken, relax, Serializable, serialize
+from pytex.token import Command, CommandToken, relax
 from pytex.module import Module
 from pytex.state import Array
 from pytex import accessor
-
-
-class Toks(list, Serializable):
-    """
-    a token list
-    """
-    def __init__(self, tokens: list=[]):
-        super().__init__(tokens)
-    
-    def __repr__(self):
-        return "".join(map(lambda x: str(x), self))
-
-    def saveInfo(self):
-        return {"init": {"tokens": list(map(lambda x: serialize(x), self))}}
-
-    def items(self):
-        """
-        iterate this list in a unified interface as a dictionary
-        """
-        return enumerate(self)
 
 
 def token_expand(parser):
@@ -58,7 +39,7 @@ def readBalancedText(parser, expand: bool = False):
     lbrace = read()
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", pos)
-    toks = Toks()
+    toks = []
     level = 0
     while True:
         t = read()
@@ -201,15 +182,15 @@ mod = Module("toks",
         "toks": {"generator": lambda: Array([]), "accessor": ToksArrayAccessor},
     },
     parameters={
-        "aftergroup": {"value": Toks, "accessor": None, "domain": "globals"},
-        "output": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
-        "everyhbox": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
-        "everyvbox": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
-        "everyjob": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
-        "everycr": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
-        "errhelp": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
-        "everypar": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
-        "everymath": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
-        "everydisplay": {"value": Toks, "accessor": ToksAccessor, "domain": "parameters"},
+        "aftergroup": {"value": [], "accessor": None, "domain": "globals"},
+        "output": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everyhbox": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everyvbox": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everyjob": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everycr": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "errhelp": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everypar": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everymath": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everydisplay": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
     }
 )

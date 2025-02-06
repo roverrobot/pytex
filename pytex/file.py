@@ -2,9 +2,9 @@
 File operations
 """
 
-
+from pytex import serialization
 from pytex import node as nd
-from pytex.accessor import Accessor, ArrayAccessor
+from pytex.accessor import Accessor
 from pytex.lexer import TokenListScanner, StringScanner
 from pytex import token
 from pytex import macro
@@ -50,7 +50,7 @@ class OpenOutOp(OpenOp):
         return file
 
 
-class FileOp(token.Serializable):
+class FileOp(serialization.Serializable):
     """
     The base class of file operations
     @param input: whether the file is an input file

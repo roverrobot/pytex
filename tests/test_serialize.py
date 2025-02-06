@@ -3,15 +3,13 @@ import pytest
 from pytex import dimen
 from pytex import glue
 from pytex import token
-from pytex import toks
+from pytex import serialization
 
 
 def dimenInfo(d):
     return {
         "init": {"integer": d.value},
-        "classname": "Dimen",
-        "module": "pytex.dimen",
-        "serializable": True
+        "__classname__": "pytex.dimen.Dimen",
     }
 
 def test_dimen(parser):
@@ -36,28 +34,29 @@ def glueInfo(g):
             "stretch": g.stretch.serialize(), 
             "shrink": g.shrink.serialize()
         },
-        "classname": "Glue",
-        "module": "pytex.glue",
-        "serializable": True
+        "__classname__": "pytex.glue.Glue",
     }
 
 
 def test_glue(parser):
     g = glue.Glue(10)
-    s = token.serialize(g.serialize())
+    s = serialization.serialize(g.serialize())
     assert s == glueInfo(g)
     v = glue.Glue.deserialize(parser, s)
     assert v == g
 
 
 def test_toks(parser):
-    parser.parse("\\toks0={abc}")
-    d = parser.state.toks[0].serialize()
-    v = token.deserialize(parser, d)
-    assert len(v) == 3
+    parser.parse("\\toks0={abc\\relax}")
+    d = serialization.serialize(parser.state.toks[0])
+    v = serialization.deserialize(parser, d)
+    print(v)
+    assert len(v) == 4
     assert v[0].name == "a"
     assert v[0].catcode == token.CATCODE.LETTER
     assert v[1].name == "b"
     assert v[1].catcode == token.CATCODE.LETTER
     assert v[2].name == "c"
     assert v[2].catcode == token.CATCODE.LETTER
+    assert v[3].name == "\\relax"
+    assert v[3].catcode is None

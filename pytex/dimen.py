@@ -2,16 +2,15 @@
 This module implements dimension parsing and handling.
 """
 
-
-from pytex.token import CATCODE, Serializable
-from pytex import integer
+from pytex import serialization
+from pytex.token import CATCODE
 from pytex.module import Module
 from pytex.integer import readDigits, readSigns
 from pytex.state import Array
 from pytex.accessor import Accessor, ArrayAccessor
 
 
-class Dimen(Serializable):
+class Dimen(serialization.Serializable):
     scale = 65536
     def __init__(self, dimen=None, integer=0):
         if dimen is None:

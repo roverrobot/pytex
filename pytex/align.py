@@ -2,8 +2,7 @@
 This module implements the \\halign and \\valign commands
 """
 
-from pytex import hmode
-from pytex import vmode
+from pytex import serialization
 from pytex import lists
 from pytex import node as nd
 from pytex import box as bx
@@ -12,11 +11,10 @@ from pytex import lexer
 from pytex import glue
 from pytex import accessor
 from pytex.state import GROUP_TYPE
-from pytex.toks import Toks
 from pytex.module import Module
 
 
-class Row(token.Serializable):
+class Row(serialization.Serializable):
     """
     A row in an alignment.
 
@@ -166,16 +164,14 @@ class AlignCommand(lists.ModeDependentCommand):
         read a list of tokens until a terminator is found
         @param parser: the parser
         @param is_template: whether the tokens are part of a template
-        @return: a Toks list of tokens (not including the terminator) and the terminator. 
+        @return: a list of tokens (not including the terminator) and the terminator. 
         
         If  is_template is True, a \\tabskip is read, it is an attribute of the toks list.
 
         The terminator is one of \\cr, \\crcr, &, and one of # (if is_template is True) or \\span
         (if is_template is False)
         """
-        toks = Toks()
-        if is_template:
-            toks.tab_skip = None
+        toks = []
         # the scanner
         while True:
             t, terminator = self.readToken(parser)
@@ -216,7 +212,7 @@ class AlignCommand(lists.ModeDependentCommand):
         if terminator.catcode == token.CATCODE.PARAMETER:
             right, terminator = self.readTokens(parser, is_template = True)
         else:
-            right = Toks()
+            right = []
         end = terminator.catcode != token.CATCODE.ALIGNMENT_TAB
         return (left, right), end
 

@@ -28,8 +28,6 @@ def plain(parser, plain_dump):
     format.close()
     return parser
 
-
-import time
 def test_plain(plain):
     plain.parse("Hello, world! $\int_0^1 f(x) dx$\end")
     # the content of the log file

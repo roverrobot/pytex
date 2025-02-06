@@ -5,7 +5,7 @@ This module implements the nodes of horizontal and vertical lists.
 
 import enum
 from pytex.dimen import Dimen
-from pytex.token import Serializable
+from pytex import serialization
 
 
 class NODE_TYPE(enum.Enum):
@@ -28,7 +28,7 @@ class NODE_TYPE(enum.Enum):
     ACCENT = 16 # accent node
 
 
-class Node(Serializable):
+class Node(serialization.Serializable):
     """
     Base class for all nodes.
     """

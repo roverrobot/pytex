@@ -3,7 +3,8 @@ This module implements glue parsing and handling.
 """
 
 
-from pytex.dimen import readDimen, readUnsignedDimen, Dimen
+from pytex.token import Serializable
+from pytex.dimen import readUnsignedDimen, Dimen
 from pytex.integer import readSigns
 from pytex.state import Array
 from pytex.accessor import Accessor, ArrayAccessor
@@ -11,7 +12,7 @@ from pytex.module import Module
 import typing
 
 
-class Stretchness:
+class Stretchness(Serializable):
     """
     the stretchness of a glue
     
@@ -23,6 +24,9 @@ class Stretchness:
         self.factor = factor
         self.order = order
     
+    def saveInfo(self):
+        return {"init": {"factor": self.factor, "order": self.order}}
+
     def copy(self):
         """
         return a copy of the stretchness
@@ -62,7 +66,7 @@ class Stretchness:
         return self.factor == value.factor and self.order == value.order
 
 
-class Glue:
+class Glue(Serializable):
     """
     a glue is a dimension with stretch and shrink
     """
@@ -71,6 +75,13 @@ class Glue:
         self.dimen = dimen
         self.stretch = stretch
         self.shrink = shrink
+    
+    def saveInfo(self):
+        return {"init": {
+            "dimen": self.dimen, 
+            "stretch": self.stretch,
+            "shrink": self.shrink,
+        }}
     
     def copy(self):
         """

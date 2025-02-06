@@ -28,6 +28,12 @@ class Paragraph(hmode.HList):
         if indent:
             self.append(bx.IndentBox(parser))
 
+    def saveInfo(self):
+        d = super().saveInfo()
+        d["init"]["indent"] = self.inner
+        del d["init"]["inner"]
+        return d | {"extra": {"disc": self.disc}}
+    
     def discretionary(self):
         self.disc = False
         disc = nd.Disc(hmode.DiscHList(), hmode.DiscHList(), hmode.DiscHList())

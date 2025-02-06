@@ -86,6 +86,9 @@ class CharDefValue(token.Command):
     def __init__(self, value):
         self.value = value
     
+    def saveInfo(self):
+        return {"init": {"value": self.value}}
+
     def __str__(self):
         return chr(self.value)
 
@@ -150,8 +153,19 @@ class RegisterDef(Define):
     """
     def __init__(self, register: str, value_type):
         super().__init__()
+        self.register = register
         self.value_type = value_type(register)
 
+    def saveInfo(self):
+        value_type = self.value_type.__class__
+        return {"init": {"register": self.register, "value_type": (value_type.__module__, value_type.__name__)}}
+    
+    @classmethod
+    def new(cls, parser, register, value_type):
+        module, name = value_type
+        value_type = token.getClass(module, name)
+        return cls(register, value_type)
+    
     def getItemAccessor(self, parser, index):
         """
         read the value from the input stack

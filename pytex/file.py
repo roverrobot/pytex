@@ -26,6 +26,10 @@ class OpenOp(Accessor):
         self.file_array = "openin" if input else "openout"
         self.filename = filename
 
+    def saveInfo(self):
+        input = self.file_array == "openin"
+        return {"init": {"input": input, "file_id": self.index, "filename": self.filename}}
+
     def setValue(self, parser, value, globally):
         parser.state.globals[self.file_array][self.index] = value
 
@@ -46,7 +50,7 @@ class OpenOutOp(OpenOp):
         return file
 
 
-class FileOp:
+class FileOp(token.Serializable):
     """
     The base class of file operations
     @param input: whether the file is an input file
@@ -56,6 +60,9 @@ class FileOp:
         self.files = "openin" if input else "openout"
         self.file_id = file_id
 
+    def saveInfo(self):
+        return {"init": {"input": self.input, "file_id": self.file_id}}
+    
     def execute(self, parser):
         """
         Perform the operation
@@ -93,6 +100,9 @@ class WriteOp(FileOp):
         FileOp.__init__(self, input=False, file_id=file_id)
         self.tokens = tokens
     
+    def saveInfo(self):
+        return {"init": {"file_id": self.file_id, "tokens": self.tokens}}
+    
     def execute(self, parser):
         scanner = TokenListScanner(self.tokens)
         scanner.terminate = True
@@ -116,6 +126,9 @@ class ReadOp(Accessor):
     """
     def __init__(self, command):
         super().__init__("equitable", command, eq=False)
+    
+    def saveInfo(self):
+        return {"init": {"command": self.index}}
 
     def readEq(self, parser):
         parser.readKeyword(["to"])
@@ -154,6 +167,9 @@ class FileOpNode(nd.WhatsIt):
     def __init__(self, op):
         self.op = op
 
+    def saveInfo(self):
+        return {"init": {"op": self.op}}
+
     def output(self, parser, device):
         self.op.execute(parser)
     
@@ -165,6 +181,9 @@ class FileCommand(token.Command):
     def __init__(self, immediate):
         self.immediate = immediate
     
+    def saveInfo(self):
+        return {"init": {"immediate": self.immediate}}
+
     def fileOp(self, parser, file_id):
         """
         Get the file operation
@@ -259,6 +278,9 @@ class Message(token.Command):
     """
     def __init__(self, error: bool):
         self.error = error
+    
+    def saveInfo(self):
+        return {"init": {"error": self.error}}
     
     def write(self, parser, s):
         parser.log.write(s)

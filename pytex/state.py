@@ -5,7 +5,7 @@ This file defines facilities to implement versioned values and groups.
 
 import typing
 from pytex.module import Module
-from pytex.token import Command
+from pytex.token import Command, Serializable
 import enum
 
 class GROUP_TYPE(enum.IntEnum):
@@ -188,7 +188,7 @@ class Dumpable:
         restore the object
         @param data: the data to restore the object
         """
-        for i, v in enumerate(data):
+        for i, v in data.items():
             self[i] = v
 
 
@@ -235,6 +235,17 @@ class Domain(Dumpable):
         else:
             self[index] = value
 
+    def load(self, data):
+        """
+        restore the domain from a dump
+        @param data: the data to restore the domain
+        """
+        is_array = isinstance(self.values, list)
+        for i, v in data.items():
+            if is_array:
+                i = int(i)
+            self[i] = v
+        
     def __repr__(self):
         return self.values.__repr__()
 
@@ -259,6 +270,9 @@ class Array(list):
         elif index < 0:
             index = 0
         return super().__getitem__(index)
+    
+    def items(self):
+        return enumerate(self)
 
 
 class State:
@@ -321,8 +335,21 @@ class State:
         for name, domain in self.domains.items():
             changed = domain.dump()
             if changed:
+                for key, value in changed.items():
+                    if isinstance(value, Serializable):
+                        value = value.serialize()
+                        changed[key] = value
                 data[name] = changed
         return data
+    
+    def load(self, data):
+        """
+        restore the state from a dump
+        @param data: a previously dumped data
+        """
+        for name, domain in self.domains.items():
+            if name in data:
+                domain.load(data[name])
 
 
 class BeginGroup(Command):

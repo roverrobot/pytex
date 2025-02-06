@@ -1,4 +1,5 @@
 import typing
+import json
 from pytex import token
 from pytex import lexer
 from pytex import state
@@ -331,3 +332,20 @@ class Parser:
         font = self.state.parameters["currentfont"]
         c = font.fontchar["hyphenchar"]
         return self.state.parameters["defaulthyphenchar"] if c == 0 else c
+
+    def dump(self, file):
+        """
+        dump the state as a format file
+        @param file: the file to dump the state
+        """
+        dump = token.serialize(self.state.dump())
+        format = json.dumps(dump)
+        file.write(format)
+
+    def load(self, file):
+        """
+        load the state from a format file
+        @param file: the file to load the state
+        """
+        format = json.loads(file.read())
+        self.state.load(token.deserialize(self, format))

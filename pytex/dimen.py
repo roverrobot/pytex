@@ -3,7 +3,7 @@ This module implements dimension parsing and handling.
 """
 
 
-from pytex.token import CATCODE
+from pytex.token import CATCODE, Serializable
 from pytex import integer
 from pytex.module import Module
 from pytex.integer import readDigits, readSigns
@@ -11,13 +11,16 @@ from pytex.state import Array
 from pytex.accessor import Accessor, ArrayAccessor
 
 
-class Dimen:
+class Dimen(Serializable):
     scale = 65536
     def __init__(self, dimen=None, integer=0):
         if dimen is None:
             self.value = 0 if integer is None else integer
         else:
             self.value = int(float(dimen) * self.scale)
+
+    def saveInfo(self):
+        return {"init": {"integer": self.value}}
 
     def negate(self):
         self.value = -self.value

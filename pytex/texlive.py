@@ -67,9 +67,7 @@ class TexliveResolver(FileResolver):
         texmf_local = os.path.join(path, "texmf-local")
         if os.path.exists(texmf_local):
             self.paths.append(texmf_local)
-        self.typeinfo = {
-            "tfm": TexliveTypeInfo(["tfm"], True, self.paths, ["fonts/tfm"]),
-        }
+        self.typeinfo["tfm"] = TexliveTypeInfo(["tfm"], True, self.paths, ["fonts/tfm"])
         self.format = format
     
     def sourceTypeInfo(self, exts):

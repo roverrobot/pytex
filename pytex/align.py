@@ -16,7 +16,7 @@ from pytex.toks import Toks
 from pytex.module import Module
 
 
-class Row:
+class Row(token.Serializable):
     """
     A row in an alignment.
 
@@ -29,6 +29,15 @@ class Row:
         self.tabskips = None
         # a list of restricted hlists
         self.cells = []
+
+    def saveInfo(self):
+        return {
+            "extra": {
+                "noalign": self.noalign,
+                "tabskips": self.tabskips,
+                "cells": self.cells,
+            },
+        }
 
     def __repr__(self):
         return f"Row({self.cells})"
@@ -43,6 +52,14 @@ class Alignment(nd.WhatsIt):
         # the first noalign before the first row
         self.noalign = None
 
+    def saveInfo(self):
+        return {
+            "extra": {
+                "rows": self.rows,
+                "noalign": self.noalign,
+            },
+        }
+    
     def __repr__(self):
         return f"Alignment({self.rows})"
 

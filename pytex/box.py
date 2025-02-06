@@ -8,7 +8,7 @@ from pytex.glue import Stretchness
 from pytex.module import Module
 from pytex.accessor import Accessor, ArrayAccessor
 from pytex.state import Array
-from pytex.token import Command, CATCODE, relax
+from pytex.token import Command, CATCODE, Serializable
 from pytex.dimen import Dimen, DimenCommand
 from pytex import conditional
 from pytex.state import GROUP_TYPE
@@ -34,7 +34,17 @@ class Box(nd.Box):
         self.spread = spread
         self.shifted = 0
 
-    inner = True
+    def saveInfo(self):
+        return {
+            "init": {
+                "to": self.to, 
+                "spread": self.spread, 
+            },
+            "extra": {
+                "shifted": self.shifted,
+                "list": self.list,
+            }
+        }
 
     def typeset(self, packed=None):
         """
@@ -173,6 +183,9 @@ class VoidBox(nd.Box):
         super().__init__(0, 0, 0)
         self.content = None
 
+    def saveInfo(self):
+        return {}
+    
     def __repr__(self):
         return "Box()"
 
@@ -463,6 +476,9 @@ class BoxDimenCommand(DimenCommand, ArrayAccessor):
         self.dimen = dimen
         super().__init__("box")
 
+    def saveInfo(self):
+        return {"init": {"dimen": self.dimen}}
+
     def getItemAccessor(self, parser, index):
         if index is None:
             index = self.getIndex(parser)
@@ -481,6 +497,9 @@ class UnBox(Command):
         self.vertical = vertical
         self.wipe = wipe
 
+    def saveInfo(self):
+        return {"init": {"vertical": self.vertical, "wipe": self.wipe}}
+    
     def execute(self, parser):
         pos = parser.input.position()
         index = parser.readInteger()
@@ -515,6 +534,9 @@ class Shift(ModeDependentCommand):
     def __init__(self, vertical: bool, direction: int):
         self.vertical = vertical
         self.direction = direction
+
+    def saveInfo(self):
+        return {"init": {"vertical": self.vertical, "direction": self.direction}}
 
     def horizontal(self, parser, hlist):
         if self.vertical:
@@ -554,6 +576,9 @@ class AccentBox(Box):
         self.depth = accent.depth
         self.content = [accent]
 
+    def saveInfo(self):
+        return {"init": {"accent": self.accent}}
+
     node_type = nd.NODE_TYPE.HLIST
 
     def typeset(self, hlist):
@@ -569,6 +594,9 @@ class AccentNode(nd.Node):
         self.accent = accent
         self.base = base
 
+    def saveInfo(self):
+        return {"init": {"accent": self.accent, "base": self.base}}
+    
     node_type = nd.NODE_TYPE.ACCENT
 
     def typeset(self, hlist):
@@ -604,6 +632,13 @@ class IndentBox(Box):
         self.depth = Dimen()
         self.content = None
 
+    def saveInfo(self):
+        return {}
+    
+    @classmethod
+    def new(cls, parser, **kwargs):
+        return cls(parser)
+
     node_type = nd.NODE_TYPE.HLIST
 
     def typeset(self, hlist):
@@ -624,6 +659,9 @@ class Leaders(Command):
     def __init__(self, type: LEADERS_TYPE):
         self.type = type
 
+    def saveInfo(self):
+        return {"init": {"type": self.type.value}}
+    
     def execute(self, parser):
         top = parser.lists[-1]
         # read a rule

@@ -4,7 +4,7 @@ The horizontal and vertical lists of TeX.
 
 
 from pytex import node as nd
-from pytex.token import Command, CATCODE
+from pytex.token import Command, CATCODE, Serializable
 import enum
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
@@ -17,7 +17,7 @@ class LISTTYPE(enum.Enum):
     MATH = 2
 
 
-class List(list):
+class List(list, Serializable):
     """
     A list of nodes.
     @param parser: The parser the created the list
@@ -26,8 +26,8 @@ class List(list):
 
     The internal mode means an internal vlist, or restricted hlist, or nondisplay mlist.
     """
-    def __init__(self, parser, type: LISTTYPE, inner: bool=True):
-        super().__init__()
+    def __init__(self, parser, type: LISTTYPE, inner: bool=True, nodes=[]):
+        super().__init__(nodes)
         self.parser = parser
         self.type = type
         self.inner = inner
@@ -42,6 +42,18 @@ class List(list):
         inner = "inner" if self.inner else ""
         return f'{type}({inner}, [{", ".join(repr(node) for node in self)}])'
     
+    def saveInfo(self):
+        return {
+            "init": {
+                "inner": self.inner,
+                "nodes": list(map(lambda x: x.serialize(), self))
+            }
+        }
+    
+    @classmethod
+    def new(cls, parser, **kwargs):
+        return cls(parser, **kwargs)
+
 
 class ModeDependentCommand(Command):
     """
@@ -103,6 +115,9 @@ class IfMode(conditional.Conditional):
         super().__init__(name)
         self.mode = mode
     
+    def saveInfo(self):
+        return {"init": {"mode": self.mode}}
+
     def condition(self, parser):
         return 0 if parser.lists[-1].type == self.mode else 1
 
@@ -154,6 +169,9 @@ class Rule(ModeDependentCommand):
     """
     def __init__(self, vertical):
         self.vert = vertical
+
+    def saveInfo(self):
+        return {"init": {"vertical": self.vert}}
 
     def readRule(self, parser):
         if self.vert:
@@ -241,6 +259,9 @@ class GlueCommand:
         self.vert = vertical
         self.glue = glue
 
+    def saveInfo(self):
+        return {"init": {"glue": self.glue}}
+    
     def glueValue(self, parser):
         return parser.readGlue() if self.glue is None else self.glue
     
@@ -255,6 +276,9 @@ class Remove(Command):
     def __init__(self, node_type):
         self.node_type = node_type
 
+    def saveInfo(self):
+        return {"init": {"node_type": self.node_type}}
+    
     def execute(self, parser):
         top = parser.lists[-1]
         if len(top) > 0:

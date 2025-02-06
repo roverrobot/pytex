@@ -22,7 +22,7 @@ class Ligature(nd.CharNode):
     @param char: the ligature character
     """
     def __init__(self, char, characters):
-        super().__init__(char.char_info, char.font)
+        super().__init__(char.char, char.font)
         self.characters = characters
 
     node_type = nd.NODE_TYPE.LIGATURE
@@ -72,8 +72,8 @@ class HList(lists.List):
     """
     A horizontal list.
     """
-    def __init__(self, parser, inner=True):
-        super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner)
+    def __init__(self, parser, inner=True, nodes=[]):
+        super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner, nodes=nodes)
 
     def append(self, node):
         # \spacefactor for characters has been handled in parser.addChar. Now we need to set
@@ -154,38 +154,6 @@ class HSkip(lists.GlueCommand, HorizontalCommand):
 
     def math(self, parser, mlist):
         mlist.append(self.glueNode(parser))
-
-
-class HFil(HSkip):
-    """
-    Add a horizontal skip of 0pt plus 1fil.
-    """
-    def __init__(self):
-        super().__init__(Glue(0, Stretchness(1, 1)))
-
-
-class HFill(HSkip):
-    """
-    Add a horizontal skip of 0pt plus 1fill.
-    """
-    def __init__(self):
-        super().__init__(Glue(0, Stretchness(1, 2)))
-
-
-class Hss(HSkip):
-    """
-    Add a horizontal skip of 0pt plus 1fil minus 1fil.
-    """
-    def __init__(self):
-        super().__init__(Glue(0, Stretchness(1, 1), Stretchness(1, 1)))
-
-
-class HNegFil(HSkip):
-    """
-    Add a horizontal skip of 0pt plus -1fil.
-    """
-    def __init__(self):
-        super().__init__(Glue(0, Stretchness(-1, 1)))
 
 
 class Par(HorizontalCommand):
@@ -296,10 +264,14 @@ class ControlledSpace(HorizontalCommand):
 class DiscHList(HList):
     """
     A horizontal list that can contain discretionary nodes.
+    @param nodes: the nodes in the list
     """
-    def __init__(self):
+    def __init__(self, nodes=[]):
         # this list probably does not need to know the parser
-        super().__init__(None, inner=True)
+        super().__init__(None, inner=True, nodes=[])
+
+    def saveInfo(self):
+        return {"init": {"nodes": [n for n in self]}}
 
     def append(self, node):
         if isinstance(node, nd.Box) or isinstance(node, nd.Kern):
@@ -402,10 +374,10 @@ mod = Module("hmode",
     commands={
         "char": Char(),
         "hskip": HSkip(),
-        "hfil": HFil(),
-        "hfill": HFill(),
-        "hss": Hss(),
-        "hnegfil": HNegFil(),
+        "hfil": HSkip(Glue(0, Stretchness(1, 1))),
+        "hfill": HSkip(Glue(0, Stretchness(1, 2))),
+        "hss": HSkip(Glue(0, Stretchness(1, 1), Stretchness(1, 1))),
+        "hnegfil": HSkip(Glue(0, Stretchness(-1, 1))),
         "par": Par(),
         "indent": Indent(),
         "noindent": NoIndent(),

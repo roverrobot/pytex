@@ -1,12 +1,38 @@
 import pytest
 from pytex import texlive
+from pytex import resolver
+from pytex import token
+from pytex import font
+from pytex import lists
+from pytex import node as nd
+import json
+import io
 
-def test_plain(parser):
+
+@pytest.fixture()
+def plain_dump(parser):
+    dump = parser.resolver.openOut('plain', "dump")
     plain = parser.resolver.openIn('plain', "source")
     assert plain is not None
-    parser.parse(
-    """
-        \\def\\patterns#1{}
-        \\def\\hyphenation#1{}
-    """)
     parser.parse(plain)
+    assert parser.state.parameters["currentfont"].tfm.name != "nullfont"
+    parser.dump(dump)
+    dump.close()
+    return parser.resolver.in_memory_files["plain.json"].content
+
+
+@pytest.fixture()
+def plain(parser, plain_dump):
+    format = io.StringIO(plain_dump)
+    parser.load(format)
+    format.close()
+    return parser
+
+
+import time
+def test_plain(plain):
+    plain.parse("Hello, world! $\int_0^1 f(x) dx$")
+    top = plain.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 17
+    assert top[-2].node_type == nd.NODE_TYPE.MATH

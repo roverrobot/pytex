@@ -86,31 +86,7 @@ class VFil(VSkip):
     Add a vertical glue of 0pt plus 1fil.
     """
     def __init__(self):
-        super().__init__(Glue(0, Stretchness(1, 1)))
-
-
-class VFill(VSkip):
-    """
-    Add a vertical glue of 0pt plus 1fill.
-    """
-    def __init__(self):
-        super().__init__(Glue(0,  Stretchness(1, 2)))
-
-
-class Vss(VSkip):
-    """
-    Add a vertical glue of 0pt plus 1fil minus 1fil.
-    """
-    def __init__(self):
-        super().__init__(Glue(0, Stretchness(1, 1), Stretchness(1, 1)))
-
-
-class VNegFil(VSkip):
-    """
-    Add a vertical glue of 0pt minus -1fil.
-    """
-    def __init__(self):
-        super().__init__(Glue(0, Stretchness(-1, 1)))
+        super().__init__()
 
 
 def readVList(parser, reason):
@@ -126,10 +102,10 @@ def readVList(parser, reason):
 mod = Module("vmode",
     commands={
         "vskip": VSkip(),
-        "vfil": VFil(),
-        "vfill": VFill(),
-        "vss": Vss(),
-        "vnegfil": VNegFil(),
+        "vfil": VSkip(Glue(0, Stretchness(1, 1))),
+        "vfill": VSkip(Glue(0, Stretchness(1, 2))),
+        "vss": VSkip(Glue(0, Stretchness(1, 1), Stretchness(1, 1))),
+        "vnegfil": VSkip(Glue(0, Stretchness(-1, 1))),
     },
     attributes={
         "readVList": readVList

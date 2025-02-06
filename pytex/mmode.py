@@ -9,7 +9,7 @@ when parsing the math list, but after the list is parsed.
 
 from pytex import lists
 from pytex import node as nd
-from pytex.token import CATCODE
+from pytex.token import CATCODE, Serializable
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor
@@ -27,10 +27,13 @@ class MATH_STYLE(enum.IntEnum):
     SS = 3 # script script style
 
 
-class Style:
+class Style(Serializable):
     def __init__(self, style: MATH_STYLE, cramped: bool = False):
         self.style = style
         self.cramped = cramped
+
+    def saveInfo(self):
+        return {"init": {"style": self.style.value, "cramped": self.cramped}}
     
     def font(self, settings, family):
         """
@@ -98,6 +101,9 @@ class MList(lists.List):
         # whether the equation number is on the left
         self.eqno = None
     
+    def saveInfo(self):
+        return super().saveInfo() | {"extra": { "eqno": self.eqno}}
+
     node_type = nd.NODE_TYPE.MATH
 
     def append(self, node):
@@ -116,6 +122,9 @@ class StyleNode(nd.Node):
     def __init__(self, style):
         self.style = style
 
+    def saveInfo(self):
+        return {"init": {"style": self.style}}
+
     node_type = nd.NODE_TYPE.MATHNODE
 
 
@@ -125,6 +134,9 @@ class MathStyle(lists.ModeDependentCommand):
     """
     def __init__(self, style):
         self.style = style
+
+    def saveInfo(self):
+        return {"init": {"style": self.style}}
 
     def math(self, parser, mlist):
         mlist.append(StyleNode(self.style))
@@ -158,6 +170,16 @@ class Atom(nd.Node):
         self.left = None 
         self.right = None
 
+    def saveInfo(self):
+        return {
+            "extra": {
+                "sub": self.sub, 
+                "sup": self.sup,
+                "left": self.left,
+                "right": self.right
+            }
+        }
+
     node_type = nd.NODE_TYPE.MATHNODE
 
     def __repr__(self):
@@ -178,6 +200,9 @@ class MathSymbol(Atom):
         type, fam, char = self.decode(mathcode, fam)
         super().__init__(ATOM_TYPE(type))
         self.nucleus = (fam, char)
+
+    def saveInfo(self):
+        return super().saveInfo() | {"init": {"mathcode": self.encode()}}
 
     @classmethod
     def decode(cls, mathcode, fam=-1):
@@ -205,6 +230,9 @@ class Subformula(Atom):
         super().__init__(ATOM_TYPE.ORD)
         self.nucleus = mlist
 
+    def saveInfo(self):
+        return super().saveInfo() | {"init": {"mlist": self.nucleus}}
+
 
 class Box(Atom):
     """
@@ -214,6 +242,9 @@ class Box(Atom):
     def __init__(self, box):
         super().__init__(ATOM_TYPE.ORD)
         self.nucleus = box
+    
+    def saveInfo(self):
+        return super().saveInfo() | {"init": {"box": self.nucleus}}
 
 
 def mathShift(parser):
@@ -374,6 +405,9 @@ class MathCharValue(lists.ModeDependentCommand):
         super().__init__()
         self.mathcode = mathcode
 
+    def saveInfo(self):
+        return {"init": {"mathcode": self.mathcode}}
+
     def math(self, parser, mlist):
         mlist.append(self.mathCharValue(parser))
 
@@ -444,6 +478,9 @@ class MuKern(nd.Kern):
         super().__init__(dimen)
         self.mu = True
 
+    def saveInfo(self):
+        return {"init": {"dimen": self.dimen}}
+
     def typeset(self, parser, hlist):
         dimen = mudimen(self.kern, parser)
         hlist.append(nd.Kern(dimen))
@@ -462,6 +499,9 @@ class MuGlue(nd.Glue):
     def __init__(self, glue):
         super().__init__(glue)
         self.mu = True
+
+    def saveInfo(self):
+        return {"init": {"glue": self.glue}}
 
     def typeset(self, parser, hlist):
         hlist.append(nd.Glue(self.glue))
@@ -483,6 +523,9 @@ class MathAtom(lists.ModeDependentCommand):
     def __init__(self, atom_type):
         self.atom_type = atom_type
 
+    def saveInfo(self):
+        return {"init": {"atom_type": self.atom_type.value}}
+
     def math(self, parser, mlist):
         field = readField(parser)
         field.atom_type = self.atom_type
@@ -502,6 +545,9 @@ class Limits(lists.ModeDependentCommand):
     def __init__(self, limits):
         self.limits = limits
 
+    def saveInfo(self):
+        return {"init": {"limits": self.limits.value}}
+
     def math(self, parser, mlist):
         if len(mlist) > 0:
             node = mlist[-1]
@@ -518,6 +564,16 @@ class ChoiceNode(nd.Node):
         self.text = text
         self.script = script
         self.scriptscript = scriptscript
+
+    def saveInfo(self):
+        return {
+            "init": {
+                "display": self.display,
+                "text": self.text,
+                "script": self.script,
+                "scriptscript": self.scriptscript
+            }
+        }
 
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -542,7 +598,7 @@ class MathChoice(lists.ModeDependentCommand):
         mlist.append(ChoiceNode(display, text, script, scriptscript))
 
 
-class Delim:
+class Delim(Serializable):
     """
     a class represent a delimiter
     @param delcode: the delimiter code
@@ -553,6 +609,15 @@ class Delim:
         self.large = MathSymbol(delcode & 0x7ff, fam)
         self.type = ATOM_TYPE(delcode >> 24 & 7)
     
+    def saveInfo(self):
+        return {
+            "init": {
+                "type": self.type.value,
+                "small": self.small,
+                "large": self.large
+            }
+        }
+
     def __repr__(self):
         return f"Delim({self.type}, {self.small}, {self.large})"
 
@@ -566,6 +631,9 @@ class Rad(Atom):
     def __init__(self, delim, oprand):
         super().__init__(ATOM_TYPE.RAD)
         self.nucleus = (delim, oprand)
+
+    def saveInfo(self):
+        return {"init": {"delim": self.nucleus[0], "oprand": self.nucleus[1]}}
 
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -649,6 +717,9 @@ class Over(Atom):
         super().__init__(ATOM_TYPE.OVER)
         self.nucleus = (num, den, bar, thickness)
 
+    def saveInfo(self):
+        return {"init": {"num": self.nucleus[0], "den": self.nucleus[1], "bar": self.nucleus[2], "thickness": self.nucleus[3]}}
+    
     node_type = nd.NODE_TYPE.MATHNODE
 
 
@@ -664,6 +735,9 @@ class GeneralFraction(lists.ModeDependentCommand):
         self.bar = bar
         self.thickness = thickness
 
+    def saveInfo(self):
+        return {"init": {"bar": self.bar, "delim": self.delim, "thickness": self.thickness}}
+    
     def math(self, parser, mlist):
         # when TeX sees this command, it will change the current list to the numerator
         # Then it will start a new math list, and parse the denominator in the new list.
@@ -702,6 +776,9 @@ class Accent(Atom):
         super().__init__(ATOM_TYPE.ACC)
         self.nucleus = (accent, base)
 
+    def saveInfo(self):
+        return {"init": {"accent": self.nucleus[0], "base": self.nucleus[1]}}
+    
     node_type = nd.NODE_TYPE.MATHNODE
 
 
@@ -722,6 +799,9 @@ class Eqno(lists.ModeDependentCommand):
     """
     def __init__(self, left: bool):
         self.left = left
+
+    def saveInfo(self):
+        return {"init": {"left": self.left}}
 
     def math(self, parser, mlist):
         # we must be at the bottom of the math lists
@@ -747,6 +827,9 @@ class VCent(Box):
     def __init__(self, box):
         super().__init__(box)
         self.atom_type = ATOM_TYPE.VCENT
+    
+    def saveInfo(self):
+        return super().saveInfo() | {"init": {"box": self.nucleus}}
 
 
 class VCenter(box.VBoxCommand):
@@ -758,6 +841,9 @@ class VCenter(box.VBoxCommand):
     """
     def __init__(self):
         super().__init__(False)
+
+    def saveInfo(self):
+        return {}
 
     def execute(self, parser):
         top = parser.lists[-1]
@@ -777,6 +863,9 @@ class NonscriptGlue(nd.Glue):
     def __init__(self):
         super().__init__(Glue())
         self.nonscript = True
+
+    def saveInfo(self):
+        return {}
 
 
 class Nonscript(lists.ModeDependentCommand):

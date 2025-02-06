@@ -81,8 +81,21 @@ class Macro(Command):
         self.outer = False
         self.protected = False
 
+    def saveInfo(self):
+        return {
+            "init": {
+                "parameters": [t.serialize() for t in self.parameters],
+                "replacement": [t.serialize() for t in self.replacement],
+            },
+            "extra": {
+                "long": self.long,
+                "outer": self.outer,
+                "protected": self.protected
+            }
+        }
+
     def __repr__(self):
-        return f"Macro({self.parameters}{{self.replacement}})"
+        return f"Macro({self.parameters},{self.replacement})"
     
     def matchDelimited(self, parser, start):
         """
@@ -228,7 +241,7 @@ class MacroAccessor(Accessor):
         return Macro(parameters, replacement)
     
     def setValue(self, parser, value, globally):
-        return super().setValue(parser, value, self.globally)
+        return super().setValue(parser, value, self.globally or globally)
 
 
 class Def(Define):
@@ -242,6 +255,14 @@ class Def(Define):
         Define.__init__(self)
         self.globally = globally
         self.expanded = expanded
+    
+    def saveInfo(self):
+        return {
+            "init": {
+                "globally": self.globally,
+                "expanded": self.expanded
+            }
+        }
     
     def getItemAccessor(self, parser, index):
         p = MacroAccessor(self.domain, self.getIndex(parser), eq=False)

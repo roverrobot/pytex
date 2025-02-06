@@ -40,6 +40,14 @@ class Font(Command):
         # special characters
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}
     
+    def saveInfo(self):
+        return {"init": {"tfm": self.tfm.name, "at": self.at}}
+
+    @classmethod
+    def new(cls, parser, tfm, at):
+        tfm = parser.loadTFM(tfm)
+        return cls(tfm, at)
+
     def __getitem__(self, char):
         """
         get the character node
@@ -188,6 +196,9 @@ class FontDimen(DimenArrayAccessor):
     def __init__(self):
         super().__init__(None)
 
+    def saveInfo(self):
+        return {}
+    
     def newItemAccessor(self, index):
         return FontDimenAccessor(None, index)
 

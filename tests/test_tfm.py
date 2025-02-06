@@ -7,7 +7,7 @@ def test_read_tfm():
     resolver = texlive.TexliveResolver()
     tfm_file = resolver.openIn("cmr10.tfm")
     try:
-        tfm_data = tfm.TFM(tfm_file)
+        tfm_data = tfm.TFM("cmr10", tfm_file)
         assert tfm_data.header.size == 10.0
     except FileNotFoundError:
         pytest.skip("cmr10.tfm not found")

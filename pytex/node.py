@@ -5,6 +5,7 @@ This module implements the nodes of horizontal and vertical lists.
 
 import enum
 from pytex.dimen import Dimen
+from pytex.token import Serializable
 
 
 class NODE_TYPE(enum.Enum):
@@ -27,7 +28,7 @@ class NODE_TYPE(enum.Enum):
     ACCENT = 16 # accent node
 
 
-class Node:
+class Node(Serializable):
     """
     Base class for all nodes.
     """
@@ -44,6 +45,9 @@ class Box(Node):
         self.height = None if height is None else Dimen(height)
         self.depth = None if depth is None else Dimen(depth)
 
+    def saveInfo(self):
+        return {"init": {"width": self.width, "height": self.height, "depth": self.depth}}
+
 
 class CharNode(Box):
     """
@@ -51,13 +55,17 @@ class CharNode(Box):
     @param char_info: the character information
     @param font: the font of the character
     """
-    def __init__(self, char_info, font):
+    def __init__(self, char, font):
         at = font.at
+        char_info = font.tfm.char_info[ord(char)-font.bc]
         super().__init__(char_info.width * at, char_info.height * at, char_info.depth * at)
         self.char = char_info.char
         self.italic = char_info.italic * at
         self.char_info = char_info
         self.font = font
+
+    def saveInfo(self):
+        return {"init": {"char": self.char, "font": self.font}}
 
     node_type = NODE_TYPE.CHAR
 
@@ -73,7 +81,7 @@ class Rule(Box):
     
     def __repr__(self):
         return f"Rule({self.width}, {self.height}, {self.depth})"
-
+    
 
 class Glue(Node):
     """
@@ -83,6 +91,9 @@ class Glue(Node):
     def __init__(self, glue):
         self.glue = glue
         self.kern = None
+
+    def saveInfo(self):
+        return {"init": {"glue": self.glue}}
 
     def __repr__(self):
         set = self.glue if self.kern is None else f"{self.kern}pt"
@@ -101,6 +112,9 @@ class Kern(Node):
         self.kern = Dimen(kern)
         self.automatic = automatic
 
+    def saveInfo(self):
+        return {"init": {"kern": self.kern, "automatic": self.automatic}}
+
     node_type = NODE_TYPE.KERN
 
     def __repr__(self):
@@ -114,6 +128,9 @@ class Penalty(Node):
     """
     def __init__(self, penalty):
         self.penalty = penalty
+
+    def saveInfo(self):
+        return {"init": {"penalty": self.penalty}}
 
     node_type = NODE_TYPE.PENALTY
 
@@ -130,6 +147,9 @@ class Disc(Node):
         self.post = post
         self.replace = replace
 
+    def saveInfo(self):
+        return {"init": {"pre": self.pre, "post": self.post, "replace": self.replace}}
+    
     def __repr__(self):
         return f"Disc({self.pre}, {self.post}, {self.replace})"
 
@@ -158,6 +178,9 @@ class Special(WhatsIt):
     def __init__(self, text):
         self.text = text
 
+    def saveInfo(self):
+        return {"init": {"text": self.text}}
+
     def __repr__(self):
         return f"Special({self.text})"
 
@@ -172,6 +195,9 @@ class VAdjust(Node):
     def __init__(self, vlist):
         self.vlist = vlist
 
+    def saveInfo(self):
+        return {"init": {"vlist": self.vlist}}
+
     node_type = NODE_TYPE.ADJUST
 
 
@@ -181,6 +207,9 @@ class Mark(Node):
     """
     def __init__(self, tokens):
         self.tokens = tokens
+
+    def saveInfo(self):
+        return {"init": {"tokens": self.tokens}}
 
     node_type = NODE_TYPE.MARK
 
@@ -193,4 +222,7 @@ class Insert(Node):
         self.index = index
         self.vlist = vlist
 
+    def saveInfo(self):
+        return {"init": {"index": self.index, "vlist": self.vlist}}
+    
     node_type = NODE_TYPE.INS

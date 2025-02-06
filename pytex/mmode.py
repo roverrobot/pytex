@@ -202,7 +202,12 @@ class MathSymbol(Atom):
         self.nucleus = (fam, char)
 
     def saveInfo(self):
-        return super().saveInfo() | {"init": {"mathcode": self.encode()}}
+        return super().saveInfo() | {"init": {"mathcode": self.encode(), "fam": -1}}
+
+    def encode(self):
+        type = self.atom_type.value
+        fam, char = self.nucleus
+        return (type << 12) | (fam << 8) | ord(char)
 
     @classmethod
     def decode(cls, mathcode, fam=-1):

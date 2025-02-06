@@ -9,6 +9,7 @@ from pytex.token import CATCODE
 from pytex.module import Module
 from io import StringIO
 from types import MethodType
+from typing import Tuple
 import os
 
 
@@ -40,6 +41,8 @@ class InMemoryTextFile:
             self.content = f.getvalue()
             if f in self.readers:
                 self.readers.remove(f)
+            if f == self.writer:
+                self.writer = None
         s.close = MethodType(close, s)
         if not for_read:
             self.writer = s
@@ -77,6 +80,7 @@ class FileResolver:
         self.in_memory_files = {}
         self.typeinfo = {
             "tfm": TypeInfo(["tfm"], binary=True),
+            "dump": TypeInfo(["json"], binary=False),
         }
 
     def sourceTypeInfo(self, exts):
@@ -96,7 +100,7 @@ class FileResolver:
         except KeyError:
             return None
 
-    def getInfo(self, name: str, type: str) -> (str, list, bool):
+    def getInfo(self, name: str, type: str) -> Tuple[str, TypeInfo]:
         """
         get the file information
         @param name: the file name

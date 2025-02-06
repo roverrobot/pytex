@@ -190,6 +190,14 @@ class Scanner:
                 return self.read()
             return t
 
+    def end(self):
+        """
+        terminate the scanner
+        """
+        if self.stream is not None:
+            self.stream.close()
+        self.lines = enumerate([])
+
 
 class StringScanner(Scanner):
     """
@@ -300,6 +308,7 @@ class InputStack:
                 if s.position is not None:
                     self.active = s
                     break
+            self.active = None
         if to is None or top == to:
             return [top]
         return self.pop(to)

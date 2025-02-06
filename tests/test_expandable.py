@@ -83,3 +83,9 @@ def test_input(collector):
     collector.resolver.in_memory_files["test.tex"] = InMemoryTextFile("abc")
     collector.parse("123\\input test")
     assert collector.getString() == "123abc "
+
+
+def test_endinput(collector):
+    collector.resolver.in_memory_files["test.tex"] = InMemoryTextFile("abc\\endinput\ndef")
+    collector.parse("123\\input test")
+    assert collector.getString() == "123abc"

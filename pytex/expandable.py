@@ -243,6 +243,18 @@ class Input(Command):
         parser.input.push(Scanner(parser.state.catcode, f, name))
 
 
+class EndInput(Command):
+    """
+    The \\endinput command.
+
+    This command ends the active scanner of the input stack.
+    """
+    def expand(self, parser, token):
+        active = parser.input.active
+        if active is not None:
+            active.end()
+
+
 mod = Module("expandable",
     commands={
         "noexpand": NoExpand(),
@@ -254,5 +266,6 @@ mod = Module("expandable",
         "string": String(),
         "the": The(),
         "input": Input(),
+        "endinput": EndInput()
     }
 )

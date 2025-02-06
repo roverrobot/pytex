@@ -47,9 +47,24 @@ class Parser:
         self.ifstack = []
         # the list stack
         self.lists = [vmode.VList(self, inner=False)]
-        log = resolver.InMemoryTextFile("log")
-        self.log = log.open(for_read=False)
+        self.log = self.getLogFile()
     
+    def getLogFile(self):
+        """
+        get the log file
+        @return: the log file
+        """
+        self.logfile = resolver.InMemoryTextFile("log")
+        return self.logfile.open(for_read=False)
+
+    def logContent(self):
+        """
+        return the content of the log file
+        """
+        if self.log.closed:
+            return self.logfile.content
+        return self.log.getvalue()
+
     def token(self):
         """
         get the next token from the input stack
@@ -349,3 +364,28 @@ class Parser:
         """
         format = json.loads(file.read())
         self.state.load(token.deserialize(self, format))
+
+    def end(self):
+        """
+        end the parser, and return the log
+        """
+        # have we ended? If so, the input stack is empty
+        if len(self.input.stack) == 0:
+            return self.logContent()
+        top = self.lists[-1]
+        if top.type == lists.LISTTYPE.HORIZONTAL:
+            if top.inner:
+                raise ValueError("end in internal horizontal mode")
+            self.endParagraph()
+        elif top.type == lists.LISTTYPE.MATH:
+            raise ValueError("end in math mode")
+        top = self.lists[-1]
+        if top.type != lists.LISTTYPE.VERTICAL or top.inner:
+            raise ValueError("did not end in the main vertical list")
+        # \vfill\penalty-'10000000000
+        top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2))))
+        top.append(node.Penalty(-0x100000))
+        self.input.pop(to=self.input.stack[0])
+        self.run = False
+        self.log.close()
+        return self.logContent()

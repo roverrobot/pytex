@@ -32,6 +32,8 @@ def plain(parser, plain_dump):
 import time
 def test_plain(plain):
     plain.parse("Hello, world! $\int_0^1 f(x) dx$\end")
+    # the content of the log file
+    log = plain.end()
     top = plain.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     assert len(top) == 3

@@ -105,19 +105,7 @@ class End(Command):
     End the current vertical list.
     """
     def execute(self, parser):
-        top = parser.lists[-1]
-        if top.type == lists.LISTTYPE.HORIZONTAL:
-            if top.inner:
-                raise ValueError("end in internal horizontal mode")
-            parser.endParagraph()
-        elif top.type == lists.LISTTYPE.MATH:
-            raise ValueError("end in math mode")
-        top = parser.lists[-1]
-        if top.type != lists.LISTTYPE.VERTICAL or top.inner:
-            raise ValueError("did not end in the main vertical list")
-        # \vfill\penalty-'10000000000
-        top.append(nd.Glue(Glue(0, Stretchness(1, 2))))
-        top.append(nd.Penalty(-0x100000))
+        parser.end()
 
 
 mod = Module("vmode",

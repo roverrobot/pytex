@@ -298,7 +298,6 @@ class InputStack:
         """
         pop the top scanner if it is terminated
         @param to: the scanner to pop to (including to)
-        return the list of scanners that were popped
         """
         if len(self.stack) == 0:
             return
@@ -310,7 +309,7 @@ class InputStack:
                     break
             self.active = None
         if to is None or top == to:
-            return [top]
+            return
         return self.pop(to)
 
 

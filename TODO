@@ -1,5 +1,4 @@
 * \noboundary
-* hyphenation
 * layout
   * paragraphs
   * alignment
@@ -9,7 +8,6 @@
     * inserts
   * leaders
 * output
-  * file operations
 * eTex
 * minimal pdftex
 * latex

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pytex"
+version = "0.1"
+authors = [
+    { name="Junling Ma", email="junlingm@gmail.com" },
+]
+description = "A TeX parser in Python 3"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pyphen>=0.17.2", 
+    "pytest>=8.3.4",
+]

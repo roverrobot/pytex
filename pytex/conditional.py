@@ -145,12 +145,12 @@ class IfCompareToken(Conditional):
         else:
             t1 = parser.token()
             t2 = parser.token()
-            if t1 is not None and t1.isCommand():
-                t1 = parser.lookup(t1.name)
-            if t2 is not None and t2.isCommand():
-                t2 = parser.lookup(t2.name)
         if t1 is None or t2 is None:
             raise ValueError("expecting two tokens", pos)
+        if t1 is not None and t1.isCommand():
+            t1 = parser.lookup(t1.name)
+        if t2 is not None and t2.isCommand():
+            t2 = parser.lookup(t2.name)
         return 0 if self.equal(t1, t2) else 1
 
 

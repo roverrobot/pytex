@@ -136,7 +136,7 @@ class Macro(Command):
             parser.skipSpaces()
             t = parser.token()
             if t is None:
-                raise ValueError("macro does not match the definition {self}", parser.input.position())
+                raise ValueError(f"macro does not match the definition {self}", parser.input.position())
             if t.catcode == CATCODE.BEGIN_GROUP:
                 parser.input.unread(t)
                 return parser.readBalancedText(expand=False), i

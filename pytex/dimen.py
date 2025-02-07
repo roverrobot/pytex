@@ -26,7 +26,7 @@ class Dimen(serialization.Serializable):
         return self
 
     def __repr__(self):
-        return f"{self.value/self.scale:.5f}"
+        return f"{round(self.value/self.scale, 5)}"
     
     def __float__(self):
         return self.value / self.scale

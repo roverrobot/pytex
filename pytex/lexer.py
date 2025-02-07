@@ -288,6 +288,8 @@ class InputStack:
         @param lexer: the scanner to push
         """
         if len(self.saved) > 0:
+            # remember that the saved tokens are on a stack. So we need to reverse it
+            self.saved.reverse()
             self.stack.append(TokenListScanner(self.saved))
             self.saved = []
         self.stack.append(lexer)

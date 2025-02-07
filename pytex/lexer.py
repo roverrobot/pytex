@@ -164,7 +164,8 @@ class Scanner:
         except StopIteration:
             self.column = self.tokenizer.pos
             self.tokenizer = None
-            self.stream.close()
+            if not self.stream.closed:
+                self.stream.close()
 
     def position(self):
         """

@@ -50,7 +50,6 @@ def test_toks(parser):
     parser.parse("\\toks0={abc\\relax}")
     d = serialization.serialize(parser.state.toks[0])
     v = serialization.deserialize(parser, d)
-    print(v)
     assert len(v) == 4
     assert v[0].name == "a"
     assert v[0].catcode == token.CATCODE.LETTER

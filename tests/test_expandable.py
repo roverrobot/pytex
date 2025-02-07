@@ -53,7 +53,7 @@ def test_misplaced_endcsname(parser):
         parser.parse("\\endcsname")
         assert False, "unexpected \\endcsname"
     except ValueError as e:
-        assert "unexpected \\endcsname" in str(e)
+        assert "unexpected \\endcsname" in e.args[0]
 
 
 def test_number_romannumeral(collector):

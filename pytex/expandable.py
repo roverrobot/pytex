@@ -35,8 +35,6 @@ class ExpandAfter(Command):
         t = parser.token()
         if t is None:
             return None
-        t1 = parser.token()
-        parser.input.unread(t1)
         t1 = parser.token_expand()
         if t1 is not None:
             parser.input.unread(t1)

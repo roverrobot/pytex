@@ -51,12 +51,26 @@ class EndCSName(Command):
         @param parser: the parser
         @return: the expanded command
         """
-        raise ValueError("unexpected \\endcsname")
+        raise ValueError("unexpected \\endcsname", parser.input.position())
 
 
 endcsname = EndCSName()
 
 
+def readCSName(parser):
+    name = "\\"
+    while True:
+        t = parser.token_expand()
+        if t is None:
+            raise ValueError("expecting \\endcsname", parser.input.position())
+        if t.meaning == endcsname:
+            break
+        elif t.catcode is None:
+            raise ValueError(f"unexpected {t.name}", parser.input.position())
+        name += t.name
+    return CommandToken(name)
+
+        
 class CSName(Command):
     """
     The \\csname command.
@@ -69,24 +83,13 @@ class CSName(Command):
         @param token: the command token
         @return: the expanded command
         """
-        name = "\\"
-        while True:
-            t = parser.token_expand()
-            if t is None:
-                raise ValueError("expecting \\endcsname", parser.input.position())
-            if t.meaning == endcsname:
-                break
-            elif t.catcode is None:
-                raise ValueError(f"unexpected {t.name}", parser.input.position())
-            name += t.name
-        c = parser.lookup(name)
+        t = readCSName(parser)
+        c = parser.lookup(t.name)
         if c is not None:
-            return c.expand(parser, token)
-        c = relax
-        parser.state.domains["equitable"][name] = c
-        token = CommandToken(name)
-        token.meaning = c
-        return token
+            return c.expand(parser, t)
+        parser.state.domains["equitable"][t.name] = relax
+        t.meaning = relax
+        return t
 
 
 def toToks(s: str) -> list:

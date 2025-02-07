@@ -119,6 +119,7 @@ class Conditional(Command):
     def expand(self, parser, token):
         pos = parser.input.position()
         condition = self.condition(parser)
+        print(self.name, condition)
         parser.ifstack.append((self, pos))
         self.skipTo(parser, condition)
 
@@ -134,6 +135,9 @@ class IfCompareToken(Conditional):
         super().__init__(name)
         self.expand_tokens = expand_tokens
 
+    def saveInfo(self):
+        return {"init": {"name": self.name, "expand_tokens": self.expand_tokens}}
+
     def equal(self, t1, t2):
         raise NotImplementedError()
 
@@ -147,9 +151,9 @@ class IfCompareToken(Conditional):
             t2 = parser.token()
         if t1 is None or t2 is None:
             raise ValueError("expecting two tokens", pos)
-        if t1 is not None and t1.isCommand():
+        if t1.isCommand():
             t1 = parser.lookup(t1.name)
-        if t2 is not None and t2.isCommand():
+        if t2.isCommand():
             t2 = parser.lookup(t2.name)
         return 0 if self.equal(t1, t2) else 1
 

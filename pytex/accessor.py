@@ -124,7 +124,6 @@ class Accessor(token.Command):
         t = parser.state.globals["afterassignment"]
         if t is not None:
             parser.input.unread(t)
-        self.setValue(parser, value, prefixes)
     
     def execute(self, parser):
         """

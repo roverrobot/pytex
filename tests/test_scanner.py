@@ -97,11 +97,11 @@ def test_input_stack(catcode):
     assert token.catcode == CATCODE.SPACE
     token = stack.read()
     assert token is not None
-    assert token.name == "C"
+    assert token.name == "B"
     assert token.catcode == CATCODE.LETTER
     token = stack.read()
     assert token is not None
-    assert token.name == "B"
+    assert token.name == "C"
     assert token.catcode == CATCODE.LETTER
     token = scanner.read()
     assert token is None

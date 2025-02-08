@@ -172,6 +172,9 @@ class FontCommand(Define):
     """
     def newItemAccessor(self, index):
         return FontDefineAccessor(self.domain, index)
+    
+    def fontValue(self, parser):
+        return parser.state.parameters["currentfont"]
 
 
 class FontDimenAccessor(DimenAccessor):

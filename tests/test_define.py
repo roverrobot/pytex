@@ -5,9 +5,16 @@ from tests import checkValues
 def test_let(collector):
     collector.parse("\\let\\a=1\\a")
     assert collector.getString() == "1"
-    checkValues(collector, "\\let\\a=0\\count\\a=2", [["count", 0, 2]])
-    checkValues(collector, "{\\let\\a=1\\count\\a=3", [["count", 1, 3]])
-    checkValues(collector, "}", [["count", 1, 0]])
+    try:
+        collector.parse("\\let\\a=1\\count\\a=2")
+        assert False, "Expected ValueError"
+    except ValueError as e:
+        assert "integer" in e.args[0]
+    try:
+        collector.parse("\\let\\a=1\\count0=\\a")
+        assert False, "Expected ValueError"
+    except ValueError as e:
+        assert "integer" in e.args[0]
 
 def test_futurelet(collector):
     collector.parse("\\futurelet\\a=01\\a")

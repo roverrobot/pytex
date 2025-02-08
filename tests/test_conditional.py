@@ -51,6 +51,8 @@ def test_ifx(collector):
     assert collector.getString() == "b"
     collector.parse("\\ifx\\undefined\\nosuchcommand a\\else b\\fi")
     assert collector.getString() == "a"
+    collector.parse("\\let\\a=1\\ifx\\a1a\\else b\\fi")
+    assert collector.getString() == "a"
 
 
 def test_ifcase(collector):
@@ -169,6 +171,9 @@ def test_iftrue_iffalse(collector):
 def test_multi_levels(collector):
     collector.parse("\\iftrue\\iffalse a\\else b\\fi\\else c\\fi")
     assert collector.getString() == "b"
+    assert len(collector.ifstack) == 0
+    collector.parse("\\iftrue a\\else\\iffalse a\\else b\\fi\\fi")
+    assert collector.getString() == "a"
     assert len(collector.ifstack) == 0
 
 

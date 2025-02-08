@@ -26,7 +26,6 @@ def readBalancedText(parser, expand: bool = False):
     toks = []
     level = 0
     while True:
-        pos = parser.input.position()
         t = read()
         if t is None:
             raise ValueError("unbalanced token list", pos)
@@ -79,6 +78,15 @@ class ToksCommand:
         read the value from the input stack
         @param parser: the parser
         """
+        parser.skipFiller()
+        t = parser.token()
+        if t.isCommand():
+            t.meaning = parser.lookup(t.name)
+            try:
+                return t.meaning.toksValue(parser)
+            except AttributeError:
+                pass
+        parser.input.unread(t)
         return readBalancedText(parser, expand=False)
     
     def toksValue(self, parser):

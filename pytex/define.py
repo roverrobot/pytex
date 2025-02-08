@@ -79,7 +79,9 @@ class Let(Define):
     the \\let command
     """
     def newItemAccessor(self, index):
-        return LetAccessor(self.domain, index)
+        accessor = LetAccessor(self.domain, index)
+        accessor.expandEq = False
+        return accessor
 
 
 class FutureLetAccessor(accessor.Accessor):

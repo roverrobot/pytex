@@ -23,12 +23,12 @@ from pytex.module import Module
 from pytex import token
 
 
-def skipEq(parser):
+def skipEq(parser, expand: bool=True):
     """
     read the equal sign from the input stack
     @param parser: the parser
     """
-    t = parser.token_expand()
+    t = parser.token_expand() if expand else parser.token()
     if t is None:
         return
     # read the equal sign
@@ -51,6 +51,7 @@ class Accessor(token.Command):
         self.domain = domain
         self.index = index
         self.eq = eq
+        self.expandEq = True
         self.range = None
 
     def saveInfo(self):
@@ -67,7 +68,7 @@ class Accessor(token.Command):
         read the equal sign from the input stack
         @param parser: the parser
         """
-        return parser.skipEq()
+        return parser.skipEq(expand=self.expandEq)
 
     def readValue(self, parser):
         """

@@ -61,7 +61,7 @@ class Font(Command):
         parser.state.parameters["currentfont"] = self
 
     def __repr__(self):
-        return f"Font({self.name}, {self.at})"
+        return f"Font({self.tfm.name}, {self.at})"
         
     def fontValue(self, parser):
         """
@@ -133,16 +133,16 @@ class FontChar(IntegerArrayAccessor):
     """
     A font character
     """
-    def __init__(self, name):
+    def __init__(self, field):
         super().__init__(None)
-        self.name = name
+        self.field = field
 
     def getIndex(self, parser):
         return readFont(parser)
     
     def getItemAccessor(self, parser, index):
         font = self.getIndex(parser)
-        return FontCharAccessor(font, self.name)
+        return FontCharAccessor(font, self.field)
 
 
 class FontDefineAccessor(Accessor):

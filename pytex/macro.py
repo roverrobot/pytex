@@ -133,7 +133,7 @@ class Macro(Command):
         # then the argument is undelimited. In this case, the argument is the next non-space
         # token,, and if the token is {, then the argument is a balanced text
         if i >= len(self.parameters) or self.parameters[i].catcode == CATCODE.PARAMETER:
-            parser.skipSpaces()
+            parser.skipSpaces(expand=False)
             t = parser.token()
             if t is None:
                 raise ValueError(f"macro does not match the definition {self}", parser.input.position())
@@ -155,7 +155,7 @@ class Macro(Command):
             else:
                 result.append(t)
 
-    def expand(self, parser, token):
+    def expand(self, parser):
         """
         expand the macro
         @param parser: the parser
@@ -190,7 +190,6 @@ class Macro(Command):
         # we now create a MacroScanner and read from it.
         scanner = MacroScanner(self.replacement, args)
         parser.input.push(scanner)
-        return None
     
     def __eq__(self, other):
         # this is used by the \\ifx command to compare two macros

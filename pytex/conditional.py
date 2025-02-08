@@ -12,11 +12,11 @@ def skipBranch(parser):
     skip all tokens in a branch, until an \\else, \\or or \\fi is encountered.
     @param parser: the parser
     @return: the command that was encountered    """
-    pos = parser.input.position()
     while True:
+        pos = parser.input.position()
         t = parser.token()
         if t is None:
-            c, cpos = parser.ifstack[-1]
+            c, branch, cpos = parser.ifstack[-1]
             raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", pos)
         if t.isCommand():
             c = parser.lookup(t.name)
@@ -29,9 +29,6 @@ class Branch(Command):
     the base class for a branch. Commands such as \else, \or, and \fi are subclasses of this class.
     @param command_name: the name of the command
     """
-    def __init__(self, command_name: str):
-        self.command_name = command_name
-    
     def skipAll(self, parser):
         """
         skip all tokens in a conditional command, until an \\fi is encountered.
@@ -39,38 +36,30 @@ class Branch(Command):
         """
         while True:
             c = skipBranch(parser)
-            if isinstance(c, Fi):
+            if c == fi:
                 parser.ifstack.pop()
                 return
 
-    def expand(self, parser, token):
+    def expand(self, parser):
         if len(parser.ifstack) == 0:
-            raise ValueError("unexpected " + self.command_name, parser.input.position())
+            raise ValueError("unexpected " + self.name, parser.input.position())
         self.skipAll(parser)
 
 
 class Else(Branch):
     """ the \\else command """
-    def __init__(self):
-        super().__init__("\\else")
+    pass
 
 
 class Or(Branch):
     """ the \\or command """
-    def __init__(self):
-        super().__init__("\\or")
-
-    def expand(self, parser, token):
+    def expand(self, parser):
         if len(parser.ifstack) == 0 or not parser.ifstack[-1][0].is_case:
             raise ValueError("unexpected \\or")
         self.skipAll(parser)
 
 
 class Fi(Branch):
-    """ the \\fi command """
-    def __init__(self):
-        super().__init__("\\fi")
-
     def skipAll(self, parser):
         if len(parser.ifstack) == 0:
             raise ValueError("unexpected \\fi")
@@ -116,11 +105,12 @@ class Conditional(Command):
                 parser.ifstack.pop()
                 return
 
-    def expand(self, parser, token):
+    def expand(self, parser):
         pos = parser.input.position()
         condition = self.condition(parser)
-        print(self.name, condition)
-        parser.ifstack.append((self, pos))
+        # here we store the command, the branch (condition) and the position iin input stack
+        # in the ifstack.
+        parser.ifstack.append([self, condition, pos])
         self.skipTo(parser, condition)
 
 
@@ -260,6 +250,8 @@ class IfFalse(Conditional):
         return 1
 
 
+fi = Fi()
+
 # other conditional commands will be implemented inother modules
 # \if[vhm]mode, \ifinner will be implemented with hlists and vlists
 # \ifvoid, \ifhbox, \ifvbox will be implemented with boxes
@@ -278,6 +270,6 @@ mod = Module("conditional",
         "iffalse": IfFalse(),
         "else": Else(),
         "or": Or(),
-        "fi": Fi(),
+        "fi": fi,
     }
 )

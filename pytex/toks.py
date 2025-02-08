@@ -11,22 +11,6 @@ from pytex.state import Array
 from pytex import accessor
 
 
-def token_expand(parser):
-    """
-    expand a token
-    @param parser: the parser
-    """
-    t = parser.token()
-    if t is None or t.protected:
-        return t
-    t1 = t.expand(parser, t)
-    if t1 is None:
-        return token_expand(parser)
-    if isinstance(t1, CommandToken) and t1 == t:
-        raise ValueError(f"undefined command {t.name}")
-    return t1
-
-
 def readBalancedText(parser, expand: bool = False):
     """
     read a balanced token list
@@ -35,13 +19,14 @@ def readBalancedText(parser, expand: bool = False):
     @return: the token list
     """
     pos = parser.input.position()
-    read = lambda: token_expand(parser) if expand else parser.token()
+    read = lambda: parser.token_expand(protected=True) if expand else parser.token()
     lbrace = read()
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", pos)
     toks = []
     level = 0
     while True:
+        pos = parser.input.position()
         t = read()
         if t is None:
             raise ValueError("unbalanced token list", pos)

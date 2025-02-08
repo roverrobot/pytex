@@ -28,9 +28,39 @@ class Define(accessor.ArrayAccessor):
         t = parser.token()
         if t is None or not t.isCommand():
             raise ValueError("command name expected")
-        # command t is going to be redefined. We make it relax
-        parser.state.equitable[t.name] = None
+        # command t is going to be defined. We make it relax, so that if it appears later
+        # in the input, it will be ignored. This, for example, appears in
+        # \font\test=cmr10\test
+        parser.state.equitable[t.name] = token.relax
         return t.name
+
+
+class LetToken(token.Command):
+    """
+    the value of the \\let command
+    """
+    def __init__(self, token):
+        self.token = token
+    
+    def saveInfo(self):
+        return {"init": {"token": self.token}}
+
+    def __str__(self):
+        return str(self.token)
+
+    def expand(self, parser):
+        """
+        execute the command
+        @param parser: the parser
+        """
+        parser.input.unread(self.token)
+
+    def execute(self, parser):
+        """
+        execute the command
+        @param parser: the parser
+        """
+        self.token.execute(parser)
 
 
 class LetAccessor(accessor.Accessor):
@@ -41,7 +71,7 @@ class LetAccessor(accessor.Accessor):
         t = parser.token()
         if t is None:
             raise ValueError("a token is expected")
-        return t
+        return LetToken(t)
 
 
 class Let(Define):
@@ -68,7 +98,7 @@ class FutureLetAccessor(accessor.Accessor):
         if t2 is None:
             raise ValueError("\\futurelet expects two tokens")
         parser.input.unread(t1)
-        return t2
+        return LetToken(t2)
 
 
 class FutureLet(Define):
@@ -85,31 +115,24 @@ class CharDefValue(token.Command):
     """
     def __init__(self, value):
         self.value = value
-    
+
     def saveInfo(self):
         return {"init": {"value": self.value}}
-
-    def __str__(self):
-        return chr(self.value)
-
-    def execute(self, parser):
-        """
-        execute the command
-        @param parser: the parser
-        """
-        parser.addChar(self.charValue(parser))
     
-    def intValue(self, parser):
-        """
-        get the integer value
-        """
-        return self.value
-
+    def execute(self, parser):
+        return parser.addChar(self.charValue(parser))
+    
     def charValue(self, parser):
         """
         get the character value
         """
         return chr(self.value)
+
+    def intValue(self, parser):
+        """
+        get the integer value
+        """
+        return self.value
 
 
 class CharDefAccessor(accessor.Accessor):

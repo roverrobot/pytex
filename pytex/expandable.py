@@ -12,31 +12,32 @@ class NoExpand(Command):
     """
     The \\noexpand command.
     """
-    def expand(self, parser, token):
+    def expand(self, parser):
         """
-        Expand the command. The noexpand command prevents the next token from being expanded.
+        Expand the command. This command prevents the next token from being expanded.
         @param parser: the parser
-        @param token: the command token
-        @return: the expanded command
         """
-        return parser.token()
+        t = parser.token()
+        t.noexpand = True
+        parser.input.unread(t)
 
 
 class ExpandAfter(Command):
     """
     The \\expandafter command.
     """
-    def expand(self, parser, token):
+    def expand(self, parser):
         """
         Expand the command. The expandafter command expands the next token after the next token.
         @param parser: the parser
-        @return: the expanded command
         """
         t = parser.token()
         if t is None:
-            return None
-        t1 = parser.token_expand()
-        if t1 is not None:
+            return
+        t1 = parser.token()
+        if t1.isCommand() and t1.expandable(parser, protected=False):
+            t1.meaning.expand(parser)
+        else:
             parser.input.unread(t1)
         parser.input.unread(t)
 
@@ -75,21 +76,23 @@ class CSName(Command):
     """
     The \\csname command.
     """
-    def expand(self, parser, token):
+    def expand(self, parser):
         """
-        Expand the command. The csname command expands the tokens until the endcsname command.
-        and returns the control sequence name.
+        Expand the command. 
         @param parser: the parser
-        @param token: the command token
-        @return: the expanded command
+
+        The \\csname command expands the tokens until the endcsname command.
+        It then collects the token names into a control sequence name, and makes 
+        a new command token with the name. The new comand token is the next token in rhe
+        input stack.
         """
         t = readCSName(parser)
         c = parser.lookup(t.name)
-        if c is not None:
-            return c.expand(parser, t)
-        parser.state.domains["equitable"][t.name] = relax
-        t.meaning = relax
-        return t
+        if c is None:
+            c = relax
+            parser.state.domains["equitable"][t.name] = c
+        t.meaning = c
+        parser.input.unread(t)
 
 
 def toToks(s: str) -> list:
@@ -111,7 +114,11 @@ class Number(Command):
     def str(self, n):
         return str(n)
 
-    def expand(self, parser, token):
+    def expand(self, parser):
+        """
+        reads an integer and converts it to a string of tokens with catcode OTHER
+        @param parser: the parser
+        """
         n = parser.readInteger()
         s = self.str(n)
         parser.input.push(TokenListScanner(toToks(s)))
@@ -171,9 +178,13 @@ def toksToString(parser, tokens, space_after_command=False):
 
 class String(Command):
     """
-    the \\string command, that converts a token to a string
+    the \\string command.
+    @param parser: the parser
+
+    It reads a token from the input stack and converts its name to a list of tokens
+    with catcode OTHER. The result is pushed back to the input stack.
     """
-    def expand(self, parser, token):
+    def expand(self, parser):
         pos = parser.input.position()
         t = parser.token()
         if t is None:
@@ -190,11 +201,8 @@ class ProtectedTokenListScanner(TokenListScanner):
     """
     def read(self):
         t = super().read()
-        if t is not None and isinstance(t, CommandToken):
-            c = CommandToken(t.name)
-            c.catcode = t.catcode
-            c.protected = True
-            return c
+        if t is not None and t.isCommand():
+            t.protected = True
         return t
 
 
@@ -202,7 +210,13 @@ class The(Command):
     """
     The \\the command.
     """
-    def expand(self, parser, token):
+    def expand(self, parser):
+        """
+        \\the command expands the next token.
+        @param parser: the parser
+
+        The actual expansion depends on the type of the token. Please see TeXBook pp. 214.
+        """
         pos = parser.input.position()
         t = parser.token_expand()
         if t is None or t.meaning is None:
@@ -232,7 +246,11 @@ class Input(Command):
     """
     The \\input command.
     """
-    def expand(self, parser, token):
+    def expand(self, parser):
+        """
+        It reads a file name from the input stack, opens the files, and 
+        pushes a new scanner to the input stack.
+        """
         pos = parser.input.position()
         name = parser.readFileName()
         if name is None:
@@ -249,7 +267,7 @@ class EndInput(Command):
 
     This command ends the active scanner of the input stack.
     """
-    def expand(self, parser, token):
+    def expand(self, parser):
         active = parser.input.active
         if active is not None:
             active.end()

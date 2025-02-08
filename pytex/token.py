@@ -53,27 +53,20 @@ class Command(serialization.Serializable):
     to be expanded to, such as a macro, or a primitive command that is executed by the
     parser.
     """
-    # a command is a special type of token that has no name and category code
     name = None
     catcode = None
-    # the command is protected from expansion when constructing an expended token list
     protected = False
+
+    # the command is not expandable by default
+    # expandable commands have a expand method defined
+    expand = None
+
     def execute(self, parser):
         """
         execute the command.
         @param parser: the parser
         """
         pass
-
-    def expand(self, parser, token):
-        """
-        if the command is not expandable, the command should return itself.
-        otherwise, it should put the expanded tokens in the input stack.
-        Here, by default, it is not expandable.
-        @param parser: the parser 
-        @param token: the command token
-        """
-        return token
 
 
 class Token(Command):
@@ -98,6 +91,9 @@ class Token(Command):
     def __repr__(self):
         return f"{self.name}({self.catcode})"
 
+    # not expandable by default
+    expand = None
+
     def execute(self, parser):
         """
         execute the token. The default behavior is to raise an error.
@@ -105,15 +101,6 @@ class Token(Command):
         """
         raise ValueError("invalid token: " + str(self))
     
-    def expand(self, parser, token):
-        """
-        expand the token. The default behavior is to return itself.
-        @param parser: the parser
-        @param token: the token
-        @return: the expanded token
-        """
-        return self
-
     def saveInfo(self):
         return {"init": {"name": self.name, "catcode": self.catcode}}
 
@@ -155,33 +142,39 @@ class CommandToken(Token):
     """
     def __init__(self, name: str):
         super().__init__(name, None)
+        self.noexpand = False
 
     def saveInfo(self):
         return {"init": {"name": self.name}}
-
-    def expand(self, parser, token):
+ 
+    def expandable(self, parser, protected):
         """
-        expand the command. If the command is not expandable, the command should return
-        itself. Otherwise, it should put the expanded tokens in the input stack.
+        Check if the command is expandable.
         @param parser: the parser
-        @param token: the token that represents the command
-        @return: the expanded command
+        @param protected: if protected tokens are prevented from expanding
+        @return: bool, or None if the command is not defined
         """
-        command = parser.lookup(self.name)
-        if command is None:
-            return self
-        self.meaning = command
-        return command.expand(parser, self)
+        if self.noexpand:
+            self.noexpand = False
+            return False
+        if protected and self.protected:
+            return False
+        c = parser.lookup(self.name)
+        if c is None:
+            return None
+        self.meaning = c
+        if c.expand is None:
+            return False
+        return not (protected and c.protected)
 
     def execute(self, parser):
         """
-        Execute the command. The default behavior is to raise an error.
+        Execute the command. 
         @param parser: the parser
         """
+        # up to this point, the meaning has been found
         if self.meaning is not None:
             self.meaning.execute(parser)
-        else:
-            raise ValueError(f"command not defined: {self.name}")
 
     def charValue(self, parser):
         """ 

@@ -73,21 +73,26 @@ class Parser:
         """
         return self.input.read()
     
-    def token_expand(self):
+    def token_expand(self, protected = False):
         """
         get the next token from the input stack and expand it
+        @param protected: whether the protected tokens are prevented from expansion
         @return: the next token
         """
-        t = self.token()
         while True:
-            if t is None:
-                return None
-            t1 = t.expand(self, t)
-            # if the token is consumed, get the next token
-            if t1 is None:
-                t = self.token()
-            else:
-                return t1
+            pos = self.input.position()
+            t = self.token()
+            # t is expanable. As a token, it is either a command sequence or an active token
+            # if its meaning is None, we find its meaning by expanding it
+            if t is not None and t.isCommand():
+                expandable = t.expandable(self, protected)
+                if expandable is None:
+                    raise ValueError("undefined command" + t.name, pos)
+                elif expandable:
+                    t.meaning.expand(self)
+                    continue
+            return t
+
 
     def parse(self, input, name: typing.Optional[str] = None):
         """

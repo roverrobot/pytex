@@ -22,6 +22,22 @@ def skipBranch(parser):
             c = parser.lookup(t.name)
             if isinstance(c, Branch):
                 return c
+            if isinstance(c, Conditional): # another level
+                skipAll(parser, pop=False)
+
+
+def skipAll(parser, pop: bool=True):
+    """
+    skip all tokens in a conditional command, until an \\fi is encountered.
+    @param parser: the parser
+    @param pop: whether to pop the ifstack
+    """
+    while True:
+        c = skipBranch(parser)
+        if c == fi:
+            if pop:
+                parser.ifstack.pop()
+            return
 
 
 class Branch(Command):
@@ -29,21 +45,10 @@ class Branch(Command):
     the base class for a branch. Commands such as \else, \or, and \fi are subclasses of this class.
     @param command_name: the name of the command
     """
-    def skipAll(self, parser):
-        """
-        skip all tokens in a conditional command, until an \\fi is encountered.
-        @param parser: the parser
-        """
-        while True:
-            c = skipBranch(parser)
-            if c == fi:
-                parser.ifstack.pop()
-                return
-
     def expand(self, parser):
         if len(parser.ifstack) == 0:
             raise ValueError("unexpected " + self.name, parser.input.position())
-        self.skipAll(parser)
+        skipAll(parser)
 
 
 class Else(Branch):
@@ -56,13 +61,13 @@ class Or(Branch):
     def expand(self, parser):
         if len(parser.ifstack) == 0 or not parser.ifstack[-1][0].is_case:
             raise ValueError("unexpected \\or")
-        self.skipAll(parser)
+        skipAll(parser)
 
 
 class Fi(Branch):
-    def skipAll(self, parser):
+    def expand(self, parser):
         if len(parser.ifstack) == 0:
-            raise ValueError("unexpected \\fi")
+            raise ValueError("unexpected " + self.name, parser.input.position())
         parser.ifstack.pop()
 
 

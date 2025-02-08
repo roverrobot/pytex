@@ -3,7 +3,7 @@ from pytex.token import CATCODE
 from tests import checkValues
 
 def test_let(collector):
-    collector.parse("\\let\\a=1\\a")
+    collector.parse("\\let\\a= 1\\a")
     assert collector.getString() == "1"
     try:
         collector.parse("\\let\\a=1\\count\\a=2")
@@ -17,7 +17,7 @@ def test_let(collector):
         assert "integer" in e.args[0]
 
 def test_futurelet(collector):
-    collector.parse("\\futurelet\\a=01\\a")
+    collector.parse("\\futurelet\\a01\\a")
     assert collector.getString() == "01"
 
 def test_chardef(collector):

@@ -203,6 +203,12 @@ class MacroAccessor(Accessor):
     """
     an accessor for the \\def command
     """
+    def readEq(self, parser):
+        """
+        \def does not use an equal sign
+        """
+        pass
+
     def readValue(self, parser):
         """
         read the macro definition from the input stack
@@ -263,7 +269,7 @@ class Def(Define):
         }
     
     def getItemAccessor(self, parser, index):
-        p = MacroAccessor(self.domain, self.getIndex(parser), eq=False)
+        p = MacroAccessor(self.domain, self.getIndex(parser))
         p.expanded = self.expanded
         p.globally = self.globally
         return p

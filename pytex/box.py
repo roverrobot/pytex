@@ -315,7 +315,7 @@ class SetBox(ArrayAccessor):
         raise ValueError("\\setbox does not return a box")
 
     def newItemAccessor(self, index):
-        return BoxAccessor("box", index, eq=True)
+        return BoxAccessor("box", index)
 
 class IfVoid(conditional.Conditional):
     """

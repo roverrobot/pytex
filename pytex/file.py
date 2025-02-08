@@ -20,7 +20,7 @@ class OpenOp(Accessor):
     @param filename: the file name
     """
     def __init__(self, input: bool, file_id, filename):
-        super().__init__(None, file_id, eq=True)
+        super().__init__(None, file_id)
         if file_id < 0 or file_id >= 16:
             raise ValueError("file number out of range: {file_id}")
         self.file_array = "openin" if input else "openout"
@@ -125,7 +125,7 @@ class ReadOp(Accessor):
     @param file: the file number to operate on
     """
     def __init__(self, command):
-        super().__init__("equitable", command, eq=False)
+        super().__init__("equitable", command)
     
     def saveInfo(self):
         return {"init": {"command": self.index}}

@@ -178,9 +178,32 @@ class IntegerAccessor(IntegerCommand, Accessor):
     integer accessor common functions
     """
     def __init__(self, domain, index, range=None):
-        super().__init__(domain, index, True)
+        super().__init__(domain, index)
         self.range = range
+
+    def saveInfo(self):
+        init = super().saveInfo()
+        if self.range is not None:
+            init["range"] = self.range
+        return init
     
+    def checkRange(self, value, pos):
+        """
+        check if the value is in the range
+        @param value the value to check
+        @param pos the current position in input
+        """
+        range = self.range
+        if range is not None:
+            if (range[0] is not None and value < range[0]) or \
+                (range[0] is not None and value > range[1]):
+                raise ValueError(f"value {value} is not in the range {self.range}", pos)
+
+    def setValue(self, parser, value, globally):
+        if self.range is not None:
+            self.checkRange(value, parser.input.position())
+        super().setValue(parser, value, globally)
+
 
 class IntegerArrayAccessor(IntegerCommand, ArrayAccessor):
     """

@@ -25,9 +25,10 @@ class Define(accessor.ArrayAccessor):
         get the index of the command
         @param parser: the parser
         """
+        pos = parser.input.position()
         t = parser.token()
         if t is None or not t.isCommand():
-            raise ValueError("command name expected")
+            raise ValueError(f"command name expected, got {t}", pos)
         # command t is going to be defined. We make it relax, so that if it appears later
         # in the input, it will be ignored. This, for example, appears in
         # \font\test=cmr10\test
@@ -39,6 +40,12 @@ class LetAccessor(accessor.Accessor):
     """
     An accessor for the \\let command
     """        
+    def readEq(self, parser):
+        parser.skipEq(expand=False)
+        t = parser.token()
+        if t.catcode != token.CATCODE.SPACE:
+            parser.input.unread(t)
+
     def readValue(self, parser):
         t = parser.token()
         if t is None:
@@ -54,7 +61,6 @@ class Let(Define):
     """
     def newItemAccessor(self, index):
         accessor = LetAccessor(self.domain, index)
-        accessor.expandEq = False
         return accessor
 
 
@@ -62,6 +68,12 @@ class FutureLetAccessor(LetAccessor):
     """
     An accessor for the \\futurelet command
     """
+    def readEq(self, parser):
+        """
+        has no equal sign
+        """
+        pass
+
     def readValue(self, parser):
         """
         read the value from the input stack
@@ -171,7 +183,7 @@ class RegisterDef(Define):
         read the value from the input stack
         @param parser: the parser
         """
-        p = RegisterDefAccessor(self.domain, self.getIndex(parser), eq=True)
+        p = RegisterDefAccessor(self.domain, self.getIndex(parser))
         p.value_type = self.value_type
         return p
 

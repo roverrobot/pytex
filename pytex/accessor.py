@@ -28,16 +28,13 @@ def skipEq(parser, expand: bool=True):
     read the equal sign from the input stack
     @param parser: the parser
     """
+    parser.skipSpaces(expand)
     t = parser.token_expand() if expand else parser.token()
     if t is None:
         return
     # read the equal sign
-    if t.catcode == token.CATCODE.OTHER and t.name == "=":
-        return
-    if t.catcode == token.CATCODE.SPACE:
-        return
-    parser.input.unread(t)
-    return
+    if t.catcode != token.CATCODE.OTHER or t.name != "=":
+        parser.input.unread(t)
 
 class Accessor(token.Command):
     """
@@ -47,28 +44,19 @@ class Accessor(token.Command):
     @param eq: whether there is an equal sign in the assignment
     @param range: the range of valid values
     """
-    def __init__(self, domain, index, eq: bool=True):
+    def __init__(self, domain, index):
         self.domain = domain
         self.index = index
-        self.eq = eq
-        self.expandEq = True
-        self.range = None
 
     def saveInfo(self):
-        init = {
-                "domain": self.domain,
-                "index": self.index,
-            }
-        if not self.eq:
-            init["eq"] = False
-        return {"init": init, "extra": {"range": self.range}}
+        return {"init": {"domain": self.domain, "index": self.index}}
 
     def readEq(self, parser):
         """
         read the equal sign from the input stack
         @param parser: the parser
         """
-        return parser.skipEq(expand=self.expandEq)
+        return parser.skipEq(expand=True)
 
     def readValue(self, parser):
         """
@@ -115,8 +103,7 @@ class Accessor(token.Command):
         @param parser: the parser
         @param prefixes: the prefixes to the assignment
         """
-        if self.eq:
-            self.readEq(parser)
+        self.readEq(parser)
         value = self.readValue(parser)
         globally = parser.state.parameters["globaldefs"] != 0
         for p in prefixes:
@@ -125,6 +112,7 @@ class Accessor(token.Command):
         t = parser.state.globals["afterassignment"]
         if t is not None:
             parser.input.unread(t)
+            parser.state.globals["afterassignment"] = None
     
     def execute(self, parser):
         """

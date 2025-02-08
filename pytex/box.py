@@ -321,9 +321,6 @@ class IfVoid(conditional.Conditional):
     """
     The \\ifinner command.
     """
-    def __init__(self):
-        super().__init__("\\ifinner")
-    
     def condition(self, parser):
         index = parser.readInteger()
         box = parser.state.box[index]

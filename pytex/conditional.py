@@ -59,7 +59,7 @@ class Else(Branch):
 class Or(Branch):
     """ the \\or command """
     def expand(self, parser):
-        if len(parser.ifstack) == 0 or not parser.ifstack[-1][0].is_case:
+        if len(parser.ifstack) == 0 or not isinstance(parser.ifstack[-1][0], IfCase):
             raise ValueError("unexpected \\or")
         skipAll(parser)
 
@@ -77,13 +77,7 @@ class Conditional(Command):
 
     The main method of this class is condition, which should be overridden by subclasses to implement the condition
     of the conditional command.
-
-    @param is_case: whether the command is an \\ifcase command
     """
-    def __init__(self, name: str, is_case: bool = False):
-        self.name = name
-        self.is_case = is_case
-
     def condition(self, parser):
         """
         The condition of the conditional command.
@@ -102,7 +96,7 @@ class Conditional(Command):
     def skipTo(self, parser, condition):
         for i in range(condition):
             c = skipBranch(parser)
-            if isinstance(c, Or) and not self.is_case:
+            if isinstance(c, Or) and not isinstance(self, IfCase):
                 raise ValueError("unexpected \\or")
             if isinstance(c, Else):
                 return
@@ -126,12 +120,9 @@ class IfCompareToken(Conditional):
     @param name: the name of the command
     @param expand: whether the command should expand the tokens before comparing them
     """
-    def __init__(self, name: str, expand_tokens: bool):
-        super().__init__(name)
+    def __init__(self, expand_tokens: bool):
+        super().__init__()
         self.expand_tokens = expand_tokens
-
-    def saveInfo(self):
-        return {"init": {"name": self.name, "expand_tokens": self.expand_tokens}}
 
     def equal(self, t1, t2):
         raise NotImplementedError()
@@ -156,7 +147,7 @@ class IfCompareToken(Conditional):
 class IfCat(IfCompareToken):
     """ the \\ifcat command """
     def __init__(self):
-        super().__init__("\\ifcat", expand_tokens=True)
+        super().__init__(expand_tokens=True)
 
     def equal(self, t1, t2):
         return t1.catcode == t2.catcode
@@ -165,7 +156,7 @@ class IfCat(IfCompareToken):
 class If(IfCompareToken):
     """ the \\if command """
     def __init__(self):
-        super().__init__("\\if", expand_tokens=True)
+        super().__init__(expand_tokens=True)
 
     def equal(self, t1, t2):
         return t1.catcode == t2.catcode and (t1.catcode is None or t1.name == t2.name)
@@ -174,7 +165,7 @@ class If(IfCompareToken):
 class IfX(IfCompareToken):
     """ the \\ifx command """
     def __init__(self):
-        super().__init__("\\ifx", expand_tokens=False)
+        super().__init__(expand_tokens=False)
     
     def equal(self, t1, t2):
         # TEX does not expand control sequences when it looks at the two tokens.
@@ -198,17 +189,12 @@ class IfX(IfCompareToken):
 
 class IfCase(Conditional):
     """ the \\ifcase command """
-    def __init__(self):
-        super().__init__("\\ifcase", is_case=True)
-
     def condition(self, parser):
         return parser.readInteger()
 
 
 class IfNum(Conditional):
     """ the \\ifnum command """
-    def __init__(self, name: str="\\ifnum"):
-        super().__init__(name)
 
     def readValue(self, parser):
         return parser.readInteger()
@@ -229,18 +215,12 @@ class IfNum(Conditional):
 
 class IfDim(IfNum):
     """ the \\ifdim command """
-    def __init__(self):
-        super().__init__("\\ifdim")
-
     def readValue(self, parser):
         return parser.readDimen()
 
 
 class IfOdd(Conditional):
     """ the \\ifodd command """
-    def __init__(self):
-        super().__init__("\\ifodd")
-
     def condition(self, parser):
         n = parser.readInteger()
         return 0 if n % 2 == 1 else 1
@@ -250,9 +230,6 @@ class IfOdd(Conditional):
 
 class IfFalse(Conditional):
     """ the \\iffalse command """
-    def __init__(self):
-        super().__init__("\\iffalse")
-
     def condition(self, parser):
         return 1
 
@@ -273,7 +250,7 @@ mod = Module("conditional",
         "ifdim": IfDim(),
         "ifcase": IfCase(),
         "ifodd": IfOdd(),
-        "iftrue": Conditional("\\iftrue"),
+        "iftrue": Conditional(),
         "iffalse": IfFalse(),
         "else": Else(),
         "or": Or(),

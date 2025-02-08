@@ -112,8 +112,8 @@ class IfMode(conditional.Conditional):
     """
     A conditional that checks the current mode.
     """
-    def __init__(self, name, mode):
-        super().__init__(name)
+    def __init__(self, mode):
+        super().__init__()
         self.mode = mode
     
     def saveInfo(self):
@@ -127,9 +127,6 @@ class IfInner(conditional.Conditional):
     """
     The \\ifinner command.
     """
-    def __init__(self):
-        super().__init__("\\ifinner")
-    
     def condition(self, parser):
         return 0 if parser.lists[-1].inner else 1
 
@@ -306,9 +303,9 @@ mod = Module("lists",
     commands={
         "kern": Kern(),
         "penalty": Penalty(),
-        "ifvmode": IfMode("\\ifvmode", LISTTYPE.VERTICAL),
-        "ifhmode": IfMode("\\ifhmode", LISTTYPE.HORIZONTAL),
-        "ifmmode": IfMode("\\ifmmode", LISTTYPE.MATH),
+        "ifvmode": IfMode(LISTTYPE.VERTICAL),
+        "ifhmode": IfMode(LISTTYPE.HORIZONTAL),
+        "ifmmode": IfMode(LISTTYPE.MATH),
         "ifinner": IfInner(),
         "hrule": Rule(True),
         "vrule": Rule(False),

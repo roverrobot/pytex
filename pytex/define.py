@@ -35,43 +35,17 @@ class Define(accessor.ArrayAccessor):
         return t.name
 
 
-class LetToken(token.Command):
-    """
-    the value of the \\let command
-    """
-    def __init__(self, token):
-        self.token = token
-    
-    def saveInfo(self):
-        return {"init": {"token": self.token}}
-
-    def __str__(self):
-        return str(self.token)
-
-    def expand(self, parser):
-        """
-        execute the command
-        @param parser: the parser
-        """
-        parser.input.unread(self.token)
-
-    def execute(self, parser):
-        """
-        execute the command
-        @param parser: the parser
-        """
-        self.token.execute(parser)
-
-
 class LetAccessor(accessor.Accessor):
     """
     An accessor for the \\let command
-    """
+    """        
     def readValue(self, parser):
         t = parser.token()
         if t is None:
             raise ValueError("a token is expected")
-        return LetToken(t)
+        if t.isCommand():
+            return parser.lookup(t.name)
+        return t
 
 
 class Let(Define):
@@ -84,7 +58,7 @@ class Let(Define):
         return accessor
 
 
-class FutureLetAccessor(accessor.Accessor):
+class FutureLetAccessor(LetAccessor):
     """
     An accessor for the \\futurelet command
     """
@@ -100,7 +74,8 @@ class FutureLetAccessor(accessor.Accessor):
         if t2 is None:
             raise ValueError("\\futurelet expects two tokens")
         parser.input.unread(t1)
-        return LetToken(t2)
+        parser.input.unread(t2)
+        return super().readValue(parser)
 
 
 class FutureLet(Define):

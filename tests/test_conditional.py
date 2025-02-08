@@ -33,7 +33,7 @@ def test_misplaced_else(parser):
         parser.parse("\\else")
         assert False, "extra \\else"
     except ValueError as e:
-        assert "\\else" in str(e)
+        assert "\\else" in e.args[0] # e has the position as the second argument
 
 
 def test_misplaced_or(parser):

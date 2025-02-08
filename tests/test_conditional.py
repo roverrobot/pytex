@@ -53,6 +53,9 @@ def test_ifx(collector):
     assert collector.getString() == "a"
     collector.parse("\\let\\a=1\\ifx\\a1a\\else b\\fi")
     assert collector.getString() == "a"
+    collector.parse("\\let\\a=1\\ifx\\a2a\\else b\\fi")
+    assert collector.getString() == "b"
+    
 
 
 def test_ifcase(collector):

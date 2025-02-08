@@ -186,6 +186,8 @@ class IfX(IfCompareToken):
         # parameters and “top level” expansion.
         if t1 == t2:
             return True
+        if t1 is None or t2 is None:
+            return False
         if t1.catcode != t2.catcode:
             return False
         # now t1 and t2 must have the same catcode

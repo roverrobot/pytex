@@ -40,25 +40,25 @@ class Stretchness(serialization.Serializable):
     
     def __add__(self, other):
         if self.order == other.order:
-            return Stretchness(self.factor + other.factor, self.order)
+            return self.__class__(self.factor + other.factor, self.order)
         return other if self.order < other.order else self
 
     def __sub__(self, other):
         if self.order == other.order:
-            return Stretchness(self.factor - other.factor, self.order)
+            return self.__class__(self.factor - other.factor, self.order)
         return -other if self.order < other.order else self
     
     def __neg__(self):
-        return Stretchness(-self.factor, self.order)
+        return self.__class__(-self.factor, self.order)
     
     def __mul__(self, factor):
-        return Stretchness(self.factor * factor, self.order)
+        return self.__class__(self.factor * factor, self.order)
     
     def __rmul__(self, factor):
-        return Stretchness(self.factor * factor, self.order)
+        return self.__class__(self.factor * factor, self.order)
 
     def __truediv__(self, factor):
-        return Stretchness(self.factor / factor, self.order)
+        return self.__class__(self.factor / factor, self.order)
     
     def __eq__(self, value):
         if not isinstance(value, Stretchness):
@@ -94,31 +94,31 @@ class Glue(serialization.Serializable):
         scale the glue
         factor: the scaling factor
         """
-        return Glue(self.dimen, self.stretch * factor, self.shrink / factor)
+        return self.__class__(self.dimen, self.stretch * factor, self.shrink / factor)
 
     def __str__(self):
         return f"{self.dimen}pt plus {self.stretch} minus {self.shrink}"
     
     def __add__(self, other):
-        return Glue(self.dimen + other.dimen, self.stretch + other.stretch, self.shrink + other.shrink)
+        return self.__class__(self.dimen + other.dimen, self.stretch + other.stretch, self.shrink + other.shrink)
     
     def __sub__(self, other):
-        return Glue(self.dimen - other.dimen, self.stretch - other.stretch, self.shrink - other.shrink)
+        return self.__class__(self.dimen - other.dimen, self.stretch - other.stretch, self.shrink - other.shrink)
     
     def __neg__(self):
-        return Glue(-self.dimen, -self.stretch, -self.shrink)
+        return self.__class__(-self.dimen, -self.stretch, -self.shrink)
     
     def __mul__(self, factor):
-        return Glue(self.dimen * factor, self.stretch * factor, self.shrink * factor)
+        return self.__class__(self.dimen * factor, self.stretch * factor, self.shrink * factor)
     
     def __rmul__(self, factor):
-        return Glue(self.dimen * factor, self.stretch * factor, self.shrink * factor)
+        return self.__class__(self.dimen * factor, self.stretch * factor, self.shrink * factor)
     
     def __truediv__(self, factor):
-        return Glue(self.dimen / factor, self.stretch / factor, self.shrink / factor)
+        return self.__class__(self.dimen / factor, self.stretch / factor, self.shrink / factor)
     
     def __eq__(self, value):
-        if not isinstance(value, Glue):
+        if not isinstance(value, Glue) or self.mu != value.mu:
             return False
         return self.dimen == value.dimen and self.stretch == value.stretch and self.shrink == value.shrink
 

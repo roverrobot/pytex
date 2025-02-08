@@ -81,14 +81,19 @@ def readUnsignedNumber(parser):
     @return: the unsigned number
     """
     # an unsigned number 
-    v = readDigits(parser, 10)
     t = parser.token_expand()
-    # a decimal point
-    if t is None:
-        return float(v)
-    if t.catcode != CATCODE.OTHER or (t.name!= "." and t.name != ","):
+    if t.catcode != CATCODE.OTHER or t.name != ".":
         parser.input.unread(t)
-        return float(v)
+        v = readDigits(parser, 10)
+        t = parser.token_expand()
+        # a decimal point
+        if t is None:
+            return float(v)
+        if t.catcode != CATCODE.OTHER or (t.name!= "." and t.name != ","):
+            parser.input.unread(t)
+            return float(v)
+    else:
+        v = "0"
     v += "."
     # a decimal part
     v += readDigits(parser, 10, optional=True)

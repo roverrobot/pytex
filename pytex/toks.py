@@ -152,6 +152,14 @@ class Case(Command):
         parser.input.push(TokenListScanner(text))
 
 
+class IgnoreSpaces(Command):
+    """
+    the \\ignorespaces command
+    """
+    def execute(self, parser):
+        return parser.skipSpaces()
+
+
 mod = Module("toks",
     attributes = {
         "readBalancedText": readBalancedText,
@@ -162,6 +170,7 @@ mod = Module("toks",
         "aftergroup": AfterGroup(),
         "uppercase": Case(True),
         "lowercase": Case(False),
+        "ignorespaces": IgnoreSpaces(),
     },
     domains = {
         "toks": {"generator": lambda: Array([]), "accessor": ToksArrayAccessor},

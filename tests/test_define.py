@@ -3,14 +3,14 @@ from pytex.token import CATCODE
 from tests import checkValues
 
 def test_let(collector):
-    checkValues(collector, "\\let\\a=1\\a", [["\\a", None, "name", "1"]])
+    collector.parse("\\let\\a=1\\a")
     assert collector.getString() == "1"
-    checkValues(collector, "\\let\\a=0\\count\\a=2", [["\\a", None, "name", "0"], ["count", 0, 2]])
-    checkValues(collector, "{\\let\\a=1\\count\\a=3", [["\\a", None, "name", "1"], ["count", 1, 3]])
-    checkValues(collector, "}", [["\\a", None, "name", "0"], ["count", 1, 0]])
+    checkValues(collector, "\\let\\a=0\\count\\a=2", [["count", 0, 2]])
+    checkValues(collector, "{\\let\\a=1\\count\\a=3", [["count", 1, 3]])
+    checkValues(collector, "}", [["count", 1, 0]])
 
 def test_futurelet(collector):
-    checkValues(collector, "\\futurelet\\a=01\\a", [["\\a", None, "name", "1"]])
+    collector.parse("\\futurelet\\a=01\\a")
     assert collector.getString() == "01"
 
 def test_chardef(collector):

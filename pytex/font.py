@@ -35,7 +35,7 @@ class Font(Command):
         self.ec = tfm.ec
         self.charnode = [None] * (self.ec-self.bc+1)
         for i in range(self.bc, self.ec+1):
-            self.charnode[i] = CharNode(chr(i), self)
+            self.charnode[i-self.bc] = CharNode(chr(i), self)
         self.spaceglue = Glue(self.param[1], Stretchness(self.param[2], 0), Stretchness(self.param[3], 0))
         # special characters
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}
@@ -176,17 +176,16 @@ class FontCommand(Define):
 
 class FontDimenAccessor(DimenAccessor):
     def getIndex(self, parser):
-        index = parser.readInteger()
         font = readFont(parser)
-        return (font, index)
+        return font
     
     def getValue(self, parser):
-        font, index = self.getIndex(parser)
-        return font.param[index]
+        font = self.getIndex(parser)
+        return font.param[self.index]
     
     def setValue(self, parser, value, globally):
-        font, index = self.getIndex(parser)
-        font.param[index] = value
+        font = self.getIndex(parser)
+        font.param[self.index] = value
 
 
 class FontDimen(DimenArrayAccessor):
@@ -200,7 +199,7 @@ class FontDimen(DimenArrayAccessor):
         return {}
     
     def newItemAccessor(self, index):
-        return FontDimenAccessor(None, index)
+        return FontDimenAccessor(None, index-1)
 
 
 mod = Module("font",
@@ -213,6 +212,7 @@ mod = Module("font",
         "scriptscriptfont": {"generator": FontArray, "accessor": FontArrayAccessor},
     },
     commands = {
+        "fontdimen": FontDimen(),
         "hyphenchar": FontChar("hyphenchar"),
         "skewchar": FontChar("skewchar"),
         "font": FontCommand(),

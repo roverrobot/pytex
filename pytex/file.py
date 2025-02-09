@@ -9,6 +9,7 @@ from pytex.lexer import TokenListScanner, StringScanner
 from pytex import token
 from pytex import macro
 from pytex.module import Module
+from pytex import conditional
 from pytex.expandable import toksToString
 
 
@@ -25,6 +26,10 @@ class OpenOp(Accessor):
             raise ValueError("file number out of range: {file_id}")
         self.file_array = "openin" if input else "openout"
         self.filename = filename
+
+    def readEq(self, parser):
+        # the = sign has been read in the command itself.
+        pass
 
     def saveInfo(self):
         input = self.file_array == "openin"
@@ -295,6 +300,18 @@ class Message(token.Command):
                 self.write(parser, toksToString(parser, help))
 
 
+class IfEof(conditional.Conditional):
+    """
+    \\ifeof
+    """
+    def condition(self, parser):
+        file_id = parser.readInteger()
+        files = parser.state.globals["openin"]
+        file = files[file_id] if 0 <= file_id < len(files) else None
+        # in python, it is not quite obvious how to check a file for EOF
+        return 0 if file is None else 1
+    
+
 mod = Module("file",
     commands={
         "openin": Open(input=True),
@@ -306,6 +323,7 @@ mod = Module("file",
         "immediate": Immediate(),
         "message": Message(error=False),
         "errmessage": Message(error=True),
+        "ifeof": IfEof(),
     },
     parameters={
         "openin": {"value": [None] * 16, "accessor": None, "domain": "globals"},

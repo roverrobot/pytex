@@ -41,10 +41,14 @@ class Define(accessor.ArrayAccessor):
         t = parser.token()
         if t is None or not t.isCommand():
             raise ValueError(f"command name expected, got {t}", pos)
-        # command t is going to be defined. We make it relax, so that if it appears later
-        # in the input, it will be ignored. This, for example, appears in
+        # is the command defined? Is so, lead it alone. Otherwise, it is going to be defined.
+        # However, we may meet is while reading the value of the definition. This causes a problem 
+        # because it is not defined yet. To avoid the problem, we make it relax, so that if it 
+        # appears later in the input, it will be ignored. This, for example, appears in
         # \font\test=cmr10\test
-        parser.state.equitable[t.name] = self.default()
+        c = parser.lookup(t.name)
+        if c is None:
+            parser.state.equitable[t.name] = self.default()
         return t.name
 
 

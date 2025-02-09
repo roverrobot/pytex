@@ -1,5 +1,6 @@
 import pytest
 from pytex.resolver import InMemoryTextFile
+from pytex import lexer
 
 
 def test_noexpand(parser):
@@ -89,3 +90,8 @@ def test_endinput(collector):
     collector.resolver.in_memory_files["test.tex"] = InMemoryTextFile("abc\\endinput\ndef")
     collector.parse("123\\input test")
     assert collector.getString() == "123abc"
+
+
+def test_jobname(collector):
+    collector.parse("\\jobname", "test")
+    assert collector.getString() == "test"

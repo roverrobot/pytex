@@ -273,6 +273,13 @@ class EndInput(Command):
             active.end()
 
 
+class JobName(Command):
+    def expand(self, parser):
+        scanner = parser.input.active
+        name = "" if scanner is None else scanner.name
+        parser.input.push(TokenListScanner(toToks(name)))
+
+
 mod = Module("expandable",
     commands={
         "noexpand": NoExpand(),
@@ -284,6 +291,7 @@ mod = Module("expandable",
         "string": String(),
         "the": The(),
         "input": Input(),
-        "endinput": EndInput()
+        "endinput": EndInput(),
+        "jobname": JobName(),
     }
 )

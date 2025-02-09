@@ -23,15 +23,17 @@ def readSigns(parser):
         parser.skipSpaces()
         t = parser.token_expand()
         if t is None:
-            break
+            return sign
         if t.catcode != CATCODE.OTHER:
             parser.input.unread(t)
-            break
+            return sign
         if t.name == "-":
             sign = -sign
         elif t.name != "+":
+            if t.catcode == CATCODE.SPACE:
+                break
             parser.input.unread(t)
-            break
+            return sign
     parser.skipSpaces()
     return sign
 

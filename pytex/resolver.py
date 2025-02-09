@@ -267,10 +267,11 @@ def readFileName(parser) -> str:
     name = ""
     parser.skipFiller()
     while True:
+        pos = parser.input.position()
         t = parser.token_expand()
         if t is None:
             break
-        if t.catcode == CATCODE.BEGIN_GROUP or t.catcode == CATCODE.END_GROUP:
+        if t.catcode == CATCODE.BEGIN_GROUP or t.catcode == CATCODE.END_GROUP or t.catcode is None:
             parser.input.unread(t)
             break
         if t.catcode == CATCODE.SPACE:

@@ -129,11 +129,13 @@ class ReadOp(Accessor):
     Read from a file
     @param file: the file number to operate on
     """
-    def __init__(self, command):
+    def __init__(self, command, file):
         super().__init__("equitable", command)
+        self.file = file
     
+    # an immediate operation like read should not be serialized
     def saveInfo(self):
-        return {"init": {"command": self.index}}
+        raise NotImplementedError("should not be serialized")
 
     def readEq(self, parser):
         parser.readKeyword(["to"])
@@ -142,9 +144,9 @@ class ReadOp(Accessor):
         tokens = []
         level = 0
         file = self.file
-        if file is None:
+        if file is None or file.closed:
             raise FileNotFoundError(f"file {self.index} is not open")
-        i=0
+        i = 0 # number of lines read
         for s in file:
             i += 1
             scanner = StringScanner(parser.state, s)
@@ -163,6 +165,9 @@ class ReadOp(Accessor):
                         break
                     level -= 1
                 tokens.append(t)
+        if i == 0:
+            # we haven't read one line. The file reached eof. We close the file.
+            self.file.close()
         if level == 0:
             return macro.Macro([], tokens)
         raise ValueError("unblanced curly braces")
@@ -264,9 +269,7 @@ class Read(FileCommand):
         t = parser.token()
         if not isinstance(t, token.CommandToken):
             raise ValueError(f"Expected a control sequence, got {t}")
-        op = ReadOp(t.name)
-        op.file = parser.state.globals["openin"][file_id]
-        return op
+        return ReadOp(t.name, file=parser.state.globals["openin"][file_id])
     
 
 class Immediate(token.Command):
@@ -313,7 +316,7 @@ class IfEof(conditional.Conditional):
         files = parser.state.globals["openin"]
         file = files[file_id] if 0 <= file_id < len(files) else None
         # in python, it is not quite obvious how to check a file for EOF
-        return 0 if file is None else 1
+        return 0 if (file is None) or file.closed else 1
     
 
 mod = Module("file",

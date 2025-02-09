@@ -37,10 +37,10 @@ class TexliveResolver(FileResolver):
         Get the paths to search for the file
         """
         if info["category"] == "source":
-            paths = [
-                os.path.join("tex", self.format),
-                "tex/generic",
-            ]
+            subdirs = [self.format, "generic"]
+            if self.format != "plain":
+                subdirs.append("plain")
+            paths = [os.path.join("tex", d) for d in subdirs]
         else:
             paths = [os.path.join(info["category"], info["subcategory"])]
         for p in self.paths:

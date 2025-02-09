@@ -52,25 +52,6 @@ class InMemoryTextFile:
         return s
 
 
-class TypeInfo:
-    """
-    A class that holds information about file types
-    @param extensions: the list of extensions
-    @param binary: whether the file is binary
-    """
-    def __init__(self, extensions: list, binary: bool):
-        self.extensions = extensions
-        self.binary = binary
-
-    def resolve(self, name: str):
-        """
-        Resolve the file name
-        @param name: the file name
-        @return: the file name
-        """
-        return None
-
-
 class FileResolver:
     """
     The base class for all file resolvers
@@ -80,15 +61,29 @@ class FileResolver:
     def __init__(self):
         self.in_memory_files = {}
         self.typeinfo = {
-            "tfm": TypeInfo(["tfm"], binary=True),
-            "dump": TypeInfo(["json"], binary=False),
+            "font": {
+                "tfm": {
+                    "extensions": ["tfm"], 
+                    "binary": True,
+                },
+            },
+            "dump": {
+                "json": {
+                    "extensions": ["json"], 
+                    "binary": False,
+                },
+            },
+            "source": {
+                "tex": {
+                    "extensions": ["tex"], 
+                    "binary": False,
+                },
+                "ini": {
+                    "extensions": ["ini"], 
+                    "binary": False,
+                },
+            },
         }
-
-    def sourceTypeInfo(self, exts):
-        """
-        Get the type information
-        """
-        return TypeInfo(exts, binary=False)
 
     def resolveInMemory(self, name: str):
         """
@@ -101,36 +96,100 @@ class FileResolver:
         except KeyError:
             return None
 
-    def getInfo(self, name: str, type: str) -> Tuple[str, TypeInfo]:
+    def categories(self):
+        """
+        get the supported categories
+        @return: the list of categories
+        """
+        return self.typeinfo.keys()
+    
+    def getSubcatogories(self, category: str):
+        """
+        get the subcategories of a category
+        @param category: the category
+        @return: the list of subcategories
+        """
+        if category in self.typeinfo:
+            return self.typeinfo[category].keys()
+        return []
+
+    def getInfo(self, name: str, type: str) -> Tuple[str, dict]:
         """
         get the file information
         @param name: the file name
-        @return: the file name and the typeinfo
+        @param type: the file type
+        @return: a dictionary containing the type information
+
+        The file type may be a catogory, such as "font", "source", "dump", as returned by
+        the categories() method. The type may also be None, in which case the file type is
+        inferred from the file extension. 
+        
+        The file type may also be category/subcategory, such as font/tfm or source/tex etc,
+        the supportd subcategories for each category are returned by the 
+        getSubcategories(category) method.
+
+        The manditory fields of the returned type info include "name", "category", "subcategory",
+        "extensions" and "binary". The "name" is the file name without extension. The
+        "category" and "subcategory" are their literal meanings, The "extensions"
+        is a list of file extensions. The "binary" key is a boolean indicating whether the file is
+        binary or text. If the file extension is provided, the extensions
+        contains only the provided one.
         """
-        if type is None:
-            # split the extension from the path and normalise it to lowercase
-            ext = os.path.splitext(name)[-1]
-            if ext == "" or ext == ".":
-                raise ValueError("no file type specified")
-            # removing extension
+        # split the extension from the path and normalise it to lowercase
+        ext = os.path.splitext(name)[-1]
+        # removing extension
+        if ext:
             name = name[:-len(ext)]
             ext = ext[1:].lower()
+        if not type:
+            if ext == "" or ext == ".":
+                raise ValueError("no file type specified")
             # check if we know the type
-            for t in self.typeinfo:
-                if ext in self.typeinfo[t].extensions:
-                    return name, self.typeinfo[t]
-            return name, self.sourceTypeInfo([ext])
-        if type == "source":
-            info = self.sourceTypeInfo(["tex"])
-        elif type in self.typeinfo:
-            info = self.typeinfo[type]
+            for cat, cat_info in self.typeinfo.items():
+                for sub, typeinfo in cat_info.items():
+                    if ext in typeinfo["extensions"]:
+                        return typeinfo | {"name": name, "category": cat, "subcategory": sub, "extensions": [ext]}
+            # if we reach here, the type was not found
+            return {"name": name, "extensions": [ext], "binary": False}
+        # split the type into category and subcategory
+        parts = type.split("/")
+        cat = parts[0]
+        if cat not in self.typeinfo:
+            raise ValueError("unknown category: "+cat)
+        cat_info = self.typeinfo[cat]
+        if len(parts) == 1:
+            # we do not know the subcategory
+            # if the ext is provided, we search for the subcategory. Otherwise,
+            # the preferred subcategory is returned. For example, for source files, the preferred
+            # subcategory is "tex"
+            key = None
+            if ext:
+                for key, info in cat_info.items():
+                    if ext in info["extensions"]:
+                        break
+            if key is None:
+                key = next(iter(cat_info))
         else:
-            raise ValueError("unknown file type: ", type)
-        for e in info.extensions:
-            if name.endswith("." + e):
-                name = name[:-len(e) - 1]
-                break
-        return name, info
+            key = parts[1]
+            if key not in cat_info:
+                raise ValueError(f"unknown subcategory {key} in category {cat}")
+        info = {"name": name, "category": cat, "subcategory": key}
+        if ext:
+            info["extensions"] = [ext]
+        return cat_info[key] | info
+
+    def resolve(self, name: str, typeinfo: dict):
+        """
+        Resolve the file name
+        @param name: the file name without extension
+        @param typeinfo: the file type information
+        @return: the file path, or None if the file does not exist
+
+        Before reaching this function, the file has been searched among in-memory files and
+        the current working directory. This function is responsible for searching the file was
+        not found in the previous steps.
+        """
+        return None
 
     def openIn(self, name: str, type: str=None):
         """
@@ -138,21 +197,24 @@ class FileResolver:
         @param name: the file name
         @param type: the file type. If None, the file type is inferred from the file extension
         @return: the file object
+
+        The file type can be a category or a category/subcategory. Please see the getInfo method
+        for more details.
         """
         if name[0] == "/":
             raise ValueError("absolute path not allowed")
-        name, info= self.getInfo(name, type)
-        # we first resolve in memory files
-        for t in info.extensions:
-            n = name + "." + t
+        info = self.getInfo(name, type)
+        for ext in info["extensions"]:
+            n = info["name"] + "." + ext
             f = self.resolveInMemory(n)
             if f is not None:
                 return f.open()
-        mode = "rb" if info.binary else "r"
+        mode = "rb" if info["binary"] else "r"
         # next, we search in the working directories
-        for t in info.extensions:
+        for ext in info["extensions"]:
+            n = info["name"] + "." + ext
             try:
-                return open(name + "." + t, mode)
+                return open(n, mode)
             except FileNotFoundError:
                 pass
         # relative path is only search in the working directory
@@ -160,7 +222,7 @@ class FileResolver:
         if p[0] != "":
             return None
         # at last, we resolve the file name
-        f = info.resolve(name)
+        f = self.resolve(info)
         if f is not None:
             return open(f, mode)
         return None
@@ -173,9 +235,12 @@ class FileResolver:
         Note that shipout files are not opened by this method.
 
         @param name: the file name
-        @param type: the file type. 
+        @param type: the file type. If None, the file type is inferred from the file extension
         @param shipout: whether the file is an output file
         @return: the file object
+
+        The file type can be a category or a category/subcategory. Please see the getInfo method
+        for more details.
         """
         if name[0] == "/":
             raise ValueError("absolute path not allowed")

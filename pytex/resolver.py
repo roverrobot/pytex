@@ -61,7 +61,7 @@ class FileResolver:
     def __init__(self):
         self.in_memory_files = {}
         self.typeinfo = {
-            "font": {
+            "fonts": {
                 "tfm": {
                     "extensions": ["tfm"], 
                     "binary": True,

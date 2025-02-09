@@ -298,7 +298,7 @@ def loadTFM(parser, name: str):
     """
     if name in parser.state.globals["tfm"]:
         return parser.state.globals["tfm"][name]
-    file = parser.resolver.openIn(name, "tfm")
+    file = parser.resolver.openIn(name, "fonts/tfm")
     if file is None:
         raise FileNotFoundError(f"TFM file {name} not found")
     tfm = TFM(name, file)

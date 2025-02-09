@@ -11,28 +11,32 @@ from pytex.state import Array
 from pytex import accessor
 
 
-def readBalancedText(parser, expand: bool = False):
+def readBalancedText(parser, expand: bool = False, include_braces: bool=False):
     """
     read a balanced token list
     @param parser: the parser
     @param expand: whether to expand the tokens
+    @param include_braces: whether to include the braces
     @return: the token list
     """
     pos = parser.input.position()
-    read = lambda: parser.token_expand(protected=True) if expand else parser.token()
-    lbrace = read()
+    lbrace = parser.token_expand() if expand else parser.token()
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", pos)
     toks = []
+    if include_braces:
+        toks.append(lbrace)
     level = 0
     while True:
-        t = read()
+        t = parser.token_expand(protected=True) if expand else parser.token()
         if t is None:
             raise ValueError("unbalanced token list", pos)
         elif t.catcode == CATCODE.BEGIN_GROUP:
             level += 1
         elif t.catcode == CATCODE.END_GROUP:
             if level == 0:
+                if include_braces:
+                    toks.append(t)
                 return toks
             else:
                 level -= 1

@@ -84,3 +84,14 @@ def test_read(read_tex):
     a = read_tex.state.equitable["\\a"]
     assert isinstance(a, macro.Macro)
     assert len(a.replacement) == 10
+
+
+def test_ifeof(read_tex):
+    read_tex.parse("\\openin 0=read.tex \\count0=\\ifeof 0 1\\else -1\\fi")
+    assert read_tex.state.count[0] == -1
+    read_tex.parse("\\count0 =\\ifeof 1 1\\else -1\\fi\\closein 0")
+    assert read_tex.state.count[0] == 1
+    read_tex.parse("\\count0 =\\ifeof -1 1\\else -1\\fi\\closein 0")
+    assert read_tex.state.count[0] == 1
+    read_tex.parse("\\count0 =\\ifeof 18 1\\else -1\\fi\\closein 0")
+    assert read_tex.state.count[0] == 1

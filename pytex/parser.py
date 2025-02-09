@@ -123,9 +123,9 @@ class Parser:
         @param input: the input
         """
         if isinstance(input, str):
-            self.input.push(lexer.StringScanner(self.state.catcode, input, name))
+            self.input.push(lexer.StringScanner(self.state, input, name))
         else:
-            self.input.push(lexer.Scanner(self.state.catcode, input, name))
+            self.input.push(lexer.Scanner(self.state, input, name))
 
     def skipSpaces(self, expand: bool = True, n: int = None):
         """

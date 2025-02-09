@@ -3,29 +3,35 @@ from pytex.token import CATCODE
 from pytex import lexer
 
 
+class State:
+    def __init__(self):
+        catcode = []
+        for c in range(256):
+            catcode.append(CATCODE.OTHER)
+        for c in range(ord("A"), ord("Z") + 1):
+            catcode[c] = CATCODE.LETTER
+            catcode[c + 32] = CATCODE.LETTER
+        catcode[ord("\\")] = CATCODE.ESCAPE
+        catcode[ord("{")] = CATCODE.BEGIN_GROUP
+        catcode[ord("}")] = CATCODE.END_GROUP
+        catcode[ord("\r")] = CATCODE.END_OF_LINE
+        catcode[ord(" ")] = CATCODE.SPACE
+        catcode[ord("\t")] = CATCODE.SPACE
+        catcode[ord("^")] = CATCODE.SUPERSCRIPT
+        catcode[ord("_")] = CATCODE.SUBSCRIPT
+        catcode[ord("$")] = CATCODE.MATH_SHIFT
+        catcode[ord("#")] = CATCODE.PARAMETER
+        catcode[ord("&")] = CATCODE.ALIGNMENT_TAB
+        catcode[ord("%")] = CATCODE.COMMENT
+        catcode[ord("@")] = CATCODE.ACTIVE
+        catcode[8] = CATCODE.INVALID
+        self.catcode = catcode
+        self.parameters = {"endlinechar": ord("\r")}
+
+
 @pytest.fixture
-def catcode():
-    catcode = []
-    for c in range(256):
-        catcode.append(CATCODE.OTHER)
-    for c in range(ord("A"), ord("Z") + 1):
-        catcode[c] = CATCODE.LETTER
-        catcode[c + 32] = CATCODE.LETTER
-    catcode[ord("\\")] = CATCODE.ESCAPE
-    catcode[ord("{")] = CATCODE.BEGIN_GROUP
-    catcode[ord("}")] = CATCODE.END_GROUP
-    catcode[ord("\r")] = CATCODE.END_OF_LINE
-    catcode[ord(" ")] = CATCODE.SPACE
-    catcode[ord("\t")] = CATCODE.SPACE
-    catcode[ord("^")] = CATCODE.SUPERSCRIPT
-    catcode[ord("_")] = CATCODE.SUBSCRIPT
-    catcode[ord("$")] = CATCODE.MATH_SHIFT
-    catcode[ord("#")] = CATCODE.PARAMETER
-    catcode[ord("&")] = CATCODE.ALIGNMENT_TAB
-    catcode[ord("%")] = CATCODE.COMMENT
-    catcode[ord("@")] = CATCODE.ACTIVE
-    catcode[8] = CATCODE.INVALID
-    return catcode
+def state():
+    return State()
 
 
 class Input:
@@ -56,12 +62,12 @@ testdata = [
     testdata,
     ids = [test.name for test in testdata]
 )
-def test_token(catcode, input):
+def test_token(state, input):
     cat = []
     for t in input.toks:
-        c = None if t[0] == "\\" else catcode[ord(t[0])]
+        c = None if t[0] == "\\" else state.catcode[ord(t[0])]
         cat.append(c)
-    scanner = lexer.StringScanner(catcode, input.input)
+    scanner = lexer.StringScanner(state, input.input)
     for i in range(len(input.toks)):
         t = input.toks[i]
         c = cat[i]
@@ -73,9 +79,9 @@ def test_token(catcode, input):
     assert token is None
 
 
-def test_input_stack(catcode):
+def test_input_stack(state):
     stack = lexer.InputStack()
-    scanner = lexer.StringScanner(catcode, "ABC")
+    scanner = lexer.StringScanner(state, "ABC")
     stack.push(scanner)
     token = stack.read()
     assert token is not None
@@ -85,7 +91,7 @@ def test_input_stack(catcode):
     C = stack.read()
     stack.unread(C)
     stack.unread(B)
-    scanner = lexer.StringScanner(catcode, "1")
+    scanner = lexer.StringScanner(state, "1")
     stack.push(scanner)
     token = stack.read()
     assert token is not None

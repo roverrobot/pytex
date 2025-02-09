@@ -41,18 +41,12 @@ class OpenOp(Accessor):
     
 class OpenInOp(OpenOp):
     def readValue(self, parser):
-        file = parser.resolver.openIn(self.filename, "source")
-        if file is None:
-            raise FileNotFoundError(self.filename)
-        return file
+        return parser.resolver.openIn(self.filename, "source")
 
 
 class OpenOutOp(OpenOp):
     def readValue(self, parser):
-        file = parser.resolver.openOut(self.filename, "source")
-        if file is None:
-            raise FileNotFoundError(self.filename)
-        return file
+        return parser.resolver.openOut(self.filename, "source")
 
 
 class FileOp(serialization.Serializable):
@@ -121,7 +115,13 @@ class WriteOp(FileOp):
                 break
             tokens.append(t)
         s = toksToString(parser, tokens)
-        print(s, file=file)
+        if file is None:
+            parser.log.write(s)
+            if self.file_id >= 0:
+                print(s)
+        else:
+            print(s, file=file)
+        
 
 
 class ReadOp(Accessor):
@@ -144,8 +144,10 @@ class ReadOp(Accessor):
         file = self.file
         if file is None:
             raise FileNotFoundError(f"file {self.index} is not open")
+        i=0
         for s in file:
-            scanner = StringScanner(parser.state.catcode, s)
+            i += 1
+            scanner = StringScanner(parser.state, s)
             scanner.terminate = True
             parser.input.push(scanner)
             while True:
@@ -158,9 +160,11 @@ class ReadOp(Accessor):
                     level += 1
                 elif t.catcode == token.CATCODE.END_GROUP:
                     if level == 0:
-                        return macro.Macro([], tokens)
+                        break
                     level -= 1
                 tokens.append(t)
+        if level == 0:
+            return macro.Macro([], tokens)
         raise ValueError("unblanced curly braces")
 
 

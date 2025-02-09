@@ -32,7 +32,7 @@ class Tokenizer:
         # catcode is a dictionary that maps characters to their category codes
         self.catcode = catcode
         # attach a carriage return to the end of the line
-        self.line = enumerate(line + "\r")
+        self.line = enumerate(line)
         # the saved characters that are unread
         self.saved = []
         # whether we are skippign the initial spaces
@@ -133,14 +133,18 @@ class Tokenizer:
 class Scanner:
     """
     A scanner reads tokens from a stream. The main method is read()
-    @param catcode: a list that maps characters to their category codes
+    @param state: the state of the parser
     @param stream: the stream to read from. Must be a file-like object
     @param name: the name of the stream
+
+    We will need the state.catcode and state.parameters["endlinchar"]
+    in the lexer.
     """
-    def __init__(self, catcode, stream, name=None):
+    def __init__(self, state, stream, name=None):
         if not isinstance(stream, io.IOBase):
             raise TypeError("stream must be a file-like object")
-        self.catcode = catcode
+        self.catcode = state.catcode
+        self.parameters = state.parameters
         self.stream = stream
         self.lines = enumerate(stream)
         self.tokenizer = None
@@ -160,6 +164,9 @@ class Scanner:
             self.line, line = next(self.lines)
             if line[-1] == "\n":
                 line = line[:-1]
+            eol = self.parameters["endlinechar"] 
+            if 0 <= eol < 256:
+                line += chr(eol)
             self.tokenizer = Tokenizer(line, self.catcode)
         except StopIteration:
             self.column = self.tokenizer.pos
@@ -203,12 +210,12 @@ class Scanner:
 class StringScanner(Scanner):
     """
     A scanner that reads from a string
-    @param catcode: a list that maps characters to their category codes
+    @param state: the state of the parser
     @param s: the string to read from
     @param name: the name of the string
     """
-    def __init__(self, catcode, s: str, name: str=None):
-        super().__init__(catcode, io.StringIO(s), name)
+    def __init__(self, state, s: str, name: str=None):
+        super().__init__(state, io.StringIO(s), name)
 
 
 class TokenListScanner:
@@ -306,11 +313,11 @@ class InputStack:
             return
         top = self.stack.pop()
         if self.active == top:
+            self.active = None
             for s in reversed(self.stack):
                 if s.position is not None:
                     self.active = s
                     break
-            self.active = None
         if to is None or top == to:
             return
         return self.pop(to)

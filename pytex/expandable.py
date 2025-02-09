@@ -258,7 +258,7 @@ class Input(Command):
         f = parser.resolver.openIn(name, "source")
         if f is None:
             raise ValueError(f"file {name} not found", pos)
-        parser.input.push(Scanner(parser.state.catcode, f, name))
+        parser.input.push(Scanner(parser.state, f, name))
 
 
 class EndInput(Command):

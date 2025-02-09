@@ -244,15 +244,15 @@ class FileResolver:
         """
         if name[0] == "/":
             raise ValueError("absolute path not allowed")
-        name, info = self.getInfo(name, type)
-        if info.binary:
+        info = self.getInfo(name, type)
+        if info["binary"]:
             raise ValueError("binary files not allowed for writing")
         # it must be an in memory file
-        for t in info.extensions:
-            n = name + "." + t
+        for t in info["extensions"]:
+            n = info["name"] + "." + t
             if n in self.in_memory_files:
                 return self.in_memory_files[n].open(for_read=False)
-        n = name + "." + info.extensions[0]
+        n = info["name"] + "." + info["extensions"][0]
         f = InMemoryTextFile()
         self.in_memory_files[n] = f
         return f.open(for_read=False)
@@ -267,7 +267,7 @@ def readFileName(parser) -> str:
     name = ""
     parser.skipFiller()
     while True:
-        t = parser.token()
+        t = parser.token_expand()
         if t is None:
             break
         if t.catcode == CATCODE.BEGIN_GROUP or t.catcode == CATCODE.END_GROUP:

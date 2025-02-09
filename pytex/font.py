@@ -13,6 +13,8 @@ from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
 from pytex.define import Define
 from pytex.state import Array
+from pytex.expandable import toToks
+from pytex.lexer import TokenListScanner
 
 
 class Font(Command):
@@ -170,6 +172,9 @@ class FontCommand(Define):
     """
     The \\font command
     """
+    def default(self):
+        return nullfont
+
     def newItemAccessor(self, index):
         return FontDefineAccessor(self.domain, index)
     
@@ -205,6 +210,15 @@ class FontDimen(DimenArrayAccessor):
         return FontDimenAccessor(None, index-1)
 
 
+class FontName(Command):
+    """
+    the \\fontname command
+    """
+    def expand(self, parser):
+        f = readFont(parser)
+        parser.input.push(TokenListScanner(toToks(f.tfm.name)))
+
+        
 mod = Module("font",
     parameters = {
         "currentfont": {"value": nullfont, "accessor": FontAccessor,  "domain": "parameters"},
@@ -219,5 +233,7 @@ mod = Module("font",
         "hyphenchar": FontChar("hyphenchar"),
         "skewchar": FontChar("skewchar"),
         "font": FontCommand(),
+        "fontname": FontName(),
+        "nullfont": nullfont,
     },
 )

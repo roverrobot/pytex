@@ -20,6 +20,18 @@ class Define(accessor.ArrayAccessor):
     def __init__(self):
         super().__init__("equitable")
 
+    def default(self):
+        """
+        provide a default value for the command before the assignment.
+        Typically this is \\relax. However, in font assignment. For example, in
+        \\font\\f=cmr10 \\fontname\\f
+        the \\fontname is expanded before the assignment because the \\font command
+        is looking for a keyword "scale" or "to". However, at this stage the assignmnt
+        for \\f has not happended yet as pytex is still reading the font specification.
+        Thus, \\f should recive a default value of \\nullfont, as in TeX82.
+        """
+        return token.relax
+    
     def getIndex(self, parser):
         """
         get the index of the command
@@ -32,7 +44,7 @@ class Define(accessor.ArrayAccessor):
         # command t is going to be defined. We make it relax, so that if it appears later
         # in the input, it will be ignored. This, for example, appears in
         # \font\test=cmr10\test
-        parser.state.equitable[t.name] = token.relax
+        parser.state.equitable[t.name] = self.default()
         return t.name
 
 

@@ -41,3 +41,10 @@ def test_skewchar(collector):
     assert collector.state.equitable["\\f"].fontchar["skewchar"] == 45
     collector.parse('\\the\\skewchar\\f')
     assert collector.getString() == '45'
+
+
+def test_fontname(collector):
+    collector.parse("\\font\\f=cmr10 \\fontname\\f")
+    assert collector.getString() == "nullfont"
+    collector.parse("\\font\\f=cmr10 \\relax\\fontname\\f")
+    assert collector.getString() == "cmr10"

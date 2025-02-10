@@ -8,6 +8,7 @@ from pytex.parser import Parser
 from pytex import texlive
 from argparse import ArgumentParser
 import os
+from pytex import etex
 
 output = "."
 
@@ -18,11 +19,15 @@ argparser.add_argument("fmt")
 args = argparser.parse_args()
 
 parser = Parser()
+
 parser.resolver.format = args.fmt
 out = os.path.join(args.output, args.fmt+'.json')
 with open(out, "w") as fmt:
-    input = parser.resolver.openIn(args.fmt, "source")
-    parser.parse(input)
-    input.close()
+    if args.fmt == "plain":
+        source = parser.resolver.openIn("plain", "source/tex")
+    else:
+        source = parser.resolver.openIn(args.fmt, "source/ini")
+    parser.parse(source)
+    source.close()
     parser.dump(fmt)
     

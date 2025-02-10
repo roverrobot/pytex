@@ -278,7 +278,7 @@ class InputStack:
         if t is None:
             if hasattr(top, "terminate") and top.terminate:
                 return None
-            self.stack.pop()
+            self.pop()
             return self.read()
         return t
 

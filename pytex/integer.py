@@ -232,18 +232,9 @@ class CatCode(Array):
             self[c] = CATCODE.LETTER
             self[c + 32] = CATCODE.LETTER
         self[ord("\\")] = CATCODE.ESCAPE
-        self[ord("{")] = CATCODE.BEGIN_GROUP
-        self[ord("}")] = CATCODE.END_GROUP
         self[ord("\r")] = CATCODE.END_OF_LINE
         self[ord(" ")] = CATCODE.SPACE
-        self[ord("\t")] = CATCODE.SPACE
-        self[ord("^")] = CATCODE.SUPERSCRIPT
-        self[ord("_")] = CATCODE.SUBSCRIPT
-        self[ord("$")] = CATCODE.MATH_SHIFT
-        self[ord("#")] = CATCODE.PARAMETER
-        self[ord("&")] = CATCODE.ALIGNMENT_TAB
         self[ord("%")] = CATCODE.COMMENT
-        self[ord("@")] = CATCODE.ACTIVE
         self[8] = CATCODE.INVALID
 
 

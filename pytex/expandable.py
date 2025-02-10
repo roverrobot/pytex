@@ -6,7 +6,7 @@ This module implements various expandable commands.
 from pytex.token import Command, CATCODE, CommandToken, Token, relax
 from pytex.module import Module
 from pytex.lexer import TokenListScanner, Scanner
-
+import pathlib
 
 class NoExpand(Command):
     """
@@ -277,7 +277,8 @@ class JobName(Command):
     def expand(self, parser):
         scanner = parser.input.active
         name = "" if scanner is None else scanner.name
-        parser.input.push(TokenListScanner(toToks(name)))
+        stem = pathlib.Path(name).stem
+        parser.input.push(TokenListScanner(toToks(stem)))
 
 
 mod = Module("expandable",

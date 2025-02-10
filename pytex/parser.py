@@ -49,6 +49,15 @@ class Parser:
         # the list stack
         self.lists = [vmode.VList(self, inner=False)]
         self.log = self.getLogFile()
+        # the dumper instance variable should point to a function that takes the content of 
+        # a dump file and writes it to a file. The \dump command (vmode.Dump) handles the 
+        # dump and uses this variable. Here is an example of setting it.
+        # def dumper:
+        #     with open("dump.fmt", "w") as format:
+        #         format.write(content)
+        # parser.dumper = dumper
+        self.dumper = None
+
     
     def getLogFile(self):
         """
@@ -354,14 +363,13 @@ class Parser:
         c = font.fontchar["hyphenchar"]
         return self.state.parameters["defaulthyphenchar"] if c == 0 else c
 
-    def dump(self, file):
+    def dump(self) -> str:
         """
-        dump the state as a format file
-        @param file: the file to dump the state
+        dump the state as a format (JSON) file
+        @return: the format file content
         """
         dump = serialization.serialize(self.state.dump())
-        format = json.dumps(dump)
-        file.write(format)
+        return json.dumps(dump)
 
     def load(self, file):
         """

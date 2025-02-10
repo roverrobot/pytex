@@ -19,15 +19,22 @@ argparser.add_argument("fmt")
 args = argparser.parse_args()
 
 parser = Parser()
-
 parser.resolver.format = args.fmt
-out = os.path.join(args.output, args.fmt+'.json')
-with open(out, "w") as fmt:
-    if args.fmt == "plain":
-        source = parser.resolver.openIn("plain", "source/tex")
-    else:
-        source = parser.resolver.openIn(args.fmt, "source/ini")
-    parser.parse(source)
-    source.close()
-    parser.dump(fmt)
-    
+
+def dumper(data):
+    with open(os.path.join(args.output, args.fmt+'.json'), "w") as fmt:
+        fmt.write(data)
+parser.dumper = dumper
+
+if args.fmt == "plain":
+    source = parser.resolver.openIn("plain", "source/tex")
+else:
+    source = parser.resolver.openIn(args.fmt, "source/ini")
+parser.parse(source)
+
+# the texlive's plain format does not dump the state
+# so we need to do it manually
+if args.fmt == "plain":
+    dump = parser.dump()
+    if dump:
+        parser.dumper(dump)

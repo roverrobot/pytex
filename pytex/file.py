@@ -129,9 +129,9 @@ class ReadOp(Accessor):
     Read from a file
     @param file: the file number to operate on
     """
-    def __init__(self, command, file):
+    def __init__(self, command, file_id: int):
         super().__init__("equitable", command)
-        self.file = file
+        self.file_id = file_id
     
     # an immediate operation like read should not be serialized
     def saveInfo(self):
@@ -143,12 +143,11 @@ class ReadOp(Accessor):
     def readValue(self, parser):
         tokens = []
         level = 0
-        file = self.file
+        file = parser.state.globals["openin"][self.file_id]
         if file is None or file.closed:
-            raise FileNotFoundError(f"file {self.index} is not open")
-        i = 0 # number of lines read
+            raise FileNotFoundError(f"file {self.file_id} is not open")
+        done = False
         for s in file:
-            i += 1
             scanner = StringScanner(parser.state, s)
             scanner.terminate = True
             parser.input.push(scanner)
@@ -156,21 +155,28 @@ class ReadOp(Accessor):
                 pos = parser.input.position()
                 t = parser.token()
                 if t is None:
-                    parser.input.pop(scanner)
+                    done = level == 0
                     break
                 if t.catcode == token.CATCODE.BEGIN_GROUP:
                     level += 1
                 elif t.catcode == token.CATCODE.END_GROUP:
                     if level == 0:
+                        done = True
                         break
                     level -= 1
                 tokens.append(t)
-        if i == 0:
-            # we haven't read one line. The file reached eof. We close the file.
-            self.file.close()
-        if level == 0:
-            return macro.Macro([], tokens)
-        raise ValueError("unblanced curly braces")
+            parser.input.pop(scanner)
+            if done:
+                break
+        if level > 0:
+            raise ValueError("unblanced curly braces")
+        # The file reached eof. We close the file.
+        if not done:
+            file.close()
+            parser.state.globals["openin"][self.file_id] = None
+        m = macro.Macro([], tokens)
+        m.name = self.index
+        return m
 
 
 class FileOpNode(nd.WhatsIt):
@@ -269,7 +275,7 @@ class Read(FileCommand):
         t = parser.token()
         if not isinstance(t, token.CommandToken):
             raise ValueError(f"Expected a control sequence, got {t}")
-        return ReadOp(t.name, file=parser.state.globals["openin"][file_id])
+        return ReadOp(t.name, file_id)
     
 
 class Immediate(token.Command):

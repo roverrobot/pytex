@@ -280,7 +280,7 @@ class JobName(Command):
                 name = scanner.name
                 break
         name = "" if scanner is None else scanner.name
-        if name == "":
+        if not name:
             name = "noname"
         stem = pathlib.Path(name).stem
         parser.input.push(TokenListScanner(toToks(stem)))

@@ -9,5 +9,7 @@
   * leaders
 * output
 * eTex
+  * \mid
+  * \currentifbranch
 * minimal pdftex
 * latex

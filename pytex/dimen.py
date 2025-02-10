@@ -172,14 +172,15 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
             units = {"pt", "pc", "in", "bp", "cm", "mm", "dd", "cc", "sp", "em", "ex"}
     if stretchness and not true:
         units.add("fil")
+    pos = parser.input.position()
     unit = parser.readKeyword(units)
     # skip a space
     parser.skipSpaces(n=1)
     if unit is None:
         if mu:
-            raise Exception("mu dimension expected")
+            raise ValueError("mu dimension expected", pos)
         else:
-            raise Exception("dimension unit expected")
+            raise ValueError("dimension unit expected", pos)
     infinity = 0
     if unit == "mu":
         dimen = f

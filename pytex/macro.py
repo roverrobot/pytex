@@ -150,7 +150,7 @@ class Macro(Command):
                 return result, i
             if t.catcode == CATCODE.BEGIN_GROUP:
                 parser.input.unread(t)
-                l = parser.readBalancedText(expand=False)
+                l = parser.readBalancedText(expand=False, include_braces=True)
                 result.extend(l)
             else:
                 result.append(t)

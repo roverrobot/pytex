@@ -275,8 +275,13 @@ class EndInput(Command):
 
 class JobName(Command):
     def expand(self, parser):
-        scanner = parser.input.active
+        for scanner in parser.input.stack:
+            if scanner.position is not None:
+                name = scanner.name
+                break
         name = "" if scanner is None else scanner.name
+        if name == "":
+            name = "noname"
         stem = pathlib.Path(name).stem
         parser.input.push(TokenListScanner(toToks(stem)))
 

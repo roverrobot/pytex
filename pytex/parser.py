@@ -28,6 +28,7 @@ from pytex import mmode
 from pytex import paragraph
 from pytex import align
 from pytex import hyphen
+from pytex import misc
 
 
 class Parser:

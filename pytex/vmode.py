@@ -108,21 +108,6 @@ class End(Command):
         parser.end()
 
 
-class Dump(Command):
-    """
-    Dump the current parser state as a format file.
-
-    A format file is a JSON file that contains the changes to parser.state
-    since the last dump. If this is the first dump, it is compared to the
-    default state of the parser. 
-    """
-    def execute(self, parser):
-        parser.end()
-        if parser.dumper is None:
-            raise ValueError("no dumper is available", parser.input.position())
-        parser.dumper(parser.dump())
-
-
 mod = Module("vmode",
     commands={
         "vskip": VSkip(),
@@ -131,7 +116,6 @@ mod = Module("vmode",
         "vss": VSkip(Glue(0, Stretchness(1, 1), Stretchness(1, 1))),
         "vnegfil": VSkip(Glue(0, Stretchness(-1, 1))),
         "end": End(),
-        "dump": Dump(),
     },
     attributes={
         "readVList": readVList

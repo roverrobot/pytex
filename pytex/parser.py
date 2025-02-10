@@ -1,5 +1,6 @@
 import typing
 import json
+import datetime
 from pytex import serialization
 from pytex import token
 from pytex import lexer
@@ -110,6 +111,11 @@ class Parser:
         @param input: the input
         @param name: the name of the input
         """
+        # we first set up today etc.
+        date = datetime.date.today()
+        self.state.parameters["year"] = date.year
+        self.state.parameters["month"] = date.month
+        self.state.parameters["day"] = date.day
         self.readFrom(input, name)
         self.run = True
         self.loop()

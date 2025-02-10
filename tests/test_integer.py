@@ -1,6 +1,7 @@
 import pytest
 from pytex.token import Token, CATCODE
 from tests import checkValues
+import datetime
 
 
 def test_read_integer_dec(parser):
@@ -75,3 +76,9 @@ def test_chardef(collector):
 def test_mathchardef(parser):
     parser.parse("\\mathchardef\\a=65 \\count0=\\a")
     assert parser.state.count[0] == 65
+
+
+def test_date(collector):
+    collector.parse("\\the\\year-\\the\\month-\\the\\day")
+    date = datetime.date.today()
+    assert collector.getString() == f"{date.year}-{date.month}-{date.day}"

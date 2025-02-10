@@ -7,11 +7,13 @@ import typing
 from pytex.token import CATCODE, Command, Token
 from pytex.module import Module
 
-def skipBranch(parser):
+def skipBranch(parser, level: list):
     """
     skip all tokens in a branch, until an \\else, \\or or \\fi is encountered.
     @param parser: the parser
-    @return: the command that was encountered    """
+    @param level: the current level of the ifstack
+    @return: the command that was encountered    
+    """
     while True:
         pos = parser.input.position()
         t = parser.token()
@@ -20,23 +22,25 @@ def skipBranch(parser):
             raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", pos)
         if t.isCommand():
             c = parser.lookup(t.name)
-            if isinstance(c, Branch):
-                return c
             if isinstance(c, Conditional): # another level
-                skipAll(parser, pop=False)
+                parser.ifstack.append([c, -1, pos])
+            elif isinstance(c, Branch):
+                if level is parser.ifstack[-1]:
+                    return c
+                if isinstance(c, Fi):
+                    parser.ifstack.pop()
 
 
-def skipAll(parser, pop: bool=True):
+def skipAll(parser):
     """
     skip all tokens in a conditional command, until an \\fi is encountered.
     @param parser: the parser
     @param pop: whether to pop the ifstack
     """
     while True:
-        c = skipBranch(parser)
+        c = skipBranch(parser, parser.ifstack[-1])
         if c == fi:
-            if pop:
-                parser.ifstack.pop()
+            parser.ifstack.pop()
             return
 
 
@@ -45,7 +49,7 @@ class Branch(Command):
     the base class for a branch. Commands such as \else, \or, and \fi are subclasses of this class.
     @param command_name: the name of the command
     """
-    def expand(self, parser):
+    def execute(self, parser):
         if len(parser.ifstack) == 0:
             raise ValueError("unexpected " + self.name, parser.input.position())
         skipAll(parser)
@@ -88,14 +92,16 @@ class Conditional(Command):
         command, the return value should be the index of the branch to be taken, starting from 0.
 
         @param parser: the parser
+        @param condition: the branch to skip to
+        @param level: the current level of the ifstack
         @return: the index pf the branch to be taken. 0 for true, 1 for false
         """
         # the default implementation is equivalent to \iftrue
         return 0
 
-    def skipTo(self, parser, condition):
+    def skipTo(self, parser, condition, level):
         for i in range(condition):
-            c = skipBranch(parser)
+            c = skipBranch(parser, level)
             if isinstance(c, Or) and not isinstance(self, IfCase):
                 raise ValueError("unexpected \\or")
             if isinstance(c, Else):
@@ -106,11 +112,14 @@ class Conditional(Command):
 
     def expand(self, parser):
         pos = parser.input.position()
+        # We push the ifstack before checking the condition, because there could be other 
+        # conditional commands when hanlding condition.
+        # the ifstack saved the command, position in input stack, and branch (condition)
+        state = [self, pos]
+        parser.ifstack.append(state)
         condition = self.condition(parser)
-        # here we store the command, the branch (condition) and the position iin input stack
-        # in the ifstack.
-        parser.ifstack.append([self, condition, pos])
-        self.skipTo(parser, condition)
+        state.append(condition)
+        self.skipTo(parser, condition, level = state)
 
 
 class IfCompareToken(Conditional):

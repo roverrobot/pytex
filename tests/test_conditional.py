@@ -86,7 +86,7 @@ def test_ifnum_miss_number(parser):
         parser.parse("\\ifnum 1\\else\\fi")
         assert False, "missing number"
     except ValueError as e:
-        assert "\\else" in str(e)
+        assert "expecting" in str(e)
 
 
 def test_ifnum_miss_comparison(parser):
@@ -124,7 +124,7 @@ def test_ifdim_miss_unit(parser):
         parser.parse("\\ifdim 1\\else\\fi")
         assert False, "missing unit"
     except ValueError as e:
-        assert "else" in str(e)
+        assert "expected" in str(e)
 
 
 def test_ifdim_miss_value(parser):
@@ -132,7 +132,7 @@ def test_ifdim_miss_value(parser):
         parser.parse("\\ifdim 1pt\\else\\fi")
         assert False, "missing value"
     except ValueError as e:
-        assert "else" in str(e)
+        assert "expecting" in str(e)
 
 
 def test_ifdim_miss_comparison(parser):

@@ -9,6 +9,7 @@ from pytex.lexer import TokenListScanner
 from pytex.accessor import Prefix, Accessor
 from pytex.define import Define
 from pytex.module import Module
+from pytex.expandable import toksToString
 
 
 class MacroScanner(TokenListScanner):
@@ -69,6 +70,13 @@ def compareToks(toks1, toks2):
     return True
 
 
+def toString(toks):
+    """
+    convert a list of tokens to a string
+    """
+    return "".join([ t.name+" " if t.catcode is None else t.name for t in toks ])
+
+
 class Macro(Command):
     """
     a macro is defined by brackets and the replacement text
@@ -94,8 +102,8 @@ class Macro(Command):
         }
 
     def __repr__(self):
-        return f"Macro({self.parameters},{self.replacement})"
-    
+        return f"{self.name}:=({toString(self.parameters)}"+"{"+f"{toString(self.replacement)}"+"})"
+
     def matchDelimited(self, parser, start):
         """
         match the next delimiter in the parameter list
@@ -242,7 +250,9 @@ class MacroAccessor(Accessor):
                 parameters.append(t)
         # read the replacement text
         replacement = parser.readBalancedText(expand=self.expanded)
-        return Macro(parameters, replacement)
+        macro = Macro(parameters, replacement)
+        macro.name = self.index
+        return macro
     
     def setValue(self, parser, value, globally):
         return super().setValue(parser, value, self.globally or globally)

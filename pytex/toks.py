@@ -24,7 +24,6 @@ def readBalancedText(parser, expand: bool = False, end_at_space: bool=False):
     level = 0
     while True:
         t = parser.token_expand(protected=True) if expand else parser.token()
-        print("t", t)
         if t is None:
             if level != 0:
                 raise ValueError("unbalanced token list", pos)

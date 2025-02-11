@@ -16,7 +16,8 @@ def plain_dump(parser):
     assert plain is not None
     parser.parse(plain)
     assert parser.state.parameters["currentfont"].tfm.name != "nullfont"
-    parser.dump(dump)
+    data = parser.dump()
+    dump.write(data)
     dump.close()
     return parser.resolver.in_memory_files["plain.json"].content
 

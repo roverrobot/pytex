@@ -37,6 +37,7 @@ class Arithmatics(Command):
             p = t.getItemAccessor(parser, None)
         except AttributeError:
             raise ValueError("expecting a register or a parameter", pos)
+        is_integer = False
         if hasattr(p, "muglueValue"):
             x = p.muglueValue(parser)
         elif hasattr(p, "glueValue"):
@@ -45,11 +46,14 @@ class Arithmatics(Command):
             x = p.dimenValue(parser)
         elif hasattr(p, "intValue"):
             x = p.intValue(parser)
+            is_integer = True
         else:
             raise ValueError("expecting a register or a parameter of integer, dimension, or glue", pos)
         parser.readKeyword(["by"])
         y = self.readByValue(parser, p)
         value = self.op(x, y)
+        if is_integer:
+            value = int(value)
         p.setValue(parser, value, prefixes)
 
     def readByValue(self, parser, item_accessor):

@@ -268,6 +268,8 @@ class Read(FileCommand):
         FileCommand.__init__(self, immediate=True)
 
     def fileOp(self, parser, file_id):
+        if file_id < 0 or file_id >= len(parser.state.globals["openin"]):
+            raise ValueError(f"\\read does not support reading from console", parser.input.position())
         to = parser.readKeyword(["to"])
         if to is None:
             raise ValueError("Expected 'to' keyword")

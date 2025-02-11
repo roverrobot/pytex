@@ -435,7 +435,7 @@ class MathCharDefAccesor(Accessor):
         return MathCharValue(parser.readInteger())
 
 
-class MathCharDef(IntegerCommand, Define):
+class MathCharDef(Define):
     """
     the \\mathchardef command
     """

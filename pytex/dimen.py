@@ -155,7 +155,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     # a unit
     t = parser.token_expand()
     if t is None:
-        raise Exception("dimension unit expected")
+        raise ValueError("dimension unit expected", parser.input.position())
     try:
         return f * t.definition.dimenValue(parser)
     except AttributeError:

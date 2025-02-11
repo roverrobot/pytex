@@ -102,7 +102,13 @@ class Macro(Command):
         }
 
     def __repr__(self):
-        return f"toString(self.parameters)->{toString(self.replacement)}"
+        long = "\\long " if self.long else ""
+        outer = "\\outer " if self.outer else ""
+        protected = "\\protected " if self.protected else ""
+        return f"{long}{outer}{protected}{toString(self.parameters)}->{toString(self.replacement)}"
+
+    def meaning(self, parser):
+        return str(self)
 
     def matchDelimited(self, parser, start):
         """
@@ -177,7 +183,7 @@ class Macro(Command):
             t, i = self.matchDelimited(parser, i)
             # if not matched, the macro does not match the definition
             if t is not None:
-                raise ValueError("macro does not match the definition {self}", pos)
+                raise ValueError(f"macro does not match the definition {self} at {t}", pos)
             # if matched and we have reached the end of the parameter list, that means 
             # we have matched all parameter texts, and so we break the loop
             if i >= len(self.parameters):

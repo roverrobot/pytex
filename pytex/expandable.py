@@ -292,6 +292,15 @@ class JobName(Command):
         parser.input.push(TokenListScanner(toToks(stem)))
 
 
+class Meaning(Command):
+    def expand(self, parser):
+        t = parser.token()
+        if t is None:
+            raise ValueError("expecting a token", parser.input.position())
+        meaning = t.meaning(parser)
+        parser.input.push(ProtectedTokenListScanner(toToks(meaning)))
+
+
 mod = Module("expandable",
     commands={
         "noexpand": NoExpand(),
@@ -305,5 +314,6 @@ mod = Module("expandable",
         "input": Input(),
         "endinput": EndInput(),
         "jobname": JobName(),
+        "meaning": Meaning(),
     }
 )

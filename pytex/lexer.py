@@ -54,6 +54,14 @@ class Tokenizer:
                 return None, None
         return c, self.catcode[ord(c)]
     
+    def unread(self, c):
+        """
+        save a character for later reading
+        @param c: the character to save
+        """
+        if c is not None:
+            self.saved.append(c)
+
     def charExpand(self):
         """
         read a character from the line, and expand ^^. 
@@ -65,7 +73,7 @@ class Tokenizer:
         # handle ^^
         c1, catcode1 = self.char()
         if catcode1 != CATCODE.SUPERSCRIPT:
-            self.saved.append(c1)
+            self.unread(c1)
             return c, catcode
         c2, catcode2 = self.char()
         # handle ^^ followed by two hex digits
@@ -75,7 +83,7 @@ class Tokenizer:
                 c = int(c2 + c3, 16)
                 catcode = self.catcode[c]
                 return chr(c), catcode
-            self.saved.append(c3)
+            self.unread(c3)
         c = ord(c2)
         if c > 64:
             c -= 64
@@ -104,10 +112,10 @@ class Tokenizer:
                 c, catcode = self.charExpand()
             # skip the spaces at the beginning of the line
             if self.start:
-                self.saved.append(c)
+                self.unread(c)
                 return self.read()
             if catcode != CATCODE.END_OF_LINE:
-                self.saved.append(c)
+                self.unread(c)
             return SpaceToken()
         if catcode == CATCODE.END_OF_LINE:
             if self.start:
@@ -125,7 +133,7 @@ class Tokenizer:
             elif catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
                 break
             else:
-                self.saved.append(c)
+                self.unread(c)
                 break
         return CommandToken(name)
 

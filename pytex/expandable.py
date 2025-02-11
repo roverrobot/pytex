@@ -6,7 +6,6 @@ This module implements various expandable commands.
 from pytex.token import Command, CATCODE, CommandToken, Token, relax
 from pytex.module import Module
 from pytex.lexer import TokenListScanner, Scanner
-from pytex.macro import Macro
 import pathlib
 
 class NoExpand(Command):
@@ -41,7 +40,7 @@ class ExpandAfter(Command):
             if expandable is None:
                  raise ValueError(f"undefined comand {t1.name}", parser.input.position())
             if expandable:
-                t1.meaning.expand(parser)
+                t1.definition.expand(parser)
             else:
                 parser.input.unread(t1)
         else:
@@ -71,7 +70,7 @@ def readCSName(parser):
         t = parser.token_expand()
         if t is None:
             raise ValueError("expecting \\endcsname", parser.input.position())
-        if t.meaning == endcsname:
+        if t.definition == endcsname:
             break
         elif t.catcode is None:
             raise ValueError(f"unexpected {t.name}", parser.input.position())
@@ -98,7 +97,7 @@ class CSName(Command):
         if c is None:
             c = relax
             parser.state.domains["equitable"][t.name] = c
-        t.meaning = c
+        t.definition = c
         parser.input.unread(t)
 
 
@@ -226,9 +225,9 @@ class The(Command):
         """
         pos = parser.input.position()
         t = parser.token_expand()
-        if t is None or t.meaning is None:
+        if t is None or t.definition is None:
             raise ValueError("invalid token after \\the", pos)
-        t = t.meaning
+        t = t.definition
         if hasattr(t, "glueValue"):
             value = str(t.glueValue(parser))
         elif hasattr(t, "dimenValue"):

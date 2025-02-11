@@ -153,7 +153,7 @@ class Macro(Command):
                 raise ValueError(f"macro does not match the definition {self}", parser.input.position())
             if t.catcode == CATCODE.BEGIN_GROUP:
                 parser.input.unread(t)
-                return parser.readBalancedText(expand=False), i
+                return parser.readGeneralText(expand=False), i
             return [t], i
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token
@@ -164,7 +164,7 @@ class Macro(Command):
                 return result, i
             if t.catcode == CATCODE.BEGIN_GROUP:
                 parser.input.unread(t)
-                l = parser.readBalancedText(expand=False, include_braces=True)
+                l = parser.readBalancedText(expand=False)
                 result.extend(l)
             else:
                 result.append(t)
@@ -257,7 +257,7 @@ class MacroAccessor(Accessor):
             else:
                 parameters.append(t)
         # read the replacement text
-        replacement = parser.readBalancedText(expand=self.expanded)
+        replacement = parser.readGeneralText(expand=self.expanded)
         macro = Macro(parameters, replacement)
         if parser.tracingmacros:
             parser.message(f"macro {self.index}: {macro}")

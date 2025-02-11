@@ -244,6 +244,8 @@ class FileResolver:
         """
         if name[0] == "/":
             raise ValueError("absolute path not allowed")
+        if name.startswith("./"):
+            return self.openOut(name[2:], type)
         info = self.getInfo(name, type)
         if info["binary"]:
             raise ValueError("binary files not allowed for writing")

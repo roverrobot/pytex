@@ -36,10 +36,10 @@ class Tokenizer:
         for self.pos, c in self.line:
             if self.catcode[ord(c)] != CATCODE.SPACE:
                 break
+        # the position of the first non-space character
+        self.first = self.pos
         # the saved characters that are unread
         self.saved = [c]
-        # the position of the last character read
-        self.pos = 0
 
 
     def char(self):
@@ -124,10 +124,9 @@ class Tokenizer:
             self.skipSpaces()
             return SpaceToken()
         if catcode == CATCODE.END_OF_LINE:
-            if self.start:
+            if self.pos == self.first:
                 return CommandToken("\\par")
             return SpaceToken()
-        self.start = False
         if catcode != CATCODE.ESCAPE:
             return Token.token(c, catcode)
         c, catcode = self.charExpand()

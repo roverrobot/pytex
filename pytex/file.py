@@ -303,8 +303,7 @@ class Message(token.Command):
         return {"init": {"error": self.error}}
     
     def write(self, parser, s):
-        parser.log.write(s)
-        print(s)
+        parser.message(s)
 
     def execute(self, parser):
         tokens = parser.readGeneralText(expand=True)

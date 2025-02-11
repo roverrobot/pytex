@@ -49,7 +49,7 @@ class Branch(Command):
     the base class for a branch. Commands such as \else, \or, and \fi are subclasses of this class.
     @param command_name: the name of the command
     """
-    def execute(self, parser):
+    def expand(self, parser):
         if len(parser.ifstack) == 0:
             raise ValueError("unexpected " + self.name, parser.input.position())
         skipAll(parser)

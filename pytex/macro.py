@@ -102,7 +102,7 @@ class Macro(Command):
         }
 
     def __repr__(self):
-        return f"{self.name}:=({toString(self.parameters)}"+"{"+f"{toString(self.replacement)}"+"})"
+        return f"toString(self.parameters)->{toString(self.replacement)}"
 
     def matchDelimited(self, parser, start):
         """
@@ -197,6 +197,8 @@ class Macro(Command):
             args.append(argv)
         # we now create a MacroScanner and read from it.
         scanner = MacroScanner(self.replacement, args)
+        if parser.tracingmacros:
+            parser.message(f"expanding macro {self} with arguments {args}")
         parser.input.push(scanner)
     
     def __eq__(self, other):
@@ -251,7 +253,8 @@ class MacroAccessor(Accessor):
         # read the replacement text
         replacement = parser.readBalancedText(expand=self.expanded)
         macro = Macro(parameters, replacement)
-        macro.name = self.index
+        if parser.tracingmacros:
+            parser.message(f"macro {self.index}: {macro}")
         return macro
     
     def setValue(self, parser, value, globally):

@@ -59,6 +59,8 @@ class Parser:
         #         format.write(content)
         # parser.dumper = dumper
         self.dumper = None
+        # tracing settings
+        self.state.domains["tracing"].values.attach(self)
 
     
     def getLogFile(self):
@@ -77,6 +79,16 @@ class Parser:
             return self.logfile.content
         return self.log.getvalue()
 
+    def message(self, message: str, console: bool = True):
+        """
+        write a message to the log file and the console
+        @param message: the message
+        @param console: whether to write to the console
+        """
+        self.log.write(message + "\n")
+        if console:
+            print(message)
+    
     def token(self):
         """
         get the next token from the input stack
@@ -100,8 +112,12 @@ class Parser:
                 if expandable is None:
                     raise ValueError("undefined command" + t.name, pos)
                 elif expandable:
-                    t.meaning.expand(self)
+                    if self.tracingcommands:
+                        self.message(f"expanding {t.name} at {pos}\n")
+                    t.definition.expand(self)
                     continue
+                else:
+                    self.message(f"read {t} at {pos}\n")
             return t
 
 
@@ -112,10 +128,11 @@ class Parser:
         @param name: the name of the input
         """
         # we first set up today etc.
-        date = datetime.date.today()
+        date = datetime.datetime.now()
         self.state.parameters["year"] = date.year
         self.state.parameters["month"] = date.month
         self.state.parameters["day"] = date.day
+        self.state.parameters["time"] = date.hour * 60 + date.minute
         self.readFrom(input, name)
         self.run = True
         self.loop()
@@ -131,6 +148,8 @@ class Parser:
             if t is None:
                 self.run = False
                 break
+            if self.tracingcommands:
+                self.message(f"executing {t.name} at {self.input.position()}\n")
             t.execute(self)
 
     def readFrom(self, input, name: typing.Optional[str] = None):

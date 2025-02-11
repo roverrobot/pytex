@@ -137,15 +137,6 @@ class GroupStack(list):
         group = self.pop(-1)
         group.end(position, group_type)
 
-    def top(self):
-        """
-        get the top group
-        @return: the top group or None if there is no group
-        """
-        if len(self) == 0:
-            return None
-        return self[-1]
-    
     def remove(self, domain, index):
         """
         remove a value from all groups. This is to implement \\global
@@ -156,54 +147,22 @@ class GroupStack(list):
             group.remove(domain, index)
 
 
-class Dumpable:
-    """
-    a class that can be dumped and restored.
-    """
-    def __init__(self, values):
-        self.values = values
-        self.changed = {}
-    
-    def __setitem__(self, index, value):
-        self.values[index] = value
-        self.changed[index] = value
-    
-    def __getitem__(self, index):
-        return self.values[index]
-
-    def __delitem__(self, index):
-        del self.values[index]
-        del self.changed[index]
-
-    def dump(self):
-        """
-        dump the object
-        @return: a dict that represents the object
-        """
-        changed = self.changed
-        self.changed = {}
-        return changed
-
-    def load(self, data):
-        """
-        restore the object
-        @param data: the data to restore the object
-        """
-        for i, v in data.items():
-            self[i] = v
-
-
-class Domain(Dumpable):
+class Domain:
     """
     a Domamin is a dict or list that respect groups.
     @param name: the name of the domain
     @param values: the values in the domain
     @param group_stack: the group stack to store the values
+    @param volatile: whether the domain is volatile, i.e., shold be dumped in a format file
     """
-    def __init__(self, name: str, values, group_stack: GroupStack):
-        super().__init__(values)
+    def __init__(self, name: str, values, group_stack=None, volatile=False):
         self.name = name
+        self.values = values
         self.group_stack = group_stack
+        self.changed = None if volatile else {}
+
+    def __getitem__(self, index):
+        return self.values[index]
 
     def __setitem__(self, index, value):
         """
@@ -211,19 +170,29 @@ class Domain(Dumpable):
         @param index: the index of the value
         @param: the value
         """
-        group = self.group_stack.top()
-        if group is not None:
-            group.store(self, index)
-        super().__setitem__(index, value)
+        if self.group_stack is not None and len(self.group_stack) > 0:
+            self.group_stack[-1].store(self, index)
+        if self.changed is not None:
+            self.changed[index] = value
+        self.values[index] = value
         
+    def __delitem__(self, index):
+        if self.group_stack is not None and len(self.group_stack) > 0:
+            self.group_stack[-1].store(self, index)
+        del self.values[index]
+        del self.changed[index]
+
     def setGlobal(self, index, value):
         """
         set the value of the domain at the index globally
         @param index: the index of the value
         @param: the value
+
+        This is like __setitem__, but also should clear the saved values in group_stack.
         """
-        super().__setitem__(index, value)
-        self.group_stack.remove(self, index)
+        self[index] = value
+        if self.group_stack is not None:
+            self.group_stack.remove(self, index)
 
     def restore(self, index, value):
         """
@@ -235,12 +204,24 @@ class Domain(Dumpable):
             del self[index]
         else:
             self[index] = value
+            
+    def dump(self):
+        """
+        dump the object
+        @return: a dict that represents the object
+        """
+        changed = self.changed
+        if self.changed is not None:
+            self.changed = {}
+        return changed
 
     def load(self, data):
         """
         restore the domain from a dump
         @param data: the data to restore the domain
         """
+        if self.changed is None:
+            raise ValueError("cannot load a volatile domain")
         is_array = isinstance(self.values, list)
         for i, v in data.items():
             if is_array:
@@ -249,6 +230,30 @@ class Domain(Dumpable):
         
     def __repr__(self):
         return self.values.__repr__()
+
+
+class GlobalDomain(Domain):
+    """
+    the global domain if not subject to groups, but it is still dumpable
+    """
+    def __init__(self, name, values):
+        super().__init__(name, values, None, False)
+
+
+class VolatileDomain(Domain):
+    """
+    a volatile domain is not dumpable, but is subject to groups
+    """
+    def __init__(self, name, values, group_stack):
+        super().__init__(name, values, group_stack, True)
+
+
+class DumpableDomain(Domain):
+    """
+    a domain that is both dumpable and subject to groups
+    """
+    def __init__(self, name, values, group_stack):
+        super().__init__(name, values, group_stack, False)
 
 
 class Array(list):
@@ -282,10 +287,18 @@ class State:
     """
     def __init__(self):
         self.groups = GroupStack()
-        self.domains = {"globals": Dumpable({})}
-        self.addDomain("equitable", {})
-        self.addDomain("layout", {})
-        self.addDomain("parameters", {})
+        self.domains = {
+            # all global variables, not affected by groups
+            "globals": GlobalDomain("globals", {}), 
+            # all volatile variables, not dumped to a formaat file
+            "volatile": VolatileDomain("volatile", {}, self.groups),
+            # the equitable saves the definition of all command sequences
+            "equitable": DumpableDomain("equitable", {}, self.groups),
+            # the set of parameters pertaining to layout
+            "layout": DumpableDomain("layout", {}, self.groups),
+            # all other parameters
+            "parameters": DumpableDomain("parameters", {}, self.groups),
+        }
         def setattr(self, index, value):
             self.domains[index] = value
         self.__setattr__ = setattr
@@ -321,11 +334,15 @@ class State:
     
     def addDomain(self, name: str, values):
         """
-        add a domain to the state
+        add a dumpable domain to the state
         :param name: the name of the domain
         :param values: the values of the domain
+        :param volatile: whether the domain is volatile
+
+        Note that there is exactly one global domain and one volatile domain.
+        All other domains are dumpable.
         """
-        self.domains[name] = Domain(name, values, self.groups)
+        self.domains[name] = DumpableDomain(name, values, self.groups)
     
     def dump(self):
         """

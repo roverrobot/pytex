@@ -129,10 +129,10 @@ class Parser:
         """
         # we first set up today etc.
         date = datetime.datetime.now()
-        self.state.parameters["year"] = date.year
-        self.state.parameters["month"] = date.month
-        self.state.parameters["day"] = date.day
-        self.state.parameters["time"] = date.hour * 60 + date.minute
+        self.state.volatile["year"] = date.year
+        self.state.volatile["month"] = date.month
+        self.state.volatile["day"] = date.day
+        self.state.volatile["time"] = date.hour * 60 + date.minute
         self.readFrom(input, name)
         self.run = True
         self.loop()

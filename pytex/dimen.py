@@ -144,8 +144,8 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         raise Exception("dimension expected")
     # an internal dimension or a glue (both have a dimenValue method)
     try:
-        if t.meaning is not None:
-            return t.meaning.dimenValue(parser)
+        if t.definition is not None:
+            return t.definition.dimenValue(parser)
     except AttributeError:
         pass
     # a number
@@ -157,7 +157,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     if t is None:
         raise Exception("dimension unit expected")
     try:
-        return f * t.meaning.dimenValue(parser)
+        return f * t.definition.dimenValue(parser)
     except AttributeError:
         parser.input.unread(t)
     true = False

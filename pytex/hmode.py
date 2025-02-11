@@ -340,7 +340,7 @@ class Accent(HorizontalCommand):
             t = parser.token_expand()
             if t is None:
                 break
-            meaning = t.meaning
+            meaning = t.definition
             # is t is an assignment, run it
             if isinstance(meaning, Accessor) and not isinstance(meaning, SetBox):
                 meaning.execute(parser)

@@ -141,21 +141,21 @@ class AlignCommand(lists.ModeDependentCommand):
         if t is None or t.catcode == token.CATCODE.ALIGNMENT_TAB:
             return t, t
         if t.isCommand():
-            t.meaning = parser.lookup(t.name)
-            if t.meaning == crcr:
-                t.meaning = cr
+            t.definition = parser.lookup(t.name)
+            if t.definition == crcr:
+                t.definition = cr
                 return t, cr
-            if t.meaning == cr:
+            if t.definition == cr:
                 # is the next token a \crcr? \cr\crcr is the same
                 t1 = parser.token()
                 if t1 is not None:
                     if t1.isCommand():
-                        t1.meaning = parser.lookup(t1)
-                        if t1.meaning == crcr:
+                        t1.definition = parser.lookup(t1)
+                        if t1.definition == crcr:
                             return t, cr
                     parser.input.unread(t1)
                 return t, cr
-            if t.meaning == span:
+            if t.definition == span:
                 return t, span
         return t, None
     
@@ -243,7 +243,7 @@ class AlignCommand(lists.ModeDependentCommand):
         The cell parameter is the previous cell if it is spanned
         """
         t = parser.token_expand()
-        read_template = t.meaning != omit
+        read_template = t.definition != omit
         if read_template:
             parser.input.unread(t)
             left, right = header
@@ -284,7 +284,7 @@ class AlignCommand(lists.ModeDependentCommand):
         t = parser.token_expand()
         if t is None:
             return None
-        if t.isCommand() and t.meaning == noalign:
+        if t.isCommand() and t.definition == noalign:
             list = parser.newVList() if self.vert else parser.newHList()
             parser.readList(list, GROUP_TYPE.NO_ALIGN)
             return list
@@ -346,7 +346,7 @@ class HAlign(AlignCommand, lists.ModeDependentCommand):
             if t.catcode == token.CATCODE.MATH_SHIFT:
                 parser.input.unread(t)
                 break
-            c = t.meaning
+            c = t.definition
             if not isinstance(c, accessor.Prefix):
                 try:
                     c = c.getItemAccess(parser, None)

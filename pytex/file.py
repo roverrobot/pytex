@@ -283,7 +283,7 @@ class Immediate(token.Command):
     \\immediate
     """
     def execute(self, parser):
-        t = parser.token_expand().meaning
+        t = parser.token_expand().definition
         if isinstance(t, FileCommand):
             t.execute(parser, immediate=True)
         else:

@@ -61,6 +61,8 @@ class Command(serialization.Serializable):
     # expandable commands have a expand method defined
     expand = None
 
+    # the meaning of the command, as returned by \meaning
+
     def execute(self, parser):
         """
         execute the command.
@@ -79,7 +81,7 @@ class Token(Command):
     def __init__(self, name: str, catcode: typing.Optional[int]):
         self.name = name
         self.catcode = catcode
-        self.meaning = None
+        self.definition = None
 
     def isCommand(self):
         """ 
@@ -162,7 +164,7 @@ class CommandToken(Token):
         c = parser.lookup(self.name)
         if c is None:
             return None
-        self.meaning = c
+        self.definition = c
         if c.expand is None:
             return False
         return not (protected and c.protected)
@@ -173,8 +175,8 @@ class CommandToken(Token):
         @param parser: the parser
         """
         # up to this point, the meaning has been found
-        if self.meaning is not None:
-            self.meaning.execute(parser)
+        if self.definition is not None:
+            self.definition.execute(parser)
 
     def charValue(self, parser):
         """ 

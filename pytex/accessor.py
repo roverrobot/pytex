@@ -220,7 +220,7 @@ class Prefix(token.Command):
         prefixes.append(self)
         pos = parser.input.position()
         while True:
-            t = parser.token_expand().meaning
+            t = parser.token_expand().definition
             if t != token.relax:
                 break
         self.validate(t)

@@ -183,7 +183,7 @@ def readGlue(parser, mu: bool=False):
     if t is None:
         raise Exception("glue expected")
     try:
-        value = t.meaning.muglueValue(parser) if mu else t.meaning.glueValue(parser)
+        value = t.definition.muglueValue(parser) if mu else t.definition.glueValue(parser)
         return value * sign
     except AttributeError:
         parser.input.unread(t)

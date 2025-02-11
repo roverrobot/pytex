@@ -290,7 +290,7 @@ def readBox(parser, setbox=False):
     @param setbox: whether the this function is called from setbox
     """
     pos = parser.input.position()
-    command = parser.token_expand().meaning
+    command = parser.token_expand().definition
     if command is None:
         raise ValueError("expecting a box", pos)
     try:
@@ -677,7 +677,7 @@ class Leaders(Command):
             if (box.node_type == nd.NODE_TYPE.HLIST and top.type == LISTTYPE.VERTICAL) or (box.node_type == nd.NODE_TYPE.VLIST and top.type != LISTTYPE.VERTICAL):
                 raise ValueError("box in the wrong mode", pos)
         pos = parser.input.position()
-        t = parser.token_expand().meaning
+        t = parser.token_expand().definition
         if t is None:
             raise ValueError("expecting a glue", pos)
         if isinstance(t, GlueCommand):

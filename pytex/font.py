@@ -79,11 +79,11 @@ def readFont(parser):
     @param parser: the parser
     """
     t = parser.token_expand()
-    if t is None or t.meaning is None:
+    if t is None or t.definition is None:
         raise ValueError("expecting a font")
     # is the font specified by a command seqeunce?
     try:
-        return t.meaning.fontValue(parser)
+        return t.definition.fontValue(parser)
     except AttributeError:
         raise ValueError("expecting a font")
 

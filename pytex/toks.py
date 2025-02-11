@@ -54,7 +54,7 @@ def skipFiller(parser):
         t = parser.token_expand()
         if t is None:
             return
-        if t.catcode == CATCODE.SPACE or t.meaning == relax:
+        if t.catcode == CATCODE.SPACE or t.definition == relax:
             continue
         parser.input.unread(t)
         break
@@ -85,9 +85,9 @@ class ToksCommand:
         parser.skipFiller()
         t = parser.token()
         if t.isCommand():
-            t.meaning = parser.lookup(t.name)
+            t.definition = parser.lookup(t.name)
             try:
-                return t.meaning.toksValue(parser)
+                return t.definition.toksValue(parser)
             except AttributeError:
                 pass
         parser.input.unread(t)

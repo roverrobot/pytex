@@ -6,6 +6,7 @@ This module implements various expandable commands.
 from pytex.token import Command, CATCODE, CommandToken, Token, relax
 from pytex.module import Module
 from pytex.lexer import TokenListScanner, Scanner
+from pytex.macro import Macro
 import pathlib
 
 class NoExpand(Command):
@@ -35,8 +36,14 @@ class ExpandAfter(Command):
         if t is None:
             return
         t1 = parser.token()
-        if t1.isCommand() and t1.expandable(parser, protected=False):
-            t1.meaning.expand(parser)
+        if t1.isCommand():
+            expandable = t1.expandable(parser, protected=False)
+            if expandable is None:
+                 raise ValueError(f"undefined comand {t1.name}", parser.input.position())
+            if expandable:
+                t1.meaning.expand(parser)
+            else:
+                parser.input.unread(t1)
         else:
             parser.input.unread(t1)
         parser.input.unread(t)

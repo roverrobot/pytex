@@ -24,6 +24,8 @@ args = argparser.parse_args()
 
 
 parser = Parser()
+#parser.tracingcommands = 1
+#parser.tracingmacros = 1
 
 def dumper(data):
     with open(parser.resolver.format+'.json', "w") as fmt:
@@ -52,12 +54,7 @@ else:
 input = parser.resolver.openIn(source, "source")
 parser.parse(input)
 input.close()
-
-try:
-    log = parser.end()
-except ValueError as e:
-    print(parser.logContent())
-    raise e
+log = parser.end()
 
 if args.format == "initex":
     dump = parser.dump()

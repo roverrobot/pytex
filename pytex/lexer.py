@@ -31,13 +31,16 @@ class Tokenizer:
     def __init__(self, line: str, catcode):
         # catcode is a dictionary that maps characters to their category codes
         self.catcode = catcode
-        # attach a carriage return to the end of the line
+        # skip the leading spaces in line and set self.pos to the first non-space character
         self.line = enumerate(line)
+        for self.pos, c in self.line:
+            if self.catcode[ord(c)] != CATCODE.SPACE:
+                break
         # the saved characters that are unread
-        self.saved = []
-        # whether we are skippign the initial spaces
-        self.start = True
+        self.saved = [c]
+        # the position of the last character read
         self.pos = 0
+
 
     def char(self):
         """
@@ -92,6 +95,17 @@ class Tokenizer:
         catcode = self.catcode[c]
         return chr(c), catcode
 
+    def skipSpaces(self):
+        """
+        read a token and if it is a space, skip spaces and return a single space
+        """
+        catcode = CATCODE.SPACE
+        while catcode == CATCODE.SPACE:
+            c, catcode = self.charExpand()
+        if catcode != CATCODE.END_OF_LINE:
+            self.unread(c)
+        return " ", CATCODE.SPACE
+
     def read(self) -> typing.Optional[Token]:
         """
         read the next token from the line
@@ -107,15 +121,7 @@ class Tokenizer:
             return None
         # handle spaces
         if catcode == CATCODE.SPACE:
-            # skip spaces
-            while catcode == CATCODE.SPACE:
-                c, catcode = self.charExpand()
-            # skip the spaces at the beginning of the line
-            if self.start:
-                self.unread(c)
-                return self.read()
-            if catcode != CATCODE.END_OF_LINE:
-                self.unread(c)
+            self.skipSpaces()
             return SpaceToken()
         if catcode == CATCODE.END_OF_LINE:
             if self.start:
@@ -126,15 +132,14 @@ class Tokenizer:
             return Token.token(c, catcode)
         c, catcode = self.charExpand()
         name = "\\" + c
+        c, catcode = self.charExpand()
         while catcode == CATCODE.LETTER:
+            name += c
             c, catcode = self.charExpand()
-            if catcode == CATCODE.LETTER:
-                name += c
-            elif catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
-                break
-            else:
-                self.unread(c)
-                break
+        if catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
+            self.skipSpaces()
+        else:
+            self.unread(c)
         return CommandToken(name)
 
 

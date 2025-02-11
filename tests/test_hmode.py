@@ -64,7 +64,8 @@ def test_controlled_space(cmr10):
     cmr10.parse("\\ ")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL    
-    assert len(top) == 3
+    # the indent box and the controlled space
+    assert len(top) == 2
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.GLUE
     assert node.glue == cmr10.state.parameters["currentfont"].spaceglue
@@ -283,7 +284,8 @@ def test_italic_correction(cmr10):
     cmr10.parse("\\font\it=cmti10 \\it l\\/")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 4
+    # the indent box, the char, and the kern
+    assert len(top) == 3
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.CHAR
     assert node.char == "l"

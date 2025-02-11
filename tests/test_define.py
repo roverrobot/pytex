@@ -35,7 +35,7 @@ def test_afterassignment(collector):
 
 
 def test_macro_definition(parser):
-    parser.parse("\\def\\a{1}")
+    parser.parse("\\def\\a   {1}")
     a = parser.lookup("\\a")
     assert a is not None
     assert len(a.parameters) == 0

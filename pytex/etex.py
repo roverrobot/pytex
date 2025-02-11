@@ -445,22 +445,30 @@ class IfCSName(conditional.Conditional):
         return 0 if parser.lookup(t.name) else 1
 
 
-class Unless(conditional.Conditional):
+class UnlessConditional(conditional.Conditional):
     """
-    The \\unless command
+    The actual work of \\unless
+    This is to prevent unless being treated s a conditional
     """
+    def __init__(self, command):
+        self.command = command
+    
     def condition(self, parser):
-        pos = parser.input.position()
+        return 1 - self.command.condition(parser)
+
+
+class Unless(token.Command):
+    def expand(self, parser):
         t = parser.token()
         if t is None:
-            raise ValueError("expecting a token, but reached end of input", pos)
+            raise ValueError("expecting a token, but reached end of input", parser.input.position())
         if t.isCommand():
             c = parser.lookup(t.name)
-            if isinstance(c, conditional.Conditional):
-                if not isinstance(c, conditional.IfCase):
-                    return 1 - c.condition(parser)
-        raise ValueError(f"You cannot use \\unless in front of {t}", pos)
-
+            if isinstance(c, conditional.Conditional) and isinstance(c, conditional.IfCase):
+                unless = UnlessConditional(c)
+                unless.expand(parser)
+                return
+        raise ValueError(f"You cannot use \\unless in front of {t}", parser.input.position())
 
 class Protected(macro.MacroPrefix):
     """

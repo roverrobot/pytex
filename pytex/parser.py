@@ -116,8 +116,6 @@ class Parser:
                         self.message(f"expanding {t.name} at {pos}\n")
                     t.definition.expand(self)
                     continue
-                else:
-                    self.message(f"read {t} at {pos}\n")
             return t
 
 

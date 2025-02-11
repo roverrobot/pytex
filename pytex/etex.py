@@ -19,6 +19,7 @@ from pytex import expandable
 from pytex import lexer
 from pytex import conditional
 from pytex import font
+from pytex import macro
 
 
 # e-TeX version
@@ -461,6 +462,15 @@ class Unless(conditional.Conditional):
         raise ValueError(f"You cannot use \\unless in front of {t}", pos)
 
 
+class Protected(macro.MacroPrefix):
+    """
+    The \\protected command
+    """
+    def modify(self, value, globally):
+        value.protected = True
+        return value, globally
+
+
 mod = Module("etex",
     commands={
         "numexpr": NumExpr(),
@@ -495,6 +505,7 @@ mod = Module("etex",
         "iffontchar": IfFontChar(),
         "ifcsname": IfCSName(),
         "unless": Unless(),
+        "protected": Protected(),
     },
     parameters={
         "interactionmode": {"value": 0, "accessor": IntegerAccessor, "domain": "globals"},

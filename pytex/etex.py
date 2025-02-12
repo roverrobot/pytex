@@ -20,6 +20,7 @@ from pytex import lexer
 from pytex import conditional
 from pytex import font
 from pytex import macro
+from pytex import accessor
 
 
 # e-TeX version
@@ -470,7 +471,7 @@ class Unless(token.Command):
                 return
         raise ValueError(f"You cannot use \\unless in front of {t}", parser.input.position())
 
-class Protected(macro.MacroPrefix):
+class Protected(accessor.Prefix):
     """
     The \\protected command
     """
@@ -478,6 +479,35 @@ class Protected(macro.MacroPrefix):
         value.protected = True
         return value, globally
 
+
+class Detokenize(token.Command):
+    """
+    The \\detokenize command
+    """
+    def expand(self, parser):
+        toks = parser.readGeneralText(expand=False)
+        s = expandable.toksToString(parser, toks)
+        parser.input.push(lexer.TokenListScanner(expandable.toToks(s)))
+
+
+class ScanTokens(token.Command):
+    """
+    The \\scantokens command
+    """
+    def expand(self, parser):
+        toks = parser.readGeneralText(expand=False)
+        s = expandable.toksToString(parser, toks)
+        parser.input.push(lexer.StringScanner((s, " ")))
+
+
+class Unexpanded(token.Command):
+    """
+    The \\unexpanded command
+    """
+    def expand(self, parser):
+        toks = parser.readGeneralText(expand=False)
+        parser.input.push(expandable.ProtectedTokenListScanner(toks))
+    
 
 mod = Module("etex",
     commands={
@@ -514,6 +544,9 @@ mod = Module("etex",
         "ifcsname": IfCSName(),
         "unless": Unless(),
         "protected": Protected(),
+        "detokenize": Detokenize(),
+        "scantokens": ScanTokens(),
+        "unexpanded": Unexpanded(),
     },
     parameters={
         "interactionmode": {"value": 0, "accessor": IntegerAccessor, "domain": "globals"},

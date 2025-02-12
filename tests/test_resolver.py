@@ -19,11 +19,9 @@ def test_read_file_name(parser):
     assert name == "abc.def"
     t = parser.token()
     assert t.name == "g"
-    parser.readFrom("abc.def{")
+    parser.readFrom("abc.def{a}")
     name = parser.readFileName()
-    assert name == "abc.def"
-    t = parser.token()
-    assert t.name == "{"
+    assert name == "abc.def{a}"
     parser.readFrom("abc.def}")
     name = parser.readFileName()
     assert name == "abc.def"

@@ -4,8 +4,8 @@ import pytest
 def test_read_toks(parser):
     parser.readFrom("{abcd}")
     k = parser.readBalancedText(expand=False)
-    print(k)
-    assert len(k) == 6
+    # {, a, b, c, d, }, space
+    assert len(k) == 7
     assert k[4].name == "d"
     
 

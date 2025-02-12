@@ -126,12 +126,11 @@ class Macro(Command):
             t = parser.token()
             if t is None:
                 raise ValueError(f"macro does not match the definition {self}", parser.input.position())
-            matched.append(t)
             if t.catcode != p.catcode or t.name != p.name:
-                t = matched.pop(0)
                 for u in reversed(matched):
                     parser.input.unread(u)
                 return t, start
+            matched.append(t)
         return None, len(self.parameters)
 
     def readArgument(self, parser, start):
@@ -163,11 +162,13 @@ class Macro(Command):
             if t is None:
                 return result, i
             if t.catcode == CATCODE.BEGIN_GROUP:
-                parser.input.unread(t)
+                result.append(t)
                 l = parser.readBalancedText(expand=False)
                 result.extend(l)
-            else:
-                result.append(t)
+                t = parser.token()
+                if t is None or t.catcode != CATCODE.END_GROUP:
+                    raise ValueError("expecting }", parser.input.position())
+            result.append(t)
 
     def expand(self, parser):
         """

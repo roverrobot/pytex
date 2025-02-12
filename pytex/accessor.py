@@ -106,8 +106,12 @@ class Accessor(token.Command):
         self.readEq(parser)
         value = self.readValue(parser)
         globally = parser.state.parameters["globaldefs"] != 0
-        for p in prefixes:
-            value, globally = p.modify(value, globally)
+        try:
+            for p in prefixes:
+                value, globally = p.modify(value, globally)
+        except ValueError as e:
+            e.args = (e.args[0], parser.input.position())
+            raise e
         self.setValue(parser, value, globally)
         t = parser.state.globals["afterassignment"]
         if t is not None:
@@ -223,20 +227,10 @@ class Prefix(token.Command):
             t = parser.token_expand().definition
             if t != token.relax:
                 break
-        self.validate(t)
         try:
             t.assign(parser, prefixes)
         except AttributeError:
             raise ValueError("expecting an assignment", pos)
-    
-    def validate(self, command):
-        """
-        check if the command is valid
-        @param command: the command
-
-        raises a ValueError if the command is not valid otherwise do nothing
-        """
-        pass
 
     def execute(self, parser):
         """

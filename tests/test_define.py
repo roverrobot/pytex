@@ -1,5 +1,6 @@
 import pytest
 from pytex.token import CATCODE
+from pytex import macro
 from tests import checkValues
 
 def test_let(collector):
@@ -92,6 +93,17 @@ def test_macro_definition(parser):
     assert a.parameters[4].catcode == CATCODE.PARAMETER
     assert a.parameters[5].name == "2"
     assert len(a.replacement) == 0
+    parser.parse("\\def\\a#1#{#1}")
+    a = parser.lookup("\\a")
+    assert a is not None
+    assert len(a.parameters) == 3
+    assert a.parameters[0].catcode == CATCODE.PARAMETER
+    assert a.parameters[1].name == "1"
+    assert a.parameters[2].catcode == CATCODE.BEGIN_GROUP
+    assert len(a.replacement) == 3
+    assert a.replacement[0].catcode == CATCODE.PARAMETER
+    assert a.replacement[1].name == "1"
+    assert a.replacement[2].catcode == CATCODE.BEGIN_GROUP
 
 def test_macro_definition_errors(parser):
     try:
@@ -136,6 +148,19 @@ def test_macro_expansion_errors(parser):
     except ValueError as e:
         assert "match" in str(e)
 
+def test_parpar(parser):
+    parser.parse("\\def\\b#1{#1}\\edef\\a{\\def\\noexpand\\x\\b{##1}{a}}\\a")
+    a = parser.lookup("\\a")
+    assert isinstance(a, macro.Macro)
+    assert len(a.parameters) == 0
+    assert len(a.replacement) == 8
+    x = parser.lookup("\\x")
+    assert isinstance(x, macro.Macro)
+    assert len(x.parameters) == 2
+    assert x.parameters[0].catcode == CATCODE.PARAMETER
+    assert x.parameters[1].name == "1"
+    assert len(x.replacement) == 1
+    assert x.replacement[0].name == "a"
 
 def test_prefixes(parser):
     parser.parse("\\def\\a{1}\\long\\def\\b{2}{\\global\\def\\c{3}}\\outer\\def\\d{4}")

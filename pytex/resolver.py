@@ -268,17 +268,13 @@ def readFileName(parser) -> str:
     """
     name = ""
     parser.skipFiller()
-    while True:
-        pos = parser.input.position()
-        t = parser.token_expand()
-        if t is None:
-            break
-        if t.catcode == CATCODE.BEGIN_GROUP or t.catcode == CATCODE.END_GROUP or t.catcode is None:
-            parser.input.unread(t)
-            break
-        if t.catcode == CATCODE.SPACE:
-            break
+    toks = parser.readBalancedText(expand=True, end_at_space=True)
+    for t in toks:
         name += t.name
+    t = parser.token_expand()
+    # skip an optional space
+    if t is not None and t.catcode != CATCODE.SPACE:
+        parser.input.unread(t)
     return name
 
 

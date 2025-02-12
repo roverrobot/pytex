@@ -464,7 +464,7 @@ class Unless(token.Command):
             raise ValueError("expecting a token, but reached end of input", parser.input.position())
         if t.isCommand():
             c = parser.lookup(t.name)
-            if isinstance(c, conditional.Conditional) and isinstance(c, conditional.IfCase):
+            if isinstance(c, conditional.Conditional) and not isinstance(c, conditional.IfCase):
                 unless = UnlessConditional(c)
                 unless.expand(parser)
                 return

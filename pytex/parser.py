@@ -113,7 +113,8 @@ class Parser:
                     raise ValueError("undefined command" + t.name, pos)
                 elif expandable:
                     if self.tracingcommands:
-                        self.message(f"expanding {t.name} at {pos}\n")
+                        meaning = t.definition if self.tracingcommands > 1 else ""                            
+                        self.message(f"expanding {t.name} at {pos}: {meaning}\n")
                     t.definition.expand(self)
                     continue
             return t

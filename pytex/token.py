@@ -165,6 +165,8 @@ class CommandToken(Token):
             self.noexpand = False
             return False
         if protected and self.protected:
+            # \noexpand only temporarily suppresses the expansion
+            self.protected = False
             return False
         c = parser.lookup(self.name)
         if c is None:

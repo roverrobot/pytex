@@ -1,6 +1,7 @@
 import pytest
 from pytex.resolver import InMemoryTextFile
 from pytex import lexer
+from pytex import macro
 
 
 def test_noexpand(parser):
@@ -95,3 +96,10 @@ def test_endinput(collector):
 def test_jobname(collector):
     collector.parse("\\jobname", "test")
     assert collector.getString() == "test"
+
+
+def test_protected_tokens(parser):
+    parser.parse("\\def\\a{123}\\toks0={\\a}\\edef\\b{\\the\\toks0}\\edef\\c{\\b}")
+    c = parser.state.equitable["\\c"]
+    assert isinstance(c, macro.Macro)
+    assert len(c.replacement) == 3

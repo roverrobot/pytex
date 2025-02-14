@@ -3,7 +3,7 @@ This module implements various expandable commands.
 """
 
 
-from pytex.token import Command, CATCODE, CommandToken, Token, relax
+from pytex.token import Command, CATCODE, CommandToken, Token, relax, SpaceToken, CharToken
 from pytex.module import Module
 from pytex.lexer import TokenListScanner, Scanner
 import pathlib
@@ -109,7 +109,10 @@ def toToks(s: str) -> list:
     """
     toks = []
     for c in s:
-        toks.append(Token.token(c, CATCODE.OTHER))
+        if c == " ":
+            toks.append(SpaceToken())
+        else: 
+            toks.append(CharToken(c, CATCODE.OTHER))
     return toks
 
 

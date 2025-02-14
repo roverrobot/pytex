@@ -50,10 +50,13 @@ class MacroScanner(TokenListScanner):
         if "1" <= t.name <= "9":
             i = ord(t.name) - ord("1")
             if i >= len(self.args):
-                raise ValueError("macro has too few arguments", self.input.position())
+                raise ValueError("macro has too few arguments")
             self.arg_scanner = TokenListScanner(self.args[i])
             return self.read()
         raise ValueError("invalid macro replacement text, # must be followed by a number of another #", self.input.position())
+
+    def __repr__(self):
+        return f"MacroScanner({self.toks}, {self.args})" 
 
 
 def compareToks(toks1, toks2):
@@ -237,6 +240,7 @@ class MacroAccessor(Accessor):
         arg = 1
         last = False
         # read the brackets
+        tail = None
         while not last:
             t = parser.token()
             if t is None:
@@ -250,6 +254,11 @@ class MacroAccessor(Accessor):
                     parameters.append(t)
                     parameters.append(n)
                     arg += 1
+                elif n.name == "{":
+                    parameters.append(n)
+                    parser.input.unread(n)
+                    tail = n
+                    break
                 else:
                     raise ValueError("macro argument must be consecutively numbered from 1", pos)
             elif t.catcode == CATCODE.BEGIN_GROUP:
@@ -259,6 +268,8 @@ class MacroAccessor(Accessor):
                 parameters.append(t)
         # read the replacement text
         replacement = parser.readGeneralText(expand=self.expanded)
+        if tail:
+            replacement.append(tail)
         macro = Macro(parameters, replacement)
         if parser.tracingmacros:
             parser.message(f"macro {self.index}: {macro}")
@@ -295,29 +306,24 @@ class Def(Define):
         return p
 
 
-class MacroPrefix(Prefix):
-    """
-    the base class for prefixes for macro definition
-    """
-    def validate(self, command):
-        if not isinstance(command, Def):
-            raise ValueError("expecting a macro definition", command)
-
-
-class Long(MacroPrefix):
+class Long(Prefix):
     """
     the \\long prefix
     """
     def modify(self, value, globally):
+        if not isinstance(value, Macro):
+            raise ValueError("long can only be applied to a macro")
         value.long = True
         return value, globally
 
 
-class Outer(MacroPrefix):
+class Outer(Prefix):
     """
     the \\outer prefix
     """
     def modify(self, value, globally):
+        if not isinstance(value, Macro):
+            raise ValueError("long can only be applied to a macro")
         value.outer = True
         return value, globally
 

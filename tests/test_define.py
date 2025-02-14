@@ -148,19 +148,11 @@ def test_macro_expansion_errors(parser):
     except ValueError as e:
         assert "match" in str(e)
 
-def test_parpar(parser):
-    parser.parse("\\def\\b#1{#1}\\edef\\a{\\def\\noexpand\\x\\b{##1}{a}}\\a")
-    a = parser.lookup("\\a")
-    assert isinstance(a, macro.Macro)
-    assert len(a.parameters) == 0
-    assert len(a.replacement) == 8
-    x = parser.lookup("\\x")
-    assert isinstance(x, macro.Macro)
-    assert len(x.parameters) == 2
-    assert x.parameters[0].catcode == CATCODE.PARAMETER
-    assert x.parameters[1].name == "1"
-    assert len(x.replacement) == 1
-    assert x.replacement[0].name == "a"
+def test_parpar(collector):
+    collector.parse("\\def\\b#1{#1}\\edef\\a{\\def\\noexpand\\x\\b{##1}{a}}\\a\\x{12}")
+    assert collector.getString() == "a "
+    collector.parse("\\def\\a#1#2#3{\\def#1#2#3}\\a\\b{#1}{{#1}}\\b{x}")
+    assert collector.getString() == "x "
 
 def test_prefixes(parser):
     parser.parse("\\def\\a{1}\\long\\def\\b{2}{\\global\\def\\c{3}}\\outer\\def\\d{4}")

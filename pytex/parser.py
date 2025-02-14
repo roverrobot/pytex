@@ -148,7 +148,8 @@ class Parser:
                 self.run = False
                 break
             if self.tracingcommands:
-                self.message(f"executing {t.name} at {self.input.position()}\n")
+                meaning = t.definition if self.tracingcommands > 1 else ""                            
+                self.message(f"executing {t.name} at {self.input.position()}: {meaning}\n")
             t.execute(self)
 
     def readFrom(self, input, name: typing.Optional[str] = None):

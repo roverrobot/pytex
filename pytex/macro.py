@@ -21,28 +21,31 @@ class MacroScanner(TokenListScanner):
         self.args = args
         self.arg_scanner = None
     
+    def next(self):
+        # if we are in the middle of reading an argument, we read from the argument scanner
+        if self.arg_scanner is not None:
+            t = self.arg_scanner.read()
+            if t is None:
+                self.arg_scanner = None
+                return self.next()
+        else:
+            # otherwise, we read from the replacement
+            t = super().read()
+        return t
+
     def read(self):
         """
         read the next token from the replacement text
 
         handle arguments and ## in the replacement text
         """
-        # if we are in the middle of reading an argument, we read from the argument scanner
-        if self.arg_scanner is not None:
-            t = self.arg_scanner.read()
-            if t is None:
-                self.arg_scanner = None
-                return self.read()
-            return t
-        # otherwise, we read from the replacement
-        t = super().read()
-        # if we have reached the end of the replacement text, we return None
+        t = self.next()
         if t is None:
             return None
         if t.catcode != CATCODE.PARAMETER:
             return t
         # handle the case where the next token is ##
-        t = super().read()
+        t = self.next()
         if t is None:
             raise ValueError("invalid macro replacement text, # must be followed by a number of another #", self.input.position())
         if t.catcode == CATCODE.PARAMETER:
@@ -136,6 +139,28 @@ class Macro(Command):
             matched.append(t)
         return None, len(self.parameters)
 
+    def readBalancedText(self, parser):
+        """
+        read a balanced text
+        """
+        toks = []
+        while True:
+            t = parser.token()
+            if t is None:
+                raise ValueError("unbalanced text", parser.input.position())
+            if t.catcode == CATCODE.BEGIN_GROUP:
+                toks.append(t)
+                ts, rbrace = self.readBalancedText(parser)
+                toks.extend(ts)
+                toks.append(rbrace)
+            elif t.catcode == CATCODE.END_GROUP:
+                return toks, t
+            else:
+                if t.catcode == CATCODE.PARAMETER:
+                    # a # in argument means ## when expanding
+                    toks.append(t)
+                toks.append(t)
+    
     def readArgument(self, parser, start):
         """
         read the next argument
@@ -154,8 +179,10 @@ class Macro(Command):
             if t is None:
                 raise ValueError(f"macro does not match the definition {self}", parser.input.position())
             if t.catcode == CATCODE.BEGIN_GROUP:
-                parser.input.unread(t)
-                return parser.readGeneralText(expand=False), i
+                toks, rbrace = self.readBalancedText(parser)
+                return toks, i
+            if t.catcode == CATCODE.PARAMETER:
+                return [t, t], i
             return [t], i
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token
@@ -166,12 +193,13 @@ class Macro(Command):
                 return result, i
             if t.catcode == CATCODE.BEGIN_GROUP:
                 result.append(t)
-                l = parser.readBalancedText(expand=False)
+                l, rbrace = self.readBalancedText(parser)
                 result.extend(l)
-                t = parser.token()
-                if t is None or t.catcode != CATCODE.END_GROUP:
-                    raise ValueError("expecting }", parser.input.position())
-            result.append(t)
+                result.append(rbrace)
+            else:
+                if t.catcode == CATCODE.PARAMETER:
+                    result.append(t)
+                result.append(t)
 
     def expand(self, parser):
         """

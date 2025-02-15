@@ -115,7 +115,7 @@ def test_macro_definition_errors(parser):
         parser.parse("\\def\\a1#12#2{")
         assert False, "Expected ValueError"
     except ValueError as e:
-        assert "expecting" in str(e)
+        assert "unbalanced" in str(e)
     try:
         parser.parse("\\def\\a1#2{}")
         assert False, "Expected ValueError"
@@ -149,7 +149,7 @@ def test_macro_expansion_errors(parser):
         assert "match" in str(e)
 
 def test_parpar(collector):
-    collector.parse("\\def\\b#1{#1}\\edef\\a{\\def\\noexpand\\x\\b{##1}{a}}\\a\\x{12}")
+    collector.parse("\\tracingmacros=1 \\def\\b#1{#1}\\edef\\a{\\def\\noexpand\\x\\b{##1}{a}}\\a\\x{12}")
     assert collector.getString() == "a "
     collector.parse("\\def\\a#1#2#3{\\def#1#2#3}\\a\\b{#1}{{#1}}\\b{x}")
     assert collector.getString() == "x "

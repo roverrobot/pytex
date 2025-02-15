@@ -268,6 +268,7 @@ def readFileName(parser) -> str:
     """
     name = ""
     parser.skipFiller()
+    toks = []
     t = parser.token_expand()
     if t is None:
         raise ValueError("expecting a file name")
@@ -279,15 +280,20 @@ def readFileName(parser) -> str:
             if t.catcode == CATCODE.OTHER and t.name == '"':
                 break
             name += t.name
+        # skip an optional space
+        t = parser.token_expand()
+        if t is not None and t.catcode != CATCODE.SPACE:
+            parser.input.unread(t)
     else:
         parser.input.unread(t)
-        toks = parser.readBalancedText(expand=True, end_at_space=True)
+        toks = []
+        while True:
+            ts = parser.readBalancedText(expand=True, include_braces=True)
+            if len(ts) == 0 or (len(ts) == 1 and ts[0].catcode == CATCODE.SPACE):
+                break
+            toks.extend(ts)
         for t in toks:
             name += t.name
-    t = parser.token_expand()
-    # skip an optional space
-    if t is not None and t.catcode != CATCODE.SPACE:
-        parser.input.unread(t)
     return name
 
 

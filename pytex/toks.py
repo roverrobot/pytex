@@ -11,33 +11,38 @@ from pytex.state import Array
 from pytex import accessor
 
 
-def readBalancedText(parser, expand: bool = False, end_at_space: bool=False):
+def readBalancedText(parser, expand: bool = False, include_braces: bool = False):
     """
-    read a balanced token list
+    read a single character or a token list in balanced braces
     @param parser: the parser
     @param expand: whether to expand the tokens
-    @param end_at_space: whether to end at a space token
+    @param include_braces: whether to include the braces in the result
     @return: the token list
     """
     pos = parser.input.position()
-    toks = []
     level = 0
+    t = parser.token_expand(protected=True) if expand else parser.token()
+    if t is None:
+        return []
+    if t.catcode != CATCODE.BEGIN_GROUP:
+        if t.catcode == CATCODE.END_GROUP:
+            parser.input.unread(t)
+            return []
+        return [t]
+    level += 1
+    toks = [t] if include_braces else []
     while True:
         t = parser.token_expand(protected=True) if expand else parser.token()
         if t is None:
-            if level != 0:
-                raise ValueError("unbalanced token list", pos)
-            return toks
+            raise ValueError("unbalanced token list", pos)
         if t.catcode == CATCODE.BEGIN_GROUP:
             level += 1
         elif t.catcode == CATCODE.END_GROUP:
-            if level == 0:
-                parser.input.unread(t)
-                return toks
             level -= 1
-        elif end_at_space and t.catcode == CATCODE.SPACE:
-            parser.input.unread(t)
-            return toks
+            if level == 0:
+                if include_braces:
+                    toks.append(t)
+                return toks
         toks.append(t)
 
 
@@ -71,11 +76,8 @@ def readGeneralText(parser, expand: bool = True):
     lbrace = parser.token_expand() if expand else parser.token()
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", parser.input.position())
-    toks = readBalancedText(parser, expand)
-    rbrace = parser.token_expand() if expand else parser.token()
-    if rbrace is None or rbrace.catcode != CATCODE.END_GROUP:
-        raise ValueError("expecting }", parser.input.position())
-    return toks
+    parser.input.unread(lbrace)
+    return readBalancedText(parser, expand, include_braces=False)
 
 
 class ToksCommand:

@@ -9,6 +9,34 @@ from pytex.token import Command, CommandToken, relax
 from pytex.module import Module
 from pytex.state import Array
 from pytex import accessor
+from pytex.expandable import toToks
+
+
+def token_expand(parser):
+    """
+    expand a token in an expanded token list
+    @param parser: the parser
+    @param token: the token to expand
+    @return: the expanded token
+
+    this is like parser.token_expand(), except that it does not expand protected macros.
+    """
+    t = parser.token()
+    if t is None or not t.isCommand():
+        return t
+    if t.noexpand:
+        t.noexpand = False
+        return t
+    definition = parser.lookup(t.name)
+    if definition is None:
+        raise ValueError(f"undefined command {t.name}", parser.input.position())
+    if definition.protected or definition.expand is None:
+        return t
+    if hasattr(definition, "expanded"):
+        t.definition = definition
+        return t
+    definition.expand(parser)
+    return token_expand(parser)
 
 
 def readBalancedText(parser, expand: bool = False, include_braces: bool = False):
@@ -21,18 +49,21 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False)
     """
     pos = parser.input.position()
     level = 0
-    t = parser.token_expand(protected=True) if expand else parser.token()
+    t = token_expand(parser) if expand else parser.token()
     if t is None:
         return []
     if t.catcode != CATCODE.BEGIN_GROUP:
         if t.catcode == CATCODE.END_GROUP:
             parser.input.unread(t)
             return []
+        definition = t.definition
+        if definition is not None and hasattr(definition, "expanded"):
+                return definition.expanded(parser)
         return [t]
     level += 1
     toks = [t] if include_braces else []
     while True:
-        t = parser.token_expand(protected=True) if expand else parser.token()
+        t = token_expand(parser) if expand else parser.token()
         if t is None:
             raise ValueError("unbalanced token list", pos)
         if t.catcode == CATCODE.BEGIN_GROUP:
@@ -43,6 +74,9 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False)
                 if include_braces:
                     toks.append(t)
                 return toks
+        elif t.definition is not None and hasattr(t.definition, "expanded"):
+            toks.extend(t.definition.expanded(parser))
+            continue
         toks.append(t)
 
 
@@ -179,6 +213,59 @@ class IgnoreSpaces(Command):
         return parser.skipSpaces()
 
 
+class ProtectedTokenListScanner(TokenListScanner):
+    """
+    a token list scanner that protects the tokens from expansion
+    """
+    def read(self):
+        t = super().read()
+        if t is not None and t.isCommand():
+            t.protected = True
+        return t
+
+
+class The(Command):
+    """
+    The \\the command.
+    """
+    
+    def expanded(self, parser):
+        """
+        expands into a token list
+        @param parser: the parser
+        @return: the token list
+        """
+        pos = parser.input.position()
+        t = parser.token_expand()
+        if t is None or t.definition is None:
+            raise ValueError("invalid token after \\the", pos)
+        t = t.definition
+        if hasattr(t, "glueValue"):
+            value = str(t.glueValue(parser))
+        elif hasattr(t, "dimenValue"):
+            value = str(t.dimenValue(parser)) + "pt"
+        elif hasattr(t, "intValue"):
+            value = str(t.intValue(parser))
+        else:
+            value = None
+        if value is not None:
+            return toToks(value)
+        if hasattr(t, "toksValue"):
+            return t.toksValue(parser)
+        if hasattr(t, "fontValue"):
+            return [t]
+    
+    def expand(self, parser):
+        """
+        \\the command expands the next token.
+        @param parser: the parser
+
+        The actual expansion depends on the type of the token. Please see TeXBook pp. 214.
+        """
+        toks = self.expanded(parser)
+        parser.input.push(TokenListScanner(toks))
+
+
 mod = Module("toks",
     attributes = {
         "readBalancedText": readBalancedText,
@@ -190,6 +277,7 @@ mod = Module("toks",
         "uppercase": Case(True),
         "lowercase": Case(False),
         "ignorespaces": IgnoreSpaces(),
+        "the": The(),
     },
     domains = {
         "toks": {"generator": lambda: Array([]), "accessor": ToksArrayAccessor},

@@ -96,7 +96,7 @@ class Parser:
         """
         return self.input.read()
     
-    def token_expand(self, protected = False):
+    def token_expand(self):
         """
         get the next token from the input stack and expand it
         @param protected: whether the protected tokens are prevented from expansion
@@ -108,15 +108,22 @@ class Parser:
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
             if t is not None and t.isCommand():
-                expandable = t.expandable(self, protected)
-                if expandable is None:
+                if t.noexpand:
+                    t.noexpand = False
+                    return t
+                definition = self.lookup(t.name)
+                if definition is None:
                     raise ValueError("undefined command" + t.name, pos)
-                elif expandable:
+                elif definition.expand is not None:
                     if self.tracingcommands:
-                        meaning = t.definition if self.tracingcommands > 1 else ""                            
-                        self.message(f"expanding {t.name} at {pos}: {meaning}\n")
-                    t.definition.expand(self)
+                        if self.tracingcommands > 1 and t.definition is not None:
+                            meaning = f": {t.definition.meaning(self)}"
+                        else:
+                            meaning = ""                        
+                        self.message(f"expanding {t.name} at {pos}{meaning}\n")
+                    definition.expand(self)
                     continue
+                t.definition = definition
             return t
 
 
@@ -148,8 +155,11 @@ class Parser:
                 self.run = False
                 break
             if self.tracingcommands:
-                meaning = t.definition if self.tracingcommands > 1 else ""                            
-                self.message(f"executing {t.name} at {self.input.position()}: {meaning}\n")
+                if self.tracingcommands > 1 and t.definition is not None:
+                    meaning = f": {t.definition.meaning(self)}"
+                else:
+                    meaning = ""
+                self.message(f"executing {t.name} at {self.input.position()}{meaning}\n")
             t.execute(self)
 
     def readFrom(self, input, name: typing.Optional[str] = None):

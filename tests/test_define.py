@@ -149,7 +149,7 @@ def test_macro_expansion_errors(parser):
         assert "match" in str(e)
 
 def test_parpar(collector):
-    collector.parse("\\tracingmacros=1 \\def\\b#1{#1}\\edef\\a{\\def\\noexpand\\x\\b{##1}{a}}\\a\\x{12}")
+    collector.parse("\\def\\b#1{#1}\\edef\\a{\\def\\noexpand\\x\\b{##1}{a}}\\a\\x{12}")
     assert collector.getString() == "a "
     collector.parse("\\def\\a#1#2#3{\\def#1#2#3}\\a\\b{#1}{{#1}}\\b{x}")
     assert collector.getString() == "x "

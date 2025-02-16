@@ -9,7 +9,7 @@ from pytex.lexer import TokenListScanner
 from pytex.accessor import Prefix, Accessor
 from pytex.define import Define
 from pytex.module import Module
-from pytex.expandable import toksToString
+from pytex.expandable import tokenToString
 
 
 class MacroScanner(TokenListScanner):
@@ -25,13 +25,10 @@ class MacroScanner(TokenListScanner):
         # if we are in the middle of reading an argument, we read from the argument scanner
         if self.arg_scanner is not None:
             t = self.arg_scanner.read()
-            if t is None:
-                self.arg_scanner = None
-                return self.next()
-        else:
-            # otherwise, we read from the replacement
-            t = super().read()
-        return t
+            if t is not None:
+                return t
+        self.arg_scanner = None
+        return super().read()
 
     def read(self):
         """
@@ -47,7 +44,7 @@ class MacroScanner(TokenListScanner):
         # handle the case where the next token is ##
         t = self.next()
         if t is None:
-            raise ValueError("invalid macro replacement text, # must be followed by a number of another #", self.input.position())
+            raise ValueError("invalid macro replacement text, # must be followed by a number or another #", self.input.position())
         if t.catcode == CATCODE.PARAMETER:
             return t
         if "1" <= t.name <= "9":
@@ -59,7 +56,7 @@ class MacroScanner(TokenListScanner):
         raise ValueError("invalid macro replacement text, # must be followed by a number of another #", self.input.position())
 
     def __repr__(self):
-        return f"MacroScanner({self.toks}, {self.args})" 
+        return f"{self.macro.name}: MacroScanner({self.toks}, {self.args})" 
 
 
 def compareToks(toks1, toks2):
@@ -232,11 +229,14 @@ class Macro(Command):
             argi += 1
             # We read the argument and append it to thelist of arguments.
             argv, i = self.readArgument(parser, i)
+            if parser.tracingmacros:
+                s = "".join([tokenToString(t, "\\", True) for t in argv])
+                parser.message(f"#{p.name}<-{s}")
             args.append(argv)
         # we now create a MacroScanner and read from it.
         scanner = MacroScanner(self.replacement, args)
-        if parser.tracingmacros:
-            parser.message(f"expanding macro {self} with arguments {args}")
+        scanner.macro = self
+        scanner.parser = parser
         parser.input.push(scanner)
     
     def __eq__(self, other):
@@ -299,6 +299,7 @@ class MacroAccessor(Accessor):
         if tail:
             replacement.append(tail)
         macro = Macro(parameters, replacement)
+        macro.name = self.index
         if parser.tracingmacros:
             parser.message(f"macro {self.index}: {macro}")
         return macro

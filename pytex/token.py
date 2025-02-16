@@ -62,7 +62,8 @@ class Command(serialization.Serializable):
     expand = None
 
     # the meaning of the command, as returned by \meaning
-    meaning = None
+    def meaning(self, parser):
+        return self.name + " " if self.name is not None else ""
 
     def execute(self, parser):
         """
@@ -164,10 +165,6 @@ class CommandToken(Token):
         if self.noexpand:
             self.noexpand = False
             return False
-        if protected and self.protected:
-            # \noexpand only temporarily suppresses the expansion
-            self.protected = False
-            return False
         c = parser.lookup(self.name)
         if c is None:
             return None
@@ -202,12 +199,10 @@ class CommandToken(Token):
         @param parser: the parser
         @return: the meaning of the command
         """
-        expandable = self.expandable(parser, False)
-        if expandable is None:
+        definition = parser.lookup(self.name)
+        if definition is None:
             return "undefined"
-        if expandable and self.definition.meaning is not None:
-            return self.definition.meaning(parser)
-        return self.name
+        return definition.meaning(parser)
 
 
 class ActiveToken(CommandToken):

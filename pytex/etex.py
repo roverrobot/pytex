@@ -12,7 +12,7 @@ from pytex.lists import ModeDependentCommand
 from pytex.integer import IntegerCommand, IntegerAccessor
 from pytex.dimen import DimenCommand, Dimen
 from pytex.glue import GlueCommand
-from pytex.toks import ToksAccessor
+from pytex.toks import ToksAccessor, The
 from pytex import token
 from pytex import node as nd
 from pytex import expandable
@@ -500,13 +500,12 @@ class ScanTokens(token.Command):
         parser.input.push(lexer.StringScanner((s, " ")))
 
 
-class Unexpanded(token.Command):
+class Unexpanded(The):
     """
     The \\unexpanded command
     """
-    def expand(self, parser):
-        toks = parser.readGeneralText(expand=False)
-        parser.input.push(expandable.ProtectedTokenListScanner(toks))
+    def expanded(self, parser):
+        return parser.readGeneralText(expand=False)
     
 
 mod = Module("etex",

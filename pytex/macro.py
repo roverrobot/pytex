@@ -295,7 +295,7 @@ class MacroAccessor(Accessor):
             else:
                 parameters.append(t)
         # read the replacement text
-        replacement = parser.readGeneralText(expand=self.expanded)
+        replacement = parser.readGeneralText(expand=self.expand_body)
         if tail:
             replacement.append(tail)
         macro = Macro(parameters, replacement)
@@ -313,24 +313,24 @@ class Def(Define):
     define a macro
 
     @param globally: whether the definition is global
-    @param expanded: whether the replacement text is expanded
+    @param expand_body: whether the replacement text is expanded
     """
-    def __init__(self, globally, expanded):
+    def __init__(self, globally, expand_body):
         Define.__init__(self)
         self.globally = globally
-        self.expanded = expanded
+        self.expand_body = expand_body
     
     def saveInfo(self):
         return {
             "init": {
                 "globally": self.globally,
-                "expanded": self.expanded
+                "expand_body": self.expand_body
             }
         }
     
     def getItemAccessor(self, parser, index):
         p = MacroAccessor(self.domain, self.getIndex(parser))
-        p.expanded = self.expanded
+        p.expand_body = self.expand_body
         p.globally = self.globally
         return p
 
@@ -359,10 +359,10 @@ class Outer(Prefix):
 
 mod = Module("macro",
   commands={
-    "def": Def(globally=False, expanded=False),
-    "gdef": Def(globally=True, expanded=False),
-    "edef": Def(globally=False, expanded=True),
-    "xdef": Def(globally=True, expanded=True),
+    "def": Def(globally=False, expand_body=False),
+    "gdef": Def(globally=True, expand_body=False),
+    "edef": Def(globally=False, expand_body=True),
+    "xdef": Def(globally=True, expand_body=True),
     "long": Long(),
     "outer": Outer()
   }

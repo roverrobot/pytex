@@ -289,8 +289,12 @@ def readFileName(parser) -> str:
         toks = []
         while True:
             ts = parser.readBalancedText(expand=True, include_braces=True)
-            if len(ts) == 0 or (len(ts) == 1 and ts[0].catcode == CATCODE.SPACE):
+            if len(ts) == 0:
                 break
+            if len(ts) == 1:
+                t = ts[0]
+                if t.catcode == CATCODE.SPACE or t.definition is not None:
+                    break
             toks.extend(ts)
         for t in toks:
             name += t.name

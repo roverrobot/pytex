@@ -30,10 +30,10 @@ def token_expand(parser):
     definition = parser.lookup(t.name)
     if definition is None:
         raise ValueError(f"undefined command {t.name}", parser.input.position())
+    t.definition = definition
     if definition.protected or definition.expand is None:
         return t
     if hasattr(definition, "expanded"):
-        t.definition = definition
         return t
     definition.expand(parser)
     return token_expand(parser)

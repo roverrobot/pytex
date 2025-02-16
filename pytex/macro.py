@@ -16,10 +16,12 @@ class MacroScanner(TokenListScanner):
     """
     a scanner for expanding the macro replacement text
     """
-    def __init__(self, replacement, args):
+    def __init__(self, parser, replacement, args):
         TokenListScanner.__init__(self, replacement)
+        self.parser = parser
         self.args = args
         self.arg_scanner = None
+        parser.input.push(self)
     
     def next(self):
         # if we are in the middle of reading an argument, we read from the argument scanner
@@ -30,6 +32,11 @@ class MacroScanner(TokenListScanner):
         self.arg_scanner = None
         return super().read()
 
+    def eof(self):
+        # if we are not reading an argument, and we have reached
+        # the end of the replacement text, then we are done
+        return super().eof() and (self.arg_scanner is None or self.arg_scanner.eof())
+    
     def read(self):
         """
         read the next token from the replacement text
@@ -37,8 +44,11 @@ class MacroScanner(TokenListScanner):
         handle arguments and ## in the replacement text
         """
         t = self.next()
-        if t is None:
-            return None
+        # tail recursion optimization
+        # has we reached the end?
+        if self.eof():
+            # pop us
+            assert self.parser.input.stack.pop() == self
         if t.catcode != CATCODE.PARAMETER:
             return t
         # handle the case where the next token is ##
@@ -234,10 +244,11 @@ class Macro(Command):
                 parser.message(f"#{p.name}<-{s}")
             args.append(argv)
         # we now create a MacroScanner and read from it.
-        scanner = MacroScanner(self.replacement, args)
-        scanner.macro = self
-        scanner.parser = parser
-        parser.input.push(scanner)
+        # only if the replacement text is not empty
+        if len(self.replacement) > 0:
+            scanner = MacroScanner(parser, self.replacement, args)
+            scanner.macro = self
+            # scanner is already pushed onto the stack
     
     def __eq__(self, other):
         # this is used by the \\ifx command to compare two macros

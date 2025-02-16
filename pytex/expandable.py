@@ -214,8 +214,6 @@ class Input(Command):
         """
         pos = parser.input.position()
         name = parser.readFileName()
-        if name is None:
-            raise ValueError("expecting a file name", pos)
         f = parser.resolver.openIn(name, "source")
         if f is None:
             raise ValueError(f"file {name} not found", pos)
@@ -253,7 +251,11 @@ class Meaning(Command):
         if t is None:
             raise ValueError("expecting a token", parser.input.position())
         meaning = t.meaning(parser)
-        parser.input.push(ProtectedTokenListScanner(toToks(meaning)))
+        toks = toToks(meaning)
+        for tok in toks:
+            if tok.isCommand:
+                tok.noexpand = True
+        parser.input.push(TokenListScanner(toks))
 
 
 mod = Module("expandable",

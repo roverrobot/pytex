@@ -32,7 +32,6 @@ class ExpandAfter(Command):
         @param parser: the parser
         """
         t = parser.token()
-        print("expandafter skipping", t)
         if t is None:
             return
         t1 = parser.token()
@@ -132,7 +131,8 @@ class Number(Command):
         """
         n = parser.readInteger()
         s = self.str(n)
-        parser.input.push(TokenListScanner(toToks(s)))
+        if s:
+            parser.input.push(TokenListScanner(toToks(s)))
 
 
 class RomanNumeral(Number):
@@ -145,14 +145,15 @@ class RomanNumeral(Number):
     def str(self, n):
         i = 1
         s = ""
-        for i in range(len(self.LETTERS)):
-            letter = self.LETTERS[i]
-            value = self.VALUES[i]
-            while n >= value:
-                n -= value
-                s += letter
-            if n == 0:
-                break
+        if n > 0:
+            for i in range(len(self.LETTERS)):
+                letter = self.LETTERS[i]
+                value = self.VALUES[i]
+                while n >= value:
+                    n -= value
+                    s += letter
+                if n == 0:
+                    break
         return s
 
 
@@ -164,8 +165,6 @@ def tokenToString(token, escapechar, space_after_command=False):
     @param space_after_command: add a space after a command
     @return: the string
     """
-    if token.name is None:
-        raise ValueError("no name:", token)
     if token.catcode is None:
         s = escapechar + token.name[1:]
         if space_after_command:
@@ -196,14 +195,17 @@ class String(Command):
     with catcode OTHER. The result is pushed back to the input stack.
     """
     def expand(self, parser):
-        pos = parser.input.position()
         t = parser.token()
         if t is None:
-            raise ValueError("expecting a token", pos)
-        escapechar = parser.state.layout["escapechar"]
-        escapechar = "" if escapechar <= 0 else chr(escapechar)
-        s = tokenToString(t, escapechar)
-        parser.input.push(TokenListScanner(toToks(s)))
+            raise ValueError("expecting a token", parser.input.position())
+        if t.isCommand():
+            escapechar = parser.state.layout["escapechar"]
+            escapechar = chr(escapechar) if 0 <= escapechar < 256 else ""
+            s = escapechar + t.name[1:]
+            toks = [CharToken(c, parser.state.catcode[ord(c)]) for c in s]
+            parser.input.push(TokenListScanner(toks))
+        else:
+            parser.input.unread(t)
 
 
 class Input(Command):

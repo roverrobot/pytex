@@ -211,3 +211,7 @@ def test_protected(collector):
     assert b.replacement[0].name == "\\a"
     collector.parse("\\the\\toks0")
     assert collector.getString() == "1"
+
+def test_ignore(collector):
+    collector.parse("\\catcode32=9\\def\\ {1}\\ ")
+    assert collector.getString() == "1"

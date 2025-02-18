@@ -147,9 +147,17 @@ class IfCompareToken(Conditional):
         if t1 is None or t2 is None:
             raise ValueError("expecting two tokens", pos)
         if t1.isCommand():
-            t1 = parser.lookup(t1.name)
+            d1 = parser.lookup(t1.name)
+            if isinstance(d1, Token):
+                t1 = d1
+            else:
+                t1.definition = d1
         if t2.isCommand():
-            t2 = parser.lookup(t2.name)
+            d2 = parser.lookup(t2.name)
+            if isinstance(d2, Token):
+                t2 = d2
+            else:
+                t2.definition = d2
         return 0 if self.equal(t1, t2) else 1
 
 
@@ -168,7 +176,15 @@ class If(IfCompareToken):
         super().__init__(expand_tokens=True)
 
     def equal(self, t1, t2):
-        return t1.catcode == t2.catcode and (t1.catcode is None or t1.name == t2.name)
+        # If either token is a control sequence, TEX considers it to have character 
+        # code 256 and category code 16
+        # The condition is true if the character codes are equal,
+        # independent of the category codes
+        if t1.catcode is None:
+            t1.name = chr(256)
+        if t2.catcode is None:
+            t2.name = chr(256)
+        return t1.name == t2.name
 
 
 class IfX(IfCompareToken):
@@ -184,16 +200,9 @@ class IfX(IfCompareToken):
         # or if (b) the two tokens are macros, and they both have the same status 
         # with respect to \long and \outer, and they both have the same
         # parameters and “top level” expansion.
-        if t1 == t2:
-            return True
-        if t1 is None or t2 is None:
-            return False
-        if t1.catcode != t2.catcode:
-            return False
-        # now t1 and t2 must have the same catcode
-        if t1.catcode != None:
-            return t1.name == t2.name
-        return False
+        if t1.catcode is None and t2.catcode is None:
+            return t1.definition == t2.definition
+        return (t1.catcode == t2.catcode) and (t1.name == t2.name)
 
 
 class IfCase(Conditional):

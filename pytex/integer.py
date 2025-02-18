@@ -350,7 +350,7 @@ module = Module("integer",
         "mag": {"value": 1000, "accessor": IntegerAccessor, "domain": "layout"},
         "delimiterfactor": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
         # escapechar is a layout parameter because \write may use it
-        "escapechar": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
+        "escapechar": {"value": ord("\\"), "accessor": IntegerAccessor, "domain": "layout"},
         # control parameters
         "fam": {"value": -1, "accessor": IntegerAccessor, "domain": "parameters"},
         "pausing": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},

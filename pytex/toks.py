@@ -35,6 +35,8 @@ def token_expand(parser):
         return t
     if hasattr(definition, "expanded"):
         return t
+    if parser.tracingcommands:
+        parser.traceExpansion(t, definition, parser.input.position())
     definition.expand(parser)
     return token_expand(parser)
 

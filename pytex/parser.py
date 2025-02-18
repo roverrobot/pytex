@@ -116,17 +116,25 @@ class Parser:
                     raise ValueError("undefined command" + t.name, pos)
                 elif definition.expand is not None:
                     if self.tracingcommands:
-                        if self.tracingcommands > 1 and definition is not None:
-                            meaning = f": {definition.meaning(self)}"
-                        else:
-                            meaning = ""                        
-                        self.message(f"expanding {t.name} at {pos}{meaning}\n")
+                        self.traceExpansion(t, definition, pos)
                     definition.expand(self)
                     continue
                 # set the definition for executing the token.
                 t.definition = definition
             return t
 
+    def traceExpansion(self, t, definition, pos):
+        """
+        trace the commands being expanded or executed
+        @param t: the token being expanded
+        @param definition: the definition of the token
+        @param pos: the position of the token in the input stack
+        """
+        if self.tracingcommands > 1 and definition is not None:
+            meaning = f": {definition.meaning(self)}"
+        else:
+            meaning = ""                        
+        self.message(f"expanding {t.name} at {pos}{meaning}\n")
 
     def parse(self, input, name: typing.Optional[str] = None):
         """

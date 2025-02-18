@@ -32,6 +32,7 @@ class ExpandAfter(Command):
         @param parser: the parser
         """
         t = parser.token()
+        print("expandafter skipping", t)
         if t is None:
             return
         t1 = parser.token()
@@ -40,6 +41,8 @@ class ExpandAfter(Command):
             if definition is None:
                 raise ValueError(f"undefined command {t1.name}", parser.input.position())
             if definition.expand is not None:
+                if parser.tracingcommands:
+                    parser.traceExpansion(t1, definition, parser.input.position())
                 definition.expand(parser)
                 parser.input.unread(t)
                 return

@@ -60,7 +60,9 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False)
             return []
         definition = t.definition
         if definition is not None and hasattr(definition, "expanded"):
-                return definition.expanded(parser)
+            if parser.tracingcommands:
+                parser.traceExpansion(t, definition, pos)
+            definition.expanded(parser)
         return [t]
     level += 1
     toks = [t] if include_braces else []

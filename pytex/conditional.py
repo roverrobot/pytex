@@ -180,10 +180,8 @@ class If(IfCompareToken):
         # code 256 and category code 16
         # The condition is true if the character codes are equal,
         # independent of the category codes
-        if t1.catcode is None:
-            t1.name = chr(256)
-        if t2.catcode is None:
-            t2.name = chr(256)
+        if t1.catcode is None and t2.catcode is None:
+            return True
         return t1.name == t2.name
 
 

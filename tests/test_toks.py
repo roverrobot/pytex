@@ -1,4 +1,5 @@
 import pytest
+from pytex.token import CATCODE
 
 
 def test_read_toks(parser):
@@ -39,3 +40,11 @@ def test_case(collector):
     assert collector.getString() == "Abc "
     collector.parse("\\uppercase{a\\def\\a{Bc}}\\a")
     assert collector.getString() == "ABC"
+
+
+def test_parpar(parser):
+    parser.parse("\\toks0={#}")
+    toks0 = parser.state.toks[0]
+    assert len(toks0) == 2
+    assert toks0[0].catcode == CATCODE.PARAMETER
+    assert toks0[1].catcode == CATCODE.PARAMETER

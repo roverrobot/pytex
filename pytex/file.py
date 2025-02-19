@@ -113,6 +113,9 @@ class WriteOp(FileOp):
             if t is None:
                 parser.input.pop(scanner)
                 break
+            # "#" will be written as "##"
+            if t.catcode == token.CATCODE.PARAMETER:
+                tokens.append(t)
             tokens.append(t)
         s = toksToString(parser, tokens)
         if file is None:

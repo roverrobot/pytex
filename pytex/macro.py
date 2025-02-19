@@ -66,7 +66,11 @@ class MacroScanner(TokenListScanner):
         raise ValueError("invalid macro replacement text, # must be followed by a number of another #", self.input.position())
 
     def __repr__(self):
-        return f"{self.macro.name}: MacroScanner({self.toks}, {self.args})" 
+        args = []
+        for i in range(len(self.args)):
+            args.append(f"#{i+1}<-" + "".join([tokenToString(t) for t in self.args[i]]))
+        s = "\n  ".join(args)
+        return f"{self.macro.name}: {super().__repr__()}\n  {s})" 
 
 
 def compareToks(toks1, toks2):
@@ -140,33 +144,14 @@ class Macro(Command):
             if t is None:
                 raise ValueError(f"macro does not match the definition {self}", parser.input.position())
             if t.catcode != p.catcode or t.name != p.name:
-                for u in reversed(matched):
-                    parser.input.unread(u)
-                return t, start
+                if len(matched) == 0:
+                    return t, start
+                parser.input.unread(t)
+                for i in range(len(matched)-1, 0, -1):
+                    parser.input.unread(matched[i])
+                return matched[0], start
             matched.append(t)
         return None, len(self.parameters)
-
-    def readBalancedText(self, parser):
-        """
-        read a balanced text
-        """
-        toks = []
-        while True:
-            t = parser.token()
-            if t is None:
-                raise ValueError("unbalanced text", parser.input.position())
-            if t.catcode == CATCODE.BEGIN_GROUP:
-                toks.append(t)
-                ts, rbrace = self.readBalancedText(parser)
-                toks.extend(ts)
-                toks.append(rbrace)
-            elif t.catcode == CATCODE.END_GROUP:
-                return toks, t
-            else:
-                if t.catcode == CATCODE.PARAMETER:
-                    # a # in argument means ## when expanding
-                    toks.append(t)
-                toks.append(t)
     
     def readArgument(self, parser, start):
         """
@@ -182,15 +167,8 @@ class Macro(Command):
         # token,, and if the token is {, then the argument is a balanced text
         if i >= len(self.parameters) or self.parameters[i].catcode == CATCODE.PARAMETER:
             parser.skipSpaces(expand=False)
-            t = parser.token()
-            if t is None:
-                raise ValueError(f"macro does not match the definition {self}", parser.input.position())
-            if t.catcode == CATCODE.BEGIN_GROUP:
-                toks, rbrace = self.readBalancedText(parser)
-                return toks, i
-            if t.catcode == CATCODE.PARAMETER:
-                return [t, t], i
-            return [t], i
+            toks = parser.readBalancedText(expand=False, include_braces=False, parpar=True)
+            return toks, i
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token
         # in the argument and match again.
@@ -198,15 +176,9 @@ class Macro(Command):
             t, i = self.matchDelimited(parser, i)
             if t is None:
                 return result, i
-            if t.catcode == CATCODE.BEGIN_GROUP:
-                result.append(t)
-                l, rbrace = self.readBalancedText(parser)
-                result.extend(l)
-                result.append(rbrace)
-            else:
-                if t.catcode == CATCODE.PARAMETER:
-                    result.append(t)
-                result.append(t)
+            parser.input.unread(t)
+            l = parser.readBalancedText(expand=False, include_braces=True, parpar=True)
+            result.extend(l)
 
     def expand(self, parser):
         """
@@ -306,7 +278,7 @@ class MacroAccessor(Accessor):
             else:
                 parameters.append(t)
         # read the replacement text
-        replacement = parser.readGeneralText(expand=self.expand_body)
+        replacement = parser.readBalancedText(expand=self.expand_body, include_braces=False, parpar=False)
         if tail:
             replacement.append(tail)
         macro = Macro(parameters, replacement)

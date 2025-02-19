@@ -41,12 +41,13 @@ def token_expand(parser):
     return token_expand(parser)
 
 
-def readBalancedText(parser, expand: bool = False, include_braces: bool = False):
+def readBalancedText(parser, expand: bool = False, include_braces: bool = False, parpar=True):
     """
     read a single character or a token list in balanced braces
     @param parser: the parser
     @param expand: whether to expand the tokens
-    @param include_braces: whether to include the braces in the result
+    @param include_braces: whether to include the enclosing braces in the result, if there is a pair
+    @param parpar: whether to double the # tokens
     @return: the token list
     """
     pos = parser.input.position()
@@ -63,7 +64,7 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False)
             if parser.tracingcommands:
                 parser.traceExpansion(t, definition, pos)
             definition.expanded(parser)
-        return [t]
+        return [t, t] if t.catcode == CATCODE.PARAMETER and parpar else [t]
     level += 1
     toks = [t] if include_braces else []
     while True:
@@ -81,6 +82,8 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False)
         elif t.definition is not None and hasattr(t.definition, "expanded"):
             toks.extend(t.definition.expanded(parser))
             continue
+        if parpar and t.catcode == CATCODE.PARAMETER:
+            toks.append(t)
         toks.append(t)
 
 
@@ -101,13 +104,14 @@ def skipFiller(parser):
         break
 
 
-def readGeneralText(parser, expand: bool = True):
+def readGeneralText(parser, expand: bool = True, parpar=True):
     """
     read general text
 
     A general text is a filler followed by a balanced token list.
     @param parser: the parser
     @param expand: whether to expand the tokens
+    @param parpar: whether to double the # tokens
     @return: the token list
     """
     skipFiller(parser)
@@ -199,13 +203,15 @@ class Case(Command):
             code = parser.state.uccode
         else:
             code = parser.state.lccode
-        text = readGeneralText(parser, expand=False)
+        text = readGeneralText(parser, expand=False, parpar=False)
         for t in text:
-            if len(t.name) > 1:
+            # do not change the name of control sequences
+            if t.catcode is None:
                 continue
             c = code[ord(t.name)]
             if c != 0:
                 t.name = chr(c)
+                t.catcode = parser.state.catcode[c]
         parser.input.push(TokenListScanner(text))
 
 

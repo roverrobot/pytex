@@ -119,7 +119,7 @@ def readGeneralText(parser, expand: bool = True, parpar=True):
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", parser.input.position())
     parser.input.unread(lbrace)
-    return readBalancedText(parser, expand, include_braces=False)
+    return readBalancedText(parser, expand, include_braces=False, parpar=parpar)
 
 
 class ToksCommand:

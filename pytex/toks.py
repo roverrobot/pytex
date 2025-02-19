@@ -50,40 +50,40 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False,
     @param parpar: whether to double the # tokens
     @return: the token list
     """
-    level = 0
     t = token_expand(parser) if expand else parser.token()
     if t is None:
+        return None
+    toks = []
+    if t.catcode == CATCODE.BEGIN_GROUP:
+        if include_braces:
+            toks.append(t)
+        # keep reading the tokens until we meet a matching }
+        while True:
+            l = readBalancedText(parser, expand, include_braces=True, parpar=parpar)
+            if l:
+                toks.extend(l)
+            elif l is None:
+                raise ValueError("unbalanced token list", parser.input.position())
+            else:
+                break
+        # we must have reached }
+        t = token_expand(parser) if expand else parser.token()
+        assert t.catcode == CATCODE.END_GROUP
+        if include_braces:
+            toks.append(t)
+        return toks
+    if t.catcode == CATCODE.END_GROUP:
+        parser.input.unread(t)
         return []
-    if t.catcode != CATCODE.BEGIN_GROUP:
-        if t.catcode == CATCODE.END_GROUP:
-            parser.input.unread(t)
-            return []
+    # handle \the
+    if expand:
         definition = t.definition
-        if expand and definition is not None and hasattr(definition, "expanded"):
+        if definition is not None and hasattr(definition, "expanded"):
             if parser.tracingcommands:
                 parser.traceExpansion(t, definition)
             return definition.expanded(parser)
-        return [t, t] if t.catcode == CATCODE.PARAMETER and parpar else [t]
-    level += 1
-    toks = [t] if include_braces else []
-    while True:
-        t = token_expand(parser) if expand else parser.token()
-        if t is None:
-            raise ValueError("unbalanced token list", parser.input.position())
-        if t.catcode == CATCODE.BEGIN_GROUP:
-            level += 1
-        elif t.catcode == CATCODE.END_GROUP:
-            level -= 1
-            if level == 0:
-                if include_braces:
-                    toks.append(t)
-                return toks
-        elif expand and t.definition is not None and hasattr(t.definition, "expanded"):
-            toks.extend(t.definition.expanded(parser))
-            continue
-        if parpar and t.catcode == CATCODE.PARAMETER:
-            toks.append(t)
-        toks.append(t)
+    # return the read token, or [#, #] if it is a parameter token
+    return [t, t] if t.catcode == CATCODE.PARAMETER and parpar else [t]
 
 
 def skipFiller(parser):

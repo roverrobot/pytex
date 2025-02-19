@@ -36,7 +36,7 @@ def token_expand(parser):
     if hasattr(definition, "expanded"):
         return t
     if parser.tracingcommands:
-        parser.traceExpansion(t, definition, parser.input.position())
+        parser.traceExpansion(t, definition)
     definition.expand(parser)
     return token_expand(parser)
 
@@ -50,7 +50,6 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False,
     @param parpar: whether to double the # tokens
     @return: the token list
     """
-    pos = parser.input.position()
     level = 0
     t = token_expand(parser) if expand else parser.token()
     if t is None:
@@ -62,7 +61,7 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False,
         definition = t.definition
         if definition is not None and hasattr(definition, "expanded"):
             if parser.tracingcommands:
-                parser.traceExpansion(t, definition, pos)
+                parser.traceExpansion(t, definition)
             definition.expanded(parser)
         return [t, t] if t.catcode == CATCODE.PARAMETER and parpar else [t]
     level += 1
@@ -70,7 +69,7 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False,
     while True:
         t = token_expand(parser) if expand else parser.token()
         if t is None:
-            raise ValueError("unbalanced token list", pos)
+            raise ValueError("unbalanced token list", parser.input.position())
         if t.catcode == CATCODE.BEGIN_GROUP:
             level += 1
         elif t.catcode == CATCODE.END_GROUP:

@@ -59,10 +59,10 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False,
             parser.input.unread(t)
             return []
         definition = t.definition
-        if definition is not None and hasattr(definition, "expanded"):
+        if expand and definition is not None and hasattr(definition, "expanded"):
             if parser.tracingcommands:
                 parser.traceExpansion(t, definition)
-            definition.expanded(parser)
+            return definition.expanded(parser)
         return [t, t] if t.catcode == CATCODE.PARAMETER and parpar else [t]
     level += 1
     toks = [t] if include_braces else []
@@ -78,7 +78,7 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False,
                 if include_braces:
                     toks.append(t)
                 return toks
-        elif t.definition is not None and hasattr(t.definition, "expanded"):
+        elif expand and t.definition is not None and hasattr(t.definition, "expanded"):
             toks.extend(t.definition.expanded(parser))
             continue
         if parpar and t.catcode == CATCODE.PARAMETER:

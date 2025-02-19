@@ -219,7 +219,7 @@ class Scanner:
         self.lines = enumerate([])
 
     def __repr__(self):
-        return f"Scanner({self.name})"
+        return f"Scanner({self.position()})"
 
 
 class StringScanner(Scanner):
@@ -266,8 +266,10 @@ class TokenListScanner:
     def __repr__(self):
         f = lambda t: t.name + " " if isinstance(t, CommandToken) else t.name
         s1 = "".join(map(f, self.toks[:self.pos]))
+        if s1 != "":
+            s1 += "\n"
         s2 = "".join(map(f, self.toks[self.pos:]))
-        return f"TokenListScanner:\n  {s1}\n>> {s2})"
+        return f"TokenListScanner:\n  {s1}>> {s2}"
 
 
 class InputStack:
@@ -357,4 +359,8 @@ class InputStack:
         for scanner in self.stack:
             for s in repr(scanner).split("\n"):
                 l.append(f"  {s}")
+        if len(self.saved) > 0:
+            f = lambda t: t.name + " " if isinstance(t, CommandToken) else t.name
+            s = "".join(map(f, reversed(self.saved)))
+            l.append(f"  saved: {s}")
         return "\n".join(l)

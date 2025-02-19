@@ -49,7 +49,7 @@ class MacroScanner(TokenListScanner):
         if self.eof():
             # pop us
             assert self.parser.input.stack.pop() == self
-        if t.catcode != CATCODE.PARAMETER:
+        if t is None or t.catcode != CATCODE.PARAMETER:
             return t
         # handle the case where the next token is ##
         t = self.next()

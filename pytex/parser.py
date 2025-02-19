@@ -103,7 +103,6 @@ class Parser:
         @return: the next token
         """
         while True:
-            pos = self.input.position()
             t = self.token()
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
@@ -113,28 +112,27 @@ class Parser:
                     return t
                 definition = self.lookup(t.name)
                 if definition is None:
-                    raise ValueError("undefined command" + t.name, pos)
+                    raise ValueError("undefined command" + t.name, self.input.position())
                 elif definition.expand is not None:
                     if self.tracingcommands:
-                        self.traceExpansion(t, definition, pos)
+                        self.traceExpansion(t, definition)
                     definition.expand(self)
                     continue
                 # set the definition for executing the token.
                 t.definition = definition
             return t
 
-    def traceExpansion(self, t, definition, pos):
+    def traceExpansion(self, t, definition):
         """
         trace the commands being expanded or executed
         @param t: the token being expanded
         @param definition: the definition of the token
-        @param pos: the position of the token in the input stack
         """
         if self.tracingcommands > 1 and definition is not None:
             meaning = f": {definition.meaning(self)}"
         else:
             meaning = ""                        
-        self.message(f"expanding {t.name} at {pos}{meaning}\n")
+        self.message(f"expanding {t.name} at {self.input.position()}{meaning}\n")
 
     def parse(self, input, name: typing.Optional[str] = None):
         """

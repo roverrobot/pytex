@@ -37,6 +37,14 @@ class MacroScanner(TokenListScanner):
         # the end of the replacement text, then we are done
         return super().eof() and (self.arg_scanner is None or self.arg_scanner.eof())
     
+    def checkEOF(self, t):
+        # return the token, and perform tail recursion optimization
+        if self.eof():
+            if t is not None:
+                self.parser.input.unread(t)
+            return None
+        return t
+
     def read(self):
         """
         read the next token from the replacement text
@@ -46,17 +54,15 @@ class MacroScanner(TokenListScanner):
         t = self.next()
         # tail recursion optimization
         # has we reached the end?
-        if self.eof():
-            # pop us
-            assert self.parser.input.stack.pop() == self
         if t is None or t.catcode != CATCODE.PARAMETER:
-            return t
+            return self.checkEOF(t)
         # handle the case where the next token is ##
         t = self.next()
         if t is None:
             raise ValueError("invalid macro replacement text, # must be followed by a number or another #", self.input.position())
         if t.catcode == CATCODE.PARAMETER:
-            return t
+            return self.checkEOF(t)
+        # if the next token is a number, then we read the argument
         if "1" <= t.name <= "9":
             i = ord(t.name) - ord("1")
             if i >= len(self.args):
@@ -68,7 +74,7 @@ class MacroScanner(TokenListScanner):
     def __repr__(self):
         args = []
         for i in range(len(self.args)):
-            args.append(f"#{i+1}<-" + "".join([tokenToString(t) for t in self.args[i]]))
+            args.append(f"#{i+1}<-" + "".join([tokenToString(t, "\\", True) for t in self.args[i]]))
         s = "\n  ".join(args)
         return f"{self.macro.name}: {super().__repr__()}\n  {s})" 
 
@@ -219,7 +225,6 @@ class Macro(Command):
         # only if the replacement text is not empty
         if len(self.replacement) > 0:
             scanner = MacroScanner(parser, self.replacement, args)
-            scanner.macro = self
             # scanner is already pushed onto the stack
     
     def __eq__(self, other):

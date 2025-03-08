@@ -67,6 +67,8 @@ class Expr(ModeDependentCommand):
         while True:
             op = self.readOp(parser, "+-")
             if op is None:
+                # skip fillers
+                parser.skipFiller()
                 return term
             oprand = self.readTerm(parser, integer)
             if op == "+":

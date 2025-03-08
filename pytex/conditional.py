@@ -18,12 +18,12 @@ def skipBranch(parser, level: list):
         pos = parser.input.position()
         t = parser.token()
         if t is None:
-            c, branch, cpos = parser.ifstack[-1]
+            c, cpos, branch = parser.ifstack[-1]
             raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", pos)
         if t.isCommand():
             c = parser.lookup(t.name)
             if isinstance(c, Conditional): # another level
-                parser.ifstack.append([c, -1, pos])
+                parser.ifstack.append([c, pos, -1])
             elif isinstance(c, Branch):
                 if level is parser.ifstack[-1]:
                     return c

@@ -67,8 +67,11 @@ class Expr(ModeDependentCommand):
         while True:
             op = self.readOp(parser, "+-")
             if op is None:
-                # skip fillers
-                parser.skipFiller()
+                # skip spaces and an optional \relax
+                parser.skipSpaces()
+                t = parser.token()
+                if t is not None and t.definition != token.relax:
+                    parser.input.unread(t)
                 return term
             oprand = self.readTerm(parser, integer)
             if op == "+":

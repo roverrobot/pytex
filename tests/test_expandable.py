@@ -15,6 +15,9 @@ def test_noexpand(parser):
     t = parser.token_expand()
     assert t is not None
     assert t.name == "a"
+    parser.parse("\\def\\a{1}\\edef\\b{\\noexpand\\a}")
+    b = parser.state.equitable["\\b"]
+    assert b.replacement[0].name == "\\a"
 
 
 def test_expandafter(collector):

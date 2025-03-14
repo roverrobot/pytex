@@ -88,7 +88,7 @@ class Tokenizer:
                 return chr(c), catcode
             self.unread(c3)
         c = ord(c2)
-        if c > 64:
+        if c >= 64:
             c -= 64
         else:
             c += 64
@@ -240,6 +240,8 @@ class TokenListScanner:
     """
     def __init__(self, toks: typing.List[Token]):
         self.toks = toks
+        if toks is None:
+            raise ValueError("toks must not be None")
         self.pos = 0
 
     def read(self) -> typing.Optional[Token]:

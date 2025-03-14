@@ -1,6 +1,6 @@
 .vscode/launch.json
 .vscode/settings.json
-pytex/__pycache__/*
-tests/__pycache__/*
+*/__pycache__/*
+*/*/__pycache__/*
 dist/*
 pytex.egg-info/*

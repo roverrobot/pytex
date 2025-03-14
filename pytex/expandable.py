@@ -14,12 +14,19 @@ class NoExpand(Command):
     """
     def expand(self, parser):
         """
-        Expand the command. This command prevents the next token from being expanded.
+        This command prevents the next token from being expanded.
         @param parser: the parser
         """
         t = parser.token()
-        t.noexpand = True
+        if t is None:
+            raise ValueError("expecting a token after \\noexpand", parser.input.position())
+        if t.isCommand():
+            t = CommandToken(t.name)
+            t.noexpand = True
         parser.input.unread(t)
+
+
+noexpand = NoExpand()
 
 
 class ExpandAfter(Command):
@@ -169,6 +176,11 @@ def tokenToString(token, escapechar, space_after_command=False):
         s = escapechar + token.name[1:]
         if space_after_command:
             s += " "
+    elif token.catcode == CATCODE.PARAMETER:
+        if token.parameter is None:
+            s = "##"
+        else:
+            s = "#" + str(token.parameter+1)
     else:
         s = token.name
     return s
@@ -202,10 +214,9 @@ class String(Command):
             escapechar = parser.state.layout["escapechar"]
             escapechar = chr(escapechar) if 0 <= escapechar < 256 else ""
             s = escapechar + t.name[1:]
-            toks = [CharToken(c, parser.state.catcode[ord(c)]) for c in s]
-            parser.input.push(TokenListScanner(toks))
         else:
-            parser.input.unread(t)
+            s = t.name
+        parser.input.push(TokenListScanner(toToks(s)))
 
 
 class Input(Command):
@@ -257,15 +268,13 @@ class Meaning(Command):
             raise ValueError("expecting a token", parser.input.position())
         meaning = t.meaning(parser)
         toks = toToks(meaning)
-        for tok in toks:
-            if tok.isCommand:
-                tok.noexpand = True
         parser.input.push(TokenListScanner(toks))
 
 
 mod = Module("expandable",
     commands={
-        "noexpand": NoExpand(),
+        "noexpand": noexpand,
+        "donot_expand:": noexpand,
         "expandafter": ExpandAfter(),
         "csname": CSName(),
         "endcsname": endcsname,

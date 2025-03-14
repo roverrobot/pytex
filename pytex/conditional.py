@@ -4,7 +4,7 @@ This module implements conditional commands such as \\\if and \\ifx etc.
 
 
 import typing
-from pytex.token import CATCODE, Command, Token
+from pytex.token import CATCODE, Command, Token, relax
 from pytex.module import Module
 
 def skipBranch(parser, level: list):
@@ -147,13 +147,13 @@ class IfCompareToken(Conditional):
         if t1 is None or t2 is None:
             raise ValueError("expecting two tokens", pos)
         if t1.isCommand():
-            d1 = parser.lookup(t1.name)
+            d1 = relax if t1.noexpand else parser.lookup(t1.name)
             if isinstance(d1, Token):
                 t1 = d1
             else:
                 t1.definition = d1
         if t2.isCommand():
-            d2 = parser.lookup(t2.name)
+            d2 = relax if t2.noexpand else parser.lookup(t2.name)
             if isinstance(d2, Token):
                 t2 = d2
             else:

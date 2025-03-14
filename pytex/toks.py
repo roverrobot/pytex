@@ -3,13 +3,12 @@ This module defines the token list facilities.
 """
 
 import typing
-from pytex import serialization
 from pytex.lexer import CATCODE, TokenListScanner
-from pytex.token import Command, CommandToken, relax
+from pytex.token import Command, Token, relax
 from pytex.module import Module
 from pytex.state import Array
 from pytex import accessor
-from pytex.expandable import toToks
+from pytex.expandable import toToks, noexpand
 
 
 def token_expand(parser):
@@ -41,13 +40,12 @@ def token_expand(parser):
     return token_expand(parser)
 
 
-def readBalancedText(parser, expand: bool = False, include_braces: bool = False, parpar=True):
+def readBalancedText(parser, expand: bool = False, macro: bool = False, include_braces: bool = False):
     """
     read a single character or a token list in balanced braces
     @param parser: the parser
     @param expand: whether to expand the tokens
-    @param include_braces: whether to include the enclosing braces in the result, if there is a pair
-    @param parpar: whether to double the # tokens
+    @param macro: whether reading the body of a macro definition
     @return: the token list
     """
     t = token_expand(parser) if expand else parser.token()
@@ -59,7 +57,7 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False,
             toks.append(t)
         # keep reading the tokens until we meet a matching }
         while True:
-            l = readBalancedText(parser, expand, include_braces=True, parpar=parpar)
+            l = readBalancedText(parser, expand, macro=macro, include_braces=True)
             if l:
                 toks.extend(l)
             elif l is None:
@@ -82,9 +80,16 @@ def readBalancedText(parser, expand: bool = False, include_braces: bool = False,
             if parser.tracingcommands:
                 parser.traceExpansion(t, definition)
             return definition.expanded(parser)
-    # return the read token, or [#, #] if it is a parameter token
-    return [t, t] if t.catcode == CATCODE.PARAMETER and parpar else [t]
-
+    if t.catcode == CATCODE.PARAMETER and macro:
+        t1 = token_expand(parser) if expand else parser.token()
+        if t1.catcode == CATCODE.PARAMETER:
+            t = Token.token(t.name, CATCODE.PARAMETER)
+        elif t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
+            t = Token.token(t.name, CATCODE.PARAMETER)
+            t.parameter = int(t1.name) - 1
+        else:
+            raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
+    return [t]
 
 def skipFiller(parser):
     """
@@ -103,14 +108,13 @@ def skipFiller(parser):
         break
 
 
-def readGeneralText(parser, expand: bool = True, parpar=True):
+def readGeneralText(parser, expand: bool = True):
     """
     read general text
 
     A general text is a filler followed by a balanced token list.
     @param parser: the parser
     @param expand: whether to expand the tokens
-    @param parpar: whether to double the # tokens
     @return: the token list
     """
     skipFiller(parser)
@@ -118,7 +122,7 @@ def readGeneralText(parser, expand: bool = True, parpar=True):
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", parser.input.position())
     parser.input.unread(lbrace)
-    return readBalancedText(parser, expand, include_braces=False, parpar=parpar)
+    return readBalancedText(parser, expand, macro=False, include_braces=False)
 
 
 class ToksCommand:
@@ -202,16 +206,21 @@ class Case(Command):
             code = parser.state.uccode
         else:
             code = parser.state.lccode
-        text = readGeneralText(parser, expand=False, parpar=False)
+        text = readGeneralText(parser, expand=False)
+        # the tokens may have been read from a token list, so we should not change them
+        # but instead create new tokens
+        toks = []
         for t in text:
             # do not change the name of control sequences
             if t.catcode is None:
+                toks.append(t)
                 continue
             c = code[ord(t.name)]
-            if c != 0:
-                t.name = chr(c)
-                t.catcode = parser.state.catcode[c]
-        parser.input.push(TokenListScanner(text))
+            if c == 0:
+                toks.append(t)
+            else:
+                toks.append(Token.token(chr(c), t.catcode))
+        parser.input.push(TokenListScanner(toks))
 
 
 class IgnoreSpaces(Command):
@@ -233,10 +242,10 @@ class The(Command):
         @param parser: the parser
         @return: the token list
         """
-        pos = parser.input.position()
         t = parser.token_expand()
         if t is None or t.definition is None:
-            raise ValueError("invalid token after \\the", pos)
+            raise ValueError("invalid token after \\the", parser.input.position())
+        t0 = t
         t = t.definition
         if hasattr(t, "glueValue"):
             value = str(t.glueValue(parser))
@@ -252,6 +261,7 @@ class The(Command):
             return t.toksValue(parser)
         if hasattr(t, "fontValue"):
             return [t]
+        raise ValueError(f"invalid token after \\the: {t0}", parser.input.position())
     
     def expand(self, parser):
         """

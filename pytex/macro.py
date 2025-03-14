@@ -56,27 +56,20 @@ class MacroScanner(TokenListScanner):
         # has we reached the end?
         if t is None or t.catcode != CATCODE.PARAMETER:
             return self.checkEOF(t)
-        # handle the case where the next token is ##
-        t = self.next()
-        if t is None:
-            raise ValueError("invalid macro replacement text, # must be followed by a number or another #", self.input.position())
-        if t.catcode == CATCODE.PARAMETER:
+        # check if this is a ## token
+        if t.parameter is None:
             return self.checkEOF(t)
-        # if the next token is a number, then we read the argument
-        if "1" <= t.name <= "9":
-            i = ord(t.name) - ord("1")
-            if i >= len(self.args):
-                raise ValueError("macro has too few arguments")
-            self.arg_scanner = TokenListScanner(self.args[i])
-            return self.read()
-        raise ValueError("invalid macro replacement text, # must be followed by a number of another #", self.input.position())
+        if t.parameter >= len(self.args):
+            raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
+        self.arg_scanner = TokenListScanner(self.args[t.parameter])
+        return self.read()
 
     def __repr__(self):
         args = []
         for i in range(len(self.args)):
             args.append(f"#{i+1}<-" + "".join([tokenToString(t, "\\", True) for t in self.args[i]]))
         s = "\n  ".join(args)
-        return f"{self.macro.name}: {super().__repr__()}\n  {s})" 
+        return f"{self.name}: {super().__repr__()}\n  {s})" 
 
 
 def compareToks(toks1, toks2):
@@ -97,7 +90,7 @@ def toString(toks):
     """
     convert a list of tokens to a string
     """
-    return "".join([ t.name+" " if t.catcode is None else t.name for t in toks ])
+    return "".join([tokenToString(t, "\\", True) for t in toks ])
 
 
 class Macro(Command):
@@ -173,7 +166,7 @@ class Macro(Command):
         # token,, and if the token is {, then the argument is a balanced text
         if i >= len(self.parameters) or self.parameters[i].catcode == CATCODE.PARAMETER:
             parser.skipSpaces(expand=False)
-            toks = parser.readBalancedText(expand=False, include_braces=False, parpar=True)
+            toks = parser.readBalancedText(expand=False, macro=False, include_braces=False)
             return toks, i
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token
@@ -183,7 +176,7 @@ class Macro(Command):
             if t is None:
                 return result, i
             parser.input.unread(t)
-            l = parser.readBalancedText(expand=False, include_braces=True, parpar=True)
+            l = parser.readBalancedText(expand=False, macro=False, include_braces=True)
             result.extend(l)
 
     def expand(self, parser):
@@ -193,38 +186,37 @@ class Macro(Command):
         """
         # we first read the arguments
         i = 0
-        argi = 1
+        argi = 0
         args = []
         while i < len(self.parameters):
-            pos = parser.input.position()
             t, i = self.matchDelimited(parser, i)
             # if not matched, the macro does not match the definition
             if t is not None:
-                raise ValueError(f"macro does not match the definition {self} at {t}", pos)
+                raise ValueError(f"macro does not match the definition {self} at {t}", parser.input.position())
             # if matched and we have reached the end of the parameter list, that means 
             # we have matched all parameter texts, and so we break the loop
             if i >= len(self.parameters):
                 break
             # the next token in parameters must be # followed by the argument number. 
             p = self.parameters[i]
-            i += 1
             assert(p.catcode == CATCODE.PARAMETER and i < len(self.parameters))
             # we check the argument number which is the next token in the parameters list
             # we should not have reached the end of the parameters list
-            p = self.parameters[i]
-            assert("1" <= p.name <= "9" and ord(p.name) - ord("0") == argi)
+            if p.parameter != argi:
+                raise ValueError(f"parameters must be consecutively numbered", parser.input.position())
             i += 1
             argi += 1
             # We read the argument and append it to thelist of arguments.
             argv, i = self.readArgument(parser, i)
             if parser.tracingmacros:
                 s = "".join([tokenToString(t, "\\", True) for t in argv])
-                parser.message(f"#{p.name}<-{s}")
+                parser.message(f"#{p.parameter+1}<-{s}")
             args.append(argv)
         # we now create a MacroScanner and read from it.
         # only if the replacement text is not empty
         if len(self.replacement) > 0:
             scanner = MacroScanner(parser, self.replacement, args)
+            scanner.name = self.name
             # scanner is already pushed onto the stack
     
     def __eq__(self, other):
@@ -241,7 +233,7 @@ class MacroAccessor(Accessor):
     """
     def readEq(self, parser):
         """
-        \def does not use an equal sign
+        \\def does not use an equal sign
         """
         pass
 
@@ -267,10 +259,11 @@ class MacroAccessor(Accessor):
                 if n is None:
                     raise ValueError("macro argument expected", pos)
                 if "1" <= n.name <= "9" and ord(n.name) - ord("0") == arg:
+                    t = Token.token(t.name, CATCODE.PARAMETER)
+                    t.parameter = arg - 1
                     parameters.append(t)
-                    parameters.append(n)
                     arg += 1
-                elif n.name == "{":
+                elif n.catcode == CATCODE.BEGIN_GROUP:
                     parameters.append(n)
                     parser.input.unread(n)
                     tail = n
@@ -283,7 +276,7 @@ class MacroAccessor(Accessor):
             else:
                 parameters.append(t)
         # read the replacement text
-        replacement = parser.readBalancedText(expand=self.expand_body, include_braces=False, parpar=False)
+        replacement = parser.readBalancedText(expand=self.expand_body, macro=True, include_braces=False)
         if tail:
             replacement.append(tail)
         macro = Macro(parameters, replacement)

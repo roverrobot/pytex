@@ -224,6 +224,8 @@ class ParameterToken(Token):
     """
     represent the # token in a macro definition
     """
+    # the parameter number
+    parameter = None
     def execute(self, parser):
         raise ValueError("unexpected #")
 

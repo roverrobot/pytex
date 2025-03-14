@@ -308,7 +308,7 @@ class AlignCommand(lists.ModeDependentCommand):
         raise ValueError("expecting a \\cr", parser.input.position())
 
     def readValue(self, parser):
-        material = parser.readGeneralText(expand = False, parpar=False)
+        material = parser.readGeneralText(expand = False)
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         scanner = lexer.TokenListScanner(material)
         scanner.terminate = True

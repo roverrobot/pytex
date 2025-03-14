@@ -45,25 +45,25 @@ def test_macro_definition(parser):
     parser.parse("\\def\\a#1{#1}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.parameters) == 2
+    assert len(a.parameters) == 1
     assert a.parameters[0].catcode == CATCODE.PARAMETER
-    assert a.parameters[1].name == "1"
-    assert len(a.replacement) == 2
+    assert a.parameters[0].parameter == 0
+    assert len(a.replacement) == 1
     assert a.replacement[0].catcode == CATCODE.PARAMETER
-    assert a.replacement[1].name == "1"
+    assert a.parameters[0].parameter == 0
     parser.parse("\\def\\a#1#2{#1#2}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.parameters) == 4
+    assert len(a.parameters) == 2
     assert a.parameters[0].catcode == CATCODE.PARAMETER
-    assert a.parameters[1].name == "1"
-    assert a.parameters[2].catcode == CATCODE.PARAMETER
-    assert a.parameters[3].name == "2"
-    assert len(a.replacement) == 4
+    assert a.parameters[0].parameter == 0
+    assert a.parameters[1].catcode == CATCODE.PARAMETER
+    assert a.parameters[1].parameter == 1
+    assert len(a.replacement) == 2
     assert a.replacement[0].catcode == CATCODE.PARAMETER
-    assert a.replacement[1].name == "1"
-    assert a.replacement[2].catcode == CATCODE.PARAMETER
-    assert a.replacement[3].name == "2"
+    assert a.parameters[0].parameter == 0
+    assert a.replacement[1].catcode == CATCODE.PARAMETER
+    assert a.parameters[1].parameter == 1
     parser.parse("\\def\\a12 {1}")
     a = parser.lookup("\\a")
     assert a is not None
@@ -76,34 +76,34 @@ def test_macro_definition(parser):
     parser.parse("\\def\\a1#12{}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.parameters) == 4
+    assert len(a.parameters) == 3
     assert a.parameters[0].name == "1"
     assert a.parameters[1].catcode == CATCODE.PARAMETER
-    assert a.parameters[2].name == "1"
-    assert a.parameters[3].name == "2"
+    assert a.parameters[1].parameter == 0
+    assert a.parameters[2].name == "2"
     assert len(a.replacement) == 0
     parser.parse("\\def\\a1#12#2{}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.parameters) == 6
+    assert len(a.parameters) == 4
     assert a.parameters[0].name == "1"
     assert a.parameters[1].catcode == CATCODE.PARAMETER
-    assert a.parameters[2].name == "1"
-    assert a.parameters[3].name == "2"
-    assert a.parameters[4].catcode == CATCODE.PARAMETER
-    assert a.parameters[5].name == "2"
+    assert a.parameters[1].parameter == 0
+    assert a.parameters[2].name == "2"
+    assert a.parameters[3].catcode == CATCODE.PARAMETER
+    assert a.parameters[3].parameter == 1
     assert len(a.replacement) == 0
     parser.parse("\\def\\a#1#{#1}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.parameters) == 3
+    assert len(a.parameters) == 2
     assert a.parameters[0].catcode == CATCODE.PARAMETER
-    assert a.parameters[1].name == "1"
-    assert a.parameters[2].catcode == CATCODE.BEGIN_GROUP
-    assert len(a.replacement) == 3
+    assert a.parameters[0].parameter == 0
+    assert a.parameters[1].catcode == CATCODE.BEGIN_GROUP
+    assert len(a.replacement) == 2
     assert a.replacement[0].catcode == CATCODE.PARAMETER
-    assert a.replacement[1].name == "1"
-    assert a.replacement[2].catcode == CATCODE.BEGIN_GROUP
+    assert a.replacement[0].parameter == 0
+    assert a.replacement[1].catcode == CATCODE.BEGIN_GROUP
 
 def test_macro_definition_errors(parser):
     try:

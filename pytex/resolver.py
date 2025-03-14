@@ -273,6 +273,7 @@ def readFileName(parser) -> str:
     if t is None:
         raise ValueError("expecting a file name")
     if t.catcode == CATCODE.OTHER and t.name == '"':
+        # the file name is enclosed by double quotes
         while True:
             t = parser.token_expand()
             if t is None:
@@ -284,12 +285,16 @@ def readFileName(parser) -> str:
         t = parser.token_expand()
         if t is not None and t.catcode != CATCODE.SPACE:
             parser.input.unread(t)
-    else:
+    elif t.catcode == CATCODE.BEGIN_GROUP:
+        # the file name is enclosed by braces
         parser.input.unread(t)
-        toks = []
+        toks = parser.readBalancedText(expand=True, macro=False, include_braces=False)
+    else:
+        # the file name is deliminated by a space or a control sequence
+        toks = [t]
         while True:
-            ts = parser.readBalancedText(expand=True, include_braces=True)
-            if len(ts) == 0:
+            ts = parser.readBalancedText(expand=True, macro=False, include_braces=True)
+            if ts is None or len(ts) == 0:
                 break
             if len(ts) == 1:
                 t = ts[0]

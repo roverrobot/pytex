@@ -4,7 +4,7 @@ from pytex.token import CATCODE
 
 def test_read_toks(parser):
     parser.readFrom("{abcd}")
-    k = parser.readBalancedText(expand=False, include_braces=True)
+    k = parser.readBalancedText(expand=False, macro=False, include_braces=True)
     # {, a, b, c, d, }, space
     assert len(k) == 6
     assert k[4].name == "d"
@@ -45,6 +45,5 @@ def test_case(collector):
 def test_parpar(parser):
     parser.parse("\\toks0={#}")
     toks0 = parser.state.toks[0]
-    assert len(toks0) == 2
+    assert len(toks0) == 1
     assert toks0[0].catcode == CATCODE.PARAMETER
-    assert toks0[1].catcode == CATCODE.PARAMETER

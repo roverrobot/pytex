@@ -135,6 +135,11 @@ def test_macro_expansion(collector):
     assert collector.getString() == "2 "
     collector.parse("\\def\\a1#12#2{#1#2}\\a1{2}23")
     assert collector.getString() == "23 "
+    collector.parse("\\def\\a#1\\relax#2\\relax{#1#2}")
+    collector.parse("\\expandafter\\def\\expandafter\\x\\expandafter{\\a\\relax{}\\relax}")
+    x = collector.lookup("\\x")
+    assert x is not None
+    assert len(x.replacement) == 0
 
 def test_macro_expansion_errors(parser):
     try:
@@ -215,3 +220,8 @@ def test_protected(collector):
 def test_ignore(collector):
     collector.parse("\\catcode32=9\\def\\ {1}\\ ")
     assert collector.getString() == "1"
+
+def test_macro_balanced(parser):
+    parser.parse("\\catcode`^^@=2 \\catcode`:=11 \\catcode`_=11 \\catcode32=9\\def\\a{ \\exp:w \\if_false: { \\fi: `^^@ \\exp_stop_f: }")
+    a = parser.lookup("\\a")
+    assert len(a.replacement) == 7

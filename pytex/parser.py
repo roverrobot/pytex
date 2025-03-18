@@ -186,13 +186,11 @@ class Parser:
         @param n: the number of spaces to skip, None to skip all spaces
         """
         tok = self.token_expand if expand else self.token
-        while True:
-            if n is not None and n == 0:
-                return
+        while n is None or n > 0:
             t = tok()
             if t is None:
                 return
-            if t.catcode != lexer.CATCODE.SPACE:
+            if not t.isSpace():
                 self.input.unread(t)
                 return
             if n is not None:

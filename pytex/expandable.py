@@ -194,7 +194,8 @@ def toksToString(parser, tokens, space_after_command=False):
     @param space_after_command: add a space after a command
     @return: the string
     """
-    escapechar = chr(parser.state.layout["escapechar"])
+    escape = parser.state.layout["escapechar"]
+    escapechar = "" if escape < 0 else chr(escape)
     return "".join(map(lambda x: tokenToString(x, escapechar, space_after_command), tokens))
 
 

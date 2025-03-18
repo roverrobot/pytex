@@ -99,10 +99,12 @@ def skipFiller(parser):
     @param parser: the parser
     """
     while True:
-        t = parser.token_expand()
+        parser.skipSpaces(expand=True)
+        # the next token has already been expanded
+        t = parser.token()
         if t is None:
             return
-        if t.catcode == CATCODE.SPACE or t.definition == relax:
+        if t.definition == relax:
             continue
         parser.input.unread(t)
         break

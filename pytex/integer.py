@@ -21,7 +21,8 @@ def readSigns(parser):
     # skips spaces
     while True:
         parser.skipSpaces()
-        t = parser.token_expand()
+        # the next token has been expanded
+        t = parser.token()
         if t is None:
             return sign
         if t.catcode != CATCODE.OTHER:
@@ -30,12 +31,8 @@ def readSigns(parser):
         if t.name == "-":
             sign = -sign
         elif t.name != "+":
-            if t.catcode == CATCODE.SPACE:
-                break
             parser.input.unread(t)
             return sign
-    parser.skipSpaces()
-    return sign
 
 
 def readInteger(parser):
@@ -69,7 +66,7 @@ def readUnsigned(parser):
     # a normal integer is either a ` followed by a character, or a ' followed by
     # an octant number, or a " followed by a hex number, or a number
     if t.catcode != CATCODE.OTHER:
-        raise ValueError("expecting an integer", pos)
+        raise ValueError(f"expecting an integer, got {t}", pos)
     if t.name == "`":
         t = parser.token()
         if t.name[0] == "\\" and len(t.name) == 2:
@@ -86,9 +83,7 @@ def readUnsigned(parser):
         parser.input.unread(t)
         value = int(readDigits(parser, 10), 10)
     # read the optional space
-    t = parser.token_expand()
-    if t is not None and t.catcode != CATCODE.SPACE:
-        parser.input.unread(t)
+    parser.skipSpaces(n=1)
     return value
 
 

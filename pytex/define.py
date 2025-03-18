@@ -58,9 +58,7 @@ class LetAccessor(accessor.Accessor):
     """        
     def readEq(self, parser):
         parser.skipEq(expand=False)
-        t = parser.token()
-        if t.catcode != token.CATCODE.SPACE:
-            parser.input.unread(t)
+        parser.skipSpaces(expand=False, n=1)
 
     def readValue(self, parser):
         t = parser.token()

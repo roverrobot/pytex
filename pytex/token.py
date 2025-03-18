@@ -112,6 +112,13 @@ class Token(Command):
     def saveInfo(self):
         return {"init": {"name": self.name, "catcode": self.catcode}}
 
+    def isSpace(self):
+        """ 
+        Check if the token is a space token.
+        @return: bool
+        """
+        return self.catcode == CATCODE.SPACE
+
     # the token generators for each category code
     generators = None
 
@@ -182,6 +189,13 @@ class CommandToken(Token):
         if self.definition is not None:
             self.definition.execute(parser)
 
+    def isSpace(self):
+        """ 
+        Check if the command is a space command.
+        @return: bool
+        """
+        return isinstance(self.definition, Token) and self.definition.isSpace()
+
     def charValue(self, parser):
         """ 
         A command tokens does not represent a character. So they do not have a char value.
@@ -235,8 +249,8 @@ class SpaceToken(Token):
     represent a space (including tabs and newlines)
     the name is always " "
     """
-    def __init__(self):
-        super().__init__(" ", CATCODE.SPACE)
+    def __init__(self, name: str=" ", catcode=CATCODE.SPACE):
+        super().__init__(name, catcode)
 
     def execute(self, parser):
         parser.addSpace()

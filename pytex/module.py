@@ -24,14 +24,16 @@ class Module:
     @param registers: the registers defined by the module, a dict of name -> register
     @param parameters: the parameters defined by the module, a dict of name -> parameter
     @param globals: the globals defined by the module, a dict of name -> global
+    @param init: a function that initializes the module, takes a single argument, the parser
     """
     def __init__(self, name: str, commands=None, domains=None, parameters=None, 
-                attributes=None):
+                attributes=None, init=None):
         self.name = name
         self.commands = commands
         self.domains = domains
         self.parameters = parameters
         self.attributes = attributes
+        self.init = init
         ModuleManager[name] = self
 
     def populateCommands(self, parser):
@@ -95,6 +97,8 @@ class Module:
         populate the parser with the commands, registers, parameters, etc. defined by the module
         @param parser: the parser
         """
+        if self.init is not None:
+            self.init(parser)
         self.populateCommands(parser)
         self.populateDomains(parser)
         self.populateAttributes(parser)

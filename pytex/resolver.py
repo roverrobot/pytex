@@ -282,9 +282,7 @@ def readFileName(parser) -> str:
                 break
             name += t.name
         # skip an optional space
-        t = parser.token_expand()
-        if t is not None and t.catcode != CATCODE.SPACE:
-            parser.input.unread(t)
+        parser.skipSpaces(expand=True, n=1)
     elif t.catcode == CATCODE.BEGIN_GROUP:
         # the file name is enclosed by braces
         parser.input.unread(t)
@@ -298,11 +296,13 @@ def readFileName(parser) -> str:
                 break
             if len(ts) == 1:
                 t = ts[0]
-                if t.catcode == CATCODE.SPACE or t.definition is not None:
+                if t.isSpace():
                     break
+                elif t.isCommand():
+                    parser.input.unread(t)
             toks.extend(ts)
-        for t in toks:
-            name += t.name
+    for t in toks:
+        name += t.name
     return name
 
 

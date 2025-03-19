@@ -7,9 +7,9 @@ from pytex.parser import Parser
 from pytex import lists
 # load the texlive module to resolve files in the texlive tree
 from pytex import texlive
-# support the etex extensions
-from pytex import etex
 from pytex.serialization import serialize
+# lagtex would require pdftex
+from pytex import pdftex
 
 from argparse import ArgumentParser
 import os
@@ -24,8 +24,8 @@ args = argparser.parse_args()
 
 
 parser = Parser()
-#parser.tracingcommands = 1
-#parser.tracingmacros = 1
+# parser.tracingcommands = 2
+# parser.tracingmacros = 1
 
 def dumper(data):
     with open(parser.resolver.format+'.json', "w") as fmt:
@@ -67,4 +67,3 @@ else:
 
 print("log file content")
 print(log)
-

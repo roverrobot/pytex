@@ -75,7 +75,7 @@ def readBalancedText(parser, expand: bool = False, macro: bool = False, include_
         definition = t.definition
         if definition is not None and hasattr(definition, "expanded"):
             if parser.tracingcommands:
-                parser.traceExpansion(t, definition)
+                parser.traceExpansion(t)
             return definition.expanded(parser)
     if t.catcode == CATCODE.PARAMETER and macro:
         t1 = token_expand(parser) if expand else parser.token()

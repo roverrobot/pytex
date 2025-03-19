@@ -26,7 +26,13 @@ class Dimen(serialization.Serializable):
         return self
 
     def __repr__(self):
-        return f"{round(self.value/self.scale, 5)}"
+        f = float(self)
+        s = str(int(f))
+        f -= int(f)
+        if f == 0:
+            return s + ".0"
+        f = round(f*1e5)
+        return s + "." + str(f)
     
     def __float__(self):
         return self.value / self.scale
@@ -83,6 +89,8 @@ def readUnsignedNumber(parser):
     # an unsigned number 
     t = parser.token_expand()
     if t.catcode != CATCODE.OTHER or t.name != ".":
+        if hasattr(t.definition, "intValue"):
+            return float(t.definition.intValue(parser))
         parser.input.unread(t)
         v = readDigits(parser, 10)
         t = parser.token_expand()

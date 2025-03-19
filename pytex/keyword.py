@@ -24,8 +24,6 @@ def readKeyword(parser, keywords: set):
         if t is None:
             break
         read.append(t)
-        if t.catcode != CATCODE.LETTER:
-            break
         for k in keywords.copy():
             if t.name.lower() == k[i]:
                 if len(k) == i + 1:

@@ -16,6 +16,9 @@ def test_read_dimen(parser):
     parser.readFrom("-1 true pt")
     result = parser.readDimen()
     assert result == -1
+    parser.parse("\\count0=10 \\dimen0=\\count0pt")
+    d0 = parser.state.dimen[0]
+    assert d0 == 10
 
 
 def test_read_true_dimen(parser):

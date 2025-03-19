@@ -223,14 +223,13 @@ class Prefix(token.Command):
         """
         prefixes.append(self)
         pos = parser.input.position()
-        while True:
-            t = parser.token_expand().definition
-            if t != token.relax:
-                break
-        try:
-            t.assign(parser, prefixes)
-        except AttributeError:
+        parser.skipFiller()
+        t = parser.token()
+        if t is None or not t.isCommand() or not hasattr(t.definition, "assign"):
             raise ValueError("expecting an assignment", pos)
+        if parser.tracingcommands > 0:
+            parser.message("executing", t.name)
+        t.definition.assign(parser, prefixes)
 
     def execute(self, parser):
         """

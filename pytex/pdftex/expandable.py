@@ -7,7 +7,7 @@ from pytex import expandable
 from pytex import token
 from pytex import lexer
 from pytex.module import Module
-
+import os
 
 class PDFFileSize(token.Command):
     """
@@ -15,6 +15,15 @@ class PDFFileSize(token.Command):
     """
     def expand(self, parser):
         name = parser.readFileName()
+        # latex searches for /dev/null to check for system type
+        if name[0] == "/":
+            if name.startswith("/dev/null."):
+                return
+            if name == "/dev/null":
+                if os.path.exists(name):
+                    parser.input.unread(token.Token("0", token.CATCODE.OTHER))
+                return
+            raise ValueError("Absolute file name: " + name, parser.input.position())
         file = parser.resolver.openIn(name, "source")
         if file is None:
             size = 0

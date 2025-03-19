@@ -213,7 +213,7 @@ class Macro(Command):
             argi += 1
             # We read the argument and append it to thelist of arguments.
             argv, i = self.readArgument(parser, i)
-            if parser.tracingmacros:
+            if parser.tracingmacros and parser.checkRange():
                 s = "".join([tokenToString(t, "\\", True) for t in argv])
                 parser.message(f"#{p.parameter+1}<-{s}")
             args.append(argv)
@@ -286,7 +286,7 @@ class MacroAccessor(Accessor):
             replacement.append(tail)
         macro = Macro(parameters, replacement)
         macro.name = self.index
-        if parser.tracingmacros:
+        if parser.tracingmacros and parser.checkRange():
             parser.message(f"macro {self.index}: {macro}")
         return macro
     

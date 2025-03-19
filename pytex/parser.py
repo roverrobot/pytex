@@ -61,6 +61,7 @@ class Parser:
         self.dumper = None
         # tracing settings
         self.state.domains["tracing"].values.attach(self)
+        self.tracinglinerange = None
 
     
     def getLogFile(self):
@@ -127,11 +128,23 @@ class Parser:
                     continue
             return t
 
+    def checkRange(self):
+        if self.tracinglinerange is not None:
+            start, end = self.tracinglinerange
+            pos = self.input.position()
+            if start is not None and pos.line < start:
+                return False
+            if end is not None and pos.line > end:
+                return False
+        return True
+
     def traceExpansion(self, t):
         """
         trace the commands being expanded or executed
         @param t: the token being expanded
         """
+        if not self.checkRange():
+            return
         if self.tracingcommands > 1 and t.definition is not None:
             meaning = f": {t.definition.meaning(self)}"
         else:
@@ -165,7 +178,7 @@ class Parser:
             if t is None:
                 self.run = False
                 break
-            if self.tracingcommands:
+            if self.tracingcommands and self.checkRange():
                 if self.tracingcommands > 1 and t.definition is not None:
                     meaning = f": {t.definition.meaning(self)}"
                 else:

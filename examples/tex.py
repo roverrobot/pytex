@@ -24,8 +24,9 @@ args = argparser.parse_args()
 
 
 parser = Parser()
-# parser.tracingcommands = 2
-# parser.tracingmacros = 1
+parser.tracingcommands = 2
+parser.tracingmacros = 1
+parser.tracinglinerange = (29949, 29955)
 
 def dumper(data):
     with open(parser.resolver.format+'.json', "w") as fmt:

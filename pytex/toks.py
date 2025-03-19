@@ -26,16 +26,13 @@ def token_expand(parser):
     if t.noexpand:
         t.noexpand = False
         return t
-    definition = parser.lookup(t.name)
+    definition = t.definition
     if definition is None:
         raise ValueError(f"undefined command {t.name}", parser.input.position())
-    t.definition = definition
-    if definition.protected or definition.expand is None:
-        return t
-    if hasattr(definition, "expanded"):
+    if definition.protected or definition.expand is None or hasattr(definition, "expanded"):
         return t
     if parser.tracingcommands:
-        parser.traceExpansion(t, definition)
+        parser.traceExpansion(t)
     definition.expand(parser)
     return token_expand(parser)
 
@@ -138,12 +135,8 @@ class ToksCommand:
         """
         parser.skipFiller()
         t = parser.token()
-        if t.isCommand():
-            t.definition = parser.lookup(t.name)
-            try:
-                return t.definition.toksValue(parser)
-            except AttributeError:
-                pass
+        if t.isCommand() and hasattr(t.definition, "toksValue"):
+            return t.definition.toksValue(parser)
         parser.input.unread(t)
         return readGeneralText(parser, expand=False)
     

@@ -94,7 +94,17 @@ class Parser:
         get the next token from the input stack
         @return: the next token
         """
-        return self.input.read()
+        t = self.input.read()
+        if t is None:
+            return None
+        if t.isCommand():
+            if t.noexpand:
+                t.noexpand = False
+                t.definition = token.relax
+            else:
+                t.definition = self.lookup(t.name)
+        return t
+
     
     def token_expand(self):
         """
@@ -107,29 +117,23 @@ class Parser:
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
             if t is not None and t.isCommand():
-                if t.noexpand:
-                    t.noexpand = False
-                    return t
-                definition = self.lookup(t.name)
+                definition = t.definition
                 if definition is None:
                     raise ValueError("undefined command" + t.name, self.input.position())
                 elif definition.expand is not None:
                     if self.tracingcommands:
-                        self.traceExpansion(t, definition)
+                        self.traceExpansion(t)
                     definition.expand(self)
                     continue
-                # set the definition for executing the token.
-                t.definition = definition
             return t
 
-    def traceExpansion(self, t, definition):
+    def traceExpansion(self, t):
         """
         trace the commands being expanded or executed
         @param t: the token being expanded
-        @param definition: the definition of the token
         """
-        if self.tracingcommands > 1 and definition is not None:
-            meaning = f": {definition.meaning(self)}"
+        if self.tracingcommands > 1 and t.definition is not None:
+            meaning = f": {t.definition.meaning(self)}"
         else:
             meaning = ""                        
         self.message(f"expanding {t.name} at {self.input.position()}{meaning}\n")

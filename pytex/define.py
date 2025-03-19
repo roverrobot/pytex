@@ -46,8 +46,7 @@ class Define(accessor.ArrayAccessor):
         # because it is not defined yet. To avoid the problem, we make it relax, so that if it 
         # appears later in the input, it will be ignored. This, for example, appears in
         # \font\test=cmr10\test
-        c = parser.lookup(t.name)
-        if c is None:
+        if t.definition is None:
             parser.state.equitable[t.name] = self.default()
         return t.name
 
@@ -65,7 +64,7 @@ class LetAccessor(accessor.Accessor):
         if t is None:
             raise ValueError("a token is expected")
         if t.isCommand():
-            return parser.lookup(t.name)
+            return t.definition
         return t
 
 

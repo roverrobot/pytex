@@ -43,7 +43,7 @@ class ExpandAfter(Command):
             return
         t1 = parser.token()
         if t1.isCommand():
-            definition = parser.lookup(t1.name)
+            definition = t1.definition
             if definition is None:
                 raise ValueError(f"undefined command {t1.name}", parser.input.position())
             if definition.expand is not None:
@@ -83,7 +83,9 @@ def readCSName(parser):
         elif t.catcode is None:
             raise ValueError(f"unexpected {t.name}", parser.input.position())
         name += t.name
-    return CommandToken(name)
+    t = CommandToken(name)
+    t.definition = parser.lookup(name)
+    return t
 
         
 class CSName(Command):
@@ -101,11 +103,8 @@ class CSName(Command):
         input stack.
         """
         t = readCSName(parser)
-        c = parser.lookup(t.name)
-        if c is None:
-            c = relax
-            parser.state.domains["equitable"][t.name] = c
-        t.definition = c
+        if t.definition is None:
+            t.definition = parser.state.domains["equitable"][t.name] = relax
         parser.input.unread(t)
 
 

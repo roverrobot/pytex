@@ -161,24 +161,6 @@ class CommandToken(Token):
 
     def saveInfo(self):
         return {"init": {"name": self.name}}
- 
-    def expandable(self, parser, protected):
-        """
-        Check if the command is expandable.
-        @param parser: the parser
-        @param protected: if protected tokens are prevented from expanding
-        @return: bool, or None if the command is not defined
-        """
-        if self.noexpand:
-            self.noexpand = False
-            return False
-        c = parser.lookup(self.name)
-        if c is None:
-            return None
-        self.definition = c
-        if c.expand is None:
-            return False
-        return not (protected and c.protected)
 
     def execute(self, parser):
         """
@@ -213,10 +195,9 @@ class CommandToken(Token):
         @param parser: the parser
         @return: the meaning of the command
         """
-        definition = parser.lookup(self.name)
-        if definition is None:
+        if self.definition is None:
             return "undefined"
-        return definition.meaning(parser)
+        return self.definition.meaning(parser)
 
 
 class ActiveToken(CommandToken):

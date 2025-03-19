@@ -429,7 +429,7 @@ class IfDefined(conditional.Conditional):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token, but reached end of input", pos)
-        return 0 if t.isCommand() and parser.lookup(t.name) is not None else 1
+        return 0 if t.isCommand() and t.definition is not None else 1
 
 
 class IfFontChar(conditional.Conditional):
@@ -448,7 +448,7 @@ class IfCSName(conditional.Conditional):
     """
     def condition(self, parser):
         t = expandable.readCSName(parser)
-        return 0 if parser.lookup(t.name) else 1
+        return 0 if t.definition is not None else 1
 
 
 class UnlessConditional(conditional.Conditional):
@@ -469,7 +469,7 @@ class Unless(token.Command):
         if t is None:
             raise ValueError("expecting a token, but reached end of input", parser.input.position())
         if t.isCommand():
-            c = parser.lookup(t.name)
+            c = t.definition
             if isinstance(c, conditional.Conditional) and not isinstance(c, conditional.IfCase):
                 unless = UnlessConditional(c)
                 unless.expand(parser)

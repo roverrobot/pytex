@@ -141,7 +141,6 @@ class AlignCommand(lists.ModeDependentCommand):
         if t is None or t.catcode == token.CATCODE.ALIGNMENT_TAB:
             return t, t
         if t.isCommand():
-            t.definition = parser.lookup(t.name)
             if t.definition == crcr:
                 t.definition = cr
                 return t, cr
@@ -149,10 +148,8 @@ class AlignCommand(lists.ModeDependentCommand):
                 # is the next token a \crcr? \cr\crcr is the same
                 t1 = parser.token()
                 if t1 is not None:
-                    if t1.isCommand():
-                        t1.definition = parser.lookup(t1)
-                        if t1.definition == crcr:
-                            return t, cr
+                    if t1.isCommand() and t1.definition == crcr:
+                        return t, cr
                     parser.input.unread(t1)
                 return t, cr
             if t.definition == span:
@@ -182,7 +179,7 @@ class AlignCommand(lists.ModeDependentCommand):
                     return toks, t
                 if t.isCommand() and is_template:
                     # we need to check for \tabskip
-                    if parser.lookup(t.name) == tabskip:
+                    if t.definition == tabskip:
                         tabskip.execute(parser)
                         continue
                 toks.append(t)

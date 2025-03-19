@@ -183,17 +183,16 @@ class FontCommand(Define):
 
 
 class FontDimenAccessor(DimenAccessor):
-    def getIndex(self, parser):
-        font = readFont(parser)
-        return font
-    
     def getValue(self, parser):
-        font = self.getIndex(parser)
-        return font.param[self.index]
+        font, i = self.index
+        return font.param[i]
     
     def setValue(self, parser, value, globally):
-        font = self.getIndex(parser)
-        font.param[self.index] = value
+        font, i = self.index
+        # if i is out of range, we need to extend the array
+        if i >= len(font.param):
+            font.param.extend([0] * (i-len(font.param)+1))
+        font.param[i] = value
 
 
 class FontDimen(DimenArrayAccessor):
@@ -206,8 +205,17 @@ class FontDimen(DimenArrayAccessor):
     def saveInfo(self):
         return {}
     
+    def getIndex(self, parser):
+        """
+        read the index from the input stack
+        @param parser: the parser
+        """
+        i = super().getIndex(parser)
+        f = readFont(parser)
+        return f, i-1
+
     def newItemAccessor(self, index):
-        return FontDimenAccessor(None, index-1)
+        return FontDimenAccessor(None, index)
 
 
 class FontName(Command):

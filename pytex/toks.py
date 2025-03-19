@@ -239,15 +239,15 @@ class The(Command):
         """
         t = parser.token_expand()
         if t is None or t.definition is None:
-            raise ValueError("invalid token after \\the", parser.input.position())
+            raise ValueError(f"invalid token after \\the: {t}", parser.input.position())
         t0 = t
         t = t.definition
         if hasattr(t, "glueValue"):
             value = str(t.glueValue(parser))
         elif hasattr(t, "dimenValue"):
-            value = str(t.dimenValue(parser)) + "pt"
+            value = repr(t.dimenValue(parser)) + "pt"
         elif hasattr(t, "intValue"):
-            value = str(t.intValue(parser))
+            value = repr(t.intValue(parser))
         else:
             value = None
         if value is not None:

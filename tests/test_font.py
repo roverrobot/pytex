@@ -48,3 +48,8 @@ def test_fontname(collector):
     assert collector.getString() == "nullfont"
     collector.parse("\\font\\f=cmr10 \\relax\\fontname\\f")
     assert collector.getString() == "cmr10"
+
+
+def test_fontdimen(collector):
+    collector.parse("\\font\\f=cmr10 \\fontdimen1\\f10pt \\the\\fontdimen1\\f")
+    assert collector.getString() == "10.0pt"

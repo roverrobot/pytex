@@ -141,7 +141,7 @@ class ReadOp(Accessor):
         raise NotImplementedError("should not be serialized")
 
     def readEq(self, parser):
-        parser.readKeyword(["to"])
+        pass
 
     def readValue(self, parser):
         tokens = []

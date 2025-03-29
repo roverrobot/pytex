@@ -62,8 +62,9 @@ def readBalancedText(parser, expand: bool = False, macro: bool = False, include_
             else:
                 break
         # we must have reached }
-        t = token_expand(parser) if expand else parser.token()
-        assert t.catcode == CATCODE.END_GROUP
+        t = parser.token()
+        if t.catcode != CATCODE.END_GROUP:
+            raise ValueError("expecting }, got " + f"{t.name}({t.catcode})", parser.input.position())
         if include_braces:
             toks.append(t)
         return toks
@@ -76,7 +77,10 @@ def readBalancedText(parser, expand: bool = False, macro: bool = False, include_
         if definition is not None and hasattr(definition, "expanded"):
             if parser.tracingcommands:
                 parser.traceExpansion(t)
-            return definition.expanded(parser)
+            tl = definition.expanded(parser)
+            if tl:
+                return tl
+            return readBalancedText(parser, expand, macro=macro, include_braces=include_braces)
     if t.catcode == CATCODE.PARAMETER and macro:
         t1 = token_expand(parser) if expand else parser.token()
         if t1.catcode == CATCODE.PARAMETER:

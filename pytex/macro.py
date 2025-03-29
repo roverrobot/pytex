@@ -166,11 +166,14 @@ class Macro(Command):
         # token,, and if the token is {, then the argument is a balanced text
         if i >= len(self.parameters) or self.parameters[i].catcode == CATCODE.PARAMETER:
             parser.skipSpaces(expand=False)
-            result = parser.readBalancedText(expand=False, macro=False, include_braces=True)
+            result = parser.readBalancedText(expand=False, macro=False, include_braces=False)
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token
         # in the argument and match again.
         else:
+            # n counts the number of balanced text read. If n == 1 and the argument is 
+            # enclosed by braces, we drop the braces
+            n = 0 
             while i < len(self.parameters):
                 t, i = self.matchDelimited(parser, i)
                 if t is None:
@@ -178,10 +181,11 @@ class Macro(Command):
                 parser.input.unread(t)
                 l = parser.readBalancedText(expand=False, macro=False, include_braces=True)
                 result.extend(l)
-        # in both cases, if the argument is enclosed by braces, drop the braces
-        if len(result) > 1 and result[0].catcode == CATCODE.BEGIN_GROUP and result[-1].catcode == CATCODE.END_GROUP:
-            result.pop()
-            result.pop(0)
+                n += 1
+            # if the argument is enclosed by braces, drop the braces
+            if n == 1 and result[0].catcode == CATCODE.BEGIN_GROUP:
+                result.pop()
+                result.pop(0)
         return result, i
 
     def expand(self, parser):

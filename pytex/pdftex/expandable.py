@@ -30,6 +30,7 @@ class PDFFileSize(token.Command):
         else:
             file.seek(0, os.SEEK_END)
             size = file.tell()
+            file.close()
         parser.input.push(lexer.TokenListScanner(expandable.toToks(str(size))))
 
 

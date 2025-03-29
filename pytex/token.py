@@ -112,9 +112,10 @@ class Token(Command):
     def saveInfo(self):
         return {"init": {"name": self.name, "catcode": self.catcode}}
 
-    def isSpace(self):
+    def isSpace(self, expand):
         """ 
         Check if the token is a space token.
+        @param expand: bool indicating if the token should be expanded
         @return: bool
         """
         return self.catcode == CATCODE.SPACE
@@ -171,12 +172,13 @@ class CommandToken(Token):
         if self.definition is not None:
             self.definition.execute(parser)
 
-    def isSpace(self):
+    def isSpace(self, expand):
         """ 
         Check if the command is a space command.
+        @param expand: bool indicating if the command should be expanded
         @return: bool
         """
-        return isinstance(self.definition, Token) and self.definition.isSpace()
+        return expand and isinstance(self.definition, Token) and self.definition.isSpace(True)
 
     def charValue(self, parser):
         """ 

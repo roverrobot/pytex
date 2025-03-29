@@ -296,10 +296,11 @@ def readFileName(parser) -> str:
                 break
             if len(ts) == 1:
                 t = ts[0]
-                if t.isSpace():
+                if t.isSpace(True):
                     break
                 elif t.isCommand():
                     parser.input.unread(t)
+                    break
             toks.extend(ts)
     for t in toks:
         name += t.name

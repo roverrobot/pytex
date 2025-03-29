@@ -105,7 +105,6 @@ class Parser:
             else:
                 t.definition = self.lookup(t.name)
         return t
-
     
     def token_expand(self):
         """
@@ -207,7 +206,7 @@ class Parser:
             t = tok()
             if t is None:
                 return
-            if not t.isSpace():
+            if not t.isSpace(expand):
                 self.input.unread(t)
                 return
             if n is not None:

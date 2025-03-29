@@ -22,7 +22,7 @@ class Hyphenation(token.Command):
         positions = []
         hyphenchar = chr(parser.hyphenChar())
         for t in content:
-            if t.isSpace() and word:
+            if t.isSpace(True) and word:
                 words[word] = positions
                 word = ""
                 positions = []

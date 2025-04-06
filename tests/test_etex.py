@@ -7,6 +7,9 @@ from pytex import texlive
 def test_numexpr(collector):
     collector.parse("\\number\\numexpr (3+2) / 3 + 2")
     assert collector.getString() == "3"
+    collector.parse("\\the\\numexpr-1/2\\relax")
+    assert collector.getString() == "0"
+
 
 def test_loop(collector):
     collector.parse("""%
@@ -67,7 +70,7 @@ def test_fontchar_dimen(collector):
     assert collector.getString() == "0.0pt"
 
 def test_gluestretchness(collector):
-    collector.parse("\skip0= 0pt plus 1pt minus 2filll")
+    collector.parse("\\skip0= 0pt plus 1pt minus 2filll")
     collector.parse("\\the\\gluestretchorder\\skip0")
     assert collector.getString() == "0"
     collector.parse("\\the\\gluestretch\\skip0")
@@ -76,5 +79,3 @@ def test_gluestretchness(collector):
     assert collector.getString() == "3"
     collector.parse("\\the\\glueshrink\\skip0")
     assert collector.getString() == "2.0pt"
-    
-    

@@ -140,7 +140,8 @@ class NumExpr(Expr, IntegerCommand):
         return parser.readInteger()
     
     def divide(self, x, y):
-        return x // y
+        d = abs(x) // abs(y)
+        return -d if x < 0 < y or y < 0 < x else d
     
 
 class DimExpr(Expr, DimenCommand):

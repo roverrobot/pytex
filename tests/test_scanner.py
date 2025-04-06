@@ -3,29 +3,37 @@ from pytex.token import CATCODE
 from pytex import lexer
 
 
+class Catcodes(list):
+    def __init__(self):
+        for c in range(256):
+            self.append(CATCODE.OTHER)
+        for c in range(ord("A"), ord("Z") + 1):
+            self[c] = CATCODE.LETTER
+            self[c + 32] = CATCODE.LETTER
+        self[ord("\\")] = CATCODE.ESCAPE
+        self[ord("{")] = CATCODE.BEGIN_GROUP
+        self[ord("}")] = CATCODE.END_GROUP
+        self[ord("\r")] = CATCODE.END_OF_LINE
+        self[ord(" ")] = CATCODE.SPACE
+        self[ord("\t")] = CATCODE.SPACE
+        self[ord("^")] = CATCODE.SUPERSCRIPT
+        self[ord("_")] = CATCODE.SUBSCRIPT
+        self[ord("$")] = CATCODE.MATH_SHIFT
+        self[ord("#")] = CATCODE.PARAMETER
+        self[ord("&")] = CATCODE.ALIGNMENT_TAB
+        self[ord("%")] = CATCODE.COMMENT
+        self[ord("@")] = CATCODE.ACTIVE
+        self[8] = CATCODE.INVALID
+
+    def __getitem__(self, key):
+        if key > len(self):
+            return CATCODE.OTHER
+        return super().__getitem__(key)
+
+
 class State:
     def __init__(self):
-        catcode = []
-        for c in range(256):
-            catcode.append(CATCODE.OTHER)
-        for c in range(ord("A"), ord("Z") + 1):
-            catcode[c] = CATCODE.LETTER
-            catcode[c + 32] = CATCODE.LETTER
-        catcode[ord("\\")] = CATCODE.ESCAPE
-        catcode[ord("{")] = CATCODE.BEGIN_GROUP
-        catcode[ord("}")] = CATCODE.END_GROUP
-        catcode[ord("\r")] = CATCODE.END_OF_LINE
-        catcode[ord(" ")] = CATCODE.SPACE
-        catcode[ord("\t")] = CATCODE.SPACE
-        catcode[ord("^")] = CATCODE.SUPERSCRIPT
-        catcode[ord("_")] = CATCODE.SUBSCRIPT
-        catcode[ord("$")] = CATCODE.MATH_SHIFT
-        catcode[ord("#")] = CATCODE.PARAMETER
-        catcode[ord("&")] = CATCODE.ALIGNMENT_TAB
-        catcode[ord("%")] = CATCODE.COMMENT
-        catcode[ord("@")] = CATCODE.ACTIVE
-        catcode[8] = CATCODE.INVALID
-        self.catcode = catcode
+        self.catcode = Catcodes()
         self.parameters = {"endlinechar": ord("\r")}
 
 
@@ -111,3 +119,15 @@ def test_input_stack(state):
     assert token.catcode == CATCODE.LETTER
     token = scanner.read()
     assert token is None
+
+
+def test_unicode(state):
+    s = "1é测"
+    scanner = lexer.StringScanner(state, s)
+    for i in range(len(s)):
+        t = scanner.read()
+        assert t is not None
+        assert t.catcode == CATCODE.OTHER
+        assert t.name == s[i]
+    t = scanner.read()
+    assert t.catcode is CATCODE.SPACE

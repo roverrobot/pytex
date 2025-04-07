@@ -2,7 +2,7 @@ from pathlib import Path
 import sys
 path = str(Path(Path(__file__).parent.absolute()).parent.absolute())
 sys.path.insert(0, path)
-
+import cProfile
 from pytex.parser import Parser
 from pytex import lists
 # load the texlive module to resolve files in the texlive tree
@@ -19,14 +19,16 @@ import json
 argparser = ArgumentParser()
 argparser.add_argument("-f", "--format", default="initex",
                     help="load the format FMT. If FMT is initex, it dumps a format file. The format is provided in file", metavar="FMT")
+argparser.add_argument("-p", "--profile", action="store_true",
+                    help="whether to profile the parser")
 argparser.add_argument("file")
 args = argparser.parse_args()
 
 
 parser = Parser()
-parser.tracingcommands = 2
-parser.tracingmacros = 1
-parser.tracinglinerange = (29949, 29955)
+#parser.tracingcommands = 2
+#parser.tracingmacros = 1
+#parser.tracinglinerange = None#(32088, None)
 
 def dumper(data):
     with open(parser.resolver.format+'.json', "w") as fmt:
@@ -53,7 +55,12 @@ else:
     source = args.file
 
 input = parser.resolver.openIn(source, "source")
-parser.parse(input)
+if args.profile:
+    cProfile.run("parser.parse(input)")
+    # no need tto dump. stop
+    exit(0)
+else:
+    parser.parse(input)
 input.close()
 log = parser.end()
 

@@ -22,47 +22,40 @@ class MacroScanner(TokenListScanner):
         self.args = args
         self.arg_scanner = None
         parser.input.push(self)
+        # read the next token
+        self.next_token = super().read()
     
-    def next(self):
-        # if we are in the middle of reading an argument, we read from the argument scanner
-        if self.arg_scanner is not None:
-            t = self.arg_scanner.read()
-            if t is not None:
-                return t
-        self.arg_scanner = None
-        return super().read()
-
-    def eof(self):
-        # if we are not reading an argument, and we have reached
-        # the end of the replacement text, then we are done
-        return super().eof() and (self.arg_scanner is None or self.arg_scanner.eof())
-    
-    def checkEOF(self, t):
-        # return the token, and perform tail recursion optimization
-        if self.eof():
-            if t is not None:
-                self.parser.input.unread(t)
-            return None
-        return t
-
     def read(self):
         """
         read the next token from the replacement text
 
         handle arguments and ## in the replacement text
         """
-        t = self.next()
+        t = self.next_token
+        if t is None:
+            return t
+        # check if t represent a parameter
+        while t.catcode == CATCODE.PARAMETER and t.parameter is not None:
+            if t.parameter >= len(self.args):
+                raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
+            args = self.args[t.parameter]
+            if len(args) > 0:
+                self.arg_scanner = TokenListScanner(args)
+                self.next_token = self.arg_scanner.read()
+            else:
+                self.next_token = super().read()
+            return self.read()
+        if self.arg_scanner is not None:
+            self.next_token = self.arg_scanner.read()
+            if self.next_token is None:
+                self.arg_scanner = None
+                self.next_token = super().read()
+        else:
+            self.next_token = super().read()
         # tail recursion optimization
-        # has we reached the end?
-        if t is None or t.catcode != CATCODE.PARAMETER:
-            return self.checkEOF(t)
-        # check if this is a ## token
-        if t.parameter is None:
-            return self.checkEOF(t)
-        if t.parameter >= len(self.args):
-            raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
-        self.arg_scanner = TokenListScanner(self.args[t.parameter])
-        return self.read()
+        if self.next_token is None:
+            self.parser.input.pop()
+        return t
 
     def __repr__(self):
         args = []

@@ -48,7 +48,7 @@ class Tokenizer:
         @return: the character and its category code, or (None, None) if the end of the
         line is reached
         """
-        if len(self.saved) > 0:
+        if self.saved:
             c = self.saved.pop()
         else:
             try:
@@ -104,7 +104,6 @@ class Tokenizer:
             c, catcode = self.charExpand()
         if catcode != CATCODE.END_OF_LINE:
             self.unread(c)
-        return " ", CATCODE.SPACE
 
     def read(self) -> typing.Optional[Token]:
         """
@@ -239,29 +238,22 @@ class TokenListScanner:
     @param toks: the list of tokens
     """
     def __init__(self, toks: typing.List[Token]):
+        assert toks is not None
         self.toks = toks
-        if toks is None:
-            raise ValueError("toks must not be None")
-        self.pos = 0
+        self.iter = iter(toks)
+        self.EOF = False
 
     def read(self) -> typing.Optional[Token]:
         """
         read the next token from the list
         @return: the next token, or None if the end of the list is reached
         """
-        if self.eof():
+        try:
+            return next(self.iter)
+        except StopIteration:
+            self.EOF = True
             return None
-        t = self.toks[self.pos]
-        self.pos += 1
-        return t
 
-    def eof(self):
-        """
-        check if the end of the list is reached
-        @return: True if the end of the list is reached, False otherwise
-        """
-        return self.pos >= len(self.toks)
-    
     # this scanner does not support token position
     position = None
 
@@ -294,7 +286,7 @@ class InputStack:
         exhausted, pop it and read from the next scanner on the stack.
         @return: the next token, or None if the end of the stack is reached
         """
-        if len(self.saved) > 0:
+        if self.saved:
             return self.saved.pop()
         if len(self.stack) == 0:
             return None

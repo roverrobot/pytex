@@ -313,7 +313,7 @@ class AlignCommand(lists.ModeDependentCommand):
         template = self.readTemplate(parser)
         node = Alignment()
         node.noalign = self.readNoAlign(parser)
-        while not scanner.eof():
+        while not scanner.EOF:
             row = self.readRow(parser, template)
             row.noalign = self.readNoAlign(parser)
             node.rows.append(row)

@@ -131,3 +131,23 @@ def test_unicode(state):
         assert t.name == s[i]
     t = scanner.read()
     assert t.catcode is CATCODE.SPACE
+
+
+def test_ignore(state):
+    # ignore space 
+    state.catcode[32] = CATCODE.IGNORE
+    s = "\\a b"
+    scanner = lexer.StringScanner(state, s)
+    t = scanner.read()
+    assert t is not None
+    assert t.catcode == None
+    assert t.name == "\\a"
+    t = scanner.read()
+    assert t is not None
+    assert t.catcode == CATCODE.LETTER
+    assert t.name == "b"
+    t = scanner.read()
+    assert t is not None
+    assert t.catcode == CATCODE.SPACE
+    t = scanner.read()
+    assert t is None

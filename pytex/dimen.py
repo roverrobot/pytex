@@ -27,12 +27,18 @@ class Dimen(serialization.Serializable):
 
     def __repr__(self):
         f = float(self)
-        s = str(int(f))
+        s = str(int(f)) + "."
         f -= int(f)
         if f == 0:
-            return s + ".0"
-        f = round(f*1e5)
-        return s + "." + str(f)
+            return s + "0"
+        for i in range(5):
+            f *= 10
+            d = int(f)
+            s += str(d)
+            f -= d
+            if f == 0:
+                break
+        return s
     
     def __float__(self):
         return self.value / self.scale

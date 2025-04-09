@@ -277,8 +277,7 @@ class AlignCommand(lists.ModeDependentCommand):
         @param parser: the parser
         @param scanner: an AlignScanner instance
         """
-        parser.skipSpaces()
-        t = parser.token_expand()
+        t = parser.skipSpaces()
         if t is None:
             return None
         if t.isCommand() and t.definition == noalign:

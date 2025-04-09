@@ -20,9 +20,7 @@ def readSigns(parser):
     pos = parser.input.position()
     # skips spaces
     while True:
-        parser.skipSpaces()
-        # the next token has been expanded
-        t = parser.token()
+        t = parser.skipSpaces()
         if t is None:
             return sign
         if t.catcode != CATCODE.OTHER:
@@ -82,8 +80,8 @@ def readUnsigned(parser):
     else:
         parser.input.unread(t)
         value = int(readDigits(parser, 10), 10)
-    # read the optional space
-    parser.skipSpaces(n=1)
+    # skip the optional space
+    parser.skipSpace()
     return value
 
 

@@ -195,22 +195,25 @@ class Parser:
         else:
             self.input.push(lexer.Scanner(self.state, input, name))
 
-    def skipSpaces(self, expand: bool = True, n: int = None):
+    def skipSpace(self, expand: bool = True):
+        """
+        skip one optional space
+        @param expand: whether to expand tokens
+        """
+        t = self.token_expand() if expand else self.token()
+        if t is not None and not t.isSpace(expand):
+            self.input.unread(t)
+
+    def skipSpaces(self, expand: bool = True):
         """
         skip spaces
         @param expand: whether to expand tokens
-        @param n: the number of spaces to skip, None to skip all spaces
+        @return the next nonspace token
         """
-        tok = self.token_expand if expand else self.token
-        while n is None or n > 0:
-            t = tok()
-            if t is None:
-                return
-            if not t.isSpace(expand):
-                self.input.unread(t)
-                return
-            if n is not None:
-                n -= 1
+        while True:
+            t = self.token_expand() if expand else self.token()
+            if t is None or not t.isSpace(expand):
+                return t
 
     def addChar(self, c):
         """

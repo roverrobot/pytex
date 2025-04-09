@@ -100,9 +100,7 @@ def skipFiller(parser):
     @param parser: the parser
     """
     while True:
-        parser.skipSpaces(expand=True)
-        # the next token has already been expanded
-        t = parser.token()
+        t = parser.skipSpaces(expand=True)
         if t is None:
             return
         if t.definition == relax:
@@ -227,7 +225,9 @@ class IgnoreSpaces(Command):
     the \\ignorespaces command
     """
     def execute(self, parser):
-        return parser.skipSpaces()
+        t = parser.skipSpaces()
+        if t is not None:
+            parser.input.unread(t)
 
 
 class The(Command):

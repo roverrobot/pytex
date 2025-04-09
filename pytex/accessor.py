@@ -28,8 +28,7 @@ def skipEq(parser, expand: bool=True):
     read the equal sign from the input stack
     @param parser: the parser
     """
-    parser.skipSpaces(expand)
-    t = parser.token_expand() if expand else parser.token()
+    t = parser.skipSpaces(expand)
     if t is None:
         return
     # read the equal sign

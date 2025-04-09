@@ -165,9 +165,8 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     # a number
     parser.input.unread(t)
     f = readUnsignedNumber(parser)
-    parser.skipSpaces()
+    t = parser.skipSpaces()
     # a unit
-    t = parser.token_expand()
     if t is None:
         raise ValueError("dimension unit expected", parser.input.position())
     try:
@@ -189,7 +188,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     pos = parser.input.position()
     unit = parser.readKeyword(units)
     # skip a space
-    parser.skipSpaces(n=1)
+    parser.skipSpace()
     if unit is None:
         if mu:
             raise ValueError("mu dimension expected", pos)

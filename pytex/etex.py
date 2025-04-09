@@ -48,8 +48,7 @@ class Expr(ModeDependentCommand):
         @param allowed: the allowed operators
         @return: the operator as a character
         """
-        parser.skipSpaces()
-        t = parser.token_expand()
+        t = parser.skipSpaces()
         if t is not None:
             if t.catcode == tk.CATCODE.OTHER and t.name in allowed:
                 return t.name
@@ -68,8 +67,7 @@ class Expr(ModeDependentCommand):
             op = self.readOp(parser, "+-")
             if op is None:
                 # skip spaces and an optional \relax
-                parser.skipSpaces()
-                t = parser.token()
+                t = parser.skipSpaces()
                 if t is not None and t.definition != token.relax:
                     parser.input.unread(t)
                 return term
@@ -115,7 +113,6 @@ class Expr(ModeDependentCommand):
         @param integer: whether the factor should be an integer
         @return: the value of the factor
         """
-        parser.skipSpaces()
         left_paren = self.readOp(parser, "(")
         if left_paren is not None:
             value = self.readExpr(parser, integer)

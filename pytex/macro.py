@@ -158,7 +158,9 @@ class Macro(Command):
         # then the argument is undelimited. In this case, the argument is the next non-space
         # token,, and if the token is {, then the argument is a balanced text
         if i >= len(self.parameters) or self.parameters[i].catcode == CATCODE.PARAMETER:
-            parser.skipSpaces(expand=False)
+            t = parser.skipSpaces(expand=False)
+            if t is not None:
+                parser.input.unread(t)
             result = parser.readBalancedText(expand=False, macro=False, include_braces=False)
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token

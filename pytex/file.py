@@ -276,8 +276,7 @@ class Read(FileCommand):
         to = parser.readKeyword(["to"])
         if to is None:
             raise ValueError("Expected 'to' keyword")
-        parser.skipSpaces(expand=False)
-        t = parser.token()
+        t = parser.skipSpaces(expand=False)
         if not isinstance(t, token.CommandToken):
             raise ValueError(f"Expected a control sequence, got {t}")
         return ReadOp(t.name, file_id)

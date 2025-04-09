@@ -282,7 +282,7 @@ def readFileName(parser) -> str:
                 break
             name += t.name
         # skip an optional space
-        parser.skipSpaces(expand=True, n=1)
+        parser.skipSpace(expand=True)
     elif t.catcode == CATCODE.BEGIN_GROUP:
         # the file name is enclosed by braces
         parser.input.unread(t)

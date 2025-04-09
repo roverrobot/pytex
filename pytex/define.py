@@ -57,7 +57,7 @@ class LetAccessor(accessor.Accessor):
     """        
     def readEq(self, parser):
         parser.skipEq(expand=False)
-        parser.skipSpaces(expand=False, n=1)
+        parser.skipSpace(expand=False)
 
     def readValue(self, parser):
         t = parser.token()

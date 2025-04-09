@@ -285,17 +285,18 @@ class InputStack:
         exhausted, pop it and read from the next scanner on the stack.
         @return: the next token, or None if the end of the stack is reached
         """
-        if self.saved:
-            return self.saved.pop()
-        if not self.top:
-            return None
-        t = self.top.read()
-        if t is None:
+        while True:
+            if self.saved:
+                return self.saved.pop()
+            if not self.top:
+                return None
+            t = self.top.read()
+            if t:
+                return t
             if self.terminate:
                 return None
             self.pop()
-            return self.read()
-        return t
+            continue
 
     def unread(self, token):
         """
@@ -312,7 +313,7 @@ class InputStack:
         """
         if self.top is not None:
             self.stack.append((self.top, self.terminate, self.active))
-        if len(self.saved) > 0:
+        if self.saved:
             # remember that the saved tokens are on a stack. So we need to reverse it
             self.saved.reverse()
             self.stack.append((TokenListScanner(self.saved), False, self.active))
@@ -331,7 +332,7 @@ class InputStack:
             to = None
         if self.stack:
             self.top, self.terminate, self.active = self.stack.pop()
-            if to is not None and self.top != to:
+            if to and self.top != to:
                 self.pop(to)
         else:
             self.top = None

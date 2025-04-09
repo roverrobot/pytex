@@ -12,18 +12,20 @@ from pytex.module import Module
 from pytex.expandable import tokenToString
 
 
-class MacroScanner(TokenListScanner):
+class MacroScanner:
     """
     a scanner for expanding the macro replacement text
     """
     def __init__(self, parser, replacement, args):
-        TokenListScanner.__init__(self, replacement)
+        self.replacement = iter(replacement)
         self.parser = parser
         self.args = args
         self.arg_scanner = None
         parser.input.push(self)
         # read the next token
-        self.next_token = super().read()
+        self.next_token = next(self.replacement)
+
+    position = None
     
     def read(self):
         """
@@ -36,24 +38,34 @@ class MacroScanner(TokenListScanner):
             return t
         # check if t represent a parameter
         if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
-            if t.parameter >= len(self.args):
+            try:
+                args = self.args[t.parameter]
+            except IndexError:
                 raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
-            args = self.args[t.parameter]
-            if len(args) > 0:
-                self.arg_scanner = TokenListScanner(args)
-                self.next_token = self.arg_scanner.read()
+            if args:
+                self.arg_scanner = iter(args)
+                self.next_token = next(self.arg_scanner)
             else:
-                self.next_token = super().read()
-                if self.next_token is None:
+                self.arg_scanner = None
+                try:
+                    self.next_token = next(self.replacement)
+                except StopIteration:
                     return None
             return self.read()
         if self.arg_scanner is not None:
-            self.next_token = self.arg_scanner.read()
-            if self.next_token is None:
+            try:
+                self.next_token = next(self.arg_scanner)
+            except StopIteration:
                 self.arg_scanner = None
-                self.next_token = super().read()
+                try:
+                    self.next_token = next(self.replacement)
+                except StopIteration:
+                    self.next_token = None
         else:
-            self.next_token = super().read()
+            try:
+                self.next_token = next(self.replacement)
+            except StopIteration:
+                self.next_token = None
         # tail recursion optimization
         if self.next_token is None:
             self.parser.input.unread(t)
@@ -139,7 +151,7 @@ class Macro(Command):
             if t is None:
                 raise ValueError(f"macro does not match the definition {self}", parser.input.position())
             if t.catcode != p.catcode or t.name != p.name:
-                if len(matched) == 0:
+                if not matched:
                     return t, start
                 parser.input.unread(t)
                 for i in range(len(matched)-1, 0, -1):
@@ -157,10 +169,11 @@ class Macro(Command):
         """
         result = []
         i = start
+        total = len(self.parameters)
         # if the next token to match is # or we have reached the end of the parameter list
         # then the argument is undelimited. In this case, the argument is the next non-space
         # token,, and if the token is {, then the argument is a balanced text
-        if i >= len(self.parameters) or self.parameters[i].catcode == CATCODE.PARAMETER:
+        if i >= total or self.parameters[i].catcode == CATCODE.PARAMETER:
             t = parser.skipSpaces(expand=False)
             if t is not None:
                 parser.input.unread(t)
@@ -172,9 +185,9 @@ class Macro(Command):
             # n counts the number of balanced text read. If n == 1 and the argument is 
             # enclosed by braces, we drop the braces
             n = 0 
-            while i < len(self.parameters):
+            while i < total:
                 t, i = self.matchDelimited(parser, i)
-                if t is None:
+                if not t:
                     break
                 parser.input.unread(t)
                 l = parser.readBalancedText(expand=False, macro=False, include_braces=True)
@@ -221,7 +234,7 @@ class Macro(Command):
             args.append(argv)
         # we now create a MacroScanner and read from it.
         # only if the replacement text is not empty
-        if len(self.replacement) > 0:
+        if self.replacement:
             scanner = MacroScanner(parser, self.replacement, args)
             scanner.name = self.name
             # scanner is already pushed onto the stack

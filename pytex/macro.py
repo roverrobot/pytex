@@ -35,7 +35,7 @@ class MacroScanner(TokenListScanner):
         if t is None:
             return t
         # check if t represent a parameter
-        while t.catcode == CATCODE.PARAMETER and t.parameter is not None:
+        if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
             if t.parameter >= len(self.args):
                 raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
             args = self.args[t.parameter]
@@ -44,6 +44,8 @@ class MacroScanner(TokenListScanner):
                 self.next_token = self.arg_scanner.read()
             else:
                 self.next_token = super().read()
+                if self.next_token is None:
+                    return None
             return self.read()
         if self.arg_scanner is not None:
             self.next_token = self.arg_scanner.read()
@@ -54,7 +56,8 @@ class MacroScanner(TokenListScanner):
             self.next_token = super().read()
         # tail recursion optimization
         if self.next_token is None:
-            self.parser.input.pop()
+            self.parser.input.unread(t)
+            return None
         return t
 
     def __repr__(self):

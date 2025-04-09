@@ -259,11 +259,8 @@ class TokenListScanner:
 
     def __repr__(self):
         f = lambda t: t.name + " " if isinstance(t, CommandToken) else t.name
-        s1 = "".join(map(f, self.toks[:self.pos]))
-        if s1 != "":
-            s1 += "\n"
-        s2 = "".join(map(f, self.toks[self.pos:]))
-        return f"TokenListScanner:\n  {s1}>> {s2}"
+        s = "".join(map(f, self.toks))
+        return f"TokenListScanner:\n  {s}"
 
 
 class InputStack:
@@ -273,6 +270,8 @@ class InputStack:
     The main methods are push(), read() and unread()
     """
     def __init__(self):
+        self.top = None
+        self.terminate = False
         # the stack of scanners
         self.stack = []
         # the saved tokens that are unread
@@ -288,12 +287,11 @@ class InputStack:
         """
         if self.saved:
             return self.saved.pop()
-        if len(self.stack) == 0:
+        if not self.top:
             return None
-        top = self.stack[-1]
-        t = top.read()
+        t = self.top.read()
         if t is None:
-            if hasattr(top, "terminate") and top.terminate:
+            if self.terminate:
                 return None
             self.pop()
             return self.read()
@@ -312,12 +310,15 @@ class InputStack:
         push a new scanner on the stack
         @param lexer: the scanner to push
         """
+        if self.top is not None:
+            self.stack.append((self.top, self.terminate, self.active))
         if len(self.saved) > 0:
             # remember that the saved tokens are on a stack. So we need to reverse it
             self.saved.reverse()
-            self.stack.append(TokenListScanner(self.saved))
+            self.stack.append((TokenListScanner(self.saved), False, self.active))
             self.saved = []
-        self.stack.append(lexer)
+        self.top = lexer
+        self.terminate = hasattr(lexer, "terminate") and lexer.terminate
         if lexer.position is not None:
             self.active = lexer
     
@@ -326,18 +327,16 @@ class InputStack:
         pop the top scanner if it is terminated
         @param to: the scanner to pop to (including to)
         """
-        if len(self.stack) == 0:
-            return
-        top = self.stack.pop()
-        if self.active == top:
+        if self.top == to:
+            to = None
+        if self.stack:
+            self.top, self.terminate, self.active = self.stack.pop()
+            if to is not None and self.top != to:
+                self.pop(to)
+        else:
+            self.top = None
+            self.terminate = False
             self.active = None
-            for s in reversed(self.stack):
-                if s.position is not None:
-                    self.active = s
-                    break
-        if to is None or top == to:
-            return
-        return self.pop(to)
 
 
     def position(self):
@@ -350,11 +349,13 @@ class InputStack:
     
     def __repr__(self):
         l = ["Input stack:"]
-        for scanner in self.stack:
-            for s in repr(scanner).split("\n"):
-                l.append(f"  {s}")
         if len(self.saved) > 0:
             f = lambda t: t.name + " " if isinstance(t, CommandToken) else t.name
             s = "".join(map(f, reversed(self.saved)))
             l.append(f"  saved: {s}")
+        for s in repr(self.top).split("\n"):
+            l.append(f"  top: {s}")
+        for scanner in reversed(self.stack):
+            for s in repr(scanner).split("\n"):
+                l.append(f"  {s}")
         return "\n".join(l)

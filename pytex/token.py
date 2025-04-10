@@ -94,6 +94,11 @@ class Token(Command):
     
     def __repr__(self):
         return f"{self.name}({self.catcode})"
+    
+    def __eq__(self, other):
+        if not isinstance(other, Token):
+            return False
+        return self.name == other.name and self.catcode == other.catcode
 
     # not expandable by default
     expand = None

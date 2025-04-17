@@ -443,9 +443,6 @@ class Parser:
         """
         end the parser, and return the log
         """
-        # have we ended? If so, the input stack is empty
-        if len(self.input.stack) == 0:
-            return self.logContent()
         top = self.lists[-1]
         if top.type == lists.LISTTYPE.HORIZONTAL:
             if top.inner:
@@ -459,7 +456,8 @@ class Parser:
         # \vfill\penalty-'10000000000
         top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2))))
         top.append(node.Penalty(-0x100000))
-        self.input.pop(to=self.input.stack[0])
+        self.input.pop(to=self.input.top)
         self.run = False
-        self.log.close()
+        if not self.log.closed:
+            self.log.close()
         return self.logContent()

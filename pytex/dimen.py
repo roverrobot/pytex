@@ -31,13 +31,15 @@ class Dimen(serialization.Serializable):
         f -= int(f)
         if f == 0:
             return s + "0"
-        for i in range(5):
+        for i in range(4):
             f *= 10
             d = int(f)
             s += str(d)
             f -= d
             if f == 0:
                 break
+        if f > 0:
+            s += str(int(f*10 + 0.5))
         return s
     
     def __float__(self):

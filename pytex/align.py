@@ -229,24 +229,23 @@ class AlignCommand(lists.ModeDependentCommand):
             columns.append(header)
         return columns, tabskips
 
-    def readCell(self, parser, header, cell=None):
+    def readCell(self, parser, header):
         """
         Read a cell.
         @param parser: the parser
         @param header: the template for the cell (a tuple of two lists representing the tokens
         before and after the #)
-        @param cell: the cell to read into (if None, a new cell is created) 
-
-        The cell parameter is the previous cell if it is spanned
+        @return: the cell and the terminator
         """
         t = parser.token_expand()
+        if t is None:
+            raise ValueError("expecting a \\cr", parser.input.position())
         read_template = t.definition != omit
         if read_template:
             parser.input.unread(t)
             left, right = header
             parser.input.push(lexer.TokenListScanner(left))
-        if cell is None:
-            cell = parser.newHList() if self.vert else parser.newVList()
+        cell = parser.newHList() if self.vert else parser.newVList()
         parser.lists.append(cell)
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         terminator = None
@@ -298,7 +297,8 @@ class AlignCommand(lists.ModeDependentCommand):
         row.tabskips = tabskips
         for header in columns:
             cell, terminator = self.readCell(parser, header)
-            row.cells.append(cell)
+            if cell:
+                row.cells.append(cell)
             if terminator == cr:
                 return row
         raise ValueError("expecting a \\cr", parser.input.position())
@@ -312,7 +312,11 @@ class AlignCommand(lists.ModeDependentCommand):
         template = self.readTemplate(parser)
         node = Alignment()
         node.noalign = self.readNoAlign(parser)
-        while not scanner.EOF:
+        while True:
+            t = parser.token_expand()
+            if t is None:
+                break
+            parser.input.unread(t)
             row = self.readRow(parser, template)
             row.noalign = self.readNoAlign(parser)
             node.rows.append(row)

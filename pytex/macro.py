@@ -116,17 +116,19 @@ class Macro(Command):
         """
         return the parameters of the macro
         """
-        result = self.brackets[0]
+        result = self.brackets[0].copy()
         arg = 0
         for b in self.brackets[1:]:
             t = ParameterToken("#", CATCODE.PARAMETER)
             arg += 1
             result.append(t)
-            t = CharToken(str(arg), CATCODE.OTHER)
-            result.append(t)
-            if b and b[-1].catcode == CATCODE.BEGIN_GROUP:
-                b.append(t, -2)
+            n = CharToken(str(arg), CATCODE.OTHER)
+            result.append(n)
             result.extend(b)
+            if b and b[-1].catcode == CATCODE.BEGIN_GROUP:
+                brace = b.pop()
+                result.append(t)
+                result.append(brace)
         return result
 
     def __repr__(self):

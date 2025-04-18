@@ -124,11 +124,6 @@ class Macro(Command):
             arg += 1
             result.append(t)
             result.extend(b)
-            if b and b[-1].catcode == CATCODE.BEGIN_GROUP:
-                brace = b.pop()
-                result.append(t)
-                result.append(brace)
-                break
         return result
 
     def __repr__(self):
@@ -217,7 +212,10 @@ class Macro(Command):
         if t:
             raise ValueError(f"macro does not match the definition {self}", parser.input.position())
         for bracket in self.brackets[1:]:
-            args.append(self.readArgument(parser, bracket))
+            arg = self.readArgument(parser, bracket)
+            args.append(arg)
+            if parser.tracingmacros and parser.checkRange():
+                parser.message(f"#{len(args)}<-{toString(arg)}")
         # we now create a MacroScanner and read from it.
         # only if the replacement text is not empty
         if self.replacement:

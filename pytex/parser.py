@@ -129,11 +129,17 @@ class Parser:
 
     def checkRange(self):
         if self.tracinglinerange is not None:
-            start, end = self.tracinglinerange
+            if len(self.tracinglinerange) == 2:
+                start, end = self.tracinglinerange
+                stop = False
+            else:
+                start, end, stop = self.tracinglinerange
             pos = self.input.position()
             if start is not None and pos.line < start:
                 return False
             if end is not None and pos.line > end:
+                if stop:
+                    self.run = False
                 return False
         return True
 

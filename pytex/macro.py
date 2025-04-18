@@ -120,15 +120,15 @@ class Macro(Command):
         arg = 0
         for b in self.brackets[1:]:
             t = ParameterToken("#", CATCODE.PARAMETER)
+            t.parameter = arg
             arg += 1
             result.append(t)
-            n = CharToken(str(arg), CATCODE.OTHER)
-            result.append(n)
             result.extend(b)
             if b and b[-1].catcode == CATCODE.BEGIN_GROUP:
                 brace = b.pop()
                 result.append(t)
                 result.append(brace)
+                break
         return result
 
     def __repr__(self):

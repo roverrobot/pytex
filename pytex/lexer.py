@@ -241,7 +241,6 @@ class TokenListScanner:
         assert toks is not None
         self.toks = toks
         self.iter = iter(toks)
-        self.EOF = False
 
     def read(self) -> typing.Optional[Token]:
         """
@@ -251,7 +250,6 @@ class TokenListScanner:
         try:
             return next(self.iter)
         except StopIteration:
-            self.EOF = True
             return None
 
     # this scanner does not support token position

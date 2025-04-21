@@ -155,7 +155,6 @@ class ReadOp(Accessor):
             scanner.terminate = True
             parser.input.push(scanner)
             while True:
-                pos = parser.input.position()
                 t = parser.token()
                 if t is None:
                     done = level == 0

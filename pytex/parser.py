@@ -98,7 +98,7 @@ class Parser:
         t = self.input.read()
         if t is None:
             return None
-        if t.isCommand():
+        if t.is_command:
             if t.noexpand:
                 t.noexpand = False
                 t.definition = token.relax
@@ -116,7 +116,7 @@ class Parser:
             t = self.token()
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
-            if t is not None and t.isCommand():
+            if t is not None and t.is_command:
                 definition = t.definition
                 if definition is None:
                     raise ValueError("undefined command" + t.name, self.input.position())

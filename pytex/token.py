@@ -89,13 +89,9 @@ class Token(Command):
         self.catcode = catcode
         self.definition = None
 
-    def isCommand(self):
-        """ 
-        A token is not a command. 
-        @return: False
-        """
-        return False
-    
+    # the token is not a command
+    is_command = False
+
     def __repr__(self):
         return f"{self.name}({self.catcode})"
     
@@ -127,7 +123,7 @@ class Token(Command):
         @param expand: bool indicating if the token should be expanded
         @return: bool
         """
-        return self.catcode == CATCODE.SPACE
+        return False
 
     # the token generators for each category code
     generators = None
@@ -172,12 +168,8 @@ class CommandToken(Token):
     def saveInfo(self):
         return {"init": {"name": self.name}}
 
-    def isCommand(self):
-        """ 
-        A command token is a command. 
-        @return: True
-        """
-        return True
+    # Command tokens represent commands
+    is_command = True
 
     def execute(self, parser):
         """
@@ -259,6 +251,14 @@ class SpaceToken(Token):
     
     def saveInfo(self):
         return {}
+    
+    def isSpace(self, expand):
+        """ 
+        Check if the token is a space token.
+        @param expand: bool indicating if the token should be expanded
+        @return: bool
+        """
+        return True
 
 
 class CharToken(Token):

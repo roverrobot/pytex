@@ -116,10 +116,9 @@ class Expr(ModeDependentCommand):
         left_paren = self.readOp(parser, "(")
         if left_paren is not None:
             value = self.readExpr(parser, integer)
-            pos = parser.input.position()
             right_paren = self.readOp(parser, ")")
             if right_paren is None:
-                raise ValueError("missing )", pos)
+                raise ValueError("missing )", parser.input.position())
             return value
         if integer:
             return parser.readInteger()
@@ -423,11 +422,10 @@ class IfDefined(conditional.Conditional):
     The \\ifdefined command
     """
     def condition(self, parser):
-        pos = parser.input.position()
         t = parser.token()
         if t is None:
-            raise ValueError("expecting a token, but reached end of input", pos)
-        return 0 if t.isCommand() and t.definition is not None else 1
+            raise ValueError("expecting a token, but reached end of input", parser.input.position())
+        return 0 if t.is_command and t.definition is not None else 1
 
 
 class IfFontChar(conditional.Conditional):
@@ -466,7 +464,7 @@ class Unless(token.Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token, but reached end of input", parser.input.position())
-        if t.isCommand():
+        if t.is_command:
             c = t.definition
             if isinstance(c, conditional.Conditional) and not isinstance(c, conditional.IfCase):
                 unless = UnlessConditional(c)

@@ -28,15 +28,14 @@ class Arithmatics(Command):
         @param parser: the parser
         @param prefixes: the prefixes
         """
-        pos = parser.input.position()
         t = parser.token_expand()
         if t.definition is None:
-            raise ValueError("expecting a register or a parameter", pos)
+            raise ValueError("expecting a register or a parameter", parser.input.position())
         t = t.definition
         try:
             p = t.getItemAccessor(parser, None)
         except AttributeError:
-            raise ValueError("expecting a register or a parameter", pos)
+            raise ValueError("expecting a register or a parameter", parser.input.position())
         is_integer = False
         if hasattr(p, "muglueValue"):
             x = p.muglueValue(parser)
@@ -48,7 +47,7 @@ class Arithmatics(Command):
             x = p.intValue(parser)
             is_integer = True
         else:
-            raise ValueError("expecting a register or a parameter of integer, dimension, or glue", pos)
+            raise ValueError("expecting a register or a parameter of integer, dimension, or glue", parser.input.position())
         parser.readKeyword(["by"])
         y = self.readByValue(parser, p)
         value = self.op(x, y)

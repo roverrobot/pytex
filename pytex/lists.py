@@ -221,10 +221,9 @@ class Insert(Command):
     The \\insert command.
     """
     def execute(self, parser):
-        pos = parser.input.position()
         n = parser.readInteger()
         if n < 0 or n == 255:
-            raise ValueError(f"invalid insert number {n}", pos)
+            raise ValueError(f"invalid insert number {n}", parser.input.position())
         vlist = parser.readVList(GROUP_TYPE.INSERT)
         parser.lists[-1].append(nd.Insert(n, vlist))
 

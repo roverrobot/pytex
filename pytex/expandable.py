@@ -20,7 +20,7 @@ class NoExpand(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token after \\noexpand", parser.input.position())
-        if t.isCommand():
+        if t.is_command:
             t = CommandToken(t.name)
             t.noexpand = True
         parser.input.unread(t)
@@ -42,7 +42,7 @@ class ExpandAfter(Command):
         if t is None:
             return
         t1 = parser.token()
-        if t1.isCommand():
+        if t1.is_command:
             definition = t1.definition
             if definition is None:
                 raise ValueError(f"undefined command {t1.name}", parser.input.position())
@@ -210,7 +210,7 @@ class String(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token", parser.input.position())
-        if t.isCommand():
+        if t.is_command:
             escapechar = parser.state.layout["escapechar"]
             escapechar = chr(escapechar) if 0 <= escapechar < 256 else ""
             s = escapechar + t.name[1:]

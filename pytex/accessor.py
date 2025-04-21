@@ -156,10 +156,9 @@ class ArrayAccessor(token.Command):
         @param parser: the parser
         """
         try:
-            pos = parser.input.position()
             return parser.readInteger()
         except ValueError as e:
-            raise ValueError("expectong an integer index", pos)
+            raise ValueError("expectong an integer index", parser.input.position())
     
     def assign(self, parser, prefixes):
         """
@@ -224,7 +223,7 @@ class Prefix(token.Command):
         pos = parser.input.position()
         parser.skipFiller()
         t = parser.token()
-        if t is None or not t.isCommand() or not hasattr(t.definition, "assign"):
+        if t is None or not t.is_command or not hasattr(t.definition, "assign"):
             raise ValueError("expecting an assignment", pos)
         if parser.tracingcommands > 0 and parser.checkRange():
             parser.message("executing", t.name)

@@ -330,11 +330,10 @@ class Accent(HorizontalCommand):
         """
         read the accent char and the accented char
         """
-        pos = parser.input.position()
         c = parser.readInteger()
         font = parser.state.parameters["currentfont"]
         if c < font.bc or c > font.ec:
-            raise ValueError("invalid accent", pos)
+            raise ValueError("invalid accent", parser.input.position())
         accent = font[chr(c)]
         while True:
             t = parser.token_expand()

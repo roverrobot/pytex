@@ -15,15 +15,14 @@ def skipBranch(parser, level: list):
     @return: the command that was encountered    
     """
     while True:
-        pos = parser.input.position()
         t = parser.token()
         if t is None:
             c, cpos, branch = parser.ifstack[-1]
-            raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", pos)
-        if t.isCommand():
+            raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", parser.input.position())
+        if t.is_command:
             c = t.definition
             if isinstance(c, Conditional): # another level
-                parser.ifstack.append([c, pos, -1])
+                parser.ifstack.append([c, parser.input.position(), -1])
             elif isinstance(c, Branch):
                 if level is parser.ifstack[-1]:
                     return c
@@ -111,11 +110,10 @@ class Conditional(Command):
                 return
 
     def expand(self, parser):
-        pos = parser.input.position()
         # We push the ifstack before checking the condition, because there could be other 
         # conditional commands when hanlding condition.
         # the ifstack saved the command, position in input stack, and branch (condition)
-        state = [self, pos]
+        state = [self, parser.input.position()]
         parser.ifstack.append(state)
         condition = self.condition(parser)
         state.append(condition)
@@ -137,7 +135,6 @@ class IfCompareToken(Conditional):
         raise NotImplementedError()
 
     def condition(self, parser):
-        pos = parser.input.position()
         if self.expand_tokens:
             t1 = parser.token_expand()
             t2 = parser.token_expand()
@@ -145,10 +142,10 @@ class IfCompareToken(Conditional):
             t1 = parser.token()
             t2 = parser.token()
         if t1 is None or t2 is None:
-            raise ValueError("expecting two tokens", pos)
-        if t1.isCommand() and isinstance(t1.definition, Token):
+            raise ValueError("expecting two tokens", parser.input.position())
+        if t1.is_command and isinstance(t1.definition, Token):
             t1 = t1.definition
-        if t2.isCommand() and isinstance(t2.definition, Token):
+        if t2.is_command and isinstance(t2.definition, Token):
             t2 = t2.definition
         return 0 if self.equal(t1, t2) else 1
 
@@ -209,10 +206,9 @@ class IfNum(Conditional):
 
     def condition(self, parser):
         n1 = self.readValue(parser)
-        pos = parser.input.position()
         op = parser.token_expand()
         if op is None or op.catcode != CATCODE.OTHER or op.name not in "<=>":
-            raise ValueError("expecting a comparison operator", pos)
+            raise ValueError("expecting a comparison operator", parser.input.position())
         n2 = self.readValue(parser)
         if op.name == "<":
             return 0 if n1 < n2 else 1

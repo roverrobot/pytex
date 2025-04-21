@@ -17,7 +17,6 @@ def readSigns(parser):
     @return: 1 or -1
     """
     sign = 1
-    pos = parser.input.position()
     # skips spaces
     while True:
         t = parser.skipSpaces()
@@ -53,10 +52,9 @@ def readUnsigned(parser):
     # an unsigned integer is an innternal integer (one with an intValue method),
     # or a coersed integer, or a normal integer
     # a coerced integer is either a dimension or a glue, both have an intValue method
-    pos = parser.input.position()
     t = parser.token_expand()
     if t is None:
-        raise ValueError("expecting an integer", pos)
+        raise ValueError("expecting an integer", parser.input.position())
     try:
         return t.definition.intValue(parser)
     except AttributeError:
@@ -64,7 +62,7 @@ def readUnsigned(parser):
     # a normal integer is either a ` followed by a character, or a ' followed by
     # an octant number, or a " followed by a hex number, or a number
     if t.catcode != CATCODE.OTHER:
-        raise ValueError(f"expecting an integer, got {t}", pos)
+        raise ValueError(f"expecting an integer, got {t}", parser.input.position())
     if t.name == "`":
         t = parser.token()
         if t.name[0] == "\\" and len(t.name) == 2:
@@ -72,7 +70,7 @@ def readUnsigned(parser):
         elif len(t.name) == 1:
             value =  ord(t.name)
         else:
-            raise ValueError("expecting a character", pos)
+            raise ValueError("expecting a character", parser.input.position())
     elif t.name == "'":
         value = int(readDigits(parser, 8), 8)
     elif t.name == '"':
@@ -130,7 +128,6 @@ def readDigits(parser, base, optional=False):
     # have we started reading?
     read = False
     value = ""
-    pos = parser.input.position()
     while True:
         t = parser.token_expand()
         if t is None:
@@ -142,7 +139,7 @@ def readDigits(parser, base, optional=False):
         read = True
         value += t.name
     if not read and not optional:
-        raise ValueError("expecting a number", pos)
+        raise ValueError("expecting a number", parser.input.position())
     return value
 
 

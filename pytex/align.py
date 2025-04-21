@@ -140,7 +140,7 @@ class AlignCommand(lists.ModeDependentCommand):
         t = parser.token_expand() if expand else parser.token()
         if t is None or t.catcode == token.CATCODE.ALIGNMENT_TAB:
             return t, t
-        if t.isCommand():
+        if t.is_command:
             if t.definition == crcr:
                 t.definition = cr
                 return t, cr
@@ -148,7 +148,7 @@ class AlignCommand(lists.ModeDependentCommand):
                 # is the next token a \crcr? \cr\crcr is the same
                 t1 = parser.token()
                 if t1 is not None:
-                    if t1.isCommand() and t1.definition == crcr:
+                    if t1.is_command and t1.definition == crcr:
                         return t, cr
                     parser.input.unread(t1)
                 return t, cr
@@ -177,7 +177,7 @@ class AlignCommand(lists.ModeDependentCommand):
                     if not is_template:
                         raise ValueError("misplaced #", parser.input.position())
                     return toks, t
-                if t.isCommand() and is_template:
+                if t.is_command and is_template:
                     # we need to check for \tabskip
                     if t.definition == tabskip:
                         tabskip.execute(parser)
@@ -279,7 +279,7 @@ class AlignCommand(lists.ModeDependentCommand):
         t = parser.skipSpaces()
         if t is None:
             return None
-        if t.isCommand() and t.definition == noalign:
+        if t.is_command and t.definition == noalign:
             list = parser.newVList() if self.vert else parser.newHList()
             parser.readList(list, GROUP_TYPE.NO_ALIGN)
             return list

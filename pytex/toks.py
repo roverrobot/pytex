@@ -21,7 +21,7 @@ def token_expand(parser):
     """
     while True:
         t = parser.token()
-        if t is None or not t.isCommand():
+        if t is None or not t.is_command:
             return t, None
         if t.noexpand:
             t.noexpand = False
@@ -127,7 +127,7 @@ class ToksCommand:
         """
         parser.skipFiller()
         t = parser.token()
-        if t.isCommand() and hasattr(t.definition, "toksValue"):
+        if t.is_command and hasattr(t.definition, "toksValue"):
             return t.definition.toksValue(parser)
         parser.input.unread(t)
         return readGeneralText(parser, expand=False)

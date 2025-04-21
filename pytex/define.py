@@ -37,10 +37,9 @@ class Define(accessor.ArrayAccessor):
         get the index of the command
         @param parser: the parser
         """
-        pos = parser.input.position()
         t = parser.token()
-        if t is None or not t.isCommand():
-            raise ValueError(f"command name expected, got {t}", pos)
+        if t is None or not t.is_command:
+            raise ValueError(f"command name expected, got {t}", parser.input.position())
         # is the command defined? Is so, lead it alone. Otherwise, it is going to be defined.
         # However, we may meet is while reading the value of the definition. This causes a problem 
         # because it is not defined yet. To avoid the problem, we make it relax, so that if it 
@@ -63,7 +62,7 @@ class LetAccessor(accessor.Accessor):
         t = parser.token()
         if t is None:
             raise ValueError("a token is expected")
-        if t.isCommand():
+        if t.is_command:
             return t.definition
         return t
 

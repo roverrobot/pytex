@@ -254,10 +254,9 @@ class BuildBox(Command):
         box = self.box(to, spread)
         box.list = self.list(parser)
         parser.skipFiller()
-        pos = parser.input.position()
         t = parser.token_expand()
         if t.catcode != CATCODE.BEGIN_GROUP:
-            raise ValueError("expecting a {", self.pos)
+            raise ValueError("expecting a {", parser.input.position())
         if setbox:
             # \afterassignment is put after the { token.
             afterassignment = parser.state.globals["afterassignment"]
@@ -289,14 +288,13 @@ def readBox(parser, setbox=False):
     @param parser: the parser
     @param setbox: whether the this function is called from setbox
     """
-    pos = parser.input.position()
     command = parser.token_expand().definition
     if command is None:
-        raise ValueError("expecting a box", pos)
+        raise ValueError("expecting a box", parser.input.position())
     try:
         return command.boxValue(parser, setbox)
     except AttributeError:
-        raise ValueError("expecting a box", pos)
+        raise ValueError("expecting a box", parser.input.position())
     
 
 class BoxAccessor(Accessor):
@@ -498,10 +496,9 @@ class UnBox(Command):
         return {"init": {"vertical": self.vertical, "wipe": self.wipe}}
     
     def execute(self, parser):
-        pos = parser.input.position()
         index = parser.readInteger()
         if not (0 <= index < len(parser.state.box.values)):
-            raise ValueError("box index out of range", pos)
+            raise ValueError("box index out of range", parser.input.position())
         box = parser.state.box[index]
         if self.wipe:
             parser.state.box[index] = VoidBox()
@@ -509,14 +506,14 @@ class UnBox(Command):
             return
         top = parser.lists[-1]
         if top.type == LISTTYPE.MATH and not self.vertical:
-            raise ValueError("the box must be void in math mode", pos)
+            raise ValueError("the box must be void in math mode", parser.input.position())
         if (self.vertical and top.type != LISTTYPE.VERTICAL) or (
             not self.vertical and top.type != LISTTYPE.HORIZONTAL):
-            raise ValueError("wrong mode", pos)
+            raise ValueError("wrong mode", parser.input.position())
         if self.vertical and box.node_type != nd.NODE_TYPE.VLIST:
-            raise ValueError("expecting a vbox", pos)
+            raise ValueError("expecting a vbox", parser.input.position())
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
-            raise ValueError("expecting an hbox", pos)
+            raise ValueError("expecting an hbox", parser.input.position())
         top.extend(box.list)
 
 
@@ -662,31 +659,29 @@ class Leaders(Command):
     def execute(self, parser):
         top = parser.lists[-1]
         # read a rule
-        pos = parser.input.position()
         t = parser.token_expand()
         if t is None:
-            raise ValueError("expecting a rule or a box", pos)
+            raise ValueError("expecting a rule or a box", parser.input.position())
         if isinstance(t, nd.Rule):
             if (t.vert and top.type == LISTTYPE.VERTICAL) or (not t.vert and top.type != LISTTYPE.VERTICAL):
                 box = t.readRule(parser)
             else:
-                raise ValueError("rule in the wrong mode", pos)
+                raise ValueError("rule in the wrong mode", parser.input.position())
         else: # box
             parser.input.unread(t)
             box = parser.readBox()
             if (box.node_type == nd.NODE_TYPE.HLIST and top.type == LISTTYPE.VERTICAL) or (box.node_type == nd.NODE_TYPE.VLIST and top.type != LISTTYPE.VERTICAL):
-                raise ValueError("box in the wrong mode", pos)
-        pos = parser.input.position()
+                raise ValueError("box in the wrong mode", parser.input.position())
         t = parser.token_expand().definition
         if t is None:
-            raise ValueError("expecting a glue", pos)
+            raise ValueError("expecting a glue", parser.input.position())
         if isinstance(t, GlueCommand):
             if (t.vert and top.type == LISTTYPE.VERTICAL) or (not t.vert and top.type != LISTTYPE.VERTICAL):
                 glue = t.glueValue(parser)
             else:
-                raise ValueError("glue in the wrong mode", pos)
+                raise ValueError("glue in the wrong mode", parser.input.position())
         else:
-            raise ValueError("expecting a glue", pos)
+            raise ValueError("expecting a glue", parser.input.position())
         node = nd.Glue(glue)
         node.leaders = (self.type, box)
         top = parser.lists[-1]

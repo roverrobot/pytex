@@ -94,7 +94,7 @@ class Token(Command):
         A token is not a command. 
         @return: False
         """
-        return self.catcode is None or self.catcode == CATCODE.ACTIVE
+        return False
     
     def __repr__(self):
         return f"{self.name}({self.catcode})"
@@ -171,6 +171,13 @@ class CommandToken(Token):
 
     def saveInfo(self):
         return {"init": {"name": self.name}}
+
+    def isCommand(self):
+        """ 
+        A command token is a command. 
+        @return: True
+        """
+        return True
 
     def execute(self, parser):
         """

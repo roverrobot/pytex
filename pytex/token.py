@@ -61,6 +61,10 @@ class Command(serialization.Serializable):
     # expandable commands have a expand method defined
     expand = None
 
+    # this variable is used to identify \\the and \\unexpanded commands, which defines 
+    # the expanded method.
+    expanded = None
+
     # the meaning of the command, as returned by \meaning
     def meaning(self, parser):
         return self.name + " " if self.name is not None else ""

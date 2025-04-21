@@ -165,39 +165,40 @@ class Macro(Command):
         @param start: the start position in the parameters list
         @return: the argument as a list of tokens
         """
-        result = []
         # if the bracket is empty, then the argument is undelimited. In this case, the argument 
         # is the next non-space token,, and if the token is {, then the argument is a balanced text
         if not bracket:
             t = parser.skipSpaces(expand=False)
             if t is None:
                 return []
-            parser.input.unread(t)
-            return parser.readBalancedText(expand=False, macro=False, include_braces=False)
+            if t.catcode == CATCODE.BEGIN_GROUP:
+                result = parser.readBalancedText([t], expand=False, macro=False)
+                n = 1
+            else:
+                result = [t]
+                n = 0
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token
         # in the argument and match again.
-        #
-        # n counts the number of balanced text read. If n == 1 and the argument is 
-        # enclosed by braces, we drop the braces
-        n = 0 
-        while True:
-            t = self.matchDelimited(parser, bracket)
-            if t:
+        else:
+            # n counts the number of balanced text read. If n == 1 and the argument is 
+            # enclosed by braces, we drop the braces
+            n = 0 
+            result = []
+            while True:
+                t = self.matchDelimited(parser, bracket)
+                if t is None:
+                    break
+                result.append(t)
                 if t.catcode == CATCODE.BEGIN_GROUP:
-                    parser.input.unread(t)
-                    l = parser.readBalancedText(expand=False, macro=False, include_braces=True)
-                    result.extend(l)
-                else:
-                    result.append(t)
+                    result = parser.readBalancedText(result, expand=False, macro=False)
                 n += 1
-            else:
-                # we have matched the argument
-                # if the argument is enclosed by braces, drop the braces
-                if n == 1 and result[0].catcode == CATCODE.BEGIN_GROUP:
-                    result.pop()
-                    result.pop(0)
-                return result
+        # we have matched the argument
+        # if the argument is enclosed by braces, drop the braces
+        if n == 1 and result[0].catcode == CATCODE.BEGIN_GROUP:
+            result.pop()
+            result.pop(0)
+        return result
 
     def expand(self, parser):
         """
@@ -266,7 +267,6 @@ class MacroAccessor(Accessor):
                     bracket = []
                 elif n.catcode == CATCODE.BEGIN_GROUP:
                     bracket.append(n)
-                    parser.input.unread(n)
                     tail = n
                     brackets.append(bracket)
                     break
@@ -274,12 +274,13 @@ class MacroAccessor(Accessor):
                     raise ValueError("macro argument must be consecutively numbered from 1", parser.input.position())
             elif t.catcode == CATCODE.BEGIN_GROUP:
                 brackets.append(bracket)
-                parser.input.unread(t)
                 break
             else:
                 bracket.append(t)
         # read the replacement text
-        replacement = parser.readBalancedText(expand=self.expand_body, macro=True, include_braces=False)
+        replacement = parser.readBalancedText([], expand=self.expand_body, macro=True)
+        # remove the trailing }
+        replacement.pop()
         if tail:
             replacement.append(tail)
         macro = Macro(brackets, replacement)

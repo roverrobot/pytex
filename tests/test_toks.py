@@ -3,11 +3,11 @@ from pytex.token import CATCODE
 
 
 def test_read_toks(parser):
-    parser.readFrom("{abcd}")
-    k = parser.readBalancedText(expand=False, macro=False, include_braces=True)
-    # {, a, b, c, d, }, space
-    assert len(k) == 6
-    assert k[4].name == "d"
+    parser.readFrom("abcd}")
+    k = parser.readBalancedText([], expand=False, macro=False)
+    # a, b, c, d, }, space
+    assert len(k) == 5
+    assert k[3].name == "d"
     
 
 def test_read_general_text(parser):

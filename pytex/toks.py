@@ -16,81 +16,69 @@ def token_expand(parser):
     expand a token in an expanded token list
     @param parser: the parser
     @param token: the token to expand
-    @return: the expanded token
-
+    @return: the expanded token, expanded token list of \\the or \\unexpanded
     this is like parser.token_expand(), except that it does not expand protected macros.
     """
-    t = parser.token()
-    if t is None or not t.isCommand():
-        return t
-    if t.noexpand:
-        t.noexpand = False
-        return t
-    definition = t.definition
-    if definition is None:
-        raise ValueError(f"undefined command {t.name}", parser.input.position())
-    if definition.protected or definition.expand is None or hasattr(definition, "expanded"):
-        return t
-    if parser.tracingcommands:
-        parser.traceExpansion(t)
-    definition.expand(parser)
-    return token_expand(parser)
-
-
-def readBalancedText(parser, expand: bool = False, macro: bool = False, include_braces: bool = False):
-    """
-    read a single character or a token list in balanced braces
-    @param parser: the parser
-    @param expand: whether to expand the tokens
-    @param macro: whether reading the body of a macro definition
-    @return: the token list
-    """
-    t = token_expand(parser) if expand else parser.token()
-    if t is None:
-        return None
-    toks = []
-    if t.catcode == CATCODE.BEGIN_GROUP:
-        if include_braces:
-            toks.append(t)
-        # keep reading the tokens until we meet a matching }
-        while True:
-            l = readBalancedText(parser, expand, macro=macro, include_braces=True)
-            if l:
-                toks.extend(l)
-            elif l is None:
-                raise ValueError("unbalanced token list", parser.input.position())
-            else:
-                break
-        # we must have reached }
+    while True:
         t = parser.token()
-        if t.catcode != CATCODE.END_GROUP:
-            raise ValueError("expecting }, got " + f"{t.name}({t.catcode})", parser.input.position())
-        if include_braces:
-            toks.append(t)
-        return toks
-    if t.catcode == CATCODE.END_GROUP:
-        parser.input.unread(t)
-        return []
-    # handle \the
-    if expand:
+        if t is None or not t.isCommand():
+            return t, None
+        if t.noexpand:
+            t.noexpand = False
+            t.definition = relax
+            return t, None
         definition = t.definition
-        if definition is not None and hasattr(definition, "expanded"):
+        if definition is None:
+            raise ValueError(f"undefined command {t.name}", parser.input.position())
+        if definition.protected or definition.expand is None:
+            return t, None
+        if definition.expanded:
             if parser.tracingcommands:
                 parser.traceExpansion(t)
-            tl = definition.expanded(parser)
-            if tl:
-                return tl
-            return readBalancedText(parser, expand, macro=macro, include_braces=include_braces)
-    if t.catcode == CATCODE.PARAMETER and macro:
-        t1 = token_expand(parser) if expand else parser.token()
-        if t1.catcode == CATCODE.PARAMETER:
+            return t, definition.expanded(parser)
+        if parser.tracingcommands:
+            parser.traceExpansion(t)
+        definition.expand(parser)
+
+
+def readBalancedText(parser, toks: list = [], expand: bool = False, macro: bool = False):
+    """
+    read until an enclosing }, including balanced { and }.
+    @param parser: the parser
+    @param toks: the list to read into
+    @param expand: whether to expand the tokens
+    @param macro: whether reading the body of a macro definition
+    @return: toks with the balanced text added (including the enclosing }
+    """
+    if expand:
+        tok = lambda: token_expand(parser)
+    else:
+        tok = lambda: (parser.token(), None)
+    level = 0
+    while True:
+        t, expanded = tok()
+        if t is None:
+            raise ValueError("unbalanced token list", parser.input.position())        
+        if t.catcode == CATCODE.BEGIN_GROUP:
+            # keep reading the tokens until we meet a matching }
+            level += 1
+        elif t.catcode == CATCODE.END_GROUP:
+            if level == 0:
+                # we are done
+                toks.append(t)
+                return toks
+            level -= 1
+        elif expanded is not None:
+            toks.extend(expanded)
+            continue
+        elif t.catcode == CATCODE.PARAMETER and macro:
             t = Token.token(t.name, CATCODE.PARAMETER)
-        elif t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
-            t = Token.token(t.name, CATCODE.PARAMETER)
-            t.parameter = int(t1.name) - 1
-        else:
-            raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
-    return [t]
+            t1, expanded = tok()
+            if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
+                t.parameter = int(t1.name) - 1
+            elif t1.catcode != CATCODE.PARAMETER:
+                raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
+        toks.append(t)
 
 def skipFiller(parser):
     """
@@ -122,8 +110,10 @@ def readGeneralText(parser, expand: bool = True):
     lbrace = parser.token_expand() if expand else parser.token()
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", parser.input.position())
-    parser.input.unread(lbrace)
-    return readBalancedText(parser, expand, macro=False, include_braces=False)
+    toks = readBalancedText(parser, [], expand, macro=False)
+    # remove the trailing }
+    toks.pop()
+    return toks
 
 
 class ToksCommand:

@@ -26,11 +26,10 @@ class PDFFileSize(token.Command):
             raise ValueError("Absolute file name: " + name, parser.input.position())
         file = parser.resolver.openIn(name, "source")
         if file is None:
-            size = 0
-        else:
-            file.seek(0, os.SEEK_END)
-            size = file.tell()
-            file.close()
+            return
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        file.close()
         parser.input.push(lexer.TokenListScanner(expandable.toToks(str(size))))
 
 

@@ -284,24 +284,22 @@ def readFileName(parser) -> str:
         # skip an optional space
         parser.skipSpace(expand=True)
     elif t.catcode == CATCODE.BEGIN_GROUP:
-        # the file name is enclosed by braces
-        parser.input.unread(t)
-        toks = parser.readBalancedText(expand=True, macro=False, include_braces=False)
+        toks = parser.readBalancedText([], expand=True, macro=False)
+        # pop the trailing }
+        toks.pop()
     else:
         # the file name is deliminated by a space or a control sequence
         toks = [t]
         while True:
-            ts = parser.readBalancedText(expand=True, macro=False, include_braces=True)
-            if ts is None or len(ts) == 0:
+            t = parser.token_expand()
+            if t is None or t.isSpace(True):
                 break
-            if len(ts) == 1:
-                t = ts[0]
-                if t.isSpace(True):
-                    break
-                elif t.isCommand():
-                    parser.input.unread(t)
-                    break
-            toks.extend(ts)
+            if t.catcode is None or t.catcode == CATCODE.END_GROUP:
+                parser.input.unread(t)
+                break
+            toks.append(t)
+            if t.catcode == CATCODE.BEGIN_GROUP:
+                toks = parser.readBalancedText(toks, expand=True, macro=False)
     for t in toks:
         name += t.name
     return name

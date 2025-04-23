@@ -20,5 +20,9 @@ def test_read_multiply(collector):
     assert collector.getString() == "pt "
 
     
-def test_read_divide(parser):
+def test_dimen_divide(parser):
     checkValues(parser, "\\dimen0 = 10 pt\\divide \\dimen0 by 2 pt", [["dimen", 0, 5]])
+
+def test_int_divide(parser):
+    checkValues(parser, "\\count0 = 7 \\divide \\count0 by 5 pt", [["count", 0, 1]])
+    checkValues(parser, "\\count0 = 7 \\divide \\count0 by 4 pt", [["count", 0, 1]])

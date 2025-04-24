@@ -136,7 +136,7 @@ class NumExpr(Expr, IntegerCommand):
         return parser.readInteger()
     
     def divide(self, x, y):
-        d = (abs(x)+1) // abs(y)
+        d = int(abs(x) / abs(y) + 0.5)
         return -d if x < 0 < y or y < 0 < x else d
     
 

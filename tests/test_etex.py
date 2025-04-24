@@ -5,6 +5,8 @@ from pytex import texlive
 
 
 def test_numexpr(collector):
+    collector.parse("\\the\\numexpr(128-63/2)/64\\relax")
+    assert collector.getString() == "2"
     collector.parse("\\the\\numexpr7/4\\relax")
     assert collector.getString() == "2"
     collector.parse("\\the\\numexpr7/5\\relax")
@@ -13,7 +15,6 @@ def test_numexpr(collector):
     assert collector.getString() == "4"
     collector.parse("\\the\\numexpr-1/2\\relax")
     assert collector.getString() == "-1"
-
 
 def test_loop(collector):
     collector.parse("""%

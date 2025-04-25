@@ -21,8 +21,10 @@ class NoExpand(Command):
         if t is None:
             raise ValueError("expecting a token after \\noexpand", parser.input.position())
         if t.is_command:
-            t = CommandToken(t.name)
-            t.noexpand = True
+            definition = parser.lookup(t.name)
+            if definition is None or definition.expand:
+                t = CommandToken(t.name)
+                t.noexpand = True
         parser.input.unread(t)
 
 

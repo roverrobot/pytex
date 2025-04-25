@@ -20,6 +20,8 @@ def test_noexpand(parser):
     assert b.replacement[0].name == "\\a"
 
 def test_noexpand_ifx(collector):
+    collector.parse("\\expandafter\\ifx \\noexpand\\a\\a a\\else b\\fi")
+    assert collector.getString() == "b"
     collector.parse("\\chardef\\a=1 \\expandafter\\ifx \\noexpand\\a\\a a\\else b\\fi")
     assert collector.getString() == "a"
     collector.parse("\\def\\a{1}\\expandafter\\ifx \\noexpand\\a\\a a\\else b\\fi")

@@ -22,8 +22,6 @@ class OpenOp(Accessor):
     """
     def __init__(self, input: bool, file_id, filename):
         super().__init__(None, file_id)
-        if file_id < 0 or file_id >= 16:
-            raise ValueError("file number out of range: {file_id}")
         self.file_array = "openin" if input else "openout"
         self.filename = filename
 
@@ -171,7 +169,7 @@ class ReadOp(Accessor):
             if done:
                 break
         if level > 0:
-            raise ValueError("unblanced curly braces")
+            raise ValueError(f"unbalanced curly braces in file id {self.file_id}", parser.input.position())
         # The file reached eof. We close the file.
         if not done:
             file.close()
@@ -230,6 +228,8 @@ class Open(FileCommand):
         self.input = input
 
     def fileOp(self, parser, file_id):
+        if file_id < 0 or file_id >= 16:
+            raise ValueError(f"file number out of range: {file_id}", parser.input.position())
         parser.skipEq()
         filename = parser.readFileName()
         if self.input:

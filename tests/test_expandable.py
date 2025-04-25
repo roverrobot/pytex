@@ -19,6 +19,11 @@ def test_noexpand(parser):
     b = parser.state.equitable["\\b"]
     assert b.replacement[0].name == "\\a"
 
+def test_noexpand_ifx(collector):
+    collector.parse("\\chardef\\a=1 \\expandafter\\ifx \\noexpand\\a\\a a\\else b\\fi")
+    assert collector.getString() == "a"
+    collector.parse("\\def\\a{1}\\expandafter\\ifx \\noexpand\\a\\a a\\else b\\fi")
+    assert collector.getString() == "b"
 
 def test_expandafter(collector):
     collector.parse("\\def\\a{a}\\expandafter a\\a")

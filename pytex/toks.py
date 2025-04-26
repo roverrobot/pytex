@@ -32,12 +32,10 @@ def token_expand(parser):
             raise ValueError(f"undefined command {t.name}", parser.input.position())
         if definition.protected or definition.expand is None:
             return t, None
-        if definition.expanded:
-            if parser.tracingcommands:
-                parser.traceExpansion(t)
-            return t, definition.expanded(parser)
         if parser.tracingcommands:
-            parser.traceExpansion(t)
+            parser.trace(t, "expand")
+        if definition.expanded:
+            return t, definition.expanded(parser)
         definition.expand(parser)
 
 

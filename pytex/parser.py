@@ -122,7 +122,7 @@ class Parser:
                     raise ValueError("undefined command" + t.name, self.input.position())
                 elif definition.expand is not None:
                     if self.tracingcommands:
-                        self.traceExpansion(t)
+                        self.trace(t, mode="expand")
                     definition.expand(self)
                     continue
             return t
@@ -143,18 +143,19 @@ class Parser:
                 return False
         return True
 
-    def traceExpansion(self, t):
+    def trace(self, t, mode: str):
         """
         trace the commands being expanded or executed
         @param t: the token being expanded
+        @param mode: "expand" or "execute"
         """
         if not self.checkRange():
             return
         if self.tracingcommands > 1 and t.definition is not None:
-            meaning = f": {t.definition.meaning(self)}"
+            meaning = str(t)
         else:
-            meaning = ""                        
-        self.message(f"expanding {t.name} at {self.input.position()}{meaning}\n")
+            meaning = ""
+        self.message(f"{mode} {t.name} at {self.input.position()}: {meaning}\n")
 
     def parse(self, input, name: typing.Optional[str] = None):
         """
@@ -172,6 +173,7 @@ class Parser:
         self.run = True
         self.loop()
         if len(self.ifstack) > 0:
+            print("ifstack:", self.ifstack)
             raise ValueError("missing \\fi")
         
     def loop(self):
@@ -183,12 +185,8 @@ class Parser:
             if t is None:
                 self.run = False
                 break
-            if self.tracingcommands and self.checkRange():
-                if self.tracingcommands > 1 and t.definition is not None:
-                    meaning = f": {t.definition.meaning(self)}"
-                else:
-                    meaning = ""
-                self.message(f"executing {t.name} at {self.input.position()}{meaning}\n")
+            if self.tracingcommands:
+                self.trace(t, mode="execute")
             t.execute(self)
 
     def readFrom(self, input, name: typing.Optional[str] = None):

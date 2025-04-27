@@ -173,7 +173,6 @@ class Parser:
         self.run = True
         self.loop()
         if len(self.ifstack) > 0:
-            print("ifstack:", self.ifstack)
             raise ValueError("missing \\fi")
         
     def loop(self):

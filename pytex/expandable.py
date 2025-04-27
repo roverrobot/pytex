@@ -263,7 +263,8 @@ class Meaning(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token", parser.input.position())
-        meaning = t.meaning(parser)
+        cls, value = t.meaning()
+        meaning = cls.showmeaning(value)
         toks = toToks(meaning)
         parser.input.push(TokenListScanner(toks))
 

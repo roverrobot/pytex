@@ -18,9 +18,10 @@ from pytex import node as nd
 from pytex import expandable
 from pytex import lexer
 from pytex import conditional
-from pytex import font
 from pytex import macro
+from pytex import font
 from pytex import accessor
+from pytex import file
 
 
 # e-TeX version
@@ -509,6 +510,42 @@ class Unexpanded(The):
         return parser.readGeneralText(expand=False)
     
 
+class ReadlineOp(file.ReadOp):
+    """
+    Read a line from a file, and assignit as a parameterless macro
+    """    
+    def readValue(self, parser):
+        tokens = []
+        level = 0
+        file = parser.state.globals["openin"][self.file_id]
+        if file is None or file.closed:
+            raise FileNotFoundError(f"file {self.file_id} is not open")
+        line = file.readline()
+        if line and line[-1] == "\n":
+            line = line[:-1] + "\r"
+        toks = expandable.toToks(line)
+        return macro.Macro([[]], toks)
+
+
+class Readline(file.FileCommand):
+    """
+    The \\readline command
+    """
+    def __init__(self):
+        super().__init__(immediate=True)
+
+    def fileOp(self, parser, file_id):
+        if file_id < 0 or file_id >= len(parser.state.globals["openin"]):
+            raise ValueError(f"\\read does not support reading from console", parser.input.position())
+        to = parser.readKeyword(["to"])
+        if to is None:
+            raise ValueError("Expected 'to' keyword")
+        t = parser.skipSpaces(expand=False)
+        if not isinstance(t, token.CommandToken):
+            raise ValueError(f"Expected a control sequence, got {t}")
+        return ReadlineOp(t.name, file_id)
+
+
 mod = Module("etex",
     commands={
         "numexpr": NumExpr(),
@@ -547,6 +584,7 @@ mod = Module("etex",
         "detokenize": Detokenize(),
         "scantokens": ScanTokens(),
         "unexpanded": Unexpanded(),
+        "readline": Readline(),
     },
     parameters={
         "interactionmode": {"value": 0, "accessor": IntegerAccessor, "domain": "globals"},

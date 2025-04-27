@@ -7,6 +7,7 @@ import pytest
 import types
 from pytex.parser import Parser
 from pytex.token import CATCODE
+from pytex.resolver import InMemoryTextFile
 
 
 @pytest.fixture()
@@ -50,4 +51,10 @@ def cmr10(parser):
     parser.state.sfcode[ord(",")] = 1250
     parser.state.sfcode[ord(".")] = 3000
     parser.state.sfcode[ord(")")] = 0
+    return parser
+
+
+@pytest.fixture()
+def example_tex(parser):
+    parser.resolver.in_memory_files["example.tex"] = InMemoryTextFile("Hello, world!\n")
     return parser

@@ -6,12 +6,6 @@ from pytex import macro
 
 
 @pytest.fixture()
-def example_tex(parser):
-    parser.resolver.in_memory_files["example.tex"] = InMemoryTextFile("Hello, world!\n")
-    return parser
-
-
-@pytest.fixture()
 def read_tex(parser):
     parser.resolver.in_memory_files["read.tex"] = InMemoryTextFile("123{4\n56}7}8")
     return parser

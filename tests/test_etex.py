@@ -2,6 +2,8 @@ import pytest
 from pytex import etex
 from pytex import conditional
 from pytex import texlive
+from pytex import macro
+from pytex import token
 
 
 def test_numexpr(collector):
@@ -84,3 +86,17 @@ def test_gluestretchness(collector):
     assert collector.getString() == "3"
     collector.parse("\\the\\glueshrink\\skip0")
     assert collector.getString() == "2.0pt"
+
+def test_readline(example_tex):
+    example_tex.parse("\\openin 0=example \\readline 0 to \\a\\closein 0")
+    s = "Hello, world!\r"
+    a = example_tex.state.equitable["\\a"]
+    assert isinstance(a, macro.Macro)
+    print(a.replacement)
+    assert len(a.replacement) == len(s)
+    i = iter(a.replacement)
+    for c in s:
+        r = next(i)
+        assert c == r.name
+        cat = token.CATCODE.SPACE if r.name == " " else token.CATCODE.OTHER
+        assert r.catcode == cat

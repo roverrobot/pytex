@@ -521,8 +521,11 @@ class ReadlineOp(file.ReadOp):
         if file is None or file.closed:
             raise FileNotFoundError(f"file {self.file_id} is not open")
         line = file.readline()
+        endlinechar = parser.state.parameters["endlinechar"]
         if line and line[-1] == "\n":
-            line = line[:-1] + "\r"
+            line = line[:-1]
+        if 0 <= endlinechar <= 255:
+            line = line + chr(endlinechar)
         toks = expandable.toToks(line)
         return macro.Macro([[]], toks)
 

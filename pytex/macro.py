@@ -75,7 +75,7 @@ class MacroScanner:
         for i in range(len(self.args)):
             args.append(f"#{i+1}<-" + "".join([tokenToString(t, "\\", True) for t in self.args[i]]))
         s = "\n  ".join(args)
-        return f"{self.name}: {super().__repr__()}\n  {s})" 
+        return f"{self.name}: {super().__repr__()}\n  {s}" 
 
 
 def toString(toks):
@@ -112,13 +112,14 @@ class Macro(Command):
             }
         }
 
-    def parameters(self):
+    @staticmethod
+    def parameters(brackets):
         """
         return the parameters of the macro
         """
-        result = self.brackets[0].copy()
+        result = brackets[0].copy()
         arg = 0
-        for b in self.brackets[1:]:
+        for b in brackets[1:]:
             t = ParameterToken("#", CATCODE.PARAMETER)
             t.parameter = arg
             arg += 1
@@ -126,14 +127,16 @@ class Macro(Command):
             result.extend(b)
         return result
 
-    def __repr__(self):
-        long = "\\long " if self.long else ""
-        outer = "\\outer " if self.outer else ""
-        protected = "\\protected " if self.protected else ""
-        return f"{long}{outer}{protected}{toString(self.parameters())}->{toString(self.replacement)}"
-
-    def meaning(self, parser):
-        return str(self)
+    @classmethod
+    def showmeaning(cls, macro):
+        long, outer, protected, brackets, replacement = macro
+        long = "\\long " if long else ""
+        outer = "\\outer " if outer else ""
+        protected = "\\protected " if protected else ""
+        return f"{long}{outer}{protected}macro:{toString(cls.parameters(brackets))}->{toString(replacement)}"
+    
+    def meaning(self):
+        return Macro, (self.long, self.outer, self.protected, self.brackets, self.replacement)
 
     def matchDelimited(self, parser, bracket):
         """
@@ -221,14 +224,8 @@ class Macro(Command):
         # only if the replacement text is not empty
         if self.replacement:
             scanner = MacroScanner(parser, self.replacement, args)
-            scanner.name = self.name
+            scanner.name = self
             # scanner is already pushed onto the stack
-    
-    def __eq__(self, other):
-        # this is used by the \\ifx command to compare two macros
-        if isinstance(other, Macro):
-            return self.brackets == other.brackets and self.replacement == other.replacement
-        return False
 
 
 class MacroAccessor(Accessor):

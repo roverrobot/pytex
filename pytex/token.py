@@ -65,9 +65,28 @@ class Command(serialization.Serializable):
     # the expanded method.
     expanded = None
 
-    # the meaning of the command, as returned by \meaning
-    def meaning(self, parser):
-        return self.name + " " if self.name is not None else ""
+    @classmethod
+    def showmeaning(cls, command):
+        """
+        return a string representation of the meaning of the command. 
+        @param token: the command
+        @return: the meaning of the command
+        
+        This is used to define the \\meaning command
+        """
+        if command:
+            return command.name if command.name else "noname"
+        return "undefined"
+
+    def meaning(self):
+        """
+        get the meaning of the command.
+        @return the class, and the representation values
+
+        The is used to implement both \meaning and \ifx (for comparison).
+        For \ifx, if both tokens return the same meaning, then they are the same.
+        """
+        return Command, self
 
     def execute(self, parser):
         """
@@ -76,13 +95,13 @@ class Command(serialization.Serializable):
         """
         pass
 
-    @classmethod
-    def showmeaning(cls, command):
+    def __repr__(self):
         """
-        show the meaning of the command.
-        @param parser: the parser
+        return a string representation of the command.
+        @return: the string representation of the command
         """
-        return command.name
+        cls, value = self.meaning()
+        return cls.showmeaning(value)
 
 
 class Token(Command):
@@ -100,20 +119,24 @@ class Token(Command):
     # the token is not a command
     is_command = False
 
-    def __repr__(self):
-        return f"{self.name}({self.catcode})"
+    @classmethod
+    def showmeaning(cls, token):
+        """
+        get the meaning of the command. This is used to define the \\meaning command
+        @param token: the command
+        @return: the meaning of the command
+        """
+        name, catcode = token
+        return f"{name}({catcode})"
     
-    def __eq__(self, other):
-        if not isinstance(other, Token):
-            return False
-        return self.name == other.name and self.catcode == other.catcode
-
     # not expandable by default
     expand = None
 
-    # the meaning of the token, as returned by \meaning
-    def meaning(self, parser):
-        return str(self)
+    def meaning(self):
+        return Token, (self.name, self.catcode)
+    
+    def __eq__(self, other):
+        return self.meaning() == other.meaning()
 
     def execute(self, parser):
         """
@@ -203,19 +226,16 @@ class CommandToken(Token):
         @return: None
         """
         return None
-
-    def __repr__(self):
-        return f"{self.name} "
     
-    def meaning(self, parser):
+    def meaning(self):
         """
         Get the meaning of the command.
         @param parser: the parser
         @return: the meaning of the command
         """
         if self.definition is None:
-            return "undefined"
-        return self.definition.meaning(parser)
+            return Command, None
+        return self.definition.meaning()
 
 
 class ActiveToken(CommandToken):
@@ -231,6 +251,16 @@ class ActiveToken(CommandToken):
         @return: the char value
         """
         return self.name
+
+    def meaning(self):
+        """
+        Get the meaning of the command.
+        @param parser: the parser
+        @return: the meaning of the command
+        """
+        if self.noexpand:
+            return Token, (self.name, self.catcode)
+        return super().meaning()
 
 
 class ParameterToken(Token):

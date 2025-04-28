@@ -152,7 +152,7 @@ class Parser:
         if not self.checkRange():
             return
         if self.tracingcommands > 1 and t.definition is not None:
-            meaning = str(t)
+            meaning = str(t.definition)
         else:
             meaning = ""
         self.message(f"{mode} {t.name} at {self.input.position()}: {meaning}\n")

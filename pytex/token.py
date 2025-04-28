@@ -76,6 +76,14 @@ class Command(serialization.Serializable):
         """
         pass
 
+    @classmethod
+    def showmeaning(cls, command):
+        """
+        show the meaning of the command.
+        @param parser: the parser
+        """
+        return command.name
+
 
 class Token(Command):
     """

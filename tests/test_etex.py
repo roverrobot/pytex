@@ -92,7 +92,6 @@ def test_readline(example_tex):
     s = "Hello, world!\r"
     a = example_tex.state.equitable["\\a"]
     assert isinstance(a, macro.Macro)
-    print(a.replacement)
     assert len(a.replacement) == len(s)
     i = iter(a.replacement)
     for c in s:

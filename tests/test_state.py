@@ -78,6 +78,9 @@ def test_parser_group(parser):
     checkValues(parser, "\\count0=1\\begingroup\\count0=2", [("count", 0, 2)])
     checkValues(parser, "\\endgroup", [("count", 0, 1)])
 
+def test_parser_group_multilevel(parser):
+    checkValues(parser, "\\catcode32=9\\begingroup\\begingroup\\catcode32=10", [("catcode", 32, 10)])
+    checkValues(parser, "\\endgroup\\endgroup", [("catcode", 32, 9)])
 
 def test_parser_group_mismatch(parser):
     try:

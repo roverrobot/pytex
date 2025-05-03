@@ -201,9 +201,13 @@ class Domain:
         @param: the value
         """
         if value is None:
-            del self[index]
+            del self.values[index]
+            if self.changed is not None:
+                del self.changed[index]
         else:
-            self[index] = value
+            self.values[index] = value
+            if self.changed is not None:
+                self.changed[index] = value
             
     def dump(self):
         """

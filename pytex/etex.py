@@ -468,10 +468,12 @@ class Unless(token.Command):
         if t.is_command:
             c = t.definition
             if isinstance(c, conditional.Conditional) and not isinstance(c, conditional.IfCase):
+                if parser.tracingcommands > 0:
+                    parser.trace(t, "expand")
                 unless = UnlessConditional(c)
                 unless.expand(parser)
                 return
-        raise ValueError(f"You cannot use \\unless in front of {t}", parser.input.position())
+        raise ValueError(f"You cannot use \\unless in front of {t.name}", parser.input.position())
 
 class Protected(accessor.Prefix):
     """

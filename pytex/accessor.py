@@ -225,8 +225,8 @@ class Prefix(token.Command):
         t = parser.token()
         if t is None or not t.is_command or not hasattr(t.definition, "assign"):
             raise ValueError("expecting an assignment", pos)
-        if parser.tracingcommands > 0 and parser.checkRange():
-            parser.message("executing", t.name)
+        if parser.tracingcommands > 0:
+            parser.trace(t, "execute")
         t.definition.assign(parser, prefixes)
 
     def execute(self, parser):

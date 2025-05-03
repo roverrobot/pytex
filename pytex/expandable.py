@@ -49,7 +49,7 @@ class ExpandAfter(Command):
             if definition is None:
                 raise ValueError(f"undefined command {t1.name}", parser.input.position())
             if definition.expand is not None:
-                if parser.tracingcommands:
+                if parser.tracingcommands > 0:
                     parser.trace(t1, "expand")
                 definition.expand(parser)
                 parser.input.unread(t)

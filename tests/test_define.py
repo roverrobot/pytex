@@ -19,7 +19,7 @@ def test_let(collector):
 
 def test_futurelet(collector):
     collector.parse("\\futurelet\\a01\\a")
-    assert collector.getString() == "01"
+    assert collector.getString() == "011"
 
 def test_chardef(collector):
     checkValues(collector, "\\chardef\\a=`a \\a\\count0=\\a", [["count", 0, ord("a")]])

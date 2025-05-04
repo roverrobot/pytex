@@ -62,9 +62,7 @@ class LetAccessor(accessor.Accessor):
         t = parser.token()
         if t is None:
             raise ValueError("a token is expected")
-        if t.is_command:
-            return t.definition
-        return t
+        return t.definition if t.is_command else t
 
 
 class Let(Define):
@@ -72,8 +70,7 @@ class Let(Define):
     the \\let command
     """
     def newItemAccessor(self, index):
-        accessor = LetAccessor(self.domain, index)
-        return accessor
+        return LetAccessor(self.domain, index)
 
 
 class FutureLetAccessor(LetAccessor):
@@ -97,9 +94,9 @@ class FutureLetAccessor(LetAccessor):
         t2 = parser.token()
         if t2 is None:
             raise ValueError("\\futurelet expects two tokens")
-        parser.input.unread(t1)
         parser.input.unread(t2)
-        return super().readValue(parser)
+        parser.input.unread(t1)
+        return t2.definition if t2.is_command else t2
 
 
 class FutureLet(Define):

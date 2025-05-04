@@ -203,12 +203,9 @@ class Scanner:
                 return None
             self.column = self.tokenizer.pos
             t = self.tokenizer.read()
-            if t is None:
-                self.feed()
-                if self.tokenizer is None:
-                    return None
-                return self.read()
-            return t
+            if t:
+                return t
+            self.feed()
 
     def end(self):
         """

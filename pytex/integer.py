@@ -4,7 +4,7 @@ This module handles reading and processing integers.
 
 
 import typing
-from pytex.token import CATCODE
+from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.state import Array
 from pytex.accessor import Accessor, ArrayAccessor
@@ -285,6 +285,36 @@ class MathCode(Array):
             self[c] = c + 0x7000
 
 
+class ReadOnlyInteger(Command, IntegerCommand):
+    """
+    The base class that returns an integer
+    """
+    def execute(self, parser):
+        raise ValueError(f"improper use of {self.name}")
+
+
+class FixedInteger(ReadOnlyInteger):
+    """
+    A command returns a read-only integer
+    @param value the integer value
+    """
+    def __init__(self, value):
+        self.value = value
+
+    def getValue(self, parser):
+        return self.value
+
+
+class InputLineNo(ReadOnlyInteger):
+    """
+    \inputlineno, which returns the current line number in the soruce file
+    """
+    def getValue(self, parser):
+        # the line number is the current line number
+        pos = parser.input.position()
+        return pos.line
+
+
 module = Module("integer", 
     attributes={"readInteger": readInteger},
     parameters={
@@ -352,5 +382,8 @@ module = Module("integer",
         "delcode": {"generator": lambda: Array(-1), "accessor": IntegerArrayAccessor},
         "mathcode": {"generator": MathCode, "accessor": IntegerArrayAccessor},
         "count": {"generator": lambda: Array(0), "accessor": IntegerArrayAccessor},
-    }
+    },
+    commands={
+        "inputlineno": InputLineNo(),
+    },
 )

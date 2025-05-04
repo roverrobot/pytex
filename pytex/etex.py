@@ -9,7 +9,7 @@ by importing it.
 from pytex import token as tk
 from pytex.module import Module
 from pytex.lists import ModeDependentCommand
-from pytex.integer import IntegerCommand, IntegerAccessor
+from pytex.integer import IntegerCommand, IntegerAccessor, ReadOnlyInteger, FixedInteger
 from pytex.dimen import DimenCommand, Dimen
 from pytex.glue import GlueCommand
 from pytex.toks import ToksAccessor, The
@@ -186,26 +186,6 @@ class Mark(Marks):
     """
     def getIndex(self, parser):
         return 0
-
-
-class ReadOnlyInteger(token.Command, IntegerCommand):
-    """
-    The base class that returns an integer
-    """
-    def execute(self, parser):
-        raise ValueError(f"improper use of {self.name}")
-
-
-class FixedInteger(ReadOnlyInteger):
-    """
-    A command returns a read-only integer
-    @param value the integer value
-    """
-    def __init__(self, value):
-        self.value = value
-
-    def getValue(self, parser):
-        return self.value
 
 
 class StringCommand(token.Command):

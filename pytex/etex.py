@@ -188,35 +188,39 @@ class Mark(Marks):
         return 0
 
 
-class IntegerValuedCommand(token.Command, IntegerCommand):
+class ReadOnlyInteger(token.Command, IntegerCommand):
     """
-    An integer valued command
+    The base class that returns an integer
     """
     def execute(self, parser):
         raise ValueError(f"improper use of {self.name}")
-    
+
+
+class FixedInteger(ReadOnlyInteger):
+    """
+    A command returns a read-only integer
+    @param value the integer value
+    """
+    def __init__(self, value):
+        self.value = value
+
     def getValue(self, parser):
-        raise NotImplementedError("this method should be implemented by subclasses")
-    
-
-class ETeXVersion(IntegerValuedCommand):
-    """
-    The \\eTeXversion command
-    """
-    def getValue(self, parser):
-        return int(version.split(".")[0])
+        return self.value
 
 
-class ETeXRevision:
+class StringCommand(token.Command):
     """
-    The \\eTeXrevision command
+    A command that expands to a list of tokens in a string
+    @param s the string to expand to
     """
+    def __init__(self, s):
+        self.toks = expandable.toToks(s)
+
     def expand(self, parser):
-        s = "."+".".join(version.split(".")[1:])
-        toks = expandable.toToks(s)
-        parser.input.push(lexer.TokenListScanner(toks))
+        parser.input.push(lexer.TokenListScanner(self.toks))
 
-class LastNodeType(IntegerValuedCommand):
+
+class LastNodeType(ReadOnlyInteger):
     """
     The \\lastnodetype command
     """
@@ -227,7 +231,7 @@ class LastNodeType(IntegerValuedCommand):
         return top[-1].node_type
     
 
-class CurrentGroupType(IntegerValuedCommand):
+class CurrentGroupType(ReadOnlyInteger):
     """
     The \\currentgrouptype command
     """
@@ -238,7 +242,7 @@ class CurrentGroupType(IntegerValuedCommand):
         return groups[-1].group_type
     
 
-class CurrentGroupLevel(IntegerValuedCommand):
+class CurrentGroupLevel(ReadOnlyInteger):
     """
     The \\currentgrouplevel command
     """
@@ -246,7 +250,7 @@ class CurrentGroupLevel(IntegerValuedCommand):
         return len(parser.state.groups)
 
 
-class CurrentIfLevel(IntegerValuedCommand):
+class CurrentIfLevel(ReadOnlyInteger):
     """
     The \\currentiflevel command
     """
@@ -254,7 +258,7 @@ class CurrentIfLevel(IntegerValuedCommand):
         return len(parser.state.ifs)
     
 
-class CurrentIfType(IntegerValuedCommand):
+class CurrentIfType(ReadOnlyInteger):
     """
     The \\currentiftype command
     """
@@ -287,7 +291,7 @@ class CurrentIfType(IntegerValuedCommand):
         return self.if_types.index(parser.state.ifs[-1].name[1:])
 
 
-class CurrentIfBranch(IntegerValuedCommand):
+class CurrentIfBranch(ReadOnlyInteger):
     """
     The \\currentifbranch command
     """
@@ -295,7 +299,7 @@ class CurrentIfBranch(IntegerValuedCommand):
         raise NotImplementedError()
     
 
-class GlueOrder(IntegerValuedCommand):
+class GlueOrder(ReadOnlyInteger):
     """
     The \\gluestretchorder and \\glueshrinkorder commands
     """
@@ -310,7 +314,7 @@ class GlueOrder(IntegerValuedCommand):
         return getattr(glue, self.field).order
 
 
-class Penalties(IntegerValuedCommand):
+class Penalties(ReadOnlyInteger):
     """
     the \\interlinepenalties etc commands
     """
@@ -563,7 +567,8 @@ mod = Module("etex",
         "muexpr": MuExpr(),
         "marks": Marks(),
         "mark": Mark(),
-        "eTeXversion": ETeXVersion(),
+        "eTeXversion": FixedInteger(int(version.split(".")[0])),
+        "eTexrevision": StringCommand("."+".".join(version.split(".")[1:])),
         "lastnodetype": LastNodeType(),
         "currentgrouptype": CurrentGroupType(),
         "currentgrouplevel": CurrentGroupLevel(),

@@ -12,6 +12,7 @@ from pytex.module import Module
 from pytex.integer import IntegerAccessor
 from pytex import dimen
 
+version = "140.24"
 
 mod = Module("pdftex", 
     parameters={
@@ -29,5 +30,9 @@ mod = Module("pdftex",
         "pdfpageheight": {"value": dimen.Dimen(), "accessor": dimen.DimenAccessor, "domain": "parameters"},
         "pdfhorigin": {"value": dimen.Dimen(72.27), "accessor": dimen.DimenAccessor, "domain": "parameters"},
         "pdfvorigin": {"value": dimen.Dimen(72.27), "accessor": dimen.DimenAccessor, "domain": "parameters"},
+    },
+    commands={
+        "pdftexversion": etex.FixedInteger(int(version.split(".")[0])),
+        "pdftexrevision": etex.StringCommand(version.split(".")[1]),
     }
 )

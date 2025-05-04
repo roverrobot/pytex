@@ -194,7 +194,11 @@ class StringCommand(token.Command):
     @param s the string to expand to
     """
     def __init__(self, s):
+        self.s = s
         self.toks = expandable.toToks(s)
+
+    def saveInfo(self):
+        return {"init": {"s": self.s}}
 
     def expand(self, parser):
         parser.input.push(lexer.TokenListScanner(self.toks))
@@ -526,6 +530,9 @@ class Readline(file.FileCommand):
     """
     def __init__(self):
         super().__init__(immediate=True)
+
+    def saveInfo(self):
+        return {}
 
     def fileOp(self, parser, file_id):
         if file_id < 0 or file_id >= len(parser.state.globals["openin"]):

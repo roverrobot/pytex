@@ -227,6 +227,9 @@ class Open(FileCommand):
         super().__init__(immediate=input)
         self.input = input
 
+    def saveInfo(self):
+        return {"init": {"input": self.input}}
+    
     def fileOp(self, parser, file_id):
         if file_id < 0 or file_id >= 16:
             raise ValueError(f"file number out of range: {file_id}", parser.input.position())
@@ -268,6 +271,9 @@ class Read(FileCommand):
     """
     def __init__(self):
         FileCommand.__init__(self, immediate=True)
+
+    def saveInfo(self):
+        return {}
 
     def fileOp(self, parser, file_id):
         if file_id < 0 or file_id >= len(parser.state.globals["openin"]):

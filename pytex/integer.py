@@ -206,7 +206,7 @@ class IntegerArrayAccessor(IntegerCommand, ArrayAccessor):
         self.range = range
 
     def saveInfo(self):
-        return super().saveInfo() | {"init": {"range": self.range}}
+        return super().saveInfo() | {"init": {"domain": self.domain, "range": self.range}}
 
     def newItemAccessor(self, index):
         return IntegerAccessor(self.domain, index, self.range)
@@ -231,6 +231,9 @@ class CatCode(Array):
 class CatCodeArrayAccessor(IntegerArrayAccessor):
     def __init__(self, domain="catcode"):
         super().__init__(domain, range=(0, 15))
+
+    def saveInfo(self):
+        return {"init": {"domain": "catcode"}}
 
 
 class LCCode(Array):
@@ -301,6 +304,9 @@ class FixedInteger(ReadOnlyInteger):
     def __init__(self, value):
         self.value = value
 
+    def saveInfo(self):
+        return {"init": {"value": self.value}}
+    
     def getValue(self, parser):
         return self.value
 

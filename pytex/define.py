@@ -10,6 +10,7 @@ from pytex.dimen import DimenArrayAccessor
 from pytex.glue import GlueArrayAccessor, MuGlueArrayAccessor
 from pytex.toks import ToksArrayAccessor
 from pytex import token
+from pytex import serialization
 
 
 class Define(accessor.ArrayAccessor):
@@ -19,6 +20,9 @@ class Define(accessor.ArrayAccessor):
     """
     def __init__(self):
         super().__init__("equitable")
+
+    def saveInfo(self):
+        return {}
 
     def default(self):
         """
@@ -184,7 +188,7 @@ class RegisterDef(Define):
     @classmethod
     def new(cls, parser, register, value_type):
         module, name = value_type
-        value_type = token.getClass(module, name)
+        value_type = serialization.getClass(module + "." + name)
         return cls(register, value_type)
     
     def getItemAccessor(self, parser, index):

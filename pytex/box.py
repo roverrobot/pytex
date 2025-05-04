@@ -308,6 +308,9 @@ class SetBox(ArrayAccessor):
     """
     def __init__(self):
         super().__init__("box")
+
+    def saveInfo(self):
+        return {}
     
     def getValue(self, parser):
         raise ValueError("\\setbox does not return a box")
@@ -440,6 +443,9 @@ class VBoxCommand(BuildBox):
     """
     def __init__(self, vtop):
         self.vtop = vtop
+
+    def saveInfo(self):
+        return {"init": {"vtop": self.vtop}}
 
     def list(self, parser):
         return vmode.VList(parser)

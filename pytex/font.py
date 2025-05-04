@@ -139,6 +139,9 @@ class FontChar(IntegerArrayAccessor):
         super().__init__(None)
         self.field = field
 
+    def saveInfo(self):
+        return {"init": {"field": self.field}}
+
     def getIndex(self, parser):
         return readFont(parser)
     

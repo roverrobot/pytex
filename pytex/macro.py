@@ -129,14 +129,13 @@ class Macro(Command):
 
     @classmethod
     def showmeaning(cls, macro):
-        long, outer, protected, brackets, replacement = macro
-        long = "\\long " if long else ""
-        outer = "\\outer " if outer else ""
-        protected = "\\protected " if protected else ""
-        return f"{long}{outer}{protected}macro:{toString(cls.parameters(brackets))}->{toString(replacement)}"
+        long = "\\long " if macro.long else ""
+        outer = "\\outer " if macro.outer else ""
+        protected = "\\protected " if macro.protected else ""
+        return f"{long}{outer}{protected}macro:{toString(cls.parameters(macro.brackets))}->{toString(macro.replacement)}"
     
     def meaning(self):
-        return Macro, (self.long, self.outer, self.protected, self.brackets, self.replacement)
+        return Macro, self
 
     def matchDelimited(self, parser, bracket):
         """
@@ -226,6 +225,33 @@ class Macro(Command):
             scanner = MacroScanner(parser, self.replacement, args)
             scanner.name = self
             # scanner is already pushed onto the stack
+
+    @classmethod
+    def compareTokens(cls, l1, l2):
+        """
+        compare two lists of tokens at the first level
+        @param l1: the first list
+        @param l2: the second list
+        @return: True if the lists are equal, False otherwise
+        """
+        if len(l1) != len(l2):
+            return False
+        for t1, t2 in zip(l1, l2):
+            if t1.catcode != t2.catcode or t1.name != t2.name:
+                return False
+        return True
+
+    def __eq__(self, other):
+        if not isinstance(other, Macro):
+            return False
+        if self.long != other.long or self.outer != other.outer or self.protected != other.protected:
+            return False
+        if len(self.brackets) != len(other.brackets):
+            return False
+        for b1, b2 in zip(self.brackets, other.brackets):
+            if not self.compareTokens(b1, b2):
+                return False
+        return self.compareTokens(self.replacement, other.replacement)
 
 
 class MacroAccessor(Accessor):

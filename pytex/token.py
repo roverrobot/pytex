@@ -102,6 +102,14 @@ class Command(serialization.Serializable):
         """
         cls, value = self.meaning()
         return cls.showmeaning(value)
+    
+    def __eq__(self, other):
+        """
+        compare the command with another command.
+        @param other: the other command
+        @return: True if the commands are equal, False otherwise
+        """
+        return self is other
 
 
 class Token(Command):

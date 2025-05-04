@@ -47,6 +47,8 @@ def test_misplaced_or(parser):
 def test_ifx(collector):
     collector.parse("\\def\\a{a}\\def\\b{a}\\ifx\\a\\b a\\else b\\fi")
     assert collector.getString() == "a"
+    collector.parse("\\def\\a{\\b}\\def\\b{\\a}\\ifx\\a\\b a\\else b\\fi")
+    assert collector.getString() == "b"
     collector.parse("\\def\\a{0}\\ifx\\a 0 a\\else b\\fi")
     assert collector.getString() == "b"
     collector.parse("\\ifx\\undefined\\nosuchcommand a\\else b\\fi")

@@ -151,3 +151,12 @@ def test_ignore(state):
     assert t.catcode == CATCODE.SPACE
     t = scanner.read()
     assert t is None
+
+
+def test_command(state):
+    scanner = lexer.StringScanner(state, "\\: ")
+    t = scanner.read()
+    assert t is not None
+    assert t.catcode is None and t.name == "\\:"
+    t = scanner.read()
+    assert t.isSpace(False)

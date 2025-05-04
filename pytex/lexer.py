@@ -130,14 +130,15 @@ class Tokenizer:
             return Token.token(c, catcode)
         c, catcode = self.charExpand()
         name = "\\" + c
-        c, catcode = self.charExpand()
-        while catcode == CATCODE.LETTER:
-            name += c
+        if catcode == CATCODE.LETTER:
             c, catcode = self.charExpand()
-        if catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
-            self.skipSpaces()
-        else:
-            self.unread(c)
+            while catcode == CATCODE.LETTER:
+                name += c
+                c, catcode = self.charExpand()
+            if catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
+                self.skipSpaces()
+            else:
+                self.unread(c)
         return CommandToken(name)
 
 

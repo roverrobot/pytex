@@ -219,7 +219,7 @@ def test_protected(collector):
 
 def test_ignore(collector):
     collector.parse("\\catcode32=9\\def\\ {1}\\ ")
-    assert collector.getString() == "1"
+    assert collector.getString() == "1 "
 
 def test_macro_balanced(parser):
     parser.parse("\\catcode`^^@=2 \\catcode`:=11 \\catcode`_=11 \\catcode32=9\\def\\a{ \\exp:w \\if_false: { \\fi: `^^@ \\exp_stop_f: }")

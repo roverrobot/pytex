@@ -30,6 +30,7 @@ from pytex import paragraph
 from pytex import align
 from pytex import hyphen
 from pytex import misc
+from pytex import tracing
 
 
 class Parser:
@@ -61,8 +62,6 @@ class Parser:
         self.dumper = None
         # tracing settings
         self.state.domains["tracing"].values.attach(self)
-        self.tracinglinerange = None
-
     
     def getLogFile(self):
         """
@@ -127,35 +126,6 @@ class Parser:
                     continue
             return t
 
-    def checkRange(self):
-        if self.tracinglinerange is not None:
-            if len(self.tracinglinerange) == 2:
-                start, end = self.tracinglinerange
-                stop = False
-            else:
-                start, end, stop = self.tracinglinerange
-            pos = self.input.position()
-            if start is not None and pos.line < start:
-                return False
-            if end is not None and pos.line > end:
-                if stop:
-                    self.run = False
-                return False
-        return True
-
-    def trace(self, t, mode: str):
-        """
-        trace the commands being expanded or executed
-        @param t: the token being expanded
-        @param mode: "expand" or "execute"
-        """
-        if not self.checkRange():
-            return
-        if self.tracingcommands > 1 and t.definition is not None:
-            meaning = str(t.definition)
-        else:
-            meaning = ""
-        self.message(f"{mode} {t.name} at {self.input.position()}: {meaning}\n")
 
     def parse(self, input, name: typing.Optional[str] = None):
         """

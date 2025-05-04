@@ -26,9 +26,15 @@ args = argparser.parse_args()
 
 
 parser = Parser()
+
+# tracing settings
 #parser.tracingcommands = 2
 #parser.tracingmacros = 1
-#parser.tracinglinerange = None#(32088, None)
+#parser.tracingsource = "latex.ltx"
+#parser.tracinglinebegin = 1670
+#parser.tracinglineend = 1670
+#parser.tracingstopatend = 1
+
 
 def dumper(data):
     with open(parser.resolver.format+'.json', "w") as fmt:

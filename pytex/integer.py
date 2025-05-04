@@ -285,28 +285,6 @@ class MathCode(Array):
             self[c] = c + 0x7000
 
 
-class Proxy(dict):
-    """
-    A proxy to change other objects
-    """
-    def __init__(self):
-        self.obj = None
-
-    def attach(self, obj):
-        """
-        attacht to an object
-        """
-        self.obj = obj
-        if obj is not None:
-            for key, value in self.items():
-                setattr(obj, key,value)
-
-    def __setitem__(self, key, value):
-        super().__setitem__(key, value)
-        if self.obj is not None:
-            setattr(self.obj, key, value)
-
-
 module = Module("integer", 
     attributes={"readInteger": readInteger},
     parameters={
@@ -355,16 +333,6 @@ module = Module("integer",
         "errorcontextlines": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
         "defaulthyphenchar": {"value": ord("-"), "accessor": IntegerAccessor, "domain": "parameters"},
         "defaultskewchar": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        # debug facilities
-        "tracingonline": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
-        "tracingmacros": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
-        "tracingstats": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
-        "tracingparagraphs": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
-        "tracingpages": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
-        "tracingoutput": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
-        "tracinglostchars": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
-        "tracingcommands": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
-        "tracingrestores": {"value": 0, "accessor": IntegerAccessor, "domain": "tracing"},
         # volatile parameters
         "time": {"value": 0, "accessor": IntegerAccessor, "domain": "volatile"},
         "day": {"value": 0, "accessor": IntegerAccessor, "domain": "volatile"},
@@ -384,6 +352,5 @@ module = Module("integer",
         "delcode": {"generator": lambda: Array(-1), "accessor": IntegerArrayAccessor},
         "mathcode": {"generator": MathCode, "accessor": IntegerArrayAccessor},
         "count": {"generator": lambda: Array(0), "accessor": IntegerArrayAccessor},
-        "tracing": {"generator": Proxy, "accessor": IntegerArrayAccessor},
     }
 )

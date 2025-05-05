@@ -45,12 +45,12 @@ if args.format == "initex":
     if os.path.isabs(args.file):
         raise ValueError("The file must be a relative path")
     path = Path(args.file)
-    parts = Path(args.file).parts
+    parts = path.parts
     file = parts[-1] if len(parts) > 1 else parts[0]
     file_parts = os.path.splitext(file)
     parser.resolver.format = file_parts[0]
     source = args.file
-    if len(file_parts) > 1 and parser.resolver.format != "plain": # no extension
+    if len(file_parts) > 1 and file_parts[1] == "" and parser.resolver.format != "plain": # no extension
         source += ".ini"
     print(f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.json")
 else:
@@ -61,6 +61,9 @@ else:
     source = args.file
 
 input = parser.resolver.openIn(source, "source")
+if input is None:
+    raise ValueError(f"cannot find {source}")
+
 if args.profile:
     cProfile.run("parser.parse(input)")
     # no need tto dump. stop

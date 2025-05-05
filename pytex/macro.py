@@ -112,6 +112,13 @@ class Macro(Command):
             }
         }
 
+    @classmethod
+    def new(cls, parser, **kwargs):
+        """
+        create a new object from the dictionary
+        """
+        return cls(**kwargs)
+
     @staticmethod
     def parameters(brackets):
         """
@@ -327,14 +334,6 @@ class Def(Define):
         Define.__init__(self)
         self.globally = globally
         self.expand_body = expand_body
-    
-    def saveInfo(self):
-        return {
-            "init": {
-                "globally": self.globally,
-                "expand_body": self.expand_body
-            }
-        }
     
     def getItemAccessor(self, parser, index):
         p = MacroAccessor(self.domain, self.getIndex(parser))

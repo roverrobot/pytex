@@ -47,9 +47,6 @@ class Accessor(token.Command):
         self.domain = domain
         self.index = index
 
-    def saveInfo(self):
-        return {"init": {"domain": self.domain, "index": self.index}}
-
     def readEq(self, parser):
         """
         read the equal sign from the input stack
@@ -143,13 +140,6 @@ class ArrayAccessor(token.Command):
     def __init__(self, domain: str):
         self.domain = domain
     
-    def saveInfo(self):
-        return {
-            "init": {
-                "domain": self.domain
-            }
-        }
-
     def getIndex(self, parser):
         """
         read the index from the input stack

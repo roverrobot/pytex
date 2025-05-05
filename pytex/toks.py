@@ -175,9 +175,6 @@ class Case(Command):
     def __init__(self, upper: bool):
         self.upper = upper
 
-    def saveInfo(self):
-        return {"init": {"upper": self.upper}}
-
     def execute(self, parser):
         """
         execute the command

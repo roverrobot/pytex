@@ -136,9 +136,6 @@ class MathStyle(lists.ModeDependentCommand):
     def __init__(self, style):
         self.style = style
 
-    def saveInfo(self):
-        return {"init": {"style": self.style}}
-
     def math(self, parser, mlist):
         mlist.append(StyleNode(self.style))
 
@@ -414,6 +411,13 @@ class MathCharValue(lists.ModeDependentCommand):
     def saveInfo(self):
         return {"init": {"mathcode": self.mathcode}}
 
+    @classmethod
+    def new(cls, parser, **kwargs):
+        """
+        create a new object from the dictionary
+        """
+        return cls(**kwargs)
+
     def math(self, parser, mlist):
         mlist.append(self.mathCharValue(parser))
 
@@ -529,9 +533,6 @@ class MathAtom(lists.ModeDependentCommand):
     def __init__(self, atom_type):
         self.atom_type = atom_type
 
-    def saveInfo(self):
-        return {"init": {"atom_type": self.atom_type.value}}
-
     def math(self, parser, mlist):
         field = readField(parser)
         field.atom_type = self.atom_type
@@ -550,9 +551,6 @@ class Limits(lists.ModeDependentCommand):
     """
     def __init__(self, limits):
         self.limits = limits
-
-    def saveInfo(self):
-        return {"init": {"limits": self.limits.value}}
 
     def math(self, parser, mlist):
         if len(mlist) > 0:
@@ -741,9 +739,6 @@ class GeneralFraction(lists.ModeDependentCommand):
         self.bar = bar
         self.thickness = thickness
 
-    def saveInfo(self):
-        return {"init": {"bar": self.bar, "delim": self.delim, "thickness": self.thickness}}
-    
     def math(self, parser, mlist):
         # when TeX sees this command, it will change the current list to the numerator
         # Then it will start a new math list, and parse the denominator in the new list.
@@ -806,9 +801,6 @@ class Eqno(lists.ModeDependentCommand):
     def __init__(self, left: bool):
         self.left = left
 
-    def saveInfo(self):
-        return {"init": {"left": self.left}}
-
     def math(self, parser, mlist):
         # we must be at the bottom of the math lists
         enclosing = parser.lists[-2]
@@ -847,9 +839,6 @@ class VCenter(box.VBoxCommand):
     """
     def __init__(self):
         super().__init__(False)
-
-    def saveInfo(self):
-        return {}
 
     def execute(self, parser):
         top = parser.lists[-1]

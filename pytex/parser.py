@@ -39,6 +39,7 @@ class Parser:
     """
     def __init__(self):
         self.state = state.State()
+        self.builtin = {}
         # for now, characters and spaces are collected in a string
         for name, mod in ModuleManager.items():
             mod.populate(self)
@@ -62,6 +63,7 @@ class Parser:
         self.dumper = None
         # tracing settings
         self.state.domains["tracing"].values.attach(self)
+        # the builtin commands
     
     def getLogFile(self):
         """

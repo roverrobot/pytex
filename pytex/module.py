@@ -46,6 +46,7 @@ class Module:
                 name = "\\" + name
                 command.name = name
                 parser.state.equitable.setGlobal(name, command)
+                parser.builtin[name] = command
 
     def populateDomains(self, parser):
         """
@@ -57,7 +58,11 @@ class Module:
                 parser.state.addDomain(name, domain["generator"]())
                 accessor = domain["accessor"]
                 if accessor is not None:
-                    parser.state.equitable.setGlobal("\\"+name, accessor(name))
+                    command = accessor(name)
+                    name = "\\"+name
+                    command.name = name
+                    parser.state.equitable.setGlobal(name, command)
+                    parser.builtin[name] = command
 
     def populateAttributes(self, parser):
         """
@@ -88,9 +93,11 @@ class Module:
                 generator = item["accessor"]
                 if generator is not None:
                     accessor = generator(domain, name)
+                    name = "\\"+name
+                    accessor.name = name
                     if accessor is not None:
-                        parser.state.equitable.setGlobal("\\"+name, accessor)
-
+                        parser.state.equitable.setGlobal(name, accessor)
+                        parser.builtin[name] = accessor
 
     def populate(self, parser):
         """

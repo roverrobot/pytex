@@ -201,9 +201,6 @@ class FileCommand(token.Command):
     def __init__(self, immediate):
         self.immediate = immediate
     
-    def saveInfo(self):
-        return {"init": {"immediate": self.immediate}}
-
     def fileOp(self, parser, file_id):
         """
         Get the file operation
@@ -227,9 +224,6 @@ class Open(FileCommand):
         super().__init__(immediate=input)
         self.input = input
 
-    def saveInfo(self):
-        return {"init": {"input": self.input}}
-    
     def fileOp(self, parser, file_id):
         if file_id < 0 or file_id >= 16:
             raise ValueError(f"file number out of range: {file_id}", parser.input.position())
@@ -272,9 +266,6 @@ class Read(FileCommand):
     def __init__(self):
         FileCommand.__init__(self, immediate=True)
 
-    def saveInfo(self):
-        return {}
-
     def fileOp(self, parser, file_id):
         if file_id < 0 or file_id >= len(parser.state.globals["openin"]):
             raise ValueError(f"\\read does not support reading from console", parser.input.position())
@@ -305,9 +296,6 @@ class Message(token.Command):
     """
     def __init__(self, error: bool):
         self.error = error
-    
-    def saveInfo(self):
-        return {"init": {"error": self.error}}
     
     def write(self, parser, s):
         parser.message(s)

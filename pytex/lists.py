@@ -116,9 +116,6 @@ class IfMode(conditional.Conditional):
         super().__init__()
         self.mode = mode
     
-    def saveInfo(self):
-        return {"init": {"mode": self.mode}}
-
     def condition(self, parser):
         return 0 if parser.lists[-1].type == self.mode else 1
 
@@ -167,9 +164,6 @@ class Rule(ModeDependentCommand):
     """
     def __init__(self, vertical):
         self.vert = vertical
-
-    def saveInfo(self):
-        return {"init": {"vertical": self.vert}}
 
     def readRule(self, parser):
         if self.vert:
@@ -256,9 +250,6 @@ class GlueCommand:
         self.vert = vertical
         self.glue = glue
 
-    def saveInfo(self):
-        return {"init": {"glue": self.glue}}
-    
     def glueValue(self, parser):
         return parser.readGlue() if self.glue is None else self.glue
     
@@ -273,9 +264,6 @@ class Remove(Command):
     def __init__(self, node_type):
         self.node_type = node_type
 
-    def saveInfo(self):
-        return {"init": {"node_type": self.node_type}}
-    
     def execute(self, parser):
         top = parser.lists[-1]
         if len(top) > 0:

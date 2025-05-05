@@ -139,9 +139,6 @@ class FontChar(IntegerArrayAccessor):
         super().__init__(None)
         self.field = field
 
-    def saveInfo(self):
-        return {"init": {"field": self.field}}
-
     def getIndex(self, parser):
         return readFont(parser)
     
@@ -204,10 +201,7 @@ class FontDimen(DimenArrayAccessor):
     """
     def __init__(self):
         super().__init__(None)
-
-    def saveInfo(self):
-        return {}
-    
+   
     def getIndex(self, parser):
         """
         read the index from the input stack

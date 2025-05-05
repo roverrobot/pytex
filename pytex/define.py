@@ -5,10 +5,10 @@ This module implements command definition, such as \\let etc.
 
 from pytex import accessor
 from pytex.module import Module
-from pytex.integer import IntegerArrayAccessor
-from pytex.dimen import DimenArrayAccessor
-from pytex.glue import GlueArrayAccessor, MuGlueArrayAccessor
-from pytex.toks import ToksArrayAccessor
+from pytex.integer import IntegerAccessor
+from pytex.dimen import DimenAccessor
+from pytex.glue import GlueAccessor, MuGlueAccessor
+from pytex.toks import ToksAccessor
 from pytex import token
 from pytex import serialization
 
@@ -20,9 +20,6 @@ class Define(accessor.ArrayAccessor):
     """
     def __init__(self):
         super().__init__("equitable")
-
-    def saveInfo(self):
-        return {}
 
     def default(self):
         """
@@ -121,6 +118,13 @@ class CharDefValue(token.Command):
     def saveInfo(self):
         return {"init": {"value": self.value}}
     
+    @classmethod
+    def new(cls, parser, **kwargs):
+        """
+        create a new object from the dictionary
+        """
+        return cls(**kwargs)
+
     def execute(self, parser):
         return parser.addChar(self.charValue(parser))
     
@@ -157,6 +161,38 @@ class CharDef(Define):
         return CharDefAccessor(self.domain, index)
 
 
+class RegisterDefValue:
+    def saveInfo(self):
+        return {"init": {"domain": self.domain, "index": self.index}}
+    
+    @classmethod
+    def new(cls, parser, **kwargs):
+        """
+        create a new object from the dictionary
+        """
+        return cls(**kwargs)
+
+
+class CounrDefValue(RegisterDefValue, IntegerAccessor):
+    pass
+
+
+class DimenDefValue(RegisterDefValue, DimenAccessor):
+    pass
+
+
+class GlueDefValue(RegisterDefValue, GlueAccessor):
+    pass
+
+
+class MuGlueDefValue(RegisterDefValue, MuGlueAccessor):
+    pass
+
+
+class ToksDefValue(RegisterDefValue, ToksAccessor):
+    pass
+
+
 class RegisterDefAccessor(accessor.Accessor):
     """
     An accessor for the register definition commands
@@ -167,37 +203,28 @@ class RegisterDefAccessor(accessor.Accessor):
         @param parser: the parser
         """
         index = parser.readInteger()
-        return self.value_type.getItemAccessor(parser, index)
+        return self.generator(self.register, index)
 
 
 class RegisterDef(Define):
     """
     commands such as \\countdef \\skipdef etc.
     @param register: the name of the register
-    @param value_type: the generator for the register item
+    @param generator: the generator for the register item
     """
-    def __init__(self, register: str, value_type):
+    def __init__(self, register: str, generator):
         super().__init__()
         self.register = register
-        self.value_type = value_type(register)
+        self.generator = generator
 
-    def saveInfo(self):
-        value_type = self.value_type.__class__
-        return {"init": {"register": self.register, "value_type": (value_type.__module__, value_type.__name__)}}
-    
-    @classmethod
-    def new(cls, parser, register, value_type):
-        module, name = value_type
-        value_type = serialization.getClass(module + "." + name)
-        return cls(register, value_type)
-    
     def getItemAccessor(self, parser, index):
         """
         read the value from the input stack
         @param parser: the parser
         """
-        p = RegisterDefAccessor(self.domain, self.getIndex(parser))
-        p.value_type = self.value_type
+        p = RegisterDefAccessor("equitable", self.getIndex(parser))
+        p.generator = self.generator
+        p.register = self.register
         return p
 
 
@@ -206,10 +233,10 @@ mod = Module("define",
         "let": Let(),
         "futurelet": FutureLet(),
         "chardef": CharDef(),
-        "countdef": RegisterDef("count", IntegerArrayAccessor),
-        "dimendef": RegisterDef("dimen", DimenArrayAccessor),
-        "skipdef": RegisterDef("skip", GlueArrayAccessor),
-        "muskipdef": RegisterDef("muskip", MuGlueArrayAccessor),
-        "toksdef": RegisterDef("toks", ToksArrayAccessor),
+        "countdef": RegisterDef("count", CounrDefValue),
+        "dimendef": RegisterDef("dimen", DimenDefValue),
+        "skipdef": RegisterDef("skip", GlueDefValue),
+        "muskipdef": RegisterDef("muskip", MuGlueDefValue),
+        "toksdef": RegisterDef("toks", ToksDefValue),
     }
 )

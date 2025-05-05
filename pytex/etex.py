@@ -194,11 +194,7 @@ class StringCommand(token.Command):
     @param s the string to expand to
     """
     def __init__(self, s):
-        self.s = s
         self.toks = expandable.toToks(s)
-
-    def saveInfo(self):
-        return {"init": {"s": self.s}}
 
     def expand(self, parser):
         parser.input.push(lexer.TokenListScanner(self.toks))
@@ -290,9 +286,6 @@ class GlueOrder(ReadOnlyInteger):
     def __init__(self, field):
         self.field = field
 
-    def saveInfo(self):
-        return {"init": {"field": self.field}}
-
     def getValue(self, parser):
         glue = parser.readGlue()
         return getattr(glue, self.field).order
@@ -304,9 +297,6 @@ class Penalties(ReadOnlyInteger):
     """
     def __init__(self, penalties):
         self.penalties = penalties
-    
-    def saveInfo(self):
-        return {"init": {"penalties": self.penalties}}
 
     def getValue(self, parser):
         index = parser.readInteger()
@@ -347,9 +337,6 @@ class ParShapeDimen(DimenValuedCommand):
     def __init__(self, index):
         self.index = index
 
-    def saveInfo(self):
-        return {"init": {"index": self.index}}
-
     def getValue(self, parser):
         row = parser.readInteger()
         if row < 0:
@@ -373,9 +360,6 @@ class GlueStrechness(DimenValuedCommand):
     def __init__(self, field):
         self.field = field
 
-    def saveInfo(self):
-        return {"init": {"field": self.field}}
-
     def getValue(self, parser):
         glue = parser.readGlue()
         return Dimen(getattr(glue, self.field).factor)
@@ -387,9 +371,6 @@ class FontCharDimen(DimenValuedCommand):
     """
     def __init__(self, field):
         self.field = field
-
-    def saveInfo(self):
-        return {"init": {"field": self.field}}
 
     def getValue(self, parser):
         f = font.readFont(parser)
@@ -530,9 +511,6 @@ class Readline(file.FileCommand):
     """
     def __init__(self):
         super().__init__(immediate=True)
-
-    def saveInfo(self):
-        return {}
 
     def fileOp(self, parser, file_id):
         if file_id < 0 or file_id >= len(parser.state.globals["openin"]):

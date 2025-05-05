@@ -109,9 +109,6 @@ class TabSkip(glue.GlueAccessor):
     def __init__(self):
         super().__init__("parameters", "tabskip")
 
-    def saveInfo(self):
-        return {}
-
 
 cr = Cr()
 crcr = CrCr()

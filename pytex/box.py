@@ -309,9 +309,6 @@ class SetBox(ArrayAccessor):
     def __init__(self):
         super().__init__("box")
 
-    def saveInfo(self):
-        return {}
-    
     def getValue(self, parser):
         raise ValueError("\\setbox does not return a box")
 
@@ -444,9 +441,6 @@ class VBoxCommand(BuildBox):
     def __init__(self, vtop):
         self.vtop = vtop
 
-    def saveInfo(self):
-        return {"init": {"vtop": self.vtop}}
-
     def list(self, parser):
         return vmode.VList(parser)
     
@@ -477,9 +471,6 @@ class BoxDimenCommand(DimenCommand, ArrayAccessor):
         self.dimen = dimen
         super().__init__("box")
 
-    def saveInfo(self):
-        return {"init": {"dimen": self.dimen}}
-
     def getItemAccessor(self, parser, index):
         if index is None:
             index = self.getIndex(parser)
@@ -498,9 +489,6 @@ class UnBox(Command):
         self.vertical = vertical
         self.wipe = wipe
 
-    def saveInfo(self):
-        return {"init": {"vertical": self.vertical, "wipe": self.wipe}}
-    
     def execute(self, parser):
         index = parser.readInteger()
         if not (0 <= index < len(parser.state.box.values)):
@@ -534,9 +522,6 @@ class Shift(ModeDependentCommand):
     def __init__(self, vertical: bool, direction: int):
         self.vertical = vertical
         self.direction = direction
-
-    def saveInfo(self):
-        return {"init": {"vertical": self.vertical, "direction": self.direction}}
 
     def horizontal(self, parser, hlist):
         if self.vertical:
@@ -659,9 +644,6 @@ class Leaders(Command):
     def __init__(self, type: LEADERS_TYPE):
         self.type = type
 
-    def saveInfo(self):
-        return {"init": {"type": self.type.value}}
-    
     def execute(self, parser):
         top = parser.lists[-1]
         # read a rule

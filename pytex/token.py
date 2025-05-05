@@ -65,6 +65,27 @@ class Command(serialization.Serializable):
     # the expanded method.
     expanded = None
 
+    def saveInfo(self):
+        """
+        save the command information. This is used to serialize the command.
+        @return: a dictionary with the command information
+        """
+        return {"init": {"name": self.name}}
+
+    @classmethod
+    def new(cls, parser, **kargs):
+        """
+        create a new command from the dictionary
+        @param parser: the parser
+        @param init: the command information
+        @return: the command
+        """
+        print("new command", cls, kargs)
+        name = kargs["name"]
+        if name is None:
+            raise ValueError("command name is required")
+        return parser.builtin[name]
+   
     @classmethod
     def showmeaning(cls, command):
         """
@@ -179,6 +200,17 @@ class Token(Command):
         if factory is None:
             raise ValueError("invalid category code: %d" % catcode)
         return factory(name, catcode)
+
+    @classmethod
+    def new(cls, parser, **kargs):
+        """
+        create a new command from the dictionary
+        @param parser: the parser
+        @param init: the command information
+        @return: the command
+        """
+        return cls(**kargs)
+    
 
 class BeginGroupToken(Token):
     """ a token that represents the beginning of a group {"""

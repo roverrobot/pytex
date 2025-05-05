@@ -10,12 +10,12 @@ def checkRange(parser):
     The tracing range is specified by tracingsource, tracinglinebegin, tracinglineend, tracingquitatend
     """
     pos = parser.input.position()
-    if parser.tracingsource != pos.file:
+    if parser.tracingsource and parser.tracingsource != pos.file:
         return False
-    if parser.tracinglinebegin and parser.tracinglinebegin > pos.line:
+    if parser.tracinglinebegin > 0 and parser.tracinglinebegin > pos.line:
         return False
-    if parser.tracinglineend and parser.tracinglineend < pos.line:
-        if parser.tracingquitatend:
+    if parser.tracinglineend > 0 and parser.tracinglineend < pos.line:
+        if parser.tracingquitatend > 0:
             parser.run = False
             # clear the ifstack
             parser.ifstack = []

@@ -80,7 +80,6 @@ class Command(serialization.Serializable):
         @param init: the command information
         @return: the command
         """
-        print("new command", cls, kargs)
         name = kargs["name"]
         if name is None:
             raise ValueError("command name is required")

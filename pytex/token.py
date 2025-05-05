@@ -277,6 +277,10 @@ class ParameterToken(Token):
     """
     # the parameter number
     parameter = None
+
+    def saveInfo(self):
+        return super().saveInfo() | {"extra": {"parameter": self.parameter}}
+
     def execute(self, parser):
         raise ValueError("unexpected #")
 

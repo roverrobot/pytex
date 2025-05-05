@@ -8,6 +8,11 @@ from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command
+from pytex.dimen import Dimen, DimenAccessor
+
+
+# initializer for prevdepth as -1000pt
+init_prevdepth = Dimen(-1000.0)
 
 
 class VList(lists.List):
@@ -18,6 +23,16 @@ class VList(lists.List):
     """
     def __init__(self, parser, inner=True):
         super().__init__(parser, lists.LISTTYPE.VERTICAL, inner=inner)
+
+    def append(self, node):
+        """
+        Append a node to the list.
+        @param node: the node to append
+        """
+        self.parser.state.parameters["prevdepth"] = node.depth if isinstance(node, nd.Box) else init_prevdepth
+            
+        super().append(node)
+
 
     def pack(self):
         """
@@ -120,4 +135,9 @@ mod = Module("vmode",
     attributes={
         "readVList": readVList
     },
+    parameters={
+        # prevdepth is the previosu box's depth. It is reset to -1000pt in each vertical list.
+        # so it is not a layout parameter
+        "prevdepth": {"value": init_prevdepth, "accessor": DimenAccessor, "domain": "parameters"},
+    }
 )

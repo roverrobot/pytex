@@ -44,7 +44,8 @@ class Module:
         if self.commands is not None:
             for name, command in self.commands.items():
                 name = "\\" + name
-                command.name = name
+                if not command.name:
+                    command.name = name
                 parser.state.equitable.setGlobal(name, command)
                 parser.builtin[name] = command
 

@@ -72,7 +72,7 @@ class ModeDependentCommand(Command):
     
     def modeError(self, parser, mode):
         pos = parser.input.position()
-        raise ValueError(f"this command cannot be used in {mode} mode", pos)
+        raise ValueError(f"The command {self.name} cannot be used in {mode} mode", pos)
     
     def horizontal(self, parser, hlist):
         self.modeError(parser, "horizontal")

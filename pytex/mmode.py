@@ -261,7 +261,12 @@ def mathShift(parser):
     # are we current in math mode or not?
     # if so, we are terminating the math mode
     if top.type == lists.LISTTYPE.MATH:
-        # Now we are in math mode. We terminates the current group.
+        # Now we are in math mode. We are terminating the math mode.
+        # we must first check if the next token is $. We should do it before
+        # ending the current group, as \aftergroup may insert tokens
+        t = parser.token()
+        pos = parser.input.position()
+        # We first terminates the current group.
         # if the current math list is not the base math list started by a math shift,
         # nor is it an equation number, doing so will raise an error for mismatched groups.
         parser.endGroup(pos, GROUP_TYPE.MATH_SHIFT)
@@ -270,17 +275,23 @@ def mathShift(parser):
         # and ending the group will not pop the list off. So by now, we are at the base list.
         top = parser.lists[-1]
         # are we in display math or inline math?
-        if not top.inner:
+        if top.inner:
+            if t:
+                parser.input.unread(t)
+        elif t is None or t.catcode != CATCODE.MATH_SHIFT:
             # we are in display math mode. We should match $$, i.e., an additional $
-            pos = parser.input.position()
-            t = parser.token()
-            if t is None or t.catcode != CATCODE.MATH_SHIFT:
-                raise ValueError("missing $", pos)
+            raise ValueError("missing $", pos)
         # now the top list may have changed because of endGroup (during fraction handling)
         top = parser.lists.pop()
         parser.lists[-1].append(top)
         return
     # otherwise, we are starting a new math mode
+    # if we are current in a vertical mode, unread the token, enter the horizontal mode,
+    # and then the $ token is encountered again
+    if top.type == lists.LISTTYPE.VERTICAL:
+        parser.input.unread(parser.current_token)
+        parser.newParagraph()
+        return
     # first, we check for inline or display math
     t = parser.token()
     if t is None:
@@ -290,9 +301,6 @@ def mathShift(parser):
     else:
         inner = True
         parser.input.unread(t)
-    # if we are current in a vertical mode, enter the horizontal mode
-    if top.type == lists.LISTTYPE.VERTICAL:
-        parser.newParagraph()
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
     parser.beginGroup(pos, GROUP_TYPE.MATH_SHIFT)

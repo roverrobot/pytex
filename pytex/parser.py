@@ -61,6 +61,8 @@ class Parser:
         #         format.write(content)
         # parser.dumper = dumper
         self.dumper = None
+        # initially it was not dumped
+        self.dumped = False
         # tracing settings
         self.state.domains["tracing"].values.attach(self)
         # the builtin commands
@@ -404,6 +406,7 @@ class Parser:
         @return: the format file content
         """
         dump = serialization.serialize(self.state.dump())
+        self.dumped = True
         return json.dumps(dump)
 
     def load(self, file):

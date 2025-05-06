@@ -91,7 +91,7 @@ class Parser:
         @param message: the message
         @param console: whether to write to the console
         """
-        self.log.write(message + "\n")
+        print(message, file=self.log)
         if console:
             print(message)
     

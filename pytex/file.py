@@ -117,7 +117,7 @@ class WriteOp(FileOp):
             tokens.append(t)
         s = toksToString(parser, tokens)
         if file is None:
-            parser.log.write(s)
+            print(s, file=parser.log)
             if self.file_id >= 0:
                 print(s)
         else:

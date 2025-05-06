@@ -117,10 +117,17 @@ class HorizontalCommand(lists.ModeDependentCommand):
     """
     def vertical(self, parser, vlist):
         """
-        In vertical mode, a horizontal command should start a new paragraph
+        perform the command in vertical mode.
+
+        @param parser the parser
+        @param vlis tthe current vertical list
+
+        In vertical mode, when a horizontal command is encountered, 
+        the current token is first unread, then
+        then the parser start a new paragraph, the command token is then encountered
         """
+        parser.unread(parser.current_token)
         hlist = parser.newParagraph()
-        self.horizontal(parser, hlist)
     
 
 class Char(HorizontalCommand):

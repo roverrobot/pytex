@@ -8,7 +8,7 @@ from pytex.dimen import Dimen
 from pytex import serialization
 
 
-class NODE_TYPE(enum.Enum):
+class NODE_TYPE(enum.IntEnum):
     CHAR = 0
     HLIST = 1
     VLIST = 2

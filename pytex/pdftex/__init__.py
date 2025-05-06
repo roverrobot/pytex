@@ -18,6 +18,7 @@ mod = Module("pdftex",
     parameters={
         # integers
         "pdftexversion": {"value": 140, "accessor": IntegerAccessor, "domain": "parameters"},
+        "pdfdraftmode": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
         "pdfoutput": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
         "pdfmajorversion": {"value": 1, "accessor": IntegerAccessor, "domain": "parameters"},
         "pdfminorversion": {"value": 4, "accessor": IntegerAccessor, "domain": "parameters"},

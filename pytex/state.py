@@ -45,6 +45,8 @@ class Group:
         self.group_type = group_type
         self.position = position
         self.callback = callback
+        # the aftergroup tokens
+        self.aftergroup = []
         # values holds the saved values, where the key is the name of a domain, e.g., "catcode", 
         # "equitable" etc, and the value is a tuple, which first value is the domain, and 
         # the second is a dict that maps the index to the saved value.
@@ -111,11 +113,14 @@ class Group:
             del store[index]
 
 
-class GroupStack(list):
+class GroupStack:
     """
     a stack of groups.
     """
+    def __init__(self):
+        self.groups = []
 
+    
     def begin(self, position, group_type: GROUP_TYPE, callback=None):
         """
         begin a new group
@@ -124,18 +129,20 @@ class GroupStack(list):
         @param callback: a callback to be called when the group is closed
         """
         group = Group(position, group_type, callback)
-        self.append(group)
+        self.groups.append(group)
 
     def end(self, position, group_type: GROUP_TYPE):
         """
-        end the current group
+        end the current group and return its aftergroup token list
         @param group_type: the type of the group
         @param position: the position of the token ending the group
+        @return: the aftergroup token list
         """
-        if len(self) == 0:
-            raise ValueError("no group to end")
-        group = self.pop(-1)
-        group.end(position, group_type)
+        if self.groups:
+            group = self.groups.pop()
+            group.end(position, group_type)
+            return group.aftergroup
+        raise ValueError("no group to end")
 
     def remove(self, domain, index):
         """
@@ -143,8 +150,23 @@ class GroupStack(list):
         @param domain: the domain of the value
         @param index: the index of the value
         """
-        for group in self:
+        for group in self.groups:
             group.remove(domain, index)
+
+    def aftergroup(self, tok):
+        """
+        add a token to the aftergroup list
+        @param tok: the token to add
+        """
+        if self.groups:
+            self.groups[-1].aftergroup.append(tok)
+
+    def top(self):
+        """
+        return the top group
+        @return: the top group
+        """
+        return self.groups[-1] if self.groups else None
 
 
 class Domain:
@@ -170,15 +192,19 @@ class Domain:
         @param index: the index of the value
         @param: the value
         """
-        if self.group_stack is not None and len(self.group_stack) > 0:
-            self.group_stack[-1].store(self, index)
+        if self.group_stack:
+            top = self.group_stack.top()
+            if top:
+                top.store(self, index)
         if self.changed is not None:
             self.changed[index] = value
         self.values[index] = value
         
     def __delitem__(self, index):
-        if self.group_stack is not None and len(self.group_stack) > 0:
-            self.group_stack[-1].store(self, index)
+        if self.group_stack:
+            top = self.group_stack.top()
+            if top:
+                top.store(self, index)
         del self.values[index]
         del self.changed[index]
 
@@ -191,7 +217,7 @@ class Domain:
         This is like __setitem__, but also should clear the saved values in group_stack.
         """
         self[index] = value
-        if self.group_stack is not None:
+        if self.group_stack:
             self.group_stack.remove(self, index)
 
     def restore(self, index, value):
@@ -318,23 +344,6 @@ class State:
 
     def currentGroup(self):
         return self.groups.top()
-
-    def beginGroup(self, position, group_type: GROUP_TYPE=GROUP_TYPE.SIMPLE, callback=None):
-        """
-        starts a new group
-        @param position: the position of the group
-        @param group_type: the type of the group
-        @param callback: a callback to be called when the group is closed
-        """
-        self.groups.begin(position, group_type, callback)
-
-    def endGroup(self, position, group_type: GROUP_TYPE=GROUP_TYPE.SIMPLE):
-        """
-        ends the current group
-        :param context: the context of the group
-        """
-        self.groups.end(position, group_type)
-            
     
     def addDomain(self, name: str, values):
         """

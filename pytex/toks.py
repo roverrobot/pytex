@@ -165,7 +165,7 @@ class AfterGroup(Command):
         t = parser.token()
         if t is None:
             raise ValueError("token expected")
-        parser.state.domains["globals"]["aftergroup"].append(t)
+        parser.state.groups.aftergroup(t)
 
 
 class Case(Command):

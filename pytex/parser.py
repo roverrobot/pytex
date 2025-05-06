@@ -312,7 +312,7 @@ class Parser:
             mlist = mmode.MList(self)
             self.lists[-1].append(mmode.Subformula(mlist))
             self.lists.append(mlist)
-        self.state.beginGroup(position, group_type, callback)
+        self.state.groups.begin(position, group_type, callback)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
         """
@@ -320,7 +320,7 @@ class Parser:
         @param position: the position of the end group token
         @param group_type: the type of the group
         """
-        self.state.endGroup(position, group_type)
+        aftergroup = self.state.groups.end(position, group_type)
         if self.lists[-1].type == lists.LISTTYPE.MATH:
             # check if we are building a general fraction
             if self.lists[-1].fraction is not None:
@@ -336,10 +336,8 @@ class Parser:
             if enclosing.type == lists.LISTTYPE.MATH:
                 # this is a subformula. pop it.
                 self.lists.pop()
-        aftergroup = self.state.domains["globals"]["aftergroup"]
-        if len(aftergroup) > 0:
+        if aftergroup:
             self.input.push(lexer.TokenListScanner(aftergroup))
-            self.state.domains["globals"]["aftergroup"] = []
 
     def newHList(self):
         """

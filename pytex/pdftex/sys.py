@@ -4,6 +4,7 @@ This module contains the system interface for the pdftex engine.
 
 from pytex import token
 from pytex.module import Module
+from pytex.integer import FixedInteger
 import time
 
 
@@ -48,5 +49,7 @@ mod = Module("pdftex.sys",
     commands={
         "pdfelapsedtime": PDFElapsedtime(),
         "pdfresettimer": PDFResettimer(),
+        # shell escape is always disabled
+        "pdfshellescape": FixedInteger(0),
     },
 )

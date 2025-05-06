@@ -15,7 +15,7 @@ from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor
 from pytex.define import Define
-from pytex.integer import IntegerCommand
+from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
 from pytex import box
 import enum
@@ -260,7 +260,6 @@ def mathShift(parser):
     top = parser.lists[-1]
     # are we current in math mode or not?
     # if so, we are terminating the math mode
-    # otherwise, we are starting a new math mode
     if top.type == lists.LISTTYPE.MATH:
         # Now we are in math mode. We terminates the current group.
         # if the current math list is not the base math list started by a math shift,
@@ -281,9 +280,8 @@ def mathShift(parser):
         top = parser.lists.pop()
         parser.lists[-1].append(top)
         return
-    # otherwie, we are starting a new math mode
-    if top.type == lists.LISTTYPE.VERTICAL:
-        parser.newParagraph()
+    # otherwise, we are starting a new math mode
+    # first, we check for inline or display math
     t = parser.token()
     if t is None:
         inner = True
@@ -292,10 +290,17 @@ def mathShift(parser):
     else:
         inner = True
         parser.input.unread(t)
+    # if we are current in a vertical mode, enter the horizontal mode
+    if top.type == lists.LISTTYPE.VERTICAL:
+        parser.newParagraph()
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
     parser.beginGroup(pos, GROUP_TYPE.MATH_SHIFT)
     parser.lists.append(MList(parser, inner=inner))
+    every = "everymath" if inner else "everydisplay"
+    toks = parser.state.parameters[every]
+    if len(toks) > 0:
+        parser.input.push(TokenListScanner(toks))
 
 
 def readSubformula(parser, group_type, lbrace=None):

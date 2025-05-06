@@ -39,6 +39,7 @@ class Parser:
     """
     def __init__(self):
         self.state = state.State()
+        # the builtin commands
         self.builtin = {}
         # for now, characters and spaces are collected in a string
         for name, mod in ModuleManager.items():
@@ -65,7 +66,8 @@ class Parser:
         self.dumped = False
         # tracing settings
         self.state.domains["tracing"].values.attach(self)
-        # the builtin commands
+        # the current token
+        self.current_token = None
     
     def getLogFile(self):
         """
@@ -160,6 +162,7 @@ class Parser:
                 break
             if self.tracingcommands:
                 self.trace(t, mode="execute")
+            self.current_token = t
             t.execute(self)
 
     def readFrom(self, input, name: typing.Optional[str] = None):

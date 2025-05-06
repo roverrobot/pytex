@@ -23,6 +23,7 @@ class VList(lists.List):
     """
     def __init__(self, parser, inner=True):
         super().__init__(parser, lists.LISTTYPE.VERTICAL, inner=inner)
+        parser.state.parameters["prevdepth"] = init_prevdepth
 
     def append(self, node):
         """
@@ -30,9 +31,7 @@ class VList(lists.List):
         @param node: the node to append
         """
         self.parser.state.parameters["prevdepth"] = node.depth if isinstance(node, nd.Box) else init_prevdepth
-            
         super().append(node)
-
 
     def pack(self):
         """

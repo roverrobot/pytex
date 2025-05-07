@@ -62,44 +62,19 @@ class Alignment(nd.WhatsIt):
         return f"Alignment({self.rows})"
 
 
-class Cr(token.Command):
+class Tab(token.Command):
     """
-    A \\cr command.
-    """
-    def execute(self, parser):
-        raise ValueError("\\cr not in alignment")
-
-
-class CrCr(token.Command):
-    """
-    A \\cr command.
+    A generic class for \\cr, \\cr, \\span, \\omit, \\noalign commands.
     """
     def execute(self, parser):
-        raise ValueError("\\crcr not in alignment")
+        raise ValueError(f"{self.name} not in alignment", parser.input.position())
 
 
-class Span(token.Command):
-    """
-    A span command.
-    """
-    def execute(self, parser):
-        raise ValueError("\\span not in alignment")
-
-
-class Omit(token.Command):
-    """
-    A span command.
-    """
-    def execute(self, parser):
-        raise ValueError("\\omit not in alignment")
-
-
-class NoAlign(token.Command):
-    """
-    A \\noalign command.
-    """
-    def execute(self, parser):
-        raise ValueError("\\noalign not in alignment")
+cr = Tab()
+crcr = Tab()
+span = Tab()
+omit = Tab()
+noalign = Tab()
 
 
 class TabSkip(glue.GlueAccessor):
@@ -110,11 +85,6 @@ class TabSkip(glue.GlueAccessor):
         super().__init__("parameters", "tabskip")
 
 
-cr = Cr()
-crcr = CrCr()
-span = Span()
-omit = Omit()
-noalign = NoAlign()
 tabskip = TabSkip()
 
 

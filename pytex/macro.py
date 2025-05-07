@@ -18,13 +18,33 @@ class MacroScanner:
         self.replacement = iter(replacement)
         self.parser = parser
         self.args = args
-        self.arg_scanner = None
         parser.input.push(self)
-        # read the next token
-        self.next_token = next(self.replacement)
+        self.active = self.replacement
+        self.in_args = False
+        # read the next token. Note that replacement is guaranteed to be unon-empty,
+        # so this always succeeds
+        self.next_token = next(self.active)
 
     position = None
     
+    def next(self):
+        """
+        return the next token from the active iterator
+        if the active iterator is empty and we are reading an argument, 
+        we switch to the replacement text
+        """
+        try:
+            return next(self.active)
+        except StopIteration:
+            if self.in_args:
+                self.active = self.replacement
+                self.in_args = False
+                try:
+                    return next(self.active)
+                except StopIteration:
+                    pass
+            return None
+
     def read(self):
         """
         read the next token from the replacement text
@@ -35,40 +55,23 @@ class MacroScanner:
         if t is None:
             return t
         # check if t represent a parameter
-        if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
-            try:
-                args = self.args[t.parameter]
-            except IndexError:
+        while t.catcode == CATCODE.PARAMETER and t.parameter is not None:
+            if t.parameter >= len(self.args):
                 raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
+            args = self.args[t.parameter]
             if args:
-                self.arg_scanner = iter(args)
-                self.next_token = next(self.arg_scanner)
-            else:
-                self.arg_scanner = None
-                try:
-                    self.next_token = next(self.replacement)
-                except StopIteration:
-                    return None
-            return self.read()
-        if self.arg_scanner is not None:
-            try:
-                self.next_token = next(self.arg_scanner)
-            except StopIteration:
-                self.arg_scanner = None
-                try:
-                    self.next_token = next(self.replacement)
-                except StopIteration:
-                    self.next_token = None
-        else:
-            try:
-                self.next_token = next(self.replacement)
-            except StopIteration:
-                self.next_token = None
-        # tail recursion optimization
-        if self.next_token is None:
-            self.parser.input.unread(t)
-            return None
-        return t
+                self.active = iter(args)
+                self.in_args = True
+            t = self.next()
+            if t is None:
+                return t
+        # read next_token
+        self.next_token = self.next()
+        if self.next_token:
+            return t
+        # optimize for tail recursion
+        self.parser.input.unread(t)
+        return None
 
     def __repr__(self):
         args = []

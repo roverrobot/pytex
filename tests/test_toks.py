@@ -25,7 +25,7 @@ def test_toks_register(parser):
 
 
 def test_aftergroup(collector):
-    collector.parse("\\aftergroup a\\aftergroup b{\\count0=1}")
+    collector.parse("{\\aftergroup a\\aftergroup b\\count0=1}")
     assert collector.getString() == "ab "
 
         

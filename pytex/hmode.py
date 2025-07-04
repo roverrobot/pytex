@@ -126,7 +126,7 @@ class HorizontalCommand(lists.ModeDependentCommand):
         the current token is first unread, then
         then the parser start a new paragraph, the command token is then encountered
         """
-        parser.unread(parser.current_token)
+        parser.input.unread(parser.current_token)
         hlist = parser.newParagraph()
     
 

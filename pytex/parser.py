@@ -435,7 +435,7 @@ class Parser:
         # \vfill\penalty-'10000000000
         top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2))))
         top.append(node.Penalty(-0x100000))
-        self.input.pop(to=self.input.top)
+        self.input.clear()
         self.run = False
         if not self.log.closed:
             self.log.close()

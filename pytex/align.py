@@ -234,7 +234,8 @@ class AlignCommand(lists.ModeDependentCommand):
                 if t is None:
                     break
                 t.execute(parser)
-            parser.input.pop(scanner)
+            assert parser.input.top is scanner, "scanner not on top"
+            parser.input.pop()
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         assert parser.lists[-1] == cell
         cell.span = terminator == span
@@ -290,7 +291,8 @@ class AlignCommand(lists.ModeDependentCommand):
             row = self.readRow(parser, template)
             row.noalign = self.readNoAlign(parser)
             node.rows.append(row)
-        parser.input.pop(scanner)
+        assert parser.input.top is scanner, "scanner not on top"
+        parser.input.pop()
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         return node
 

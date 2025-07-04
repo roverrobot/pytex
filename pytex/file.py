@@ -109,7 +109,7 @@ class WriteOp(FileOp):
         while True:
             t = parser.token_expand()
             if t is None:
-                parser.input.pop(scanner)
+                parser.input.pop()
                 break
             # "#" will be written as "##"
             if t.catcode == token.CATCODE.PARAMETER:
@@ -165,7 +165,7 @@ class ReadOp(Accessor):
                         break
                     level -= 1
                 tokens.append(t)
-            parser.input.pop(scanner)
+            parser.input.pop()
             if done:
                 break
         if level > 0:

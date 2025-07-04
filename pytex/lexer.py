@@ -292,7 +292,6 @@ class InputStack:
             if self.terminate:
                 return None
             self.pop()
-            continue
 
     def unread(self, token):
         """
@@ -319,22 +318,27 @@ class InputStack:
         if lexer.position is not None:
             self.active = lexer
     
-    def pop(self, to=None):
+    def pop(self):
         """
         pop the top scanner if it is terminated
         @param to: the scanner to pop to (including to)
         """
-        if self.top == to:
-            to = None
         if self.stack:
             self.top, self.terminate, self.active = self.stack.pop()
-            if to and self.top != to:
-                self.pop(to)
         else:
             self.top = None
             self.terminate = False
             self.active = None
 
+    def clear(self):
+        """
+        clear the stack of scanners
+        """
+        self.top = None
+        self.terminate = False
+        self.saved = []
+        self.stack = []
+        self.active = None
 
     def position(self):
         """

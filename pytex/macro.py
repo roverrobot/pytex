@@ -67,11 +67,9 @@ class MacroScanner:
                 return t
         # read next_token
         self.next_token = self.next()
-        if self.next_token:
-            return t
-        # optimize for tail recursion
-        self.parser.input.unread(t)
-        return None
+        if self.next_token is None:
+            self.parser.input.pop()
+        return t
 
     def __repr__(self):
         args = []

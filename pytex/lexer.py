@@ -281,11 +281,11 @@ class InputStack:
         exhausted, pop it and read from the next scanner on the stack.
         @return: the next token, or None if the end of the stack is reached
         """
+        if self.saved:
+            return self.saved.pop()
+        if not self.top:
+            return None
         while True:
-            if self.saved:
-                return self.saved.pop()
-            if not self.top:
-                return None
             t = self.top.read()
             if t:
                 return t

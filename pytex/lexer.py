@@ -285,11 +285,14 @@ class InputStack:
             return self.saved.pop()
         while self.top:
             t = self.top.read()
-            if t:
+            if t or self.terminate:
                 return t
-            if self.terminate:
-                return None
-            self.pop()
+            if self.stack:
+                self.top, self.terminate, self.active = self.stack.pop()
+            else:
+                self.top = None
+                self.terminate = False
+                self.active = None
         return None
 
     def unread(self, token):

@@ -20,30 +20,11 @@ class MacroScanner:
         self.args = args
         parser.input.push(self)
         self.active = self.replacement
-        self.in_args = False
         # read the next token. Note that replacement is guaranteed to be unon-empty,
         # so this always succeeds
         self.next_token = next(self.active)
 
     position = None
-    
-    def next(self):
-        """
-        return the next token from the active iterator
-        if the active iterator is empty and we are reading an argument, 
-        we switch to the replacement text
-        """
-        try:
-            return next(self.active)
-        except StopIteration:
-            if self.in_args:
-                self.active = self.replacement
-                self.in_args = False
-                try:
-                    return next(self.active)
-                except StopIteration:
-                    pass
-            return None
 
     def read(self):
         """
@@ -51,25 +32,44 @@ class MacroScanner:
 
         handle arguments and ## in the replacement text
         """
-        t = self.next_token
-        if t is None:
-            return t
-        # check if t represent a parameter
-        while t.catcode == CATCODE.PARAMETER and t.parameter is not None:
-            if t.parameter >= len(self.args):
-                raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
-            args = self.args[t.parameter]
-            if args:
-                self.active = iter(args)
-                self.in_args = True
-            t = self.next()
+        while True:
+            t = self.next_token
             if t is None:
                 return t
-        # read next_token
-        self.next_token = self.next()
-        if self.next_token is None:
-            self.parser.input.pop()
-        return t
+            # check if t represent a parameter
+            if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
+                try:
+                    args = self.args[t.parameter]
+                except IndexError:
+                    raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
+                if args:
+                    self.active = iter(args)
+                    self.next_token = next(self.active)
+                    continue
+                # we got empty an argument. Continue reading the replacement text
+                try:
+                    self.next_token = next(self.active)
+                    continue
+                except StopIteration:
+                    # we are done with the replacement text
+                    return None
+            # read next_token. Here t is not None and is not a parameter token
+            try:
+                self.next_token = next(self.active)
+            except StopIteration:
+                # the current token list is exhausted. We need to check if we are reading from
+                # an argument list. If so, we need to switch to the replacement text
+                if self.active is not self.replacement:
+                    self.active = self.replacement
+                    try:
+                        self.next_token = next(self.active)
+                    except StopIteration:
+                        self.next_token = None
+                        self.parser.input.pop()  # pop the scanner
+                else:
+                    self.next_token = None
+                    self.parser.input.pop()  # pop the scanner
+            return t
 
     def __repr__(self):
         args = []

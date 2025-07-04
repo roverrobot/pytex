@@ -283,15 +283,14 @@ class InputStack:
         """
         if self.saved:
             return self.saved.pop()
-        if not self.top:
-            return None
-        while True:
+        while self.top:
             t = self.top.read()
             if t:
                 return t
             if self.terminate:
                 return None
             self.pop()
+        return None
 
     def unread(self, token):
         """

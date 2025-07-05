@@ -190,8 +190,9 @@ class Parser:
         @param expand: whether to expand tokens
         @return the next nonspace token
         """
+        tok = self.token_expand if expand else self.token
         while True:
-            t = self.token_expand() if expand else self.token()
+            t = tok()
             if t is None or not t.isSpace(expand):
                 return t
 

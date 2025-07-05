@@ -149,23 +149,22 @@ class Macro(Command):
         """
         match the next delimiter in the parameter list
         @param parser: the parser
-        @param start: the start position in the parameters list
-        @return: None if matched, or the next token
+        @param bracket: a token list to match
+        @return None for matched, or a token list that has been read but not matched
         """
-        if bracket:
-            matched = []
-            for p in bracket:
-                t = parser.token()
-                if t is None:
-                    raise ValueError(f"macro does not match the definition {self}", parser.input.position())
-                if t.catcode != p.catcode or t.name != p.name:
-                    if matched:
-                        parser.input.unread(t)
-                        t = matched[0]
-                        for t in reversed(matched[1:]):
-                            parser.input.unread(t)
-                    return t
-                matched.append(t)
+        matched = []
+        for p in bracket:
+            t = parser.token()
+            if t is None:
+                raise ValueError(f"macro does not match the definition {self}", parser.input.position())
+            if t.catcode != p.catcode or t.name != p.name:
+                if matched:
+                    parser.input.unread(t)
+                    for m in reversed(matched[1:]):
+                        parser.input.unread(m)
+                    return matched[0]
+                return t
+            matched.append(t)
         return None
 
     def readArgument(self, parser, bracket):
@@ -178,37 +177,41 @@ class Macro(Command):
         # if the bracket is empty, then the argument is undelimited. In this case, the argument 
         # is the next non-space token,, and if the token is {, then the argument is a balanced text
         if not bracket:
-            t = parser.skipSpaces(expand=False)
-            if t is None:
-                return []
+            # skip spaces
+            while True:
+                t = parser.token()
+                if t is None:
+                    return []
+                if t.catcode != CATCODE.SPACE:
+                    break
             if t.catcode == CATCODE.BEGIN_GROUP:
-                result = parser.readBalancedText([t], expand=False, macro=False)
-                n = 1
+                result = parser.readBalancedText([], expand=False, macro=False)
+                result.pop()
             else:
                 result = [t]
-                n = 0
+            return result
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token
         # in the argument and match again.
+        t = self.matchDelimited(parser, bracket)
+        if t is None:
+            return []
+        if t.catcode == CATCODE.BEGIN_GROUP:
+            result = parser.readBalancedText([t], expand=False, macro=False)
+            t = self.matchDelimited(parser, bracket)
+            if t is None:
+                # matched the bracket: the argument is enclosed in {}. Drop them
+                return result[1:-1]
+            result.append(t)
         else:
-            # n counts the number of balanced text read. If n == 1 and the argument is 
-            # enclosed by braces, we drop the braces
-            n = 0 
-            result = []
-            while True:
-                t = self.matchDelimited(parser, bracket)
-                if t is None:
-                    break
-                result.append(t)
-                if t.catcode == CATCODE.BEGIN_GROUP:
-                    result = parser.readBalancedText(result, expand=False, macro=False)
-                n += 1
-        # we have matched the argument
-        # if the argument is enclosed by braces, drop the braces
-        if n == 1 and result[0].catcode == CATCODE.BEGIN_GROUP:
-            result.pop()
-            result.pop(0)
-        return result
+            result = [t]
+        while True:
+            t = self.matchDelimited(parser, bracket)
+            if t is None:
+                return result
+            result.append(t)
+            if t.catcode == CATCODE.BEGIN_GROUP:
+                result = parser.readBalancedText(result, expand=False, macro=False)
 
     def expand(self, parser):
         """
@@ -219,9 +222,10 @@ class Macro(Command):
         args = []
         # the first bracket
         bracket = self.brackets[0]
-        t = self.matchDelimited(parser, bracket)
-        if t:
-            raise ValueError(f"macro does not match the definition {self}", parser.input.position())
+        for b in bracket:
+            t = parser.token()
+            if t is None or t.catcode != b.catcode or t.name != b.name:
+                raise ValueError(f"macro does not match the definition {self}", parser.input.position())
         for bracket in self.brackets[1:]:
             arg = self.readArgument(parser, bracket)
             args.append(arg)

@@ -113,75 +113,17 @@ class Group:
             del store[index]
 
 
-class GroupStack:
-    """
-    a stack of groups.
-    """
-    def __init__(self):
-        self.groups = []
-
-    
-    def begin(self, position, group_type: GROUP_TYPE, callback=None):
-        """
-        begin a new group
-        @param position: the position of the token starting the group
-        @param group_type: the type of the group
-        @param callback: a callback to be called when the group is closed
-        """
-        group = Group(position, group_type, callback)
-        self.groups.append(group)
-
-    def end(self, position, group_type: GROUP_TYPE):
-        """
-        end the current group and return its aftergroup token list
-        @param group_type: the type of the group
-        @param position: the position of the token ending the group
-        @return: the aftergroup token list
-        """
-        if self.groups:
-            group = self.groups.pop()
-            group.end(position, group_type)
-            return group.aftergroup
-        raise ValueError("no group to end")
-
-    def remove(self, domain, index):
-        """
-        remove a value from all groups. This is to implement \\global
-        @param domain: the domain of the value
-        @param index: the index of the value
-        """
-        for group in self.groups:
-            group.remove(domain, index)
-
-    def aftergroup(self, tok):
-        """
-        add a token to the aftergroup list
-        @param tok: the token to add
-        """
-        if self.groups:
-            self.groups[-1].aftergroup.append(tok)
-
-    def top(self):
-        """
-        return the top group
-        @return: the top group
-        """
-        return self.groups[-1] if self.groups else None
-
-
 class Domain:
     """
     a Domamin is a dict or list that respect groups.
     @param name: the name of the domain
     @param values: the values in the domain
-    @param group_stack: the group stack to store the values
-    @param volatile: whether the domain is volatile, i.e., shold be dumped in a format file
+    @param state: the a State object for parser state
     """
-    def __init__(self, name: str, values, group_stack=None, volatile=False):
+    def __init__(self, name: str, values, state=None):
         self.name = name
         self.values = values
-        self.group_stack = group_stack
-        self.changed = None if volatile else {}
+        self.state = state
 
     def __getitem__(self, index):
         return self.values[index]
@@ -192,21 +134,18 @@ class Domain:
         @param index: the index of the value
         @param: the value
         """
-        if self.group_stack:
-            top = self.group_stack.top()
+        if self.state:
+            top = self.state.current_group
             if top:
                 top.store(self, index)
-        if self.changed is not None:
-            self.changed[index] = value
         self.values[index] = value
         
     def __delitem__(self, index):
-        if self.group_stack:
-            top = self.group_stack.top()
+        if self.state:
+            top = self.state.current_group
             if top:
                 top.store(self, index)
         del self.values[index]
-        del self.changed[index]
 
     def setGlobal(self, index, value):
         """
@@ -217,8 +156,8 @@ class Domain:
         This is like __setitem__, but also should clear the saved values in group_stack.
         """
         self[index] = value
-        if self.group_stack:
-            self.group_stack.remove(self, index)
+        if self.state:
+            self.state.remove(self, index)
 
     def restore(self, index, value):
         """
@@ -228,30 +167,14 @@ class Domain:
         """
         if value is None:
             del self.values[index]
-            if self.changed is not None:
-                del self.changed[index]
         else:
             self.values[index] = value
-            if self.changed is not None:
-                self.changed[index] = value
             
-    def dump(self):
-        """
-        dump the object
-        @return: a dict that represents the object
-        """
-        changed = self.changed
-        if self.changed is not None:
-            self.changed = {}
-        return changed
-
     def load(self, data):
         """
         restore the domain from a dump
         @param data: the data to restore the domain
         """
-        if self.changed is None:
-            raise ValueError("cannot load a volatile domain")
         is_array = isinstance(self.values, list)
         for i, v in data.items():
             if is_array:
@@ -262,28 +185,29 @@ class Domain:
         return self.values.__repr__()
 
 
-class GlobalDomain(Domain):
+class Layout(dict):
     """
-    the global domain if not subject to groups, but it is still dumpable
-    """
-    def __init__(self, name, values):
-        super().__init__(name, values, None, False)
+    a domain that store layout related parameters.
+    @param state: the a State object for parser state
 
+    This domain maintains the values that are chenged.
+    """
+    def __init__(self):
+        super().__init__()
+        self._changed = {}
 
-class VolatileDomain(Domain):
-    """
-    a volatile domain is not dumpable, but is subject to groups
-    """
-    def __init__(self, name, values, group_stack):
-        super().__init__(name, values, group_stack, True)
+    def __setitem__(self, index, value):
+        super().__setitem__(index, value)
+        self._changed[index] = value
 
-
-class DumpableDomain(Domain):
-    """
-    a domain that is both dumpable and subject to groups
-    """
-    def __init__(self, name, values, group_stack):
-        super().__init__(name, values, group_stack, False)
+    def changed(self):
+        """
+        dump the changed values of the domain and clear the changed dict.
+        @return: a dict that contains the changed values
+        """
+        _changed = self._changed
+        self._changed = {}
+        return _changed
 
 
 class Array(list):
@@ -316,61 +240,36 @@ class State:
     stores the state of the parser, including the local and global parameters and registers.
     """
     def __init__(self):
-        self.groups = GroupStack()
-        self.domains = {
-            # all global variables, not affected by groups
-            "globals": GlobalDomain("globals", {}), 
-            # all volatile variables, not dumped to a formaat file
-            "volatile": VolatileDomain("volatile", {}, self.groups),
-            # the equitable saves the definition of all command sequences
-            "equitable": DumpableDomain("equitable", {}, self.groups),
-            # the set of parameters pertaining to layout
-            "layout": DumpableDomain("layout", {}, self.groups),
-            # all other parameters
-            "parameters": DumpableDomain("parameters", {}, self.groups),
-        }
-        def setattr(self, index, value):
-            self.domains[index] = value
-        self.__setattr__ = setattr
+        self.groups = [] # group stack
+        self.current_group = None
+        self.globals = {}
+        self.domains = {}
+        # the loaded TFM files. These files are not dumped, as they are loaded onthe fly by the 
+        # font loader
+        self.tfm = {} 
+        self.setDomain("equitable", {})  # the equitable domain
+        self.setDomain("layout", Layout())  # the layout domain
+        self.setDomain("volatile", {})  # the volatile domain
+        self.setDomain("parameters", {})  # the parameters domain
 
-    def __getattr__(self, index):
-        try:
-            return self.domains[index]
-        except:
-            raise AttributeError(index)
-
-    def __getitem__(self, index):
-        return self.domains[index]
-
-    def currentGroup(self):
-        return self.groups.top()
-    
-    def addDomain(self, name: str, values):
+    def setDomain(self, name, values):
         """
-        add a dumpable domain to the state
-        :param name: the name of the domain
-        :param values: the values of the domain
-        :param volatile: whether the domain is volatile
-
-        Note that there is exactly one global domain and one volatile domain.
-        All other domains are dumpable.
+        set a domain with the given name and values.
+        @param name: the name of the domain
+        @param values: the values of the domain
         """
-        self.domains[name] = DumpableDomain(name, values, self.groups)
-    
+        d = Domain(name, values, self)
+        setattr(self, name, d)
+        self.domains[name] = d
+
     def dump(self):
         """
         dump the state
         @return: a dict that represents the state
         """
-        data = {}
+        data = {"globals": self.globals}
         for name, domain in self.domains.items():
-            changed = domain.dump()
-            if changed:
-                for key, value in changed.items():
-                    if isinstance(value, serialization.Serializable):
-                        value = value.serialize()
-                        changed[key] = value
-                data[name] = changed
+            data[name] = domain.values
         return data
     
     def load(self, data):
@@ -380,8 +279,47 @@ class State:
         """
         for name, domain in self.domains.items():
             if name in data:
-                domain.load(data[name])
+                domain.values = data[name]
 
+    def remove(self, domain: Domain, index):
+        """
+        remove a value from the group.
+        @param domain: the domain of the value
+        @param index: the index of the value
+        """
+        if self.current_group:
+            self.current_group.remove(domain, index)
+            for group in self.groups:
+                group.remove(domain, index)
+
+    def beginGroup(self, position, group_type: GROUP_TYPE, callback=None):
+        """
+        begin a group, and push it to the group stack.
+        @param position: the position of the token starting the group
+        @param group_type: the type of the group
+        @param callback: a callback to be called when the group is closed
+        """
+        if self.current_group:
+            self.groups.append(self.current_group)
+        self.current_group = Group(position, group_type, callback)
+
+    def endGroup(self, position, group_type: GROUP_TYPE):
+        """
+        end the group, and pop it from the group stack.
+        @param position: the position of the token ending the group
+        @param group_type: the type of the group
+        @return the aftergroup tokens
+        """
+        if not self.current_group:
+            raise ValueError("no current group")
+        aftergroup = self.current_group.aftergroup
+        self.current_group.end(position, group_type)
+        if self.groups:
+            self.current_group = self.groups.pop()
+        else:
+            self.current_group = None
+        return aftergroup
+        
 
 class BeginGroup(Command):
     """

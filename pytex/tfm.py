@@ -296,22 +296,29 @@ def loadTFM(parser, name: str):
     Load a TFM file.
     @param name: the name of the TFM file
     """
-    if name in parser.state.globals["tfm"]:
-        return parser.state.globals["tfm"][name]
+    if name in parser.tfm:
+        return parser.tfm[name]
     file = parser.resolver.openIn(name, "fonts/tfm")
     if file is None:
         raise FileNotFoundError(f"TFM file {name} not found")
     tfm = TFM(name, file)
-    parser.state.globals["tfm"][name] = tfm
+    parser.tfm[name] = tfm
     file.close()
     return tfm
+
+
+def init(parser):
+    """
+    Initialize the TFM module.
+    @param parser: the parser
+    """
+    # set the initial values for the TFM parameters
+    parser.tfm = TFMDict()
 
 
 mod = Module("tfm",
     attributes = {
         "loadTFM": loadTFM,
     },
-    parameters = {
-        "tfm": {"value": TFMDict, "accessor": None, "domain": "globals"},
-    }
+    init=init,
 )

@@ -56,7 +56,8 @@ class Module:
         """
         if self.domains is not None:
             for name, domain in self.domains.items():
-                parser.state.addDomain(name, domain["generator"]())
+                values = domain["generator"]()
+                parser.state.setDomain(name, values)
                 accessor = domain["accessor"]
                 if accessor is not None:
                     command = accessor(name)
@@ -89,7 +90,7 @@ class Module:
                 value = item["value"]
                 if callable(value):
                     value = value()
-                parser.state[domain][name] = value
+                getattr(parser.state, domain)[name] = value
                 # set the accessor in equitable
                 generator = item["accessor"]
                 if generator is not None:

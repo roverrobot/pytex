@@ -165,7 +165,9 @@ class AfterGroup(Command):
         t = parser.token()
         if t is None:
             raise ValueError("token expected")
-        parser.state.groups.aftergroup(t)
+        group = parser.state.current_group
+        if group is not None:
+            group.aftergroup.append(t)
 
 
 class Case(Command):

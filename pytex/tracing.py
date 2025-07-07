@@ -1,6 +1,7 @@
 from pytex.module import Module
 from pytex import toks
 from pytex import integer
+from pytex.state import Domain
 
 
 def checkRange(parser):
@@ -38,26 +39,38 @@ def trace(parser, t, mode: str):
     parser.message(f"{mode} {t.name} at {parser.input.position()}: {meaning}\n")
 
 
-class Proxy(dict):
-    """
-    A proxy to change other objects
-    """
-    def __init__(self):
-        self.obj = None
+class Tracing:
+    def __init__(self, parser):
+        self.parser = parser
 
-    def attach(self, obj):
-        """
-        attacht to an object
-        """
-        self.obj = obj
-        if obj is not None:
-            for key, value in self.items():
-                setattr(obj, key,value)
+    def __getattr__(self, item):
+        return getattr(self.parser, item)
 
     def __setitem__(self, key, value):
-        super().__setitem__(key, value)
-        if self.obj is not None:
-            setattr(self.obj, key, value)
+        setattr(self.parser, key, value)
+
+
+def init(parser):
+    """
+    initialize the tracing module
+    @param parser: the parser
+    """
+    # set the initial values for the tracing parameters
+    parser.tracingonline = 0
+    parser.tracingmacros = 0
+    parser.tracingstats = 0
+    parser.tracingparagraphs = 0
+    parser.tracingpages = 0
+    parser.tracingoutput = 0
+    parser.tracinglostchars = 0
+    parser.tracingcommands = 0
+    parser.tracingrestores = 0
+    # set the initial values for the pytex tracing parameters
+    parser.tracingsource = ""
+    parser.tracinglinebegin = 0
+    parser.tracinglineend = 0
+    parser.tracingquitatend = 0
+    parser.state.tracing = Domain("tracing", Tracing(parser), parser.state)
 
 
 mod = Module("tracing",
@@ -86,7 +99,5 @@ mod = Module("tracing",
         "checkRange": checkRange,
         "trace": trace,
     },
-    domains = {
-        "tracing": {"generator": Proxy, "accessor": None},
-    },
+    init = init,
 )

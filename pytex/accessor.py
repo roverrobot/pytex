@@ -87,7 +87,7 @@ class Accessor(token.Command):
         We must pass an index to the setValue method, because the index may be read 
         from the input stack, in this case, it imust be read before the value.
         """
-        domain = parser.state.domains[self.domain]
+        domain = getattr(parser.state, self.domain)
         if globally and hasattr(domain, "setGlobal"):
             domain.setGlobal(self.index, value)
         else:

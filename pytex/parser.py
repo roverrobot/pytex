@@ -45,8 +45,6 @@ class Parser:
         for name, mod in ModuleManager.items():
             mod.populate(self)
         # now we are at a similar stage to INITEX. We do not need to keep the current state.
-        # clear the dump state.
-        self.state.dump()
         self.input = lexer.InputStack()
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
@@ -64,8 +62,6 @@ class Parser:
         self.dumper = None
         # initially it was not dumped
         self.dumped = False
-        # tracing settings
-        self.state.domains["tracing"].values.attach(self)
         # the current token
         self.current_token = None
     
@@ -316,7 +312,7 @@ class Parser:
             mlist = mmode.MList(self)
             self.lists[-1].append(mmode.Subformula(mlist))
             self.lists.append(mlist)
-        self.state.groups.begin(position, group_type, callback)
+        self.state.beginGroup(position, group_type, callback)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
         """
@@ -324,7 +320,7 @@ class Parser:
         @param position: the position of the end group token
         @param group_type: the type of the group
         """
-        aftergroup = self.state.groups.end(position, group_type)
+        aftergroup = self.state.endGroup(position, group_type)
         if self.lists[-1].type == lists.LISTTYPE.MATH:
             # check if we are building a general fraction
             if self.lists[-1].fraction is not None:

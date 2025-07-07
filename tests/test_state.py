@@ -1,17 +1,18 @@
 import pytest
-from pytex import state
+from pytex import state as st
 from tests import checkValues
+from pytex import macro
 
 
 @pytest.fixture
-def groupstack():
-    stack = state.GroupStack()
-    d = state.Domain(name="dict", values={}, group_stack=stack)
-    a = state.Domain(name="array", values=[0,0,0], group_stack=stack)
-    return stack, d, a
+def state():
+    s = st.State()
+    d = st.Domain(name="dict", values={}, state=s)
+    a = st.Domain(name="array", values=[0,0,0], state=s)
+    return s, d, a
 
-def test_set_value(groupstack):
-    stack, d, a = groupstack
+def test_set_value(state):
+    s, d, a = state
     d["key1"] = "value1"
     assert d["key1"] == "value1"
     a[1] = 1
@@ -21,54 +22,54 @@ def test_set_value(groupstack):
     a[1] = 0
     assert a[1] == 0
  
-def test_set_in_group(groupstack):
-    stack, d, a = groupstack
+def test_set_in_group(state):
+    s, d, a = state
     d["key1"] = "value1"
     a[1] = 1
-    stack.begin(group_type=state.GROUP_TYPE.SIMPLE, position=0)
+    s.beginGroup(group_type=st.GROUP_TYPE.SIMPLE, position=0)
     d["key1"] = "value2"
     assert d["key1"] == "value2"
     a[1] = 0
     assert a[1] == 0
-    stack.begin(group_type=state.GROUP_TYPE.SEMI_SIMPLE, position=0)
+    s.beginGroup(group_type=st.GROUP_TYPE.SEMI_SIMPLE, position=0)
     d["key1"] = "value3"
     assert d["key1"] == "value3"
     a[1] = -1
     assert a[1] == -1
-    stack.end(group_type=state.GROUP_TYPE.SEMI_SIMPLE, position=0)
+    s.endGroup(group_type=st.GROUP_TYPE.SEMI_SIMPLE, position=0)
     assert d["key1"] == "value2"
     assert a[1] == 0
-    stack.end(group_type=state.GROUP_TYPE.SIMPLE, position=1)
+    s.endGroup(group_type=st.GROUP_TYPE.SIMPLE, position=1)
     assert d["key1"] == "value1"
     assert a[1] == 1
 
 
-def test_set_global(groupstack):
-    stack, d, a = groupstack
+def test_set_global(state):
+    s, d, a = state
     d["key1"] = "value1"
     a[1] = 1
-    stack.begin(group_type=state.GROUP_TYPE.SIMPLE, position=0)
+    s.beginGroup(group_type=st.GROUP_TYPE.SIMPLE, position=0)
     d["key1"] = "value2"
     assert d["key1"] == "value2"
     a[1] = 0
     assert a[1] == 0
-    stack.begin(group_type=state.GROUP_TYPE.SEMI_SIMPLE, position=0)
+    s.beginGroup(group_type=st.GROUP_TYPE.SEMI_SIMPLE, position=0)
     d.setGlobal("key1", "value3")
     assert d["key1"] == "value3"
     a.setGlobal(1, -1)
     assert a[1] == -1
-    stack.end(group_type=state.GROUP_TYPE.SEMI_SIMPLE, position=0)
+    s.endGroup(group_type=st.GROUP_TYPE.SEMI_SIMPLE, position=0)
     assert d["key1"] == "value3"
     assert a[1] == -1
-    stack.end(group_type=state.GROUP_TYPE.SIMPLE, position=1)
+    s.endGroup(group_type=st.GROUP_TYPE.SIMPLE, position=1)
     assert d["key1"] == "value3"
     assert a[1] == -1
 
-def test_group_mismatch(groupstack):
-    stack, d, a = groupstack
+def test_group_mismatch(state):
+    s, d, a = state
     try:
-        stack.begin(group_type=state.GROUP_TYPE.SIMPLE, position=0)
-        stack.end(group_type=state.GROUP_TYPE.SEMI_SIMPLE, position=1)
+        s.beginGroup(group_type=st.GROUP_TYPE.SIMPLE, position=0)
+        s.endGroup(group_type=st.GROUP_TYPE.SEMI_SIMPLE, position=1)
     except ValueError as e:
         pass
     except Exception as e:
@@ -98,11 +99,9 @@ def test_parser_group_mismatch(parser):
 def test_dump(parser):
     parser.parse("\\count0=1{\\count0=2}\\def\\a{123}")
     data = parser.state.dump()
-    assert len(data) == 3
-    assert "catcode" in data
+    assert len(data) == 20
     assert "count" in data
-    assert data["count"] == {0:1}
+    assert data["count"][0] == 1
     assert "equitable" in data
     assert "\\a" in data["equitable"]
-    parser.parse("{\\def\\b{456}}")
-    assert not parser.state.dump()
+    assert isinstance(data["equitable"]["\\a"], macro.Macro)

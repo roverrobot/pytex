@@ -183,8 +183,14 @@ class Dict(Domain, dict):
         restore the domain from a dump
         @param data: the data to restore the domain
         """
+        for i in self.keys():
+            if i not in data:
+                dict.__delitem__(self, i)
         for i, v in data.items():
-            self[i] = v
+            dict.__setitem__(self, i, v)
+
+    def dump(self):
+        return self
             
 
 class Layout(Dict):
@@ -227,19 +233,9 @@ class Array(Domain, list):
             init = [default] * size
         list.__init__(self, init)
         self.size = size
-
-    def __getitem__(self, index):
-        if index >= self.size:
-            index = self.size - 1
-        elif index < 0:
-            index = 0
-        return list.__getitem__(self, index)
+        self.default = default
     
     def __setitem__(self, index, value):
-        if index >= self.size:
-            index = self.size - 1
-        elif index < 0:
-            index = 0
         self.save(index)
         list.__setitem__(self, index, value)
 
@@ -250,8 +246,20 @@ class Array(Domain, list):
         restore the array from a dump
         @param data: the data to restore the array
         """
-        for i, v in enumerate(data):
-            self[i] = v
+        for i, v in data.items():
+            list.__setitem__(self, int(i), v)
+
+    def dump(self):
+        """
+        dump the array
+        @return: a dict that contains the array values
+        """
+        values = {}
+        default = self.default() if callable(self.default) else self.default
+        for i, v in enumerate(self):
+            if v != default:
+                values[i] = v
+        return values
     
 
 class State:
@@ -287,7 +295,7 @@ class State:
         """
         data = {"globals": self.globals}
         for name, domain in self.domains.items():
-            data[name] = domain
+            data[name] = domain.dump()
         return data
     
     def load(self, data):

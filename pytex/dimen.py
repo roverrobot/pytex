@@ -240,7 +240,8 @@ class DimenCommand:
         return the dimension value
         @param parser: the parser
         """
-        return self.getValue(parser)
+        d = self.getValue(parser)
+        return Dimen() if d is None else d
 
 
 class DimenAccessor(DimenCommand, Accessor):

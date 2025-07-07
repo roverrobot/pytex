@@ -59,7 +59,7 @@ class Group:
         @param index: the index of the value
         @param value: the value
         """
-        if isinstance(domain.values, dict) and index not in domain.values:
+        if isinstance(domain, Dict) and index not in domain:
             save = None
         else:
             save = domain[index]
@@ -120,32 +120,15 @@ class Domain:
     @param values: the values in the domain
     @param state: the a State object for parser state
     """
-    def __init__(self, name: str, values, state=None):
+    def __init__(self, name: str, state=None):
         self.name = name
-        self.values = values
         self.state = state
 
-    def __getitem__(self, index):
-        return self.values[index]
-
-    def __setitem__(self, index, value):
-        """
-        set the value of the domain at the index
-        @param index: the index of the value
-        @param: the value
-        """
+    def save(self, index):
         if self.state:
             top = self.state.current_group
             if top:
                 top.store(self, index)
-        self.values[index] = value
-        
-    def __delitem__(self, index):
-        if self.state:
-            top = self.state.current_group
-            if top:
-                top.store(self, index)
-        del self.values[index]
 
     def setGlobal(self, index, value):
         """
@@ -158,42 +141,61 @@ class Domain:
         self[index] = value
         if self.state:
             self.state.remove(self, index)
+        
+
+class Dict(Domain, dict):
+    """
+    a domain that is a dict, and respects groups.
+    @param name: the name of the domain
+    @param values: the values in the domain
+    @param state: the a State object for parser state
+    """
+    def __init__(self, name, state=None):
+        Domain.__init__(self, name, state)
+        dict.__init__(self)
+
+    def __setitem__(self, index, value):
+        """
+        set the value of the domain at the index
+        @param index: the index of the value
+        @param: the value
+        """
+        self.save(index)
+        dict.__setitem__(self, index, value)
+
+    def __delitem__(self, index):
+        self.save(index)
+        return dict.__delitem__(self, index)
 
     def restore(self, index, value):
         """
-        restore the value of the domain at the index
+        restore the value at the index in the domain
         @param index: the index of the value
         @param: the value
         """
         if value is None:
-            del self.values[index]
+            dict.__delitem__(self, index)
         else:
-            self.values[index] = value
-            
+            dict.__setitem__(self, index, value)
+
     def load(self, data):
         """
         restore the domain from a dump
         @param data: the data to restore the domain
         """
-        is_array = isinstance(self.values, list)
         for i, v in data.items():
-            if is_array:
-                i = int(i)
             self[i] = v
-        
-    def __repr__(self):
-        return self.values.__repr__()
+            
 
-
-class Layout(dict):
+class Layout(Dict):
     """
     a domain that store layout related parameters.
     @param state: the a State object for parser state
 
     This domain maintains the values that are chenged.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, state=None):
+        super().__init__("layout", state)
         self._changed = {}
 
     def __setitem__(self, index, value):
@@ -210,30 +212,47 @@ class Layout(dict):
         return _changed
 
 
-class Array(list):
+class Array(Domain, list):
     SIZE = 65536
     """
     an array of values
     """
-    def __init__(self, default=None, size: typing.Optional[int]=None):
+    def __init__(self, name: str, state=None, default=None, size: typing.Optional[int]=None):
+        Domain.__init__(self, name, state)
         if size is None:
             size = self.SIZE
         if callable(default):
             init = [default() for i in range(size)]
         else:
             init = [default] * size
-        super().__init__(init)
+        list.__init__(self, init)
+        self.size = size
 
     def __getitem__(self, index):
-        if index >= self.SIZE:
-            index = self.SIZE - 1
+        if index >= self.size:
+            index = self.size - 1
         elif index < 0:
             index = 0
-        return super().__getitem__(index)
+        return list.__getitem__(self, index)
     
-    def items(self):
-        return enumerate(self)
+    def __setitem__(self, index, value):
+        if index >= self.size:
+            index = self.size - 1
+        elif index < 0:
+            index = 0
+        self.save(index)
+        list.__setitem__(self, index, value)
 
+    restore = list.__setitem__
+
+    def load(self, data):
+        """
+        restore the array from a dump
+        @param data: the data to restore the array
+        """
+        for i, v in enumerate(data):
+            self[i] = v
+    
 
 class State:
     """
@@ -247,20 +266,19 @@ class State:
         # the loaded TFM files. These files are not dumped, as they are loaded onthe fly by the 
         # font loader
         self.tfm = {} 
-        self.setDomain("equitable", {})  # the equitable domain
-        self.setDomain("layout", Layout())  # the layout domain
-        self.setDomain("volatile", {})  # the volatile domain
-        self.setDomain("parameters", {})  # the parameters domain
+        self.volatile = Dict("volatile", self)  # the volatile domain do not need to be dumped
+        self.setDomain("equitable", Dict("equitable", self))  # the equitable domain
+        self.setDomain("layout", Layout(self))  # the layout domain
+        self.setDomain("parameters", Dict("parameters", self))  # the parameters domain
 
-    def setDomain(self, name, values):
+    def setDomain(self, name, domain):
         """
         set a domain with the given name and values.
         @param name: the name of the domain
         @param values: the values of the domain
         """
-        d = Domain(name, values, self)
-        setattr(self, name, d)
-        self.domains[name] = d
+        setattr(self, name, domain)
+        self.domains[name] = domain
 
     def dump(self):
         """
@@ -269,7 +287,7 @@ class State:
         """
         data = {"globals": self.globals}
         for name, domain in self.domains.items():
-            data[name] = domain.values
+            data[name] = domain
         return data
     
     def load(self, data):
@@ -277,9 +295,11 @@ class State:
         restore the state from a dump
         @param data: a previously dumped data
         """
+        if "globals" in data:
+            self.globals = data["globals"]
         for name, domain in self.domains.items():
             if name in data:
-                domain.values = data[name]
+                domain.load(data[name])
 
     def remove(self, domain: Domain, index):
         """

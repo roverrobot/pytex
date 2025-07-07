@@ -274,7 +274,7 @@ mod = Module("toks",
         "the": The(),
     },
     domains = {
-        "toks": {"generator": lambda: Array([]), "accessor": ToksArrayAccessor},
+        "toks": {"generator": lambda state: Array("toks", state, []), "accessor": ToksArrayAccessor},
     },
     parameters={
         "aftergroup": {"value": [], "accessor": None, "domain": "globals"},

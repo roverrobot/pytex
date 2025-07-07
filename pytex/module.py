@@ -56,8 +56,8 @@ class Module:
         """
         if self.domains is not None:
             for name, domain in self.domains.items():
-                values = domain["generator"]()
-                parser.state.setDomain(name, values)
+                d = domain["generator"]
+                parser.state.setDomain(name,d(parser.state))
                 accessor = domain["accessor"]
                 if accessor is not None:
                     command = accessor(name)

@@ -115,14 +115,6 @@ class FontArrayAccessor(FontValue, ArrayAccessor):
 nullfont = Font(tfm=nullfont_tfm, at=0)
 
 
-class FontArray(Array):
-    """
-    A font array
-    """
-    def __init__(self):
-        super().__init__(nullfont)
-
-
 class FontCharAccessor(IntegerAccessor):
     def getValue(self, parser):
         return self.domain.fontchar[self.index]
@@ -229,9 +221,9 @@ mod = Module("font",
         "currentfont": {"value": nullfont, "accessor": FontAccessor,  "domain": "parameters"},
     },
     domains = {
-        "textfont": {"generator": FontArray, "accessor": FontArrayAccessor},
-        "scriptfont": {"generator": FontArray, "accessor": FontArrayAccessor},
-        "scriptscriptfont": {"generator": FontArray, "accessor": FontArrayAccessor},
+        "textfont": {"generator": lambda state: Array("textfont", state, nullfont, size=256), "accessor": FontArrayAccessor},
+        "scriptfont": {"generator": lambda state: Array("scriptfont", state, nullfont, size=256), "accessor": FontArrayAccessor},
+        "scriptscriptfont": {"generator": lambda state: Array("scriptscriptfont", state, nullfont, size=256), "accessor": FontArrayAccessor},
     },
     commands = {
         "fontdimen": FontDimen(),

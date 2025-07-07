@@ -24,8 +24,8 @@ def test_dimen_array(parser):
     parser.parse("\\dimen0=10pt \\dimen1=\\dimen0")
     d = parser.state.dump()
     assert "dimen" in d
-    assert d["dimen"][0] == dimenInfo(dimen.Dimen(10))
-    assert d["dimen"][1] == dimenInfo(dimen.Dimen(10))
+    assert serialization.serialize(d["dimen"][0]) == dimenInfo(dimen.Dimen(10))
+    assert serialization.serialize(d["dimen"][1])== dimenInfo(dimen.Dimen(10))
     
 
 def glueInfo(g):

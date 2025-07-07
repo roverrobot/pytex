@@ -39,14 +39,16 @@ def trace(parser, t, mode: str):
     parser.message(f"{mode} {t.name} at {parser.input.position()}: {meaning}\n")
 
 
-class Tracing:
+class Tracing(Domain):
     def __init__(self, parser):
+        super().__init__("tracing", parser.state)
         self.parser = parser
 
-    def __getattr__(self, item):
+    def __getitem__(self, item):
         return getattr(self.parser, item)
 
     def __setitem__(self, key, value):
+        self.save(key)
         setattr(self.parser, key, value)
 
 
@@ -70,7 +72,7 @@ def init(parser):
     parser.tracinglinebegin = 0
     parser.tracinglineend = 0
     parser.tracingquitatend = 0
-    parser.state.tracing = Domain("tracing", Tracing(parser), parser.state)
+    parser.state.tracing = Tracing(parser)
 
 
 mod = Module("tracing",

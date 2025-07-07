@@ -263,7 +263,7 @@ mod = Module("dimen",
         "readDimen": readDimen,
     },
     domains={
-        "dimen": {"generator": lambda: Array(0), "accessor": DimenArrayAccessor},
+        "dimen": {"generator": lambda state: Array("dimen", state, Dimen), "accessor": DimenArrayAccessor},
     },
     parameters={
         "hfuzz": {"value": Dimen(), "accessor": DimenAccessor, "domain": "layout"},

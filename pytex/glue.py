@@ -272,8 +272,8 @@ mod = Module("glue",
         "readGlue": readGlue,
     },
     domains={
-        "skip": {"generator": lambda: Array(Glue()), "accessor": GlueArrayAccessor},
-        "muskip": {"generator": lambda: Array(MuGlue()), "accessor": MuGlueArrayAccessor},
+        "skip": {"generator": lambda state: Array("skip", state, Glue), "accessor": GlueArrayAccessor},
+        "muskip": {"generator": lambda state: Array("muskip", state, MuGlue), "accessor": MuGlueArrayAccessor},
     },
     parameters={
         # glue parameters

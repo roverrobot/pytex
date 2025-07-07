@@ -7,8 +7,8 @@ from pytex import macro
 @pytest.fixture
 def state():
     s = st.State()
-    d = st.Domain(name="dict", values={}, state=s)
-    a = st.Domain(name="array", values=[0,0,0], state=s)
+    d = st.Dict(name="dict", state=s)
+    a = st.Array(name="array", state=s, default=0, size=3)
     return s, d, a
 
 def test_set_value(state):
@@ -99,7 +99,7 @@ def test_parser_group_mismatch(parser):
 def test_dump(parser):
     parser.parse("\\count0=1{\\count0=2}\\def\\a{123}")
     data = parser.state.dump()
-    assert len(data) == 20
+    assert len(data) == 19
     assert "count" in data
     assert data["count"][0] == 1
     assert "equitable" in data

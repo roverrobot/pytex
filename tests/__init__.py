@@ -14,6 +14,6 @@ def checkValues(parser, input, values):
         if i is None:
             i = domain
             domain = "equitable"
-        item = parser.state.domains[domain][i]
+        item = getattr(parser.state, domain)[i]
         got = getter(item)
         assert got == v, f"Expected {v}, got {got}"

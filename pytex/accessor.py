@@ -66,7 +66,7 @@ class Accessor(token.Command):
         get the value from the domain.
         @param parser: the parser
         """
-        domain = parser.state.domains[self.domain]
+        domain = getattr(parser.state, self.domain)
         index = self.getIndex(parser) if self.index is None else self.index
         return domain[index]
 

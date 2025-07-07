@@ -491,7 +491,7 @@ class UnBox(Command):
 
     def execute(self, parser):
         index = parser.readInteger()
-        if not (0 <= index < len(parser.state.box.values)):
+        if not (0 <= index < parser.state.box.size):
             raise ValueError("box index out of range", parser.input.position())
         box = parser.state.box[index]
         if self.wipe:
@@ -700,7 +700,7 @@ class LastBox(Command):
 
 mod = Module("hbox", 
     domains={
-        "box": {"generator": lambda: Array(VoidBox), "accessor": None},
+        "box": {"generator": lambda state: Array("box", state, VoidBox), "accessor": None},
     },
     attributes={
         "readBox": readBox,

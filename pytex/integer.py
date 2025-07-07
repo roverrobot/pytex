@@ -207,8 +207,8 @@ class CatCode(Array):
     """
     The category code array \\catcode
     """
-    def __init__(self, size: typing.Optional[int]=None):
-        super().__init__(CATCODE.OTHER, size)
+    def __init__(self, state):
+        super().__init__("catcode", state, CATCODE.OTHER)
         for c in range(ord("A"), ord("Z") + 1):
             self[c] = CATCODE.LETTER
             self[c + 32] = CATCODE.LETTER
@@ -228,8 +228,8 @@ class LCCode(Array):
     """
     The lowercase code array \\lccode
     """
-    def __init__(self, size: typing.Optional[int]=None):
-        super().__init__(0, size)
+    def __init__(self, state):
+        super().__init__("lccode", state, 0)
         for c in range(ord("A"), ord("Z") + 1):
             self[c] = c + 32
             self[c+32] = c + 32
@@ -239,8 +239,8 @@ class UCCode(Array):
     """
     The uppercase code array \\uccode
     """
-    def __init__(self, size: typing.Optional[int]=None):
-        super().__init__(0, size)
+    def __init__(self, state):
+        super().__init__("uccode", state, 0)
         for c in range(ord("A"), ord("Z") + 1):
             self[c] = c
             self[c+32] = c
@@ -250,9 +250,8 @@ class SFCode(Array):
     """
     The space factor code array \\sfcode
     """
-    
-    def __init__(self, size: typing.Optional[int]=None):
-        super().__init__(1000, size)
+    def __init__(self, state):
+        super().__init__("sfcode", state, 1000)
         # When INITEX creates a brand new TEX, all characters have a space factor code of 1000, 
         # except that the uppercase letters ‘A’ through ‘Z’ have code 999. 
         for c in range(ord("A"), ord("Z") + 1):
@@ -263,8 +262,8 @@ class MathCode(Array):
     """
     The math code array \\mathcode
     """
-    def __init__(self, size: typing.Optional[int]=None):
-        super().__init__(0, size)
+    def __init__(self, state):
+        super().__init__("mathcode", state, 0)
         # \mathcode x = x for all characters x that are neither letters nor digits. The ten digits
         # have \mathcode x = x+ ̋7000; the 52 letters have \mathcode x = x+ ̋7100.
         for c in range(self.SIZE):
@@ -370,9 +369,9 @@ module = Module("integer",
         "lccode": {"generator": LCCode, "accessor": IntegerArrayAccessor},
         "uccode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
         "sfcode": {"generator": SFCode, "accessor": IntegerArrayAccessor},
-        "delcode": {"generator": lambda: Array(-1), "accessor": IntegerArrayAccessor},
+        "delcode": {"generator": lambda state: Array("delcode", state, -1), "accessor": IntegerArrayAccessor},
         "mathcode": {"generator": MathCode, "accessor": IntegerArrayAccessor},
-        "count": {"generator": lambda: Array(0), "accessor": IntegerArrayAccessor},
+        "count": {"generator": lambda state: Array("count", state, 0), "accessor": IntegerArrayAccessor},
     },
     commands={
         "inputlineno": InputLineNo(),

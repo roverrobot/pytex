@@ -14,7 +14,7 @@ def test_read_tfm():
 
 
 def test_nullfont(parser):
-    nullfont = parser.state.globals["tfm"]["nullfont"]
+    nullfont = parser.tfm["nullfont"]
     assert nullfont.header.checksum == 0
     assert nullfont.header.size == 0.0
     assert nullfont.ec == 0

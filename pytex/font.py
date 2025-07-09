@@ -60,7 +60,7 @@ class Font(Command):
         return self.charnode[0]
 
     def execute(self, parser):
-        parser.state.parameters["currentfont"] = self
+        parser.currentfont.set(self)
 
     def __repr__(self):
         return f"Font({self.tfm.name}, {self.at})"
@@ -154,9 +154,9 @@ class FontDefineAccessor(Accessor):
         if keyword == "at":
             at = parser.readDimen()
         elif keyword == "scaled":
-            at = parser.readInteger() / 1000 * tfm.header.size * parser.state.layout["mag"] / 1000
+            at = parser.readInteger() / 1000 * tfm.header.size * parser.mag.value / 1000
         else:
-            at = tfm.header.size * parser.state.layout["mag"] / 1000
+            at = tfm.header.size * parser.mag.value / 1000
         return Font(tfm, at)
 
 

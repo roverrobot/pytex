@@ -56,8 +56,10 @@ class Module:
         """
         if self.domains is not None:
             for name, domain in self.domains.items():
-                d = domain["generator"]
-                parser.state.setDomain(name,d(parser.state))
+                generator = domain["generator"]
+                d = generator(parser.state)
+                setattr(parser.state, name, d)
+                parser.state.arrays[name] = d
                 accessor = domain["accessor"]
                 if accessor is not None:
                     command = accessor(name)
@@ -86,15 +88,20 @@ class Module:
         if self.parameters is not None:
             for name, item in self.parameters.items():
                 # set the value in the domain
-                domain = item["domain"]
+                domain = getattr(parser.state, item["domain"])
                 value = item["value"]
                 if callable(value):
                     value = value()
-                getattr(parser.state, domain)[name] = value
+                if domain is parser.state.globals:
+                    domain[name] = value
+                else:
+                    domain.setGlobal(name, value)
+                    if item["domain"] != "tracing":
+                        setattr(parser, name, dict.__getitem__(domain, name))
                 # set the accessor in equitable
                 generator = item["accessor"]
                 if generator is not None:
-                    accessor = generator(domain, name)
+                    accessor = generator(item["domain"], name)
                     name = "\\"+name
                     accessor.name = name
                     if accessor is not None:

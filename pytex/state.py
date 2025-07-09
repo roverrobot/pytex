@@ -54,22 +54,16 @@ class Group:
 
     def store(self, domain, index):
         """
-        store a value in the group.
-        @param domain: the domain of the value
+        return the store to save a value in the group.
+        @param domain: the domain
         @param index: the index of the value
-        @param value: the value
         """
-        if isinstance(domain, Dict) and index not in domain:
-            save = None
+        if domain not in self.values:
+            store = {}
+            self.values[domain] = store
         else:
-            save = domain[index]
-        if domain.name not in self.values:
-            store = [domain, {}]
-            self.values[domain.name] = store
-        else:
-            store = self.values[domain.name]
-        if index not in store[1]:
-            store[1][index] = save
+            store = self.values[domain]
+        return None if index in store else store
 
     def match(self, group_type: GROUP_TYPE):
         """
@@ -92,10 +86,9 @@ class Group:
         """
         if not self.match(group_type):
             raise ValueError(f"mismatched group type starting at {self.position} and ending at {position}")
-        for key, item in self.values.items():
-            domain, store = item
-            for index, value in store.items():
-                domain.restore(index, value)
+        for store in self.values.values():
+            for saved in store.values():
+                saved.restore()
         if self.callback:
             self.callback()
 
@@ -105,30 +98,43 @@ class Group:
         @param domain: the domain of the value
         @param index: the index of the value
         """
-        if domain.name not in self.values:
+        if domain not in self.values:
             return
-        item = self.values[domain.name]
-        store = item[1]
+        store = self.values[domain]
         if index in store:
             del store[index]
+        
+
+class NamedSavedValue:
+    """
+    a saved value in the group for a Dict.
+    @param value: the Entry holding the value
+    """
+    def __init__(self, domain, name, value):
+        self.domain = domain
+        self.index = name
+        self.entry = value
+        self.value = value.value
+
+    def restore(self):
+        """
+        restore the value at the index in the domain
+        """
+        self.entry.value = self.value
 
 
 class Domain:
     """
-    a Domamin is a dict or list that respect groups.
-    @param name: the name of the domain
-    @param values: the values in the domain
-    @param state: the a State object for parser state
+    an interface for a domain that holds values.
     """
-    def __init__(self, name: str, state=None):
-        self.name = name
-        self.state = state
-
-    def save(self, index):
-        if self.state:
-            top = self.state.current_group
-            if top:
-                top.store(self, index)
+    def store(self, index, value):
+        """
+        return a stored value in the group.
+        @param index: the index of the value
+        @param value: the value to be saved
+        @return: a SaveValue object that holds the saved value
+        """
+        pass
 
     def setGlobal(self, index, value):
         """
@@ -136,110 +142,242 @@ class Domain:
         @param index: the index of the value
         @param: the value
 
-        This is like __setitem__, but also should clear the saved values in group_stack.
+        This is like __setitem__, but also should clear the saved values in the group stack.
         """
-        self[index] = value
-        if self.state:
-            self.state.remove(self, index)
-        
-
-class Dict(Domain, dict):
-    """
-    a domain that is a dict, and respects groups.
-    @param name: the name of the domain
-    @param values: the values in the domain
-    @param state: the a State object for parser state
-    """
-    def __init__(self, name, state=None):
-        Domain.__init__(self, name, state)
-        dict.__init__(self)
-
-    def __setitem__(self, index, value):
-        """
-        set the value of the domain at the index
-        @param index: the index of the value
-        @param: the value
-        """
-        self.save(index)
-        dict.__setitem__(self, index, value)
-
-    def __delitem__(self, index):
-        self.save(index)
-        return dict.__delitem__(self, index)
-
-    def restore(self, index, value):
-        """
-        restore the value at the index in the domain
-        @param index: the index of the value
-        @param: the value
-        """
-        if value is None:
-            dict.__delitem__(self, index)
-        else:
-            dict.__setitem__(self, index, value)
+        pass
 
     def load(self, data):
         """
         restore the domain from a dump
         @param data: the data to restore the domain
         """
-        for i in self.keys():
-            if i not in data:
-                dict.__delitem__(self, i)
-        for i, v in data.items():
-            dict.__setitem__(self, i, v)
+        pass
 
     def dump(self):
-        return self
-            
+        """
+        dump the domain
+        @return: a dict that contains the values of the domain
+        """
+        pass
 
-class Layout(Dict):
+
+class NamedEntry:
+    """
+    a named value in a domain.
+    @param state: the a State object for parser state
+    @param domain: the name of the domain
+    @param name: the name of the command
+    @param value: the value of the command, None meaning undefined.
+    """
+    def __init__(self, state, domain, name, value=None):
+        self.state = state
+        self.domain = domain
+        self.name = name
+        self.value = value
+
+    def set(self, value):
+        """
+        set the value of the entry
+        @param value: the value to be set
+        """
+        if self.state:
+            top = self.state.current_group
+            if top:
+                store = top.store(self.domain, self.name)
+                if store is not None:
+                    store[self.name] = NamedSavedValue(self.domain, self.name, self)
+        self.value = value
+
+    def setGlobal(self, value):
+        """
+        set the value of the entry globally
+        @param value: the value to be set
+        """
+        if self.state:
+            self.state.remove(self.domain, self.name)
+        self.value = value
+
+    def __eq__(self, other):
+        """
+        check if the entry is equal to another entry or value
+        @param other: the other entry or value
+        @return: True if the entry is equal to the other, False otherwise
+        """
+        return other == self.value
+    
+    def __repr__(self):
+        return repr(self.value)
+
+class Dict(dict):
+    """
+    a domain that is a dict, and respects groups.
+    @param name: the name of the domain
+    @param values: the values in the domain
+    @param state: the a State object for parser state
+    """
+    def __init__(self, name: str, state=None):
+        dict.__init__(self)
+        self.name = name
+        self.state = state
+    
+    def __getitem__(self, key):
+        """
+        get the value of the domain at the index
+        @param key: the index of the value
+        @return: the value at the index
+        """
+        try:
+            return dict.__getitem__(self, key).value
+        except KeyError:
+            dict.__setitem__(self, key, NamedEntry(self.state, self.name, key))
+            return None
+    
+    def __setitem__(self, key, value):
+        """
+        set the value of the domain at the index
+        @param key: the index of the value
+        @param: the value
+        """
+        try:
+            dict.__getitem__(self, key).set(value)
+        except KeyError:
+            dict.__setitem__(self, key,  NamedEntry(self.state, self.name, key, value))
+
+    def __delitem__(self, index):
+        """
+        delete the value at the index in the domain
+        @param index: the index of the value
+        """
+        raise NotImplementedError("deleting an entry is not supported")
+
+    def load(self, data):
+        """
+        restore the domain from a dump
+        @param data: the data to restore the domain
+        """
+        for i, v in data.items():
+            self.setGlobal(i, v)
+
+    def dump(self):
+        data = {}
+        for i, v in self.items():
+            data[i] = v.value
+        return data
+
+    def setGlobal(self, key, value):
+        """
+        set the value of the domain at the index globally
+        @param key: the index of the value
+        @param: the value
+
+        This is like __setitem__, but also should clear the saved values in group_stack.
+        """
+        if key not in self:
+            entry = NamedEntry(self.state, self.name, key)
+            dict.__setitem__(self, key, entry)
+        else:
+            entry = dict.__getitem__(self, key)
+        entry.setGlobal(value)
+        if self.state:
+            self.state.remove(self.name, key)
+    
+
+class Parameter(NamedEntry):
+    """
+    a class holding a parameter value
+    @param value: the value of the entry
+    @param version: the version of the entry
+    """
+    def __init__(self, state, name, value=None):
+        super().__init__(state, "parameters", name, value) 
+
+class Layout(Parameter):
     """
     a domain that store layout related parameters.
     @param state: the a State object for parser state
 
-    This domain maintains the values that are chenged.
+    These parameters stores their current value in State if they are chenged.
     """
-    def __init__(self, state=None):
-        super().__init__("layout", state)
+
+    def __init__(self, state, name, value=None):
+        super().__init__(state, name, value)
         self._changed = {}
 
-    def __setitem__(self, index, value):
-        super().__setitem__(index, value)
-        self._changed[index] = value
-
-    def changed(self):
+    def set(self, value):
         """
-        dump the changed values of the domain and clear the changed dict.
-        @return: a dict that contains the changed values
+        set the value of the entry, and store it in the changed dict.
+        @param value: the value to be set
         """
-        _changed = self._changed
-        self._changed = {}
-        return _changed
+        super().set(value)
+        self.state.changed[self.name] = value
+
+    def setGlobal(self, value):
+        super().setGlobal(value)
+        self.state.changed[self.name] = value
 
 
-class Array(Domain, list):
+class ArraySavedValue:
+    """
+    a saved value in the group for an Array.
+    @param domain: the domain of the value
+    @param index: the index of the value
+    @param value: the vEntry holding the value
+    """
+    def __init__(self, domain, index):
+        self.domain = domain.name
+        self.array = domain
+        self.index = index
+        try:
+            self.value = domain[index]
+        except IndexError:
+            raise ValueError(f"index {index} out of range for array {domain.name}")
+
+    def restore(self):
+        """
+        restore the value at the index in the domain
+        """
+        list.__setitem__(self.array, self.index, self.value)
+
+
+class Array(list):
     SIZE = 65536
     """
     an array of values
     """
     def __init__(self, name: str, state=None, default=None, size: typing.Optional[int]=None):
-        Domain.__init__(self, name, state)
         if size is None:
             size = self.SIZE
         if callable(default):
             init = [default() for i in range(size)]
+            self.default = default()
         else:
             init = [default] * size
+            self.default = default
         list.__init__(self, init)
+        self.state = state
+        self.name = name
         self.size = size
-        self.default = default
     
     def __setitem__(self, index, value):
-        self.save(index)
+        if self.state:
+            top = self.state.current_group
+            if top:
+                store = top.store(self.name, index)
+                if store is not None:
+                    store[index] = ArraySavedValue(self, index)
         list.__setitem__(self, index, value)
 
-    restore = list.__setitem__
+    def setGlobal(self, index, value):
+        """
+        set the value of the array at the index globally
+        @param index: the index of the value
+        @param: the value
+
+        This is like __setitem__, but also should clear the saved values in group_stack.
+        """
+        if self.state:
+            self.state.remove(self.name, index)
+        list.__setitem__(self, index, value)
 
     def load(self, data):
         """
@@ -255,7 +393,7 @@ class Array(Domain, list):
         @return: a dict that contains the array values
         """
         values = {}
-        default = self.default() if callable(self.default) else self.default
+        default = self.default
         for i, v in enumerate(self):
             if v != default:
                 values[i] = v
@@ -269,33 +407,27 @@ class State:
     def __init__(self):
         self.groups = [] # group stack
         self.current_group = None
-        self.globals = {}
-        self.domains = {}
-        # the loaded TFM files. These files are not dumped, as they are loaded onthe fly by the 
-        # font loader
-        self.tfm = {} 
-        self.volatile = Dict("volatile", self)  # the volatile domain do not need to be dumped
-        self.setDomain("equitable", Dict("equitable", self))  # the equitable domain
-        self.setDomain("layout", Layout(self))  # the layout domain
-        self.setDomain("parameters", Dict("parameters", self))  # the parameters domain
-
-    def setDomain(self, name, domain):
-        """
-        set a domain with the given name and values.
-        @param name: the name of the domain
-        @param values: the values of the domain
-        """
-        setattr(self, name, domain)
-        self.domains[name] = domain
+        self.globals = {} # the global variables, which are not subject to groups
+        self.volatile = Dict("volatile", self)  # the volatile domain, which will not be dumped
+        self.parameters = Dict("parameters", self)  # the parameters domain
+        self.equitable = Dict("equitable", self)  # the equitable domain
+        self.layout = Dict("layout", self)  # the layout domain
+        self.changed = {}
+        self.arrays = {}  # a dict of arrays, where the key is the name of the array, and the value is the Array object
 
     def dump(self):
         """
         dump the state
         @return: a dict that represents the state
         """
-        data = {"globals": self.globals}
-        for name, domain in self.domains.items():
-            data[name] = domain.dump()
+        data = {
+            "globals": self.globals, 
+            "equitable": self.equitable.dump(),
+            "parameters": self.parameters.dump(),
+            "layout": self.layout.dump(),
+        }
+        for name, array in self.arrays.items():
+            data[name] = array.dump()
         return data
     
     def load(self, data):
@@ -305,9 +437,12 @@ class State:
         """
         if "globals" in data:
             self.globals = data["globals"]
-        for name, domain in self.domains.items():
+        self.equitable.load(data.get("equitable", {}))
+        self.parameters.load(data.get("parameters", {}))
+        self.layout.load(data.get("layout", {}))
+        for name, array in self.arrays.items():
             if name in data:
-                domain.load(data[name])
+                array.load(data[name])
 
     def remove(self, domain: Domain, index):
         """

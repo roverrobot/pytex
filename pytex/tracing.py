@@ -1,7 +1,7 @@
 from pytex.module import Module
 from pytex import toks
 from pytex import integer
-from pytex.state import Domain
+from pytex.state import Dict, NamedEntry, NamedSavedValue
 
 
 def checkRange(parser):
@@ -39,17 +39,44 @@ def trace(parser, t, mode: str):
     parser.message(f"{mode} {t.name} at {parser.input.position()}: {meaning}\n")
 
 
-class Tracing(Domain):
-    def __init__(self, parser):
-        super().__init__("tracing", parser.state)
-        self.parser = parser
+class TracingEntry(NamedEntry):
+    """
+    A tracing entry that can be used to trace the commands being expanded or executed.
+    It is a NamedEntry, so it has a name and a value.
+    """
+    def __init__(self, state, domain, name):
+        self.state = state
+        self.domain = domain
+        self.name = name
+        self.parser = state.tracing.parser
+        self.value = getattr(self.parser, name)
 
-    def __getitem__(self, item):
-        return getattr(self.parser, item)
+    def set(self, value):
+        """
+        set the value of the entry
+        @param value: the value to be set
+        """
+        super().set(value)
+        setattr(self.parser, self.name, value)
 
-    def __setitem__(self, key, value):
-        self.save(key)
-        setattr(self.parser, key, value)
+    def setGlobal(self, value):
+        """
+        set the value of the entry globally
+        @param value: the value to be set
+        """
+        super().setGlobal(value)
+        setattr(self.parser, self.name, value)
+
+    def __eq__(self, other):
+        """
+        check if the entry is equal to another entry or value
+        @param other: the other entry or value
+        @return: True if the entry is equal to the other, False otherwise
+        """
+        return other == self.value
+    
+    def __repr__(self):
+        return repr(self.value)
 
 
 def init(parser):
@@ -72,7 +99,8 @@ def init(parser):
     parser.tracinglinebegin = 0
     parser.tracinglineend = 0
     parser.tracingquitatend = 0
-    parser.state.tracing = Tracing(parser)
+    parser.state.tracing = Dict(parser)
+    parser.state.tracing.parser = parser
 
 
 mod = Module("tracing",

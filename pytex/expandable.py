@@ -106,7 +106,7 @@ class CSName(Command):
         """
         t = readCSName(parser)
         if t.definition is None:
-            t.definition = parser.state.domains["equitable"][t.name] = relax
+            t.definition = parser.state.equitable[t.name] = relax
         parser.input.unread(t)
 
 
@@ -195,7 +195,7 @@ def toksToString(parser, tokens, space_after_command=False):
     @param space_after_command: add a space after a command
     @return: the string
     """
-    escape = parser.state.layout["escapechar"]
+    escape = parser.escapechar.value
     escapechar = "" if escape < 0 else chr(escape)
     return "".join(map(lambda x: tokenToString(x, escapechar, space_after_command), tokens))
 

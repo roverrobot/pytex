@@ -496,7 +496,7 @@ class ReadlineOp(file.ReadOp):
         except StopIteration:
             file.close()
             line = ""
-        endlinechar = parser.state.parameters["endlinechar"]
+        endlinechar = parser.endlinechar.value
         if line and line[-1] == "\n":
             line = line[:-1]
         if 0 <= endlinechar <= 255:

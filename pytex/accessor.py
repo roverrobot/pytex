@@ -101,7 +101,7 @@ class Accessor(token.Command):
         """
         self.readEq(parser)
         value = self.readValue(parser)
-        globally = parser.state.parameters["globaldefs"] != 0
+        globally = parser.globaldefs != 0
         try:
             for p in prefixes:
                 value, globally = p.modify(value, globally)

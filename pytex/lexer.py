@@ -156,7 +156,7 @@ class Scanner:
         if not isinstance(stream, io.IOBase):
             raise TypeError("stream must be a file-like object")
         self.catcode = state.catcode
-        self.parameters = state.parameters
+        self.eol = dict.__getitem__(state.parameters, "endlinechar")
         self.stream = stream
         self.lines = enumerate(stream)
         self.tokenizer = None
@@ -176,7 +176,7 @@ class Scanner:
             self.line, line = next(self.lines)
             if line[-1] == "\n":
                 line = line[:-1]
-            eol = self.parameters["endlinechar"] 
+            eol = self.eol.value
             if 0 <= eol < 256:
                 line += chr(eol)
             self.tokenizer = Tokenizer(line, self.catcode)

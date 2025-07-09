@@ -29,6 +29,9 @@ class Paragraph(hmode.HList):
         if indent:
             self.append(bx.IndentBox(parser))
 
+    # not a proper node
+    node_type = None
+    
     def saveInfo(self):
         d = super().saveInfo()
         d["init"]["indent"] = self.inner

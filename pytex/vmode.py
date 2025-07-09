@@ -44,16 +44,14 @@ class VList(lists.List):
         nodes = []
         glues = []
         for node in self:
-            if isinstance(node, nd.Glue):
+            if node.node_type == nd.NODE_TYPE.GLUE:
                 glues.append(node)
+            elif node.node_type is None:
+                # this is a paragraph. We have not implemented it yet
+                # raise NotImplementedError("paragraphs are not implemented yet")
+                pass
             elif node.node_type == nd.NODE_TYPE.HLIST:
-                if not node.list.inner:
-                    # this is a paragraph. We have not implemented it yet
-                    raise NotImplementedError("paragraphs are not implemented yet")
-                else:
-                    # this is a \hbox.
-                    node.typeset()
-                    nodes.append(node)
+                nodes.append(node)
                 for n in node.migrate:
                     if n.node_type == nd.NODE_TYPE.VADJUST:
                         nodes.extend(n.list)
@@ -61,8 +59,6 @@ class VList(lists.List):
                         # n.node_type == nd.NODE_TYPE.MARK or n.node_type == nd.NODE_TYPE.INS:
                         nodes.append(n)
                 continue
-            elif node.node_type == nd.NODE_TYPE.VLIST:
-                node.typeset()
             nodes.append(node)
         return nodes, glues
 

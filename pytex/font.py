@@ -212,7 +212,8 @@ class FontDimenAccessor(DimenArrayItemAccessor):
 
     def dimenValue(self, parser):
         if self.index < 0 or self.index >= len(self.domain):
-            raise ValueError(f"fontdimen index {self.index} out of range for font {self.font.tfm.name} ", parser.input.position())
+            raise ValueError(f"fontdimen index {self.index} out of range {len(self.domain)} for font {self.font.tfm.name}  @{int(self.font.at)}", parser.input.position())
+        return self.domain[self.index]
     
     def set(self, parser, value):
         """
@@ -226,7 +227,7 @@ class FontDimenAccessor(DimenArrayItemAccessor):
         super().set(parser, value)
 
     def setGlobal(self, parser, value):
-        return set(parser, value)
+        self.set(parser, value)
 
     
 class FontDimen(DimenArrayAccessor):
@@ -237,14 +238,14 @@ class FontDimen(DimenArrayAccessor):
         super().__init__(None)
    
     def getItemAccessor(self, parser):
-        i = parser.readInteger()
+        i = parser.readInteger() - 1
         return FontDimenAccessor(readFont(parser), i)
     
     def dimenValue(self, parser):
-        i = parser.readInteger()
+        i = parser.readInteger() - 1
         f = readFont(parser)
         if i < 0 or i >= len(f.param):
-            raise ValueError(f"fontdimen index {i} of out of range for font {f.tfm.name}", parser.input.position())
+            raise ValueError(f"fontdimen index {i+1} of out of range of {len(f.param)} for font {f.tfm.name}  @{int(f.at)}", parser.input.position())
         return f.param[i]
 
 

@@ -233,7 +233,7 @@ class LastNodeType(tk.Command):
     """
     The \\lastnodetype command
     """
-    def getValue(self, parser):
+    def intValue(self, parser):
         top = parser.lists[-1]
         if len(top) == 0:
             return -1
@@ -244,7 +244,7 @@ class CurrentGroupType(tk.Command):
     """
     The \\currentgrouptype command
     """
-    def getValue(self, parser):
+    def intValue(self, parser):
         groups = parser.state.groups
         if len(groups) == 0:
             return -1
@@ -255,7 +255,7 @@ class CurrentGroupLevel(tk.Command):
     """
     The \\currentgrouplevel command
     """
-    def getValue(self, parser):
+    def intValue(self, parser):
         return len(parser.state.groups)
 
 
@@ -263,7 +263,7 @@ class CurrentIfLevel(tk.Command):
     """
     The \\currentiflevel command
     """
-    def getValue(self, parser):
+    def intValue(self, parser):
         return len(parser.state.ifs)
     
 
@@ -294,7 +294,7 @@ class CurrentIfType(tk.Command):
         "ifcsname",
         "iffontchar", #20
     ]
-    def getValue(self, parser):
+    def intValue(self, parser):
         if len(parser.state.ifs) == 0:
             return -1
         return self.if_types.index(parser.state.ifs[-1].name[1:])

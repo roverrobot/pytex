@@ -56,8 +56,6 @@ def test_hbox(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.HLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 55.58344
     assert box.height == 6.94444
     assert box.depth == 1.94444
@@ -69,8 +67,6 @@ def test_hbox_to(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.HLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 100
     assert box.height == 6.94444
     assert box.depth == 1.94444
@@ -82,8 +78,6 @@ def test_hbox_spread(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.HLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 65.58344
     assert box.height == 6.94444
     assert box.depth == 1.94444
@@ -95,8 +89,6 @@ def test_vbox(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.VLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 55.58344
     assert box.height == 6.94444 + 6.94444 + 1.94444 + 10.00002
     assert box.depth == 1.94444
@@ -109,8 +101,6 @@ def test_vbox_to(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.VLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 55.58344
     assert box.height == 100
     assert box.depth == 1.94444
@@ -123,8 +113,6 @@ def test_vbox_spread(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.VLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 55.58344
     assert box.height == 6.94444 + 6.94444 + 1.94444 + 10.00002 + 10
     assert box.depth == 1.94444
@@ -137,8 +125,6 @@ def test_vtop(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.VLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 55.58344
     assert box.height == 6.94444 
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
@@ -151,8 +137,6 @@ def test_vtop_to(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.VLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 55.58344
     assert box.height == 100
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
@@ -164,8 +148,6 @@ def test_vtop_spread(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.VLIST
-    assert box.content is None
-    box.typeset()
     assert box.width == 55.58344
     assert box.height == 6.94444 + 10
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
@@ -178,7 +160,7 @@ def test_vtop_spread(box):
     ["\\wd", "width"]
 ])
 def test_wd(box, cmd, attr):
-    box.parse(f"\\dimen0={cmd}0")
+    box.parse(f"\\setbox0=\\hbox{{A}}\\dimen0={cmd}0")
     assert box.state.dimen[0] == getattr(box.state.box[0], attr)
     box.parse(f"{cmd}0=100pt")
     assert getattr(box.state.box[0], attr) == 100
@@ -218,7 +200,6 @@ def test_unhcopy(box):
     top = box.lists[-1]
     assert len(top) == 15
     box0 = box.state.box[0]
-    assert box0.content is None
     assert len(box0.list) == 13
 
 

@@ -265,6 +265,7 @@ class BuildBox(Command):
                 parser.input.unread(afterassignment)
         parser.input.unread(t)
         parser.readList(box.list, self.groupType())
+        box.typeset()
         return box
 
 

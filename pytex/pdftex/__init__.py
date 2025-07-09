@@ -9,7 +9,7 @@ from pytex import etex
 from pytex.pdftex import expandable
 from pytex.pdftex import sys
 from pytex.module import Module
-from pytex.integer import IntegerAccessor
+from pytex.integer import IntegerParameterAccessor
 from pytex import dimen
 
 version = "140.24"
@@ -17,20 +17,20 @@ version = "140.24"
 mod = Module("pdftex", 
     parameters={
         # integers
-        "pdftexversion": {"value": 140, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pdfdraftmode": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pdfoutput": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pdfmajorversion": {"value": 1, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pdfminorversion": {"value": 4, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pdfcompresslevel": {"value": 9, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pdfobjcompresslevel": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pdfdecimaldigits": {"value": 4, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pdfpkresolution": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
+        "pdftexversion": {"value": 140, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pdfdraftmode": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pdfoutput": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pdfmajorversion": {"value": 1, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pdfminorversion": {"value": 4, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pdfcompresslevel": {"value": 9, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pdfobjcompresslevel": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pdfdecimaldigits": {"value": 4, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pdfpkresolution": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
         # dimensions
-        "pdfpagewidth": {"value": dimen.Dimen(), "accessor": dimen.DimenAccessor, "domain": "parameters"},
-        "pdfpageheight": {"value": dimen.Dimen(), "accessor": dimen.DimenAccessor, "domain": "parameters"},
-        "pdfhorigin": {"value": dimen.Dimen(72.27), "accessor": dimen.DimenAccessor, "domain": "parameters"},
-        "pdfvorigin": {"value": dimen.Dimen(72.27), "accessor": dimen.DimenAccessor, "domain": "parameters"},
+        "pdfpagewidth": {"value": dimen.Dimen(), "accessor": dimen.DimenParameterAccessor, "domain": "parameters"},
+        "pdfpageheight": {"value": dimen.Dimen(), "accessor": dimen.DimenParameterAccessor, "domain": "parameters"},
+        "pdfhorigin": {"value": dimen.Dimen(72.27), "accessor": dimen.DimenParameterAccessor, "domain": "parameters"},
+        "pdfvorigin": {"value": dimen.Dimen(72.27), "accessor": dimen.DimenParameterAccessor, "domain": "parameters"},
     },
     commands={
         "pdftexversion": etex.FixedInteger(int(version.split(".")[0])),

@@ -104,7 +104,7 @@ class Parser:
                 t.noexpand = False
                 t.definition = token.relax
             else:
-                t.definition = self.lookup(t.name)
+                t.definition = t.entry.value
         return t
     
     def token_expand(self):
@@ -295,10 +295,7 @@ class Parser:
         @param name: the name of the command
         @return: the command
         """
-        try:
-            return self.state.equitable[name]
-        except KeyError:
-            return None
+        return self.state.equitable[name]
 
     def beginGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE, callback=None):
         """

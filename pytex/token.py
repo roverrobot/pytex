@@ -238,6 +238,21 @@ class CommandToken(Token):
     def saveInfo(self):
         return {"init": {"name": self.name}}
 
+    @classmethod
+    def new(cls, parser, **kargs):
+        """
+        create a new command from the dictionary
+        @param parser: the parser
+        @param init: the command information
+        @return: the command
+        """
+        name = kargs["name"]
+        if name is None:
+            raise ValueError("command name is required")
+        t = cls(name)
+        t.entry = parser.state.equitable.entry(name)
+        return t
+
     # Command tokens represent commands
     is_command = True
 
@@ -283,6 +298,21 @@ class ActiveToken(CommandToken):
         super().__init__(name)
         self.catcode = CATCODE.ACTIVE
 
+    @classmethod
+    def new(cls, parser, **kargs):
+        """
+        create a new command from the dictionary
+        @param parser: the parser
+        @param init: the command information
+        @return: the command
+        """
+        name = kargs["name"]
+        if name is None:
+            raise ValueError("active token name is required")
+        t = cls(name, kargs.get("catcode", CATCODE.ACTIVE))
+        t.entry = parser.state.equitable.entry(name)
+        return t
+    
     def charValue(self, parser):
         """ 
         An active token is a character token, so it has a char value.

@@ -220,6 +220,19 @@ class Dict(dict):
         self.name = name
         self.state = state
     
+    def entry(self, key):
+        """
+        get the entry of the domain at the index
+        @param key: the index of the value
+        @return: the NamedEntry object at the index
+        """
+        try:
+            return dict.__getitem__(self, key)
+        except KeyError:
+            entry = NamedEntry(self.state, self.name, key)
+            dict.__setitem__(self, key, entry)
+            return entry
+
     def __getitem__(self, key):
         """
         get the value of the domain at the index
@@ -339,7 +352,7 @@ class ArraySavedValue:
         list.__setitem__(self.array, self.index, self.value)
 
 
-class Array(list):
+class Array(list, Command):
     SIZE = 65536
     """
     an array of values
@@ -354,6 +367,7 @@ class Array(list):
             init = [default] * size
             self.default = default
         list.__init__(self, init)
+
         self.state = state
         self.name = name
         self.size = size
@@ -400,6 +414,18 @@ class Array(list):
         return values
     
 
+class Globals(dict):
+    """
+    a dict that holds the global variables, which are not subject to groups.
+    """
+    def __init__(self):
+        dict.__init__(self)
+        self.name = "globals"
+
+    def setGlobal(self, key, value):
+        self[key] = value
+
+
 class State:
     """
     stores the state of the parser, including the local and global parameters and registers.
@@ -407,7 +433,7 @@ class State:
     def __init__(self):
         self.groups = [] # group stack
         self.current_group = None
-        self.globals = {} # the global variables, which are not subject to groups
+        self.globals = Globals() # the global variables, which are not subject to groups
         self.volatile = Dict("volatile", self)  # the volatile domain, which will not be dumped
         self.parameters = Dict("parameters", self)  # the parameters domain
         self.equitable = Dict("equitable", self)  # the equitable domain

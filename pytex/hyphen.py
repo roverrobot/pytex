@@ -6,7 +6,6 @@ the pyphen library. The \\patterns command thus does nothing.
 """
 
 from pytex import token
-from pytex.integer import IntegerAccessor
 from pytex.module import Module
 import pyphen
 

@@ -32,9 +32,11 @@ class Arithmatics(Command):
         if t.definition is None:
             raise ValueError("expecting a register or a parameter", parser.input.position())
         t = t.definition
-        try:
-            p = t.getItemAccessor(parser, None)
-        except AttributeError:
+        if hasattr(t, "getItemAccessor"):
+            p = t.getItemAccessor(parser)
+        elif isinstance(t, Accessor):
+            p = t
+        else:
             raise ValueError("expecting a register or a parameter", parser.input.position())
         is_integer = False
         if hasattr(p, "muglueValue"):
@@ -53,7 +55,22 @@ class Arithmatics(Command):
         value = self.op(x, y)
         if is_integer:
             value = int(value)
-        p.setValue(parser, value, prefixes)
+        # set value
+        globally = parser.globaldefs.value > 0
+        try:
+            for prefix in prefixes:
+                value, globally = prefix.modify(value, globally)
+        except ValueError as e:
+            e.args = (e.args[0], parser.input.position())
+            raise e
+        if globally:
+            p.setGlobal(parser, value)
+        else:
+            p.set(parser, value)
+        t = parser.state.globals["afterassignment"]
+        if t is not None:
+            parser.input.unread(t)
+            parser.state.globals["afterassignment"] = None
 
     def readByValue(self, parser, item_accessor):
         """

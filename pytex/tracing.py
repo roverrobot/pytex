@@ -1,7 +1,9 @@
 from pytex.module import Module
 from pytex import toks
 from pytex import integer
-from pytex.state import Dict, NamedEntry, NamedSavedValue
+from pytex.state import Dict, NamedEntry
+from pytex.accessor import Accessor
+from pytex.expandable import toksToString
 
 
 def checkRange(parser):
@@ -51,6 +53,21 @@ class TracingEntry(NamedEntry):
         self.parser = state.tracing.parser
         self.value = getattr(self.parser, name)
 
+    def saveInfo(self):
+        return {"init": {"domain": self.domain.name, "name": self.name}}
+
+    @classmethod
+    def new(cls, parser, **kargs):
+        """
+        create a new accessor from the dictionary
+        @param parser: the parser
+        @param kargs: the keyword arguments
+        @return: the command
+        """
+        domain = kargs["domain"]
+        name = kargs["name"]
+        return cls(getattr(parser.state, domain), name)
+
     def set(self, value):
         """
         set the value of the entry
@@ -79,6 +96,67 @@ class TracingEntry(NamedEntry):
         return repr(self.value)
 
 
+class Tracing(Dict):
+    """
+    A dictionary that contains the tracing parameters.
+    It is a Dict, so it can be used to access the tracing parameters.
+    """
+    def __init__(self, parser):
+        super().__init__("tracing", parser.state)
+        self.parser = parser
+
+    def entry(self, key):
+        """
+        get the entry of the domain at the index
+        @param key: the index of the value
+        @return: the NamedEntry object at the index
+        """
+        try:
+            return dict.__getitem__(self, key)
+        except KeyError:
+            entry = TracingEntry(self.state, self.name, key)
+            dict.__setitem__(self, key, entry)
+            return entry
+
+    def __getitem__(self, key):
+        """
+        get the value of the domain at the index
+        @param key: the index of the value
+        @return: the value at the index
+        """
+        try:
+            return dict.__getitem__(self, key).value
+        except KeyError:
+            dict.__setitem__(self, key, TracingEntry(self.state, self.name, key))
+            return None
+    
+    def __setitem__(self, key, value):
+        """
+        set the value of the domain at the index
+        @param key: the index of the value
+        @param: the value
+        """
+        try:
+            dict.__getitem__(self, key).set(value)
+        except KeyError:
+            dict.__setitem__(self, key,  TracingEntry(self.state, self.name, key, value))
+
+
+class TracingSource(Accessor):
+    """
+    The \\tracingsource command.
+    It sets the source file for tracing.
+    """
+    def readValue(self, parser):
+        return toksToString(parser, toks.readGeneralText(parser))
+    
+    def set(self, parser, value):
+        parser.tracingsource = value
+
+    def setGlobal(self, parser, value):
+        parser.tracingsource = value
+
+
 def init(parser):
     """
     initialize the tracing module
@@ -99,35 +177,36 @@ def init(parser):
     parser.tracinglinebegin = 0
     parser.tracinglineend = 0
     parser.tracingquitatend = 0
-    parser.state.tracing = Dict(parser)
+    parser.state.tracing = Tracing(parser)
     parser.state.tracing.parser = parser
 
 
 mod = Module("tracing",
     parameters = {
         # tex tracing facilities
-        "tracingonline": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
-        "tracingmacros": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
-        "tracingstats": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
-        "tracingparagraphs": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
-        "tracingpages": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
-        "tracingoutput": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
-        "tracinglostchars": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
-        "tracingcommands": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
-        "tracingrestores": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
+        "tracingonline": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracingmacros": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracingstats": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracingparagraphs": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracingpages": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracingoutput": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracinglostchars": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracingcommands": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracingrestores": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         # pytex tracing facilities
-        # the source file to trace, pytex extension, a string containing the file name
-        "tracingsource": {"value": "", "accessor": toks.ToksAccessor, "domain": "tracing"},
         # the line number to start tracing, an integer
-        "tracinglinebegin": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
+        "tracinglinebegin": {"value": 0, "accessor": toks.ToksArrayItemAccessor, "domain": "tracing"},
         # the line number to stop tracing, an integer
-        "tracinglineend": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
+        "tracinglineend": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         # whether to stop tracing, an integer (0 is False, nonzero is True)
-        "tracingquitatend": {"value": 0, "accessor": integer.IntegerAccessor, "domain": "tracing"},
+        "tracingquitatend": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
     },
     attributes = {
         "checkRange": checkRange,
         "trace": trace,
+    },
+    commands = {
+        "tracingsource": TracingSource(),
     },
     init = init,
 )

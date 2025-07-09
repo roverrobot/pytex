@@ -4,7 +4,7 @@ File operations
 
 from pytex import serialization
 from pytex import node as nd
-from pytex.accessor import Accessor
+from pytex.accessor import ArrayItemAccessor, ParameterAccessor
 from pytex.lexer import TokenListScanner, StringScanner
 from pytex import token
 from pytex import macro
@@ -13,16 +13,15 @@ from pytex import conditional
 from pytex.expandable import toksToString
 
 
-class OpenOp(Accessor):
+class OpenOp(ArrayItemAccessor):
     """
     Open a file
     @param file_array: the file array
     @param file_id: the file number to operate on
     @param filename: the file name
     """
-    def __init__(self, input: bool, file_id, filename):
-        super().__init__(None, file_id)
-        self.file_array = "openin" if input else "openout"
+    def __init__(self, array, file_id, filename):
+        super().__init__(array, file_id)
         self.filename = filename
 
     def readEq(self, parser):
@@ -32,9 +31,6 @@ class OpenOp(Accessor):
     def saveInfo(self):
         input = self.file_array == "openin"
         return {"init": {"input": input, "file_id": self.index, "filename": self.filename}}
-
-    def setValue(self, parser, value, globally):
-        parser.state.globals[self.file_array][self.index] = value
 
     
 class OpenInOp(OpenOp):
@@ -125,13 +121,13 @@ class WriteOp(FileOp):
         
 
 
-class ReadOp(Accessor):
+class ReadOp(ParameterAccessor):
     """
     Read from a file
     @param file: the file number to operate on
     """
-    def __init__(self, command, file_id: int):
-        super().__init__("equitable", command)
+    def __init__(self, entry, file_id: int):
+        super().__init__(entry)
         self.file_id = file_id
     
     # an immediate operation like read should not be serialized
@@ -175,7 +171,7 @@ class ReadOp(Accessor):
             file.close()
             parser.state.globals["openin"][self.file_id] = None
         m = macro.Macro([[]], tokens)
-        m.name = self.index
+        m.name = self.entry.name
         return m
 
 
@@ -230,8 +226,8 @@ class Open(FileCommand):
         parser.skipEq()
         filename = parser.readFileName()
         if self.input:
-            return OpenInOp(True, file_id, filename)  
-        return OpenOutOp(False, file_id, filename)
+            return OpenInOp(parser.state.globals["openin"], file_id, filename)  
+        return OpenOutOp(parser.state.globals["openout"], file_id, filename)
 
 
 class CloseIn(FileCommand):
@@ -273,9 +269,9 @@ class Read(FileCommand):
         if to is None:
             raise ValueError("Expected 'to' keyword")
         t = parser.skipSpaces(expand=False)
-        if not isinstance(t, token.CommandToken):
+        if not t.is_command:
             raise ValueError(f"Expected a control sequence, got {t}")
-        return ReadOp(t.name, file_id)
+        return ReadOp(t.entry, file_id)
     
 
 class Immediate(token.Command):

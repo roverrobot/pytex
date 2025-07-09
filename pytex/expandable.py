@@ -3,7 +3,7 @@ This module implements various expandable commands.
 """
 
 
-from pytex.token import Command, CATCODE, CommandToken, Token, relax, SpaceToken, CharToken
+from pytex.token import Command, CATCODE, CommandToken, ActiveToken, relax, SpaceToken, CharToken
 from pytex.module import Module
 from pytex.lexer import TokenListScanner, Scanner
 import pathlib
@@ -21,9 +21,10 @@ class NoExpand(Command):
         if t is None:
             raise ValueError("expecting a token after \\noexpand", parser.input.position())
         if t.is_command:
-            definition = parser.lookup(t.name)
-            if definition is None or definition.expand:
-                t = CommandToken(t.name)
+            entry = t.entry
+            if entry.value is None or entry.value.expand:
+                t = CommandToken(t.name) if t.catcode is None else ActiveToken(t.name, t.catcode)
+                t.entry = entry
                 t.noexpand = True
         parser.input.unread(t)
 
@@ -86,7 +87,7 @@ def readCSName(parser):
             raise ValueError(f"unexpected {t.name}", parser.input.position())
         name += t.name
     t = CommandToken(name)
-    t.definition = parser.lookup(name)
+    t.entry = parser.state.equitable.entry(name)
     return t
 
         
@@ -105,8 +106,9 @@ class CSName(Command):
         input stack.
         """
         t = readCSName(parser)
-        if t.definition is None:
-            t.definition = parser.state.equitable[t.name] = relax
+        definition = t.entry.value
+        if definition is None:
+            t.entry.set(relax)
         parser.input.unread(t)
 
 

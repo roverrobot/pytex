@@ -13,7 +13,7 @@ from pytex import node as nd
 from pytex.token import CATCODE
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import Accessor
+from pytex.accessor import ParameterAccessor
 from pytex.define import Define
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
@@ -447,17 +447,12 @@ class MathCharValue(lists.ModeDependentCommand):
         return f"\\mathchar{{{c}, {f}, {p}}}"
 
 
-class MathCharDefAccesor(Accessor):
+class MathCharDefAccesor(ParameterAccessor):
     def readValue(self, parser):
         return MathCharValue(parser.readInteger())
 
 
-class MathCharDef(Define):
-    """
-    the \\mathchardef command
-    """
-    def newItemAccessor(self, index):
-        return MathCharDefAccesor(self.domain, index)
+mathchardef = Define(MathCharDefAccesor)
 
 
 def mudimen(parser, dimen):
@@ -892,7 +887,7 @@ mod = Module("mmode",
     },
     commands= {
         "mathchar": MathChar(),
-        "mathchardef": MathCharDef(),
+        "mathchardef": mathchardef,
         "mkern": MKern(),
         "mskip": MSkip(),
         "mathord": MathAtom(ATOM_TYPE.ORD),

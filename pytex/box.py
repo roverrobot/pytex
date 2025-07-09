@@ -6,10 +6,10 @@ from pytex import node as nd
 from pytex import vmode
 from pytex.glue import Stretchness
 from pytex.module import Module
-from pytex.accessor import Accessor, ArrayAccessor
+from pytex.accessor import Accessor, ArrayAccessor, ArrayItemAccessor
 from pytex.state import Array
 from pytex.token import Command, CATCODE
-from pytex.dimen import Dimen, DimenCommand
+from pytex.dimen import Dimen, DimenCommand, DimenArrayItemAccessor
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
@@ -298,23 +298,44 @@ def readBox(parser, setbox=False):
         raise ValueError("expecting a box", parser.input.position())
     
 
-class BoxAccessor(Accessor):
+class BoxArrayItemAccessor(ArrayItemAccessor):
     def readValue(self, parser):
         return readBox(parser, setbox=True)
     
+    def boxValue(self, parser):
+        """
+        read the box value from the input stack
+        @param parser: the parser
+        """
+        return self.domain[self.index]
+    
+
+class BoxArray(Array):
+    """
+    an array of boxes
+    """
+    def __init__(self, state):
+        super().__init__("box", state, VoidBox)
+    
+    def dump(self):
+        """
+        dump the array
+        @return: a dict that contains the array values
+        """
+        values = {}
+        for i, v in enumerate(self):
+            if v.content is not None:
+                values[i] = v
+        return values
+
 
 class SetBox(ArrayAccessor):
     """
     the \\setbox command
     """
-    def __init__(self):
-        super().__init__("box")
+    def getItemAccessor(self, parser):
+        return BoxArrayItemAccessor(self.domain, parser.readInteger())
 
-    def getValue(self, parser):
-        raise ValueError("\\setbox does not return a box")
-
-    def newItemAccessor(self, index):
-        return BoxAccessor("box", index)
 
 class IfVoid(conditional.Conditional):
     """
@@ -452,32 +473,30 @@ class VBoxCommand(BuildBox):
         return GROUP_TYPE.VTOP if self.vtop else GROUP_TYPE.VBOX
     
 
-class BoxDimenAccessor(Accessor):
+class BoxDimenAccessor(ArrayItemAccessor, DimenCommand):
     def readValue(self, parser):
         return parser.readDimen()
 
-    def setValue(self, parser, value, globally):
-        box = parser.state.box[self.index]
-        setattr(box, self.dimen, value)
+    def set(self, parser, value):
+        setattr(self.domain, self.index, value)
 
-    def getValue(self, parser):
-        box = parser.state.box[self.index]
-        return getattr(box, self.dimen)
+    def setGlobal(self, parser, value):
+        setattr(self.domain, self.index, value)
 
-class BoxDimenCommand(DimenCommand, ArrayAccessor):
+    def dimenValue(self, parser):
+        return getattr(self.domain, self.index)
+
+
+class BoxDimenCommand(ArrayAccessor, DimenCommand):
     """
     a command that accesses a dimension for a box
+    @param domain the attribute of the box dimension
     """
-    def __init__(self, dimen):
-        self.dimen = dimen
-        super().__init__("box")
-
-    def getItemAccessor(self, parser, index):
-        if index is None:
-            index = self.getIndex(parser)
-        p = BoxDimenAccessor("box", index)
-        p.dimen = self.dimen
-        return p
+    def getItemAccessor(self, parser):
+        return BoxDimenAccessor(parser.state.box[parser.readInteger()], self.domain)
+    
+    def dimenValue(self, parser):
+        return getattr(parser.state.box[parser.readInteger()], self.domain)
 
 
 class UnBox(Command):
@@ -701,7 +720,7 @@ class LastBox(Command):
 
 mod = Module("hbox", 
     domains={
-        "box": {"generator": lambda state: Array("box", state, VoidBox), "accessor": None},
+        "box": {"generator": BoxArray, "accessor": SetBox},
     },
     attributes={
         "readBox": readBox,
@@ -709,7 +728,6 @@ mod = Module("hbox",
     commands={
         "box": BoxCommand(True),
         "copy": BoxCommand(False),
-        "setbox": SetBox(),
         "ifvoid": IfVoid(),
         "hbox": HBoxCommand(),
         "vbox": VBoxCommand(False),

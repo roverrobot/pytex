@@ -3,11 +3,11 @@ This module handles reading and processing integers.
 """
 
 
-import typing
 from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.state import Array
-from pytex.accessor import Accessor, ArrayAccessor
+from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
+from pytex.define import Define
 
 
 def readSigns(parser):
@@ -143,32 +143,18 @@ def readDigits(parser, base, optional=False):
     return value
 
 
-class IntegerCommand:
-    """
-    an integer command
-    """
-    def readValue(self, parser):
-        value = parser.readInteger()
-        if self.range is not None:
-            min, max = self.range
-            if (min is not None and value < min) or (max is not None and value > max):
-                if min is None:
-                    range = f"at least {max}"
-                elif max is None:
-                    range = f"at most {min}"
-                else:
-                    range = f"between {min} and {max}"
-                raise ValueError(f"value out of range: {value} must be {range}")
-        return value
-
-    def intValue(self, parser):
-        return self.getValue(parser)
-
-
-class IntegerAccessor(IntegerCommand, Accessor):
+class IntegerArrayItemAccessor(ArrayItemAccessor):
     """
     integer accessor common functions
     """
+    def readValue(self, parser):
+        return parser.readInteger()
+
+    def intValue(self, parser):
+        return self.domain[self.index]
+
+
+class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
     def __init__(self, domain, index, range=None):
         super().__init__(domain, index)
         self.range = range
@@ -180,27 +166,47 @@ class IntegerAccessor(IntegerCommand, Accessor):
         @param pos the current position in input
         """
         range = self.range
-        if range is not None:
-            if (range[0] is not None and value < range[0]) or \
-                (range[0] is not None and value > range[1]):
-                raise ValueError(f"value {value} is not in the range {self.range}", pos)
+        if (range[0] is not None and value < range[0]) or \
+            (range[0] is not None and value > range[1]):
+            raise ValueError(f"value {value} is not in the range {self.range}", pos)
 
-    def setValue(self, parser, value, globally):
+    def set(self, parser, value):
+        if range is not None:
+            self.checkRange(value, parser.input.position())
+        super().set(parser, value)
+
+    def setGlobal(self, parser, value):
         if self.range is not None:
             self.checkRange(value, parser.input.position())
-        super().setValue(parser, value, globally)
+        super().setGlobal(parser, value)
 
 
-class IntegerArrayAccessor(IntegerCommand, ArrayAccessor):
+class IntegerArrayAccessor(ArrayAccessor):
     """
     integer array accessor
+    """
+    def getItemAccessor(self, parser):
+        return IntegerArrayItemAccessor(self.domain, parser.readInteger())
+        
+    def intValue(self, parser):
+        """
+        get the integer value of the array item
+        @param parser: the parser
+        @return: the integer value
+        """
+        return self.domain[parser.readInteger()]
+
+
+class RangedIntegerArrayAccessor(IntegerArrayAccessor):
+    """
+    An integer array accessor with a range
     """
     def __init__(self, domain, range=None):
         super().__init__(domain)
         self.range = range
 
-    def newItemAccessor(self, index):
-        return IntegerAccessor(self.domain, index, self.range)
+    def getItemAccessor(self, parser):
+        return RangedIntergerArrayItemAccessor(self.domain, parser.readInteger(), self.range)
 
 
 class CatCode(Array):
@@ -219,7 +225,7 @@ class CatCode(Array):
         self[8] = CATCODE.INVALID
 
 
-class CatCodeArrayAccessor(IntegerArrayAccessor):
+class CatCodeArrayAccessor(RangedIntegerArrayAccessor):
     def __init__(self, domain="catcode"):
         super().__init__(domain, range=(0, 15))
 
@@ -275,15 +281,23 @@ class MathCode(Array):
             self[c] = c + 0x7000
 
 
-class ReadOnlyInteger(Command, IntegerCommand):
+class DelCode(Array):
     """
-    The base class that returns an integer
+    The delimiter code array \\delcode
     """
-    def execute(self, parser):
-        raise ValueError(f"improper use of {self.name}")
+    def __init__(self, state):
+        super().__init__("delcode", state, -1)
 
 
-class FixedInteger(ReadOnlyInteger):
+class Count(Array):
+    """
+    The count registers \\count
+    """
+    def __init__(self, state):
+        super().__init__("count", state, 0)
+
+
+class FixedInteger(Command):
     """
     A command returns a read-only integer
     @param value the integer value
@@ -291,89 +305,117 @@ class FixedInteger(ReadOnlyInteger):
     def __init__(self, value):
         self.value = value
 
-    def getValue(self, parser):
+    def intValue(self, parser):
         return self.value
+    
+    def execute(self, parser):
+        raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())
 
 
-class InputLineNo(ReadOnlyInteger):
+class InputLineNo(Command):
     """
-    \inputlineno, which returns the current line number in the soruce file
+    \inputlineno, which returns the current line number in the source file
     """
-    def getValue(self, parser):
+    def intValue(self, parser):
         # the line number is the current line number
-        pos = parser.input.position()
-        return pos.line
+        return parser.input.position().line
+
+    def execute(self, parser):
+        raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())
+
+
+class IntegerParameterAccessor(ParameterAccessor):
+    """
+    An accessor for an integer parameter
+    """
+    def readValue(self, parser):
+        return parser.readInteger()
+
+    def intValue(self, parser):
+        return self.entry.value
+
+
+class CountDefAccessor(ParameterAccessor):
+    """
+    An accessor for \\countdef
+    """
+    def readValue(self, parser):
+        return IntegerArrayItemAccessor(parser.state.count, parser.readInteger())
+
+
+countdef = Define(CountDefAccessor)
 
 
 module = Module("integer", 
     attributes={"readInteger": readInteger},
     parameters={
         # integer parameters
-        "pretolerance": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "tolerance": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "hbadness": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "vbadness": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "linepenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "hyphenpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "exhyphenpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "binoppenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "relpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "clubpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "widowpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "displaywidowpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "brokenpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "predisplaypenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "postdisplaypenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "interlinepenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "floatingpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "outputpenalty": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "doublehyphendemerits": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "finalhyphendemerits": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "adjdemerits": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "looseness": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "uchyph": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "lefthyphenmin": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "righthyphenmin": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "hangafter": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "mag": {"value": 1000, "accessor": IntegerAccessor, "domain": "layout"},
-        "delimiterfactor": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
+        "pretolerance": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "tolerance": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "hbadness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "vbadness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "linepenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "hyphenpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "exhyphenpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "binoppenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "relpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "clubpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "widowpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "displaywidowpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "brokenpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "predisplaypenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "postdisplaypenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "interlinepenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "floatingpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "outputpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "doublehyphendemerits": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "finalhyphendemerits": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "adjdemerits": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "looseness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "uchyph": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "lefthyphenmin": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "righthyphenmin": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "hangafter": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "mag": {"value": 1000, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "delimiterfactor": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
         # escapechar is a layout parameter because \write may use it
-        "escapechar": {"value": ord("\\"), "accessor": IntegerAccessor, "domain": "layout"},
+        "escapechar": {"value": ord("\\"), "accessor": IntegerParameterAccessor, "domain": "layout"},
         # control parameters
-        "fam": {"value": -1, "accessor": IntegerAccessor, "domain": "parameters"},
-        "pausing": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "holdinginserts": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "language": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "globaldefs": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "endlinechar": {"value": ord("\r"), "accessor": IntegerAccessor, "domain": "parameters"},
-        "newlinechar": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "maxdeadcycles": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "showboxbreadth": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "showboxdepth": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "errorcontextlines": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "defaulthyphenchar": {"value": ord("-"), "accessor": IntegerAccessor, "domain": "parameters"},
-        "defaultskewchar": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
+        "fam": {"value": -1, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "pausing": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "holdinginserts": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "language": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "globaldefs": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "endlinechar": {"value": ord("\r"), "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "newlinechar": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "maxdeadcycles": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "showboxbreadth": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "showboxdepth": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "errorcontextlines": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "defaulthyphenchar": {"value": ord("-"), "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "defaultskewchar": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
         # volatile parameters
-        "time": {"value": 0, "accessor": IntegerAccessor, "domain": "volatile"},
-        "day": {"value": 0, "accessor": IntegerAccessor, "domain": "volatile"},
-        "month": {"value": 0, "accessor": IntegerAccessor, "domain": "volatile"},
-        "year": {"value": 0, "accessor": IntegerAccessor, "domain": "volatile"},
+        "time": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
+        "day": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
+        "month": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
+        "year": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         # global parameters
-        "spacefactor": {"value": 1000, "accessor": IntegerAccessor, "domain": "globals"},
-        "prevgraf": {"value": 0, "accessor": IntegerAccessor, "domain": "globals"},
-        "deadcycles": {"value": 0, "accessor": IntegerAccessor, "domain": "globals"},
-        "insertpenalties": {"value": 0, "accessor": IntegerAccessor, "domain": "globals"},
+        "spacefactor": {"value": 1000, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
+        "prevgraf": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
+        "deadcycles": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
+        "insertpenalties": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
     },
     domains={
         "catcode": {"generator": CatCode, "accessor": CatCodeArrayAccessor},
         "lccode": {"generator": LCCode, "accessor": IntegerArrayAccessor},
         "uccode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
         "sfcode": {"generator": SFCode, "accessor": IntegerArrayAccessor},
-        "delcode": {"generator": lambda state: Array("delcode", state, -1), "accessor": IntegerArrayAccessor},
+        "delcode": {"generator": DelCode, "accessor": IntegerArrayAccessor},
         "mathcode": {"generator": MathCode, "accessor": IntegerArrayAccessor},
-        "count": {"generator": lambda state: Array("count", state, 0), "accessor": IntegerArrayAccessor},
+        "count": {"generator": Count, "accessor": IntegerArrayAccessor},
     },
     commands={
         "inputlineno": InputLineNo(),
+        "countdef": countdef,
     },
 )

@@ -2,13 +2,13 @@
 This module defines the token list facilities.
 """
 
-import typing
 from pytex.lexer import CATCODE, TokenListScanner
 from pytex.token import Command, Token, relax
 from pytex.module import Module
 from pytex.state import Array
 from pytex import accessor
-from pytex.expandable import toToks, noexpand
+from pytex.expandable import toToks
+from pytex.define import Define
 
 
 def token_expand(parser):
@@ -114,13 +114,9 @@ def readGeneralText(parser, expand: bool = True):
     return toks
 
 
-class ToksCommand:
-    """
-    access a token list value
-    """
-    def readValue(self, parser):
+def readToks(parser):
         """
-        read the value from the input stack
+        read a toks value from the input stack
         @param parser: the parser
         """
         parser.skipFiller()
@@ -130,28 +126,87 @@ class ToksCommand:
         parser.input.unread(t)
         return readGeneralText(parser, expand=False)
     
-    def toksValue(self, parser):
-        """
-        get the token list value
-        @param parser: the parser
-        """
-        return self.getValue(parser)
 
-
-class ToksAccessor(ToksCommand, accessor.Accessor):
+class ToksArrayItemAccessor(accessor.ArrayItemAccessor):
     """
     aaccessor for a toks parameter
     """
-    pass
-    
+    def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        @return: the toks value
+        """
+        return readToks(parser)
 
-class ToksArrayAccessor(ToksCommand, accessor.ArrayAccessor):
+    def toksValue(self, parser):
+        """
+        get the toks value
+        @param parser: the parser
+        @return: the toks value
+        """
+        return self.domain[self.index]
+
+
+class ToksArrayAccessor(accessor.ArrayAccessor):
     """
     an accessor for the token list array
     """
-    def newItemAccessor(self, index):
-        return ToksAccessor(self.domain, index)
+    def getItemAccessor(self, parser):
+        return ToksArrayItemAccessor(self.domain, parser.readInteger())
 
+    def toksValue(self, parser):
+        """
+        get the toks value
+        @param parser: the parser
+        @return: the toks value
+        """
+        return self.domain[parser.readInteger()]
+
+
+class ToksParameterAccessor(accessor.ParameterAccessor):
+    """
+    an accessor for a toks parameter
+    """
+    def readValue(self, parser):
+        """
+        read the value from the input stack
+        @param parser: the parser
+        @return: the toks value
+        """
+        return readToks(parser)
+
+    def toksValue(self, parser):
+        """
+        get the toks value
+        @param parser: the parser
+        @return: the toks value
+        """
+        return self.entry.value
+    
+
+class ToksArray(Array):
+    """
+    a toks array, that is a list of token lists
+    """
+    def __init__(self, state):
+        """
+        @param name: the name of the array
+        @param state: the state of the parser
+        @param value: the initial value of the array
+        """
+        super().__init__("toks", state, [])
+    
+
+class ToksDefAccessor(accessor.ParameterAccessor):
+    """
+    An accessor for \\countdef
+    """
+    def readValue(self, parser):
+        return ToksArrayItemAccessor(parser.state.toks, parser.readInteger())
+
+
+toksdef = Define(ToksDefAccessor)
 
 class AfterGroup(Command):
     """
@@ -203,7 +258,11 @@ class Case(Command):
             if c == 0:
                 toks.append(t)
             else:
-                toks.append(Token.token(chr(c), t.catcode))
+                t = Token.token(chr(c), t.catcode)
+                if t.is_command:
+                    # if the token is a command, we need to set the entry
+                    t.entry = parser.state.equitable.entry(t.name)
+                toks.append(t)
         parser.input.push(TokenListScanner(toks))
 
 
@@ -233,7 +292,9 @@ class The(Command):
             raise ValueError(f"invalid token after \\the: {t}", parser.input.position())
         t0 = t
         t = t.definition
-        if hasattr(t, "glueValue"):
+        if hasattr(t, "muglueValue"):
+            value = str(t.muglueValue(parser))
+        elif hasattr(t, "glueValue"):
             value = str(t.glueValue(parser))
         elif hasattr(t, "dimenValue"):
             value = repr(t.dimenValue(parser)) + "pt"
@@ -272,20 +333,21 @@ mod = Module("toks",
         "lowercase": Case(False),
         "ignorespaces": IgnoreSpaces(),
         "the": The(),
+        "toksdef": toksdef,
     },
     domains = {
-        "toks": {"generator": lambda state: Array("toks", state, []), "accessor": ToksArrayAccessor},
+        "toks": {"generator": ToksArray, "accessor": ToksArrayAccessor},
     },
     parameters={
         "aftergroup": {"value": [], "accessor": None, "domain": "globals"},
-        "output": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
-        "everyhbox": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
-        "everyvbox": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
-        "everyjob": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
-        "everycr": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
-        "errhelp": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
-        "everypar": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
-        "everymath": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
-        "everydisplay": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "output": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everyhbox": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everyvbox": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everyjob": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everycr": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "errhelp": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everypar": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everymath": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "everydisplay": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
     }
 )

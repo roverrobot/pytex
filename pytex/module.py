@@ -62,8 +62,8 @@ class Module:
                 parser.state.arrays[name] = d
                 accessor = domain["accessor"]
                 if accessor is not None:
-                    command = accessor(name)
-                    name = "\\"+name
+                    command = accessor(d)
+                    name = "\\setbox" if name == "box" else "\\"+name 
                     command.name = name
                     parser.state.equitable.setGlobal(name, command)
                     parser.builtin[name] = command
@@ -94,14 +94,21 @@ class Module:
                     value = value()
                 if domain is parser.state.globals:
                     domain[name] = value
+                    entry = None
                 else:
-                    domain.setGlobal(name, value)
-                    if item["domain"] != "tracing":
-                        setattr(parser, name, dict.__getitem__(domain, name))
+                    entry = domain.entry(name)
+                    entry.setGlobal(value)
+                    if item["domain"] == "tracing":
+                        entry = None
+                    else:
+                        setattr(parser, name, entry)
                 # set the accessor in equitable
                 generator = item["accessor"]
                 if generator is not None:
-                    accessor = generator(item["domain"], name)
+                    if entry is None:
+                        accessor = generator(domain, name)
+                    else:
+                        accessor = generator(entry)
                     name = "\\"+name
                     accessor.name = name
                     if accessor is not None:

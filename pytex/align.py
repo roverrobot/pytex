@@ -76,18 +76,6 @@ span = Tab()
 omit = Tab()
 noalign = Tab()
 
-
-class TabSkip(glue.GlueAccessor):
-    """
-    the \\tabskip command.
-    """
-    def __init__(self):
-        super().__init__("parameters", "tabskip")
-
-
-tabskip = TabSkip()
-
-
 class AlignCommand(lists.ModeDependentCommand):
     """
     An alignment command.
@@ -149,8 +137,8 @@ class AlignCommand(lists.ModeDependentCommand):
                     return toks, t
                 if t.is_command and is_template:
                     # we need to check for \tabskip
-                    if t.definition == tabskip:
-                        tabskip.execute(parser)
+                    if t.definition == parser.builtin["\\tabskip"]:
+                        t.definition.execute(parser)
                         continue
                 toks.append(t)
                 continue
@@ -191,11 +179,11 @@ class AlignCommand(lists.ModeDependentCommand):
         """
         columns = []
         end = False
-        tabskips = [parser.state.parameters["tabskip"]]
+        tabskips = [parser.tabskip.value]
         columns = []
         while not end:
             header, end = self.readHeader(parser)
-            tabskips.append(parser.state.parameters["tabskip"])
+            tabskips.append(parser.tabskip.value)
             columns.append(header)
         return columns, tabskips
 
@@ -347,6 +335,5 @@ mod = Module("align",
         "span": span,
         "omit": omit,
         "noalign": noalign,
-        "tabskip": tabskip
     }
 )

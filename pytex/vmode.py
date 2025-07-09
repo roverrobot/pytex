@@ -8,7 +8,7 @@ from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command
-from pytex.dimen import Dimen, DimenAccessor
+from pytex.dimen import Dimen, DimenParameterAccessor
 
 
 # initializer for prevdepth as -1000pt
@@ -137,6 +137,6 @@ mod = Module("vmode",
     parameters={
         # prevdepth is the previosu box's depth. It is reset to -1000pt in each vertical list.
         # so it is not a layout parameter
-        "prevdepth": {"value": init_prevdepth, "accessor": DimenAccessor, "domain": "parameters"},
+        "prevdepth": {"value": init_prevdepth, "accessor": DimenParameterAccessor, "domain": "volatile"},
     }
 )

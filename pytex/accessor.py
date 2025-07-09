@@ -20,7 +20,7 @@ in a subclass to provide the accessor to the item.
 
 from pytex import token
 from pytex.module import Module
-from pytex import token
+from pytex import state
 
 
 def skipEq(parser, expand: bool=True):
@@ -43,10 +43,6 @@ class Accessor(token.Command):
     @param eq: whether there is an equal sign in the assignment
     @param range: the range of valid values
     """
-    def __init__(self, domain, index):
-        self.domain = domain
-        self.index = index
-
     def readEq(self, parser):
         """
         read the equal sign from the input stack
@@ -59,39 +55,29 @@ class Accessor(token.Command):
         read the value from the input stack
         @param parser: the parser
         """
-        raise ValueError("assignment command must have a value")
+        raise NotImplementedError("readValue method must be implemented in a subclass")
 
-    def getValue(self, parser):
-        """
-        get the value from the domain.
-        @param parser: the parser
-        """
-        domain = getattr(parser.state, self.domain)
-        index = self.getIndex(parser) if self.index is None else self.index
-        return domain[index]
-
-    def getIndex(self, parser):
-        """
-        get the index for teh item
-        @param parser: the parser
-        """
-        return self.index
-
-    def setValue(self, parser, value, globally: bool):
+    def set(self, parser, value):
         """
         set the value in the domain.
         @param parser: the parser
         @param value: the value
-        @param globally: whether the assignment is global
 
         We must pass an index to the setValue method, because the index may be read 
         from the input stack, in this case, it imust be read before the value.
         """
-        domain = getattr(parser.state, self.domain)
-        if globally and hasattr(domain, "setGlobal"):
-            domain.setGlobal(self.index, value)
-        else:
-            domain[self.index] = value
+        raise NotImplementedError("setValue method must be implemented in a subclass")
+    
+    def setGlobal(self, parser, value):
+        """
+        set the value in the domain globally.
+        @param parser: the parser
+        @param value: the value
+
+        We must pass an index to the setValue method, because the index may be read 
+        from the input stack, in this case, it imust be read before the value.
+        """
+        raise NotImplementedError("setValue method must be implemented in a subclass")
     
     def assign(self, parser, prefixes):
         """
@@ -101,14 +87,17 @@ class Accessor(token.Command):
         """
         self.readEq(parser)
         value = self.readValue(parser)
-        globally = parser.globaldefs != 0
+        globally = parser.globaldefs.value != 0
         try:
             for p in prefixes:
                 value, globally = p.modify(value, globally)
         except ValueError as e:
             e.args = (e.args[0], parser.input.position())
             raise e
-        self.setValue(parser, value, globally)
+        if globally:
+            self.setGlobal(parser, value)
+        else:
+            self.set(parser, value)
         t = parser.state.globals["afterassignment"]
         if t is not None:
             parser.input.unread(t)
@@ -121,13 +110,54 @@ class Accessor(token.Command):
         """
         self.assign(parser, prefixes=[])
 
-    def getItemAccessor(self, parser, index):
-        """
-        get the accessor for the item
-        @param index: the index
-        """
-        return self
 
+class ArrayItemAccessor(Accessor):
+    """
+    An array item accessor provides access to an item in an array of registers or parameters.
+    It is a command that takes a single argument, the index of the item, and returns the value of
+    the item.
+
+    @param domain: the domain of the assignment
+    @param index: the index of the item in the array
+    """
+    def __init__(self, domain, index):
+        self.domain = domain
+        self.index = index
+
+    def saveInfo(self):
+        return {"init": {"domain": self.domain.name, "index": self.index}}
+
+    @classmethod
+    def new(cls, parser, **kargs):
+        """
+        create a new accessor from the dictionary
+        @param parser: the parser
+        @param kargs: the keyword arguments
+        @return: the command
+        """
+        name = kargs["domain"]
+        index = kargs["index"]
+        return cls(getattr(parser.state, name), index)
+
+    def set(self, parser, value):
+        """
+        set the value of the item in the array
+        @param parser: the parser (not used, but kept for compatibility)
+        @param value: the value to set
+        """
+        try:
+            self.domain[self.index] = value
+        except IndexError:
+            raise ValueError(f"index {self.index} out of range for domain {self.domain.name}", parser.input.position())
+
+    def setGlobal(self, parser, value):
+        """
+        set the value of the item in the array globally
+        @param parser: the parser (not used, but kept for compatibility)
+        @param value: the value to set
+        """
+        self.domain.setGlobal(self.index, value)
+    
 
 class ArrayAccessor(token.Command):
     """
@@ -136,20 +166,13 @@ class ArrayAccessor(token.Command):
     register or parameter.
 
     @param domain: the domain of the assignment
-    """ 
-    def __init__(self, domain: str):
+    """
+    def __init__(self, domain):
+        """
+        @param domain: the domain of the assignment
+        """
         self.domain = domain
-    
-    def getIndex(self, parser):
-        """
-        read the index from the input stack
-        @param parser: the parser
-        """
-        try:
-            return parser.readInteger()
-        except ValueError as e:
-            raise ValueError("expectong an integer index", parser.input.position())
-    
+
     def assign(self, parser, prefixes):
         """
         make an assignment
@@ -160,34 +183,41 @@ class ArrayAccessor(token.Command):
         the index is read from the input stack, then an accessor to the 
         item is created, and its assign method is called.
         """
-        item = self.getItemAccessor(parser, None)
-        item.assign(parser, prefixes)
-
-    def getValue(self, parser):
-        return self.getItemAccessor(parser, None).getValue(parser)
-
-    def getItemAccessor(self, parser, index):
-        """
-        get the accessor for an item in the array
-        @param index: the index if it is None, it is read from the input stack
-        """
-        if index is None:
-            index = self.getIndex(parser)
-        return self.newItemAccessor(index)
-
-    def newItemAccessor(self, index):
-        """
-        create a new item accessor
-        @param index: the index
-        """
-        raise ValueError("This method should be implemented by a subclass")
+        self.getItemAccessor(parser).assign(parser, prefixes)
     
     def execute(self, parser):
         """
         execute the command
         @param parser: the parser
         """
-        self.assign(parser, prefixes=[])
+        self.getItemAccessor(parser).assign(parser, prefixes=[])
+
+
+class ParameterAccessor(Accessor):
+    """
+    An accessor for a parameter. It is a command that takes a single argument, the name of the parameter,
+    and returns the value of the parameter.
+
+    @param entry: the entry of the parameter
+    """
+    def __init__(self, entry):
+        self.entry = entry
+
+    def set(self, parser, value):
+        """
+        set the value of the parameter
+        @param parser: the parser (not used, but kept for compatibility)
+        @param value: the value to set
+        """
+        self.entry.set(value)
+
+    def setGlobal(self, parser, value):
+        """
+        set the value of the parameter globally
+        @param parser: the parser (not used, but kept for compatibility)
+        @param value: the value to set
+        """
+        self.entry.setGlobal(value)
 
 
 class Prefix(token.Command):
@@ -210,11 +240,10 @@ class Prefix(token.Command):
         @param parser: the parser
         """
         prefixes.append(self)
-        pos = parser.input.position()
         parser.skipFiller()
         t = parser.token()
         if t is None or not t.is_command or not hasattr(t.definition, "assign"):
-            raise ValueError("expecting an assignment", pos)
+            raise ValueError("expecting an assignment", parser.input.position())
         if parser.tracingcommands > 0:
             parser.trace(t, "execute")
         t.definition.assign(parser, prefixes)

@@ -4,7 +4,7 @@ This module implements macros.
 
 
 from pytex.token import CATCODE, Command, ParameterToken, CharToken
-from pytex.accessor import Prefix, Accessor
+from pytex.accessor import Prefix, GlobalPrefix, ParameterAccessor
 from pytex.define import Define
 from pytex.module import Module
 from pytex.expandable import tokenToString
@@ -266,9 +266,11 @@ class Macro(Command):
         return self.compareTokens(self.replacement, other.replacement)
 
 
-class MacroAccessor(Accessor):
+class MacroAccessor(ParameterAccessor):
     """
     an accessor for the \\def command
+    @param entry: the entry in the equitable
+    @param globally: whether the definition is global
     """
     def readEq(self, parser):
         """
@@ -319,13 +321,20 @@ class MacroAccessor(Accessor):
         if tail:
             replacement.append(tail)
         macro = Macro(brackets, replacement)
-        macro.name = self.index
+        macro.name = self.entry.name
         if parser.tracingmacros and parser.checkRange():
-            parser.message(f"macro {self.index}: {macro}")
+            parser.message(f"macro {self.entry.name}: {macro}")
         return macro
     
-    def setValue(self, parser, value, globally):
-        return super().setValue(parser, value, self.globally or globally)
+    def assign(self, parser, prefixes):
+        """
+        assign the macro to the index
+        @param parser: the parser
+        @param prefixes: the prefixes to the assignment
+        """
+        if self.globally:
+            prefixes.insert(0, GlobalPrefix())
+        super().assign(parser, prefixes)
 
 
 class Def(Define):
@@ -336,12 +345,12 @@ class Def(Define):
     @param expand_body: whether the replacement text is expanded
     """
     def __init__(self, globally, expand_body):
-        Define.__init__(self)
+        super().__init__(MacroAccessor)
         self.globally = globally
         self.expand_body = expand_body
     
-    def getItemAccessor(self, parser, index):
-        p = MacroAccessor(self.domain, self.getIndex(parser))
+    def getItemAccessor(self, parser):
+        p = super().getItemAccessor(parser)
         p.expand_body = self.expand_body
         p.globally = self.globally
         return p

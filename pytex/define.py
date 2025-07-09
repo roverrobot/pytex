@@ -5,35 +5,26 @@ This module implements command definition, such as \\let etc.
 
 from pytex import accessor
 from pytex.module import Module
-from pytex.integer import IntegerAccessor
-from pytex.dimen import DimenAccessor
-from pytex.glue import GlueAccessor, MuGlueAccessor
-from pytex.toks import ToksAccessor
-from pytex import token
-from pytex import serialization
+from pytex.token import relax, Command
 
 
 class Define(accessor.ArrayAccessor):
     """
     the base class for defining commands
-    @param pointer_generator: the generator for the pointer to the equitable item
+    @param accessor_generator: the generator for the accessor to the equitable item
     """
-    def __init__(self):
-        super().__init__("equitable")
+    def __init__(self, accessor_generator=accessor.ParameterAccessor, default=relax):
+        # provide a default value for the command before the assignment.
+        # Typically this is \\relax. However, in font assignment. For example, in
+        # \\font\\f=cmr10 \\fontname\\f
+        # the \\fontname is expanded before the assignment because the \\font command
+        # is looking for a keyword "scale" or "to". However, at this stage the assignmnt
+        # for \\f has not happended yet as pytex is still reading the font specification.
+        # Thus, \\f should recive a default value of \\nullfont, as in TeX82.
+        self.default = default
+        self.accessor_generator = accessor_generator
 
-    def default(self):
-        """
-        provide a default value for the command before the assignment.
-        Typically this is \\relax. However, in font assignment. For example, in
-        \\font\\f=cmr10 \\fontname\\f
-        the \\fontname is expanded before the assignment because the \\font command
-        is looking for a keyword "scale" or "to". However, at this stage the assignmnt
-        for \\f has not happended yet as pytex is still reading the font specification.
-        Thus, \\f should recive a default value of \\nullfont, as in TeX82.
-        """
-        return token.relax
-    
-    def getIndex(self, parser):
+    def getItemAccessor(self, parser):
         """
         get the index of the command
         @param parser: the parser
@@ -47,14 +38,14 @@ class Define(accessor.ArrayAccessor):
         # appears later in the input, it will be ignored. This, for example, appears in
         # \font\test=cmr10\test
         if t.definition is None:
-            parser.state.equitable[t.name] = self.default()
-        return t.name
+            t.entry.value = t.definition = self.default
+        return self.accessor_generator(t.entry)
 
 
-class LetAccessor(accessor.Accessor):
+class LetAccessor(accessor.ParameterAccessor):
     """
     An accessor for the \\let command
-    """        
+    """
     def readEq(self, parser):
         parser.skipEq(expand=False)
         parser.skipSpace(expand=False)
@@ -66,15 +57,10 @@ class LetAccessor(accessor.Accessor):
         return t.definition if t.is_command else t
 
 
-class Let(Define):
-    """
-    the \\let command
-    """
-    def newItemAccessor(self, index):
-        return LetAccessor(self.domain, index)
+let = Define(LetAccessor)
 
 
-class FutureLetAccessor(LetAccessor):
+class FutureLetAccessor(accessor.ParameterAccessor):
     """
     An accessor for the \\futurelet command
     """
@@ -100,15 +86,10 @@ class FutureLetAccessor(LetAccessor):
         return t2.definition if t2.is_command else t2
 
 
-class FutureLet(Define):
-    """
-    the \\futurelet command
-    """
-    def newItemAccessor(self, index):
-        return FutureLetAccessor(self.domain, index)
+futurelet = Define(FutureLetAccessor)
 
 
-class CharDefValue(token.Command):
+class CharDefValue(Command):
     """
     the value of the \\chardef command
     """
@@ -141,7 +122,7 @@ class CharDefValue(token.Command):
         return self.value
 
 
-class CharDefAccessor(accessor.Accessor):
+class CharDefAccessor(accessor.ParameterAccessor):
     """
     An accessor for the \\chardef command
     """
@@ -153,90 +134,13 @@ class CharDefAccessor(accessor.Accessor):
         return CharDefValue(parser.readInteger())
 
 
-class CharDef(Define):
-    """
-    the \\chardef command
-    """
-    def newItemAccessor(self, index):
-        return CharDefAccessor(self.domain, index)
-
-
-class RegisterDefValue:
-    def saveInfo(self):
-        return {"init": {"domain": self.domain, "index": self.index}}
-    
-    @classmethod
-    def new(cls, parser, **kwargs):
-        """
-        create a new object from the dictionary
-        """
-        return cls(**kwargs)
-
-
-class CounrDefValue(RegisterDefValue, IntegerAccessor):
-    pass
-
-
-class DimenDefValue(RegisterDefValue, DimenAccessor):
-    pass
-
-
-class GlueDefValue(RegisterDefValue, GlueAccessor):
-    pass
-
-
-class MuGlueDefValue(RegisterDefValue, MuGlueAccessor):
-    pass
-
-
-class ToksDefValue(RegisterDefValue, ToksAccessor):
-    pass
-
-
-class RegisterDefAccessor(accessor.Accessor):
-    """
-    An accessor for the register definition commands
-    """
-    def readValue(self, parser):
-        """
-        read the value from the input stack
-        @param parser: the parser
-        """
-        index = parser.readInteger()
-        return self.generator(self.register, index)
-
-
-class RegisterDef(Define):
-    """
-    commands such as \\countdef \\skipdef etc.
-    @param register: the name of the register
-    @param generator: the generator for the register item
-    """
-    def __init__(self, register: str, generator):
-        super().__init__()
-        self.register = register
-        self.generator = generator
-
-    def getItemAccessor(self, parser, index):
-        """
-        read the value from the input stack
-        @param parser: the parser
-        """
-        p = RegisterDefAccessor("equitable", self.getIndex(parser))
-        p.generator = self.generator
-        p.register = self.register
-        return p
+chardef = Define(CharDefAccessor)
 
 
 mod = Module("define",
     commands = {
-        "let": Let(),
-        "futurelet": FutureLet(),
-        "chardef": CharDef(),
-        "countdef": RegisterDef("count", CounrDefValue),
-        "dimendef": RegisterDef("dimen", DimenDefValue),
-        "skipdef": RegisterDef("skip", GlueDefValue),
-        "muskipdef": RegisterDef("muskip", MuGlueDefValue),
-        "toksdef": RegisterDef("toks", ToksDefValue),
+        "let": let,
+        "futurelet": futurelet,
+        "chardef": chardef,
     }
 )

@@ -1,4 +1,4 @@
-from pytex.token import CATCODE, Token, CommandToken, SpaceToken
+from pytex.token import CATCODE, Token, CommandToken, SpaceToken, ActiveToken
 import enum
 import typing
 import io
@@ -26,11 +26,12 @@ class Tokenizer:
     A tokenizer reads a line of text and returns tokens.
     The main method is read()
     @param line: the line of text to read
-    @param catcode: a list that maps characters to their category codes
+    @param state: the parser state
     """
-    def __init__(self, line: str, catcode):
+    def __init__(self, line: str, state):
         # catcode is a dictionary that maps characters to their category codes
-        self.catcode = catcode
+        self.catcode = state.catcode
+        self.equitable = state.equitable
         # skip the leading spaces in line and set self.pos to the first non-space character
         self.line = enumerate(line)
         for self.pos, c in self.line:
@@ -124,8 +125,14 @@ class Tokenizer:
             return SpaceToken()
         if catcode == CATCODE.END_OF_LINE:
             if self.pos == self.first:
-                return CommandToken("\\par")
+                t = CommandToken("\\par")
+                t.entry = self.equitable.entry("\\par")
+                return t
             return SpaceToken()
+        if catcode == CATCODE.ACTIVE:
+            t = ActiveToken(c, catcode)
+            t.entry = self.equitable.entry(c)
+            return t
         if catcode != CATCODE.ESCAPE:
             return Token.token(c, catcode)
         c, catcode = self.charExpand()
@@ -139,7 +146,9 @@ class Tokenizer:
                 self.skipSpaces()
             else:
                 self.unread(c)
-        return CommandToken(name)
+        t = CommandToken(name)
+        t.entry = self.equitable.entry(name)
+        return t
 
 
 class Scanner:
@@ -155,7 +164,7 @@ class Scanner:
     def __init__(self, state, stream, name=None):
         if not isinstance(stream, io.IOBase):
             raise TypeError("stream must be a file-like object")
-        self.catcode = state.catcode
+        self.state = state
         self.eol = dict.__getitem__(state.parameters, "endlinechar")
         self.stream = stream
         self.lines = enumerate(stream)
@@ -179,7 +188,7 @@ class Scanner:
             eol = self.eol.value
             if 0 <= eol < 256:
                 line += chr(eol)
-            self.tokenizer = Tokenizer(line, self.catcode)
+            self.tokenizer = Tokenizer(line, self.state)
         except StopIteration:
             self.column = self.tokenizer.pos
             self.tokenizer = None

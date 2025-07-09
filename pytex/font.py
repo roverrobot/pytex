@@ -6,9 +6,9 @@ The module implements font handling
 from pytex.token import Command
 from pytex.module import Module
 from pytex.tfm import TFM, nullfont as nullfont_tfm
-from pytex.accessor import ArrayAccessor, Accessor
-from pytex.integer import IntegerArrayAccessor, IntegerAccessor
-from pytex.dimen import DimenAccessor, DimenArrayAccessor
+from pytex.accessor import ArrayAccessor, ArrayItemAccessor, ParameterAccessor
+from pytex.integer import IntegerArrayAccessor, IntegerArrayItemAccessor
+from pytex.dimen import Dimen, DimenArrayAccessor, DimenArrayItemAccessor
 from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
 from pytex.define import Define
@@ -88,15 +88,7 @@ def readFont(parser):
         raise ValueError("expecting a font")
 
 
-class FontValue:   
-    """
-    A font value accessor
-    """
-    def fontValue(self, parser):
-        return self.getValue(parser)
-
-
-class FontAccessor(FontValue, Accessor):
+class FontArrayItemAccessor(ArrayItemAccessor):
     """
     A font accessor
     """
@@ -104,23 +96,49 @@ class FontAccessor(FontValue, Accessor):
         return readFont(parser)
 
 
-class FontArrayAccessor(FontValue, ArrayAccessor):
+class FontArrayAccessor(ArrayAccessor):
     """
     A font array accessor
     """
-    def newItemAccessor(self, index):
-        return FontAccessor(self.domain, index)
+    def getItemAccessor(self, parser):
+        return FontArrayItemAccessor(self.domain, parser.readInteger())
 
 
 nullfont = Font(tfm=nullfont_tfm, at=0)
 
 
-class FontCharAccessor(IntegerAccessor):
-    def getValue(self, parser):
-        return self.domain.fontchar[self.index]
+class TextFontArray(Array):
+    """
+    An array of text fonts
+    """
+    def __init__(self, state):
+        super().__init__("textfont", state, default=nullfont, size=256)
 
-    def setValue(self, parser, value, globally):
-        self.domain.fontchar[self.index] = value
+
+class ScriptFontArray(Array):
+    """
+    An array of script fonts
+    """
+    def __init__(self, state):
+        super().__init__("scriptfont", state, default=nullfont, size=256)
+
+
+class ScriptScriptFontArray(Array):
+    """
+    An array of scriptscript fonts
+    """
+    def __init__(self, state):
+        super().__init__("scriptscriptfont", state, default=nullfont, size=256)
+
+
+class FontCharAccessor(IntegerArrayItemAccessor):
+    def setGlobal(self, parser, value):
+        """
+        set the value of the font character globally
+        @param parser: the parser
+        @param value: the value to set
+        """
+        self.set(parser, value)
 
 
 class FontChar(IntegerArrayAccessor):
@@ -131,15 +149,16 @@ class FontChar(IntegerArrayAccessor):
         super().__init__(None)
         self.field = field
 
-    def getIndex(self, parser):
-        return readFont(parser)
+    def getItemAccessor(self, parser):
+        font = readFont(parser)
+        return FontCharAccessor(font.fontchar, self.field)
     
-    def getItemAccessor(self, parser, index):
-        font = self.getIndex(parser)
-        return FontCharAccessor(font, self.field)
+    def intValue(self, parser):
+        font = readFont(parser)
+        return font.fontchar[self.field]
 
 
-class FontDefineAccessor(Accessor):
+class FontDefineAccessor(ParameterAccessor):
     def readValue(self, parser):
         """
         read a font specification from the input stack
@@ -160,33 +179,56 @@ class FontDefineAccessor(Accessor):
         return Font(tfm, at)
 
 
+class FontAccessor(ParameterAccessor):
+    """
+    An accessor for the current font
+    """
+    def fontValue(self, parser):
+        """
+        get the current font value
+        @param parser: the parser
+        """
+        return self.entry.value
+        
+
 class FontCommand(Define):
     """
     The \\font command
     """
-    def default(self):
-        return nullfont
-
-    def newItemAccessor(self, index):
-        return FontDefineAccessor(self.domain, index)
-    
+    def __init__(self):
+        super().__init__(FontDefineAccessor, default=nullfont)
+        
     def fontValue(self, parser):
-        return parser.state.parameters["currentfont"]
+        return parser.currentfont.value
 
 
-class FontDimenAccessor(DimenAccessor):
-    def getValue(self, parser):
-        font, i = self.index
-        return font.param[i]
+class FontDimenAccessor(DimenArrayItemAccessor):
+    """
+    An accessor for the \\fontdimen command
+    """
+    def __init__(self, font, index):
+        super().__init__(font.param, index)
+        self.font = font
+
+    def dimenValue(self, parser):
+        if self.index < 0 or self.index >= len(self.domain):
+            raise ValueError(f"fontdimen index {self.index} out of range for font {self.font.tfm.name} ", parser.input.position())
     
-    def setValue(self, parser, value, globally):
-        font, i = self.index
-        # if i is out of range, we need to extend the array
-        if i >= len(font.param):
-            font.param.extend([0] * (i-len(font.param)+1))
-        font.param[i] = value
+    def set(self, parser, value):
+        """
+        set the value of the fontdimen
+        @param parser: the parser
+        @param value: the value to set
+        """
+        if self.index >= len(self.domain): 
+            # append 0 values until the index is valid
+            self.domain.extend([Dimen() for i in range(self.index - len(self.domain) + 1)])
+        super().set(parser, value)
 
+    def setGlobal(self, parser, value):
+        return set(parser, value)
 
+    
 class FontDimen(DimenArrayAccessor):
     """
     the \\fontdimen command
@@ -194,17 +236,16 @@ class FontDimen(DimenArrayAccessor):
     def __init__(self):
         super().__init__(None)
    
-    def getIndex(self, parser):
-        """
-        read the index from the input stack
-        @param parser: the parser
-        """
-        i = super().getIndex(parser)
+    def getItemAccessor(self, parser):
+        i = parser.readInteger()
+        return FontDimenAccessor(readFont(parser), i)
+    
+    def dimenValue(self, parser):
+        i = parser.readInteger()
         f = readFont(parser)
-        return f, i-1
-
-    def newItemAccessor(self, index):
-        return FontDimenAccessor(None, index)
+        if i < 0 or i >= len(f.param):
+            raise ValueError(f"fontdimen index {i} of out of range for font {f.tfm.name}", parser.input.position())
+        return f.param[i]
 
 
 class FontName(Command):
@@ -221,9 +262,9 @@ mod = Module("font",
         "currentfont": {"value": nullfont, "accessor": FontAccessor,  "domain": "parameters"},
     },
     domains = {
-        "textfont": {"generator": lambda state: Array("textfont", state, nullfont, size=256), "accessor": FontArrayAccessor},
-        "scriptfont": {"generator": lambda state: Array("scriptfont", state, nullfont, size=256), "accessor": FontArrayAccessor},
-        "scriptscriptfont": {"generator": lambda state: Array("scriptscriptfont", state, nullfont, size=256), "accessor": FontArrayAccessor},
+        "textfont": {"generator": TextFontArray, "accessor": FontArrayAccessor},
+        "scriptfont": {"generator": ScriptFontArray, "accessor": FontArrayAccessor},
+        "scriptscriptfont": {"generator": ScriptScriptFontArray, "accessor": FontArrayAccessor},
     },
     commands = {
         "fontdimen": FontDimen(),

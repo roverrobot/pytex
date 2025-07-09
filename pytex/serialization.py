@@ -6,8 +6,6 @@ and reloading them. This is used to implement the format files.
 
 import enum
 
-import json
-
 def serialize(obj):
     """
     serialize the object into a dictionary
@@ -17,9 +15,11 @@ def serialize(obj):
     elif isinstance(obj, list):
         for i, value in enumerate(obj):
             obj[i] = serialize(value)
+        return obj
     elif isinstance(obj, dict):
         for key, value in obj.items():
             obj[key] = serialize(value)
+        return obj
     elif isinstance(obj, enum.Enum):
         return obj.value
     return obj

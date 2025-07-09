@@ -9,10 +9,10 @@ by importing it.
 from pytex import token as tk
 from pytex.module import Module
 from pytex.lists import ModeDependentCommand
-from pytex.integer import IntegerCommand, IntegerAccessor, ReadOnlyInteger, FixedInteger
-from pytex.dimen import DimenCommand, Dimen
-from pytex.glue import GlueCommand
-from pytex.toks import ToksAccessor, The
+from pytex.integer import FixedInteger, IntegerParameterAccessor, IntegerArrayItemAccessor
+from pytex.dimen import Dimen, DimenCommand
+from pytex.glue import GlueCommand, MuGlueCommand
+from pytex.toks import The, ToksParameterAccessor
 from pytex import token
 from pytex import node as nd
 from pytex import expandable
@@ -124,12 +124,9 @@ class Expr(ModeDependentCommand):
         if integer:
             return parser.readInteger()
         return self.readValue(parser)
-        
-    def getValue(self, parser):
-        return self.readExpr(parser, False)
     
 
-class NumExpr(Expr, IntegerCommand):
+class NumExpr(Expr):
     """
     The \\numexpr command
     """
@@ -140,6 +137,14 @@ class NumExpr(Expr, IntegerCommand):
         d = int(abs(x) / abs(y) + 0.5)
         return -d if x < 0 < y or y < 0 < x else d
     
+    def intValue(self, parser):
+        """
+        Get the integer value of the expression
+        @param parser: the parser
+        @return: the integer value of the expression
+        """
+        return self.readExpr(parser, False)
+    
 
 class DimExpr(Expr, DimenCommand):
     """
@@ -147,6 +152,14 @@ class DimExpr(Expr, DimenCommand):
     """
     def readValue(self, parser):
         return parser.readDimen()
+    
+    def dimenValue(self, parser):
+        """
+        Get the dimension value of the expression
+        @param parser: the parser
+        @return: the dimension value of the expression
+        """
+        return self.readExpr(parser, False)
 
 
 class GlueExpr(Expr, GlueCommand):
@@ -155,14 +168,30 @@ class GlueExpr(Expr, GlueCommand):
     """
     def readValue(self, parser):
         return parser.readGlue()
+    
+    def glueValue(self, parser):
+        """
+        Get the glue value of the expression
+        @param parser: the parser
+        @return: the glue value of the expression
+        """
+        return self.readExpr(parser, False)
 
 
-class MuExpr(Expr, GlueCommand):
+class MuExpr(Expr, MuGlueCommand):
     """
     The \\muexpr command
     """
     def readValue(self, parser):
         return parser.readGlue(mu=True)
+    
+    def muglueValue(self, parser):
+        """
+        Get the mu glue value of the expression
+        @param parser: the parser
+        @return: the mu glue value of the expression
+        """
+        return self.readExpr(parser, False)
 
 
 class Marks(token.Command):
@@ -200,7 +229,7 @@ class StringCommand(token.Command):
         parser.input.push(lexer.TokenListScanner(self.toks))
 
 
-class LastNodeType(ReadOnlyInteger):
+class LastNodeType(tk.Command):
     """
     The \\lastnodetype command
     """
@@ -211,7 +240,7 @@ class LastNodeType(ReadOnlyInteger):
         return top[-1].node_type
     
 
-class CurrentGroupType(ReadOnlyInteger):
+class CurrentGroupType(tk.Command):
     """
     The \\currentgrouptype command
     """
@@ -222,7 +251,7 @@ class CurrentGroupType(ReadOnlyInteger):
         return groups[-1].group_type
     
 
-class CurrentGroupLevel(ReadOnlyInteger):
+class CurrentGroupLevel(tk.Command):
     """
     The \\currentgrouplevel command
     """
@@ -230,7 +259,7 @@ class CurrentGroupLevel(ReadOnlyInteger):
         return len(parser.state.groups)
 
 
-class CurrentIfLevel(ReadOnlyInteger):
+class CurrentIfLevel(tk.Command):
     """
     The \\currentiflevel command
     """
@@ -238,7 +267,7 @@ class CurrentIfLevel(ReadOnlyInteger):
         return len(parser.state.ifs)
     
 
-class CurrentIfType(ReadOnlyInteger):
+class CurrentIfType(tk.Command):
     """
     The \\currentiftype command
     """
@@ -271,34 +300,35 @@ class CurrentIfType(ReadOnlyInteger):
         return self.if_types.index(parser.state.ifs[-1].name[1:])
 
 
-class CurrentIfBranch(ReadOnlyInteger):
+class CurrentIfBranch(tk.Command):
     """
     The \\currentifbranch command
     """
-    def getValue(self, parser):
-        raise NotImplementedError()
+    def intValue(self, parser):
+        b = parser.ifstack[-1][2]
+        return 1 if b == 0 else -1
     
 
-class GlueOrder(ReadOnlyInteger):
+class GlueOrder(tk.Command):
     """
     The \\gluestretchorder and \\glueshrinkorder commands
     """
     def __init__(self, field):
         self.field = field
 
-    def getValue(self, parser):
+    def intValue(self, parser):
         glue = parser.readGlue()
         return getattr(glue, self.field).order
 
 
-class Penalties(ReadOnlyInteger):
+class Penalties(tk.Command):
     """
     the \\interlinepenalties etc commands
     """
     def __init__(self, penalties):
         self.penalties = penalties
 
-    def getValue(self, parser):
+    def intValue(self, parser):
         index = parser.readInteger()
         if index < 0:
             return 0
@@ -316,18 +346,7 @@ class Penalties(ReadOnlyInteger):
         parser.state.layout[self.penalties] = penalties
 
 
-class DimenValuedCommand(token.Command, DimenCommand):
-    """
-    A dimen valued command
-    """
-    def execute(self, parser):
-        raise ValueError(f"improper use of {self.name}")
-    
-    def getValue(self, parser):
-        raise NotImplementedError("this method should be implemented by subclasses")
-    
-
-class ParShapeDimen(DimenValuedCommand):
+class ParShapeDimen(tk.Command, DimenCommand):
     """
     The \\parshapeindent and \\parshapelength and \\parshapedimen commands
     @param index: the index of the parshape dimen for a specific line
@@ -337,7 +356,7 @@ class ParShapeDimen(DimenValuedCommand):
     def __init__(self, index):
         self.index = index
 
-    def getValue(self, parser):
+    def dimenValue(self, parser):
         row = parser.readInteger()
         if row < 0:
             return Dimen()
@@ -353,26 +372,26 @@ class ParShapeDimen(DimenValuedCommand):
         return parshape[row][index]
 
 
-class GlueStrechness(DimenValuedCommand):
+class GlueStrechness(tk.Command, DimenCommand):
     """
     The \\gluestretch and \\glueshrink command
     """
     def __init__(self, field):
         self.field = field
 
-    def getValue(self, parser):
+    def dimenValue(self, parser):
         glue = parser.readGlue()
         return Dimen(getattr(glue, self.field).factor)
     
 
-class FontCharDimen(DimenValuedCommand):
+class FontCharDimen(tk.Command, DimenCommand):
     """
     The \\fontcharwd, \\fontcharht, and \\fontchardp commands
     """
     def __init__(self, field):
         self.field = field
 
-    def getValue(self, parser):
+    def dimenValue(self, parser):
         f = font.readFont(parser)
         char = parser.readInteger()
         box = f[chr(char)]
@@ -414,7 +433,7 @@ class IfCSName(conditional.Conditional):
     """
     def condition(self, parser):
         t = expandable.readCSName(parser)
-        return 0 if t.definition is not None else 1
+        return 0 if t.entry.value is not None else 1
 
 
 class UnlessConditional(conditional.Conditional):
@@ -502,7 +521,9 @@ class ReadlineOp(file.ReadOp):
         if 0 <= endlinechar <= 255:
             line = line + chr(endlinechar)
         toks = expandable.toToks(line)
-        return macro.Macro([[]], toks)
+        m = macro.Macro([[]], toks)
+        m.name = self.entry.name
+        return m
 
 
 class Readline(file.FileCommand):
@@ -519,9 +540,9 @@ class Readline(file.FileCommand):
         if to is None:
             raise ValueError("Expected 'to' keyword")
         t = parser.skipSpaces(expand=False)
-        if not isinstance(t, token.CommandToken):
+        if not t.is_command:
             raise ValueError(f"Expected a control sequence, got {t}")
-        return ReadlineOp(t.name, file_id)
+        return ReadlineOp(t.entry, file_id)
 
 
 mod = Module("etex",
@@ -566,17 +587,17 @@ mod = Module("etex",
         "readline": Readline(),
     },
     parameters={
-        "interactionmode": {"value": 0, "accessor": IntegerAccessor, "domain": "globals"},
-        "TeXXeTstate": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "tracingassigns": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "tracinggroups": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "tracingifs": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "tracingscantokens": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "tracingnesting": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "predisplaydirection": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "lastlinefit": {"value": 0, "accessor": IntegerAccessor, "domain": "layout"},
-        "savingvdiscards": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "savinghyphcodes": {"value": 0, "accessor": IntegerAccessor, "domain": "parameters"},
-        "everyeof": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "interactionmode": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
+        "TeXXeTstate": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "tracingassigns": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "tracinggroups": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "tracingifs": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "tracingscantokens": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "tracingnesting": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "predisplaydirection": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "lastlinefit": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "savingvdiscards": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "savinghyphcodes": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "everyeof": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
     },
 )

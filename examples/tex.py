@@ -14,6 +14,7 @@ from pytex import pdftex
 from argparse import ArgumentParser
 import os
 import json
+import types
 
 
 argparser = ArgumentParser()
@@ -36,10 +37,11 @@ parser = Parser()
 #parser.tracingstopatend = 1
 
 
-def dumper(data):
+def dumper(parser, data):
     with open(parser.resolver.format+'.json', "w") as fmt:
         fmt.write(data)
-parser.dumper = dumper
+parser.dumper = types.MethodType(dumper, parser)
+
 
 if args.format == "initex":
     if os.path.isabs(args.file):
@@ -74,8 +76,7 @@ input.close()
 log = parser.end()
 
 if args.format == "initex":
-    if not parser.dumped:
-        dumper(parser.dump())
+    dumper(parser.dump())
 else:
     result = open(args.file+".json", "w")
     result.write(json.dumps(serialize(parser.lists[0])))

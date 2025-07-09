@@ -60,8 +60,6 @@ class Parser:
         #         format.write(content)
         # parser.dumper = dumper
         self.dumper = None
-        # initially it was not dumped
-        self.dumped = False
         # the current token
         self.current_token = None
     
@@ -401,7 +399,6 @@ class Parser:
         @return: the format file content
         """
         dump = serialization.serialize(self.state.dump())
-        self.dumped = True
         return json.dumps(dump)
 
     def load(self, file):

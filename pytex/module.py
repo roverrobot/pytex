@@ -98,9 +98,7 @@ class Module:
                 else:
                     entry = domain.entry(name)
                     entry.setGlobal(value)
-                    if item["domain"] == "tracing":
-                        entry = None
-                    else:
+                    if item["domain"] != "tracing":
                         setattr(parser, name, entry)
                 # set the accessor in equitable
                 generator = item["accessor"]

@@ -8,7 +8,7 @@ from pytex.module import Module
 from pytex.state import Array
 from pytex import accessor
 from pytex.expandable import toToks
-from pytex.define import Define
+from pytex.define import registerdef
 
 
 def token_expand(parser):
@@ -198,16 +198,6 @@ class ToksArray(Array):
         super().__init__("toks", state, [])
     
 
-class ToksDefAccessor(accessor.ParameterAccessor):
-    """
-    An accessor for \\countdef
-    """
-    def readValue(self, parser):
-        return ToksArrayItemAccessor(parser.state.toks, parser.readInteger())
-
-
-toksdef = Define(ToksDefAccessor)
-
 class AfterGroup(Command):
     """
     the \\aftergroup command
@@ -333,7 +323,7 @@ mod = Module("toks",
         "lowercase": Case(False),
         "ignorespaces": IgnoreSpaces(),
         "the": The(),
-        "toksdef": toksdef,
+        "toksdef": registerdef("toks", ToksArrayItemAccessor),
     },
     domains = {
         "toks": {"generator": ToksArray, "accessor": ToksArrayAccessor},

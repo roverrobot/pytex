@@ -5,7 +5,7 @@ This module implements command definition, such as \\let etc.
 
 from pytex import accessor
 from pytex.module import Module
-from pytex.token import relax, Command
+from pytex.token import relax, Command, CommandToken
 
 
 class Define(accessor.ArrayAccessor):
@@ -135,6 +135,31 @@ class CharDefAccessor(accessor.ParameterAccessor):
 
 
 chardef = Define(CharDefAccessor)
+
+
+class RegisterDefAccessor(accessor.ParameterAccessor):
+    """
+    An accessor for commands such as \\countdef, \\dimendef etc
+    @param entry: the entry of the equitable for the command name
+    @param register: the register name, such as "count", "dimen", etc.
+    @param accessor_generator: the generator for the accessor to the register item
+    """
+    def __init__(self, entry, register, accessor_generator):
+        super().__init__(entry)
+        self.register = register
+        self.accessor_generator = accessor_generator
+
+    def readValue(self, parser):
+        i = parser.readInteger()
+        register = getattr(parser.state, self.register)
+        c = self.accessor_generator(register, i)
+        c.name = parser.formatName(f"\\{self.register}{i}")
+        return c
+
+
+def registerdef(register, accessor_generator): 
+    generator = lambda entry: RegisterDefAccessor(entry, register, accessor_generator)
+    return Define(generator)
 
 
 mod = Module("define",

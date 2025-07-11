@@ -8,7 +8,7 @@ from pytex.module import Module
 from pytex.integer import readDigits, readSigns
 from pytex.state import Array
 from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
-from pytex.define import Define
+from pytex.define import registerdef
 
 class Dimen(serialization.Serializable):
     scale = 65536
@@ -301,17 +301,6 @@ class DimenParameterAccessor(ParameterAccessor, DimenCommand):
         return self.entry.value
 
 
-class DimenDefAccessor(ParameterAccessor):
-    """
-    the accessor for the \\dimendef command
-    """
-    def readValue(self, parser):
-        return DimenArrayItemAccessor(parser.state.dimen, parser.readInteger())
-  
-
-dimendef = Define(DimenDefAccessor)
-
-
 mod = Module("dimen",
     attributes = {
         "readDimen": readDimen,
@@ -343,6 +332,6 @@ mod = Module("dimen",
         "voffset": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
     },
     commands={
-        "dimendef": dimendef,
+        "dimendef": registerdef("dimen", DimenArrayItemAccessor),
     },
 )

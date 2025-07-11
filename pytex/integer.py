@@ -7,7 +7,7 @@ from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.state import Array
 from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
-from pytex.define import Define
+from pytex.define import registerdef
 
 
 def readSigns(parser):
@@ -70,7 +70,7 @@ def readUnsigned(parser):
         elif len(t.name) == 1:
             value =  ord(t.name)
         else:
-            raise ValueError("expecting a character", parser.input.position())
+            raise ValueError(f"expecting a character, got {t.name}", parser.input.position())
     elif t.name == "'":
         value = int(readDigits(parser, 8), 8)
     elif t.name == '"':
@@ -335,17 +335,6 @@ class IntegerParameterAccessor(ParameterAccessor):
         return self.entry.value
 
 
-class CountDefAccessor(ParameterAccessor):
-    """
-    An accessor for \\countdef
-    """
-    def readValue(self, parser):
-        return IntegerArrayItemAccessor(parser.state.count, parser.readInteger())
-
-
-countdef = Define(CountDefAccessor)
-
-
 module = Module("integer", 
     attributes={"readInteger": readInteger},
     parameters={
@@ -416,6 +405,6 @@ module = Module("integer",
     },
     commands={
         "inputlineno": InputLineNo(),
-        "countdef": countdef,
+        "countdef": registerdef("count", IntegerArrayItemAccessor),
     },
 )

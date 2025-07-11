@@ -76,7 +76,7 @@ input.close()
 log = parser.end()
 
 if args.format == "initex":
-    dumper(parser.dump())
+    parser.dumper(parser.dump())
 else:
     result = open(args.file+".json", "w")
     result.write(json.dumps(serialize(parser.lists[0])))

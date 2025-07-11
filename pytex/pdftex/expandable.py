@@ -49,8 +49,8 @@ class PDFStrcmp(token.Command):
     def expand(self, parser):
         l1 = parser.readGeneralText(expand=True)
         l2 = parser.readGeneralText(expand=True)
-        s1 = expandable.toksToString(parser, l1, space_after_command=True)
-        s2 = expandable.toksToString(parser, l2, space_after_command=True)
+        s1 = parser.toksToString(l1)
+        s2 = parser.toksToString(l2)
         if s1 == s2:
             s = "0"
         elif s1 < s2:

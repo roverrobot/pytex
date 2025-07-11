@@ -7,7 +7,6 @@ from pytex.token import CATCODE, Command, ParameterToken, CharToken
 from pytex.accessor import Prefix, GlobalPrefix, ParameterAccessor
 from pytex.define import Define
 from pytex.module import Module
-from pytex.expandable import tokenToString
 
 
 class MacroScanner:
@@ -71,20 +70,6 @@ class MacroScanner:
                     self.parser.input.pop()  # pop the scanner
             return t
 
-    def __repr__(self):
-        args = []
-        for i in range(len(self.args)):
-            args.append(f"#{i+1}<-" + "".join([tokenToString(t, "\\", True) for t in self.args[i]]))
-        s = "\n  ".join(args)
-        return f"{self.name}: {super().__repr__()}\n  {s}" 
-
-
-def toString(toks):
-    """
-    convert a list of tokens to a string
-    """
-    return "".join([tokenToString(t, "\\", True) for t in toks ])
-
 
 class Macro(Command):
     """
@@ -135,16 +120,12 @@ class Macro(Command):
             result.extend(b)
         return result
 
-    @classmethod
-    def showmeaning(cls, macro):
-        long = "\\long " if macro.long else ""
-        outer = "\\outer " if macro.outer else ""
-        protected = "\\protected " if macro.protected else ""
-        return f"{long}{outer}{protected}macro:{toString(cls.parameters(macro.brackets))}->{toString(macro.replacement)}"
+    def meaning(self, parser):
+        long = "\\long " if self.long else ""
+        outer = "\\outer " if self.outer else ""
+        protected = "\\protected " if self.protected else ""
+        return f"{long}{outer}{protected}macro:{parser.toksToString(self.parameters(self.brackets))}->{parser.toksToString(self.replacement)}"
     
-    def meaning(self):
-        return Macro, self
-
     def matchDelimited(self, parser, bracket):
         """
         match the next delimiter in the parameter list
@@ -230,7 +211,7 @@ class Macro(Command):
             arg = self.readArgument(parser, bracket)
             args.append(arg)
             if parser.tracingmacros and parser.checkRange():
-                parser.message(f"#{len(args)}<-{toString(arg)}")
+                parser.message(f"#{len(args)}<-{parser.toksToString(arg)}")
         # we now create a MacroScanner and read from it.
         # only if the replacement text is not empty
         if self.replacement:
@@ -323,7 +304,7 @@ class MacroAccessor(ParameterAccessor):
         macro = Macro(brackets, replacement)
         macro.name = self.entry.name
         if parser.tracingmacros and parser.checkRange():
-            parser.message(f"macro {self.entry.name}: {macro}")
+            parser.message(f"macro {self.entry.name}: {macro.meaning(parser)}")
         return macro
     
     def assign(self, parser, prefixes):

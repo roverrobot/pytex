@@ -301,7 +301,7 @@ class The(Command):
             t = CommandToken(f.name)
             t.entry = parser.state.equitable.entry(f.name)
             return [t]
-        raise ValueError(f"invalid token after \\the: {t0}", parser.input.position())
+        raise ValueError(f"invalid token after \\the: {t0.name}", parser.input.position())
     
     def expand(self, parser):
         """

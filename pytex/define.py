@@ -120,6 +120,13 @@ class CharDefValue(Command):
         get the integer value
         """
         return self.value
+    
+    def meaning(self, parser):
+        """
+        return the meaning of the command
+        """
+        name = parser.formatName('\\char')
+        return f"{name}\"{self.value:X}"
 
 
 class CharDefAccessor(accessor.ParameterAccessor):

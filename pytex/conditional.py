@@ -143,7 +143,11 @@ class IfCompareToken(Conditional):
             t2 = parser.token()
         if t1 is None or t2 is None:
             raise ValueError("expecting two tokens", parser.input.position())
-        return 0 if self.equal(t1.meaning(), t2.meaning()) else 1
+        if t1.is_command and isinstance(t1.definition, Token):
+            t1 = t1.definition
+        if t2.is_command and isinstance(t2.definition, Token):
+            t2 = t2.definition
+        return 0 if self.equal(t1, t2) else 1
 
 
 class IfCat(IfCompareToken):
@@ -152,13 +156,7 @@ class IfCat(IfCompareToken):
         super().__init__(expand_tokens=True)
 
     def equal(self, t1, t2):
-        cls1, value1 = t1
-        cls2, value2 = t2
-        if cls1 is Token:
-            if cls2 is Token:
-                return value1[1] == value2[1]
-            return False
-        return cls2 is not Token
+        return t1.catcode == t2.catcode
 
 
 class If(IfCompareToken):
@@ -171,14 +169,7 @@ class If(IfCompareToken):
         # code 256 and category code 16
         # The condition is true if the character codes are equal,
         # independent of the category codes
-        cls1, value1 = t1
-        cls2, value2 = t2
-        if cls1 is Token:
-            if cls2 is Token:
-                # charactor codes are equal indeopendent of the category codes
-                return value1[0] == value2[0] 
-            return False
-        return cls2 is not Token
+        return t1.name == t2.name or (t1.catcode is None and t2.catcode is None)
 
 
 class IfX(IfCompareToken):
@@ -194,12 +185,12 @@ class IfX(IfCompareToken):
         # or if (b) the two tokens are macros, and they both have the same status 
         # with respect to \long and \outer, and they both have the same
         # parameters and “top level” expansion.
-        cls1, value1 = t1
-        cls2, value2 = t2
-        c1 = cls1 is cls2
-        c2 = value1 == value2
-        return c1 and c2
-
+        if t1.is_command and t2.is_command:
+            return t1.definition == t2.definition
+        if t1.is_command or t2.is_command:
+            return False
+        # neither token is command, so we compare their character codes and category codes
+        return t1.catcode == t2.catcode and t1.name == t2.name
 
 class IfCase(Conditional):
     """ the \\ifcase command """

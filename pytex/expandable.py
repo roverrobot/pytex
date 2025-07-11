@@ -118,13 +118,8 @@ def toToks(s: str) -> list:
     @param s: the string
     @return: the token list
     """
-    toks = []
-    for c in s:
-        if c == " ":
-            toks.append(SpaceToken())
-        else: 
-            toks.append(CharToken(c, CATCODE.OTHER))
-    return toks
+    f = lambda c: SpaceToken() if c == " " else CharToken(c, CATCODE.OTHER)
+    return list(map(f, iter(s)))
 
 
 class Number(Command):
@@ -167,39 +162,46 @@ class RomanNumeral(Number):
         return s
 
 
-def tokenToString(token, escapechar, space_after_command=False):
+def formatName(parser, name: str) -> str:
     """
-    Convert a token to a string
-    @param token: the token
-    @param escapechar: the escape character
-    @param space_after_command: add a space after a command
-    @return: the string
+    format the command name, handle the \\ according to \escapechar
+    @param parser: the parser
+    @param name: the command name
+    @return: the command token
+    """
+    if parser is None:
+        s = "\\" 
+    else:
+        escape = parser.escapechar.value
+        s = chr(escape) if 0 <= escape < 256 else ""
+    return s + name[1:]
+
+
+def tokenToString(parser, token):
+    """
+    Convert a token to a string.
+    @param parser: the parser
+    @param token: the token to convert
+    @return: the string representation of the token
     """
     if token.catcode is None:
-        s = escapechar + token.name[1:]
-        if space_after_command:
-            s += " "
-    elif token.catcode == CATCODE.PARAMETER:
-        if token.parameter is None:
-            s = "##"
-        else:
-            s = "#" + str(token.parameter+1)
-    else:
-        s = token.name
-    return s
+        return formatName(parser, token.name)
+    if token.catcode == CATCODE.PARAMETER:
+        return "##" if token.parameter is None else "#" + str(token.parameter+1)
+    return token.name
 
 
-def toksToString(parser, tokens, space_after_command=False):
+def toksToString(parser, tokens):
     """
     Convert a list of tokens to a string
     @param parser: the parser
     @param tokens: the list of tokens
-    @param space_after_command: add a space after a command
     @return: the string
     """
-    escape = parser.escapechar.value
-    escapechar = "" if escape < 0 else chr(escape)
-    return "".join(map(lambda x: tokenToString(x, escapechar, space_after_command), tokens))
+    def f(token):
+        s = parser.tokenToString(token)
+        return s + " " if token.catcode is None else s
+    return "".join(map(f, tokens))
 
 
 class String(Command):
@@ -214,13 +216,7 @@ class String(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token", parser.input.position())
-        if t.is_command:
-            escapechar = parser.state.layout["escapechar"]
-            escapechar = chr(escapechar) if 0 <= escapechar < 256 else ""
-            s = escapechar + t.name[1:]
-        else:
-            s = t.name
-        parser.input.push(TokenListScanner(toToks(s)))
+        parser.input.push(TokenListScanner(toToks(parser.tokenToString(t))))
 
 
 class Input(Command):
@@ -265,10 +261,7 @@ class Meaning(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token", parser.input.position())
-        cls, value = t.meaning()
-        meaning = cls.showmeaning(value)
-        toks = toToks(meaning)
-        parser.input.push(TokenListScanner(toks))
+        parser.input.push(TokenListScanner(toToks(t.meaning(parser))))
 
 
 mod = Module("expandable",
@@ -285,5 +278,10 @@ mod = Module("expandable",
         "endinput": EndInput(),
         "jobname": JobName(),
         "meaning": Meaning(),
+    },
+    attributes={
+        "toksToString": toksToString,
+        "tokenToString": tokenToString,
+        "formatName": formatName,
     }
 )

@@ -35,7 +35,7 @@ def trace(parser, t, mode: str):
     if not parser.checkRange():
         return
     if parser.tracingcommands > 1 and t.definition is not None:
-        meaning = str(t.definition)
+        meaning = t.meaning(parser)
     else:
         meaning = ""
     parser.message(f"{mode} {t.name} at {parser.input.position()}: {meaning}\n")

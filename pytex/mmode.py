@@ -10,7 +10,7 @@ when parsing the math list, but after the list is parsed.
 from pytex import serialization
 from pytex import lists
 from pytex import node as nd
-from pytex.token import CATCODE
+from pytex.token import CATCODE, CommandToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.accessor import ParameterAccessor
@@ -440,11 +440,13 @@ class MathCharValue(lists.ModeDependentCommand):
     def mathCharValue(self, parser):
         return parser.mathChar(self.mathcode)
     
-    def __repr__(self):
-        c = self.mathcode >> 12
-        f = (self.mathcode >> 8) & 0xf
-        p = self.mathcode & 0xff
-        return f"\\mathchar{{{c}, {f}, {p}}}"
+    def meaning(self, parser):
+        """
+        return the meaning of the command
+        """
+        s = parser.formatName("\\mathchar")
+        return f"{s}\"{self.mathcode:X}"
+
 
 
 class MathCharDefAccesor(ParameterAccessor):

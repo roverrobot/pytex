@@ -62,8 +62,9 @@ class Font(Command):
     def execute(self, parser):
         parser.currentfont.set(self)
 
-    def __repr__(self):
-        return f"Font({self.tfm.name}, {self.at})"
+    def meaning(self, parser):
+        at = f"at {self.at}pt" if self.at != self.tfm.header.size else ""
+        return f"select font {self.tfm.name} {at}"
         
     def fontValue(self, parser):
         """

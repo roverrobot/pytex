@@ -85,28 +85,13 @@ class Command(serialization.Serializable):
             raise ValueError("command name is required")
         return parser.builtin[name]
    
-    @classmethod
-    def showmeaning(cls, command):
+    def __eq__(self, other):
         """
-        return a string representation of the meaning of the command. 
-        @param token: the command
-        @return: the meaning of the command
-        
-        This is used to define the \\meaning command
+        compare the command with another command.
+        @param other: the other command
+        @return: True if the commands are the same object, False otherwise
         """
-        if command:
-            return command.name if command.name else "noname"
-        return "undefined"
-
-    def meaning(self):
-        """
-        get the meaning of the command.
-        @return the class, and the representation values
-
-        The is used to implement both \meaning and \ifx (for comparison).
-        For \ifx, if both tokens return the same meaning, then they are the same.
-        """
-        return Command, self
+        return self is other
 
     def execute(self, parser):
         """
@@ -115,13 +100,15 @@ class Command(serialization.Serializable):
         """
         pass
 
-    def __repr__(self):
+    def meaning(self, parser):
         """
         return a string representation of the command.
+        @param parser: the parser
         @return: the string representation of the command
         """
-        cls, value = self.meaning()
-        return cls.showmeaning(value)
+        if self.name is None:
+            return None
+        return parser.formatName(self.name)
     
     def __eq__(self, other):
         """
@@ -146,25 +133,12 @@ class Token(Command):
 
     # the token is not a command
     is_command = False
-
-    @classmethod
-    def showmeaning(cls, token):
-        """
-        get the meaning of the command. This is used to define the \\meaning command
-        @param token: the command
-        @return: the meaning of the command
-        """
-        name, catcode = token
-        return f"{name}({catcode})"
     
     # not expandable by default
     expand = None
 
-    def meaning(self):
-        return Token, (self.name, self.catcode)
-    
     def __eq__(self, other):
-        return self.meaning() == other.meaning()
+        return isinstance(other, Token) and self.name == other.name and self.catcode == other.catcode
 
     def execute(self, parser):
         """
@@ -210,17 +184,32 @@ class Token(Command):
         """
         return cls(**kargs)
     
+    def meaning(self, parser):
+        """
+        return a string representation of the token.
+        @return: the string representation of the token
+
+        This is used by \\meaning
+        """
+        return NotImplementedError("Must be implemented in subclasses")
+
 
 class BeginGroupToken(Token):
     """ a token that represents the beginning of a group {"""
     def execute(self, parser):
         parser.beginGroup(parser.input.position())
 
+    def meaning(self, parser):
+        return f"begin-group character {self.name}"
+
 
 class EndGroupToken(Token):
     """ a token that represents the end of a group {"""
     def execute(self, parser):
         parser.endGroup(parser.input.position())
+
+    def meaning(self, parser):
+        return f"end-group character {self.name}"
 
 
 class CommandToken(Token):
@@ -281,15 +270,22 @@ class CommandToken(Token):
         """
         return None
     
-    def meaning(self):
+    def meaning(self, parser):
         """
         Get the meaning of the command.
         @param parser: the parser
         @return: the meaning of the command
         """
-        if self.definition is None:
-            return Command, None
-        return self.definition.meaning()
+        definition = self.entry.value
+        return "undefined" if definition is None else definition.meaning(parser)
+    
+    def __eq__(self, other):
+        """
+        compare the command with another command.
+        @param other: the other command
+        @return: True if the commands are equal, False otherwise
+        """
+        return isinstance(other, CommandToken) and self.entry == other.entry
 
 
 class ActiveToken(CommandToken):
@@ -321,16 +317,6 @@ class ActiveToken(CommandToken):
         """
         return self.name
 
-    def meaning(self):
-        """
-        Get the meaning of the command.
-        @param parser: the parser
-        @return: the meaning of the command
-        """
-        if self.noexpand:
-            return Token, (self.name, self.catcode)
-        return super().meaning()
-
 
 class ParameterToken(Token):
     """
@@ -344,6 +330,19 @@ class ParameterToken(Token):
 
     def execute(self, parser):
         raise ValueError("unexpected #")
+    
+    def meaning(self, parser):
+        """
+        return a string representation of the token.
+        @param parser: the parser
+        @return: the string representation of the token
+        """
+        return f"macro parameter character {self.name}"
+
+    def toString(self, parser):
+        if self.parameter is None:
+            return "##"
+        return "#" + str(self.parameter+1)
 
 
 class SpaceToken(Token):
@@ -357,8 +356,8 @@ class SpaceToken(Token):
     def execute(self, parser):
         parser.addSpace()
 
-    def __repr__(self):
-        return " "
+    def meaning(self, parser):
+        return "blank space"
     
     def saveInfo(self):
         return {}
@@ -377,8 +376,10 @@ class CharToken(Token):
     def execute(self, parser):
         parser.addChar(self.name)
     
-    def __repr__(self):
-        return self.name
+    def meaning(self, parser):
+        if self.token == CATCODE.LETTER:
+            return f"the letter {self.name}"
+        return f"the character {self.name}"
     
 
 class MathShiftToken(Token):
@@ -386,17 +387,26 @@ class MathShiftToken(Token):
     def execute(self, parser):
         parser.mathShift()
 
+    def meaning(self, parser):
+        return f"math shift character {self.name}"
+
 
 class SuperscriptToken(Token):
     """ a token that represents a superscript ^ """
     def execute(self, parser):
         parser.superscript()
 
+    def meaning(self, parser):
+        return f"superscript character {self.name}"
+
 
 class SubscriptToken(Token):
     """ a token that represents a subscript _ """
     def execute(self, parser):
         parser.subscript()
+
+    def meaning(self, parser):
+        return f"subscript character {self.name}"
 
 
 # the token generators for each category code

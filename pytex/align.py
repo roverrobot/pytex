@@ -237,7 +237,7 @@ class AlignCommand(lists.ModeDependentCommand):
         """
         t = parser.skipSpaces()
         if t is None:
-            return None
+            raise ValueError("unexpected end of input in alignment", parser.input.position())
         if t.is_command and t.definition == noalign:
             list = parser.newVList() if self.vert else parser.newHList()
             parser.readList(list, GROUP_TYPE.NO_ALIGN)
@@ -263,25 +263,26 @@ class AlignCommand(lists.ModeDependentCommand):
         raise ValueError("expecting a \\cr", parser.input.position())
 
     def readValue(self, parser):
-        material = parser.readGeneralText(expand = False)
+        #expect the { token
+        t = parser.token_expand()
+        if t is None or t.catcode != token.CATCODE.BEGIN_GROUP:
+            raise ValueError("expecting a {", parser.input.position())
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-        scanner = lexer.TokenListScanner(material)
-        scanner.terminate = True
-        parser.input.push(scanner)
         template = self.readTemplate(parser)
         node = Alignment()
         node.noalign = self.readNoAlign(parser)
+        pos = parser.input.position()
         while True:
             t = parser.token_expand()
             if t is None:
+                raise ValueError("unexpected end of input while in alignment starting at {pos}", parser.input.position())
+            if t.catcode == token.CATCODE.END_GROUP:
+                parser.endGroup(pos, GROUP_TYPE.ALIGN)
                 break
             parser.input.unread(t)
             row = self.readRow(parser, template)
             row.noalign = self.readNoAlign(parser)
             node.rows.append(row)
-        assert parser.input.top is scanner, "scanner not on top"
-        parser.input.pop()
-        parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         return node
 
 

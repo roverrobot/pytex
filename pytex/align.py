@@ -147,13 +147,13 @@ class AlignCommand(lists.ModeDependentCommand):
             if terminator.catcode == token.CATCODE.ALIGNMENT_TAB:
                 return toks, terminator
             if terminator == span:
-                if is_template:
-                    raise ValueError("\\span in template", parser.input.position())
-                # expand the next token
                 t = parser.token_expand()
                 if t is None:
                     raise ValueError("expecting a \\cr", parser.input.position())
                 parser.input.unread(t)
+                if is_template:
+                    continue
+                # expand the next token
             return toks, terminator
     
     def readHeader(self, parser):

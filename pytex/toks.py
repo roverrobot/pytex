@@ -3,7 +3,7 @@ This module defines the token list facilities.
 """
 
 from pytex.lexer import CATCODE, TokenListScanner
-from pytex.token import Command, Token, relax
+from pytex.token import Command, Token, relax, CommandToken
 from pytex.module import Module
 from pytex.state import Array
 from pytex import accessor
@@ -297,6 +297,9 @@ class The(Command):
         if hasattr(t, "toksValue"):
             return t.toksValue(parser)
         if hasattr(t, "fontValue"):
+            f = t.fontValue(parser)
+            t = CommandToken(f.name)
+            t.entry = parser.state.equitable.entry(f.name)
             return [t]
         raise ValueError(f"invalid token after \\the: {t0}", parser.input.position())
     

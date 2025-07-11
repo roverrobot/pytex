@@ -94,6 +94,13 @@ class FontArrayItemAccessor(ArrayItemAccessor):
     """
     def readValue(self, parser):
         return readFont(parser)
+    
+    def fontValue(self, parser):
+        """
+        get the font value
+        @param parser: the parser
+        """
+        return self.entry.value
 
 
 class FontArrayAccessor(ArrayAccessor):
@@ -102,33 +109,21 @@ class FontArrayAccessor(ArrayAccessor):
     """
     def getItemAccessor(self, parser):
         return FontArrayItemAccessor(self.domain, parser.readInteger())
+    
+    def fontValue(self, parser):
+        """
+        get the font value
+        @param parser: the parser
+        """
+        i = parser.readInteger()
+        return self.domain[i]
 
 
 nullfont = Font(tfm=nullfont_tfm, at=0)
 
 
-class TextFontArray(Array):
-    """
-    An array of text fonts
-    """
-    def __init__(self, state):
-        super().__init__("textfont", state, default=nullfont, size=256)
-
-
-class ScriptFontArray(Array):
-    """
-    An array of script fonts
-    """
-    def __init__(self, state):
-        super().__init__("scriptfont", state, default=nullfont, size=256)
-
-
-class ScriptScriptFontArray(Array):
-    """
-    An array of scriptscript fonts
-    """
-    def __init__(self, state):
-        super().__init__("scriptscriptfont", state, default=nullfont, size=256)
+def fontarray(name): 
+    return lambda state: Array(name, state, default=nullfont, size=256)
 
 
 class FontCharAccessor(IntegerArrayItemAccessor):
@@ -176,7 +171,9 @@ class FontDefineAccessor(ParameterAccessor):
             at = parser.readInteger() / 1000 * tfm.header.size * parser.mag.value / 1000
         else:
             at = tfm.header.size * parser.mag.value / 1000
-        return Font(tfm, at)
+        f = Font(tfm, at)
+        f.name = self.entry.name
+        return f
 
 
 class FontAccessor(ParameterAccessor):
@@ -263,9 +260,9 @@ mod = Module("font",
         "currentfont": {"value": nullfont, "accessor": FontAccessor,  "domain": "parameters"},
     },
     domains = {
-        "textfont": {"generator": TextFontArray, "accessor": FontArrayAccessor},
-        "scriptfont": {"generator": ScriptFontArray, "accessor": FontArrayAccessor},
-        "scriptscriptfont": {"generator": ScriptScriptFontArray, "accessor": FontArrayAccessor},
+        "textfont": {"generator": fontarray("textfont"), "accessor": FontArrayAccessor},
+        "scriptfont": {"generator": fontarray("scriptfont"), "accessor": FontArrayAccessor},
+        "scriptscriptfont": {"generator": fontarray("scriptscriptfont"), "accessor": FontArrayAccessor},
     },
     commands = {
         "fontdimen": FontDimen(),

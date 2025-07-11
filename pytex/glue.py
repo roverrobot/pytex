@@ -9,7 +9,7 @@ from pytex.integer import readSigns
 from pytex.state import Array
 from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
 from pytex.module import Module
-from pytex.define import Define
+from pytex.define import registerdef
 
 
 class Stretchness(serialization.Serializable):
@@ -337,28 +337,6 @@ class MuGlueParameterAccessor(ParameterAccessor, MuGlueCommand):
         return self.entry.value
 
 
-class SkipDefAccessor(ParameterAccessor):
-    """
-    the accessor for the \\skipdef command
-    """
-    def readValue(self, parser):
-        return GlueArrayItemAccessor(parser.state.skip, parser.readInteger())
-  
-
-skipdef = Define(SkipDefAccessor)
-
-
-class MuSkipDefAccessor(ParameterAccessor):
-    """
-    the accessor for the \\skipdef command
-    """
-    def readValue(self, parser):
-        return MuGlueArrayItemAccessor(parser.state.muskip, parser.readInteger())
-  
-
-muskipdef = Define(MuSkipDefAccessor)
-
-
 mod = Module("glue",
     attributes={
         "readGlue": readGlue,
@@ -389,7 +367,7 @@ mod = Module("glue",
         "tabskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "parameters"},
     },
     commands={
-        "skipdef": skipdef,
-        "muskipdef": muskipdef,
+        "skipdef": registerdef("skip", GlueArrayItemAccessor),
+        "muskipdef": registerdef("muskip", MuGlueArrayItemAccessor),
     },
 )

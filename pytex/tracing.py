@@ -178,7 +178,6 @@ def init(parser):
     parser.tracinglineend = 0
     parser.tracingquitatend = 0
     parser.state.tracing = Tracing(parser)
-    parser.state.tracing.parser = parser
 
 
 mod = Module("tracing",

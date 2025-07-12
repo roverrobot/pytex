@@ -305,10 +305,11 @@ def mathShift(parser):
     parser.state.parameters["fam"] = -1
     parser.beginGroup(pos, GROUP_TYPE.MATH_SHIFT)
     parser.lists.append(MList(parser, inner=inner))
-    every = "everymath" if inner else "everydisplay"
-    toks = parser.state.parameters[every]
-    if len(toks) > 0:
-        parser.input.push(TokenListScanner(toks))
+    every = parser.everymath.value if inner else parser.everydisplay.value
+    if every:
+        parser.input.push(TokenListScanner(every))
+        if parser.tracingcommands > 0 and parser.checkRange():
+            parser.message(f"everymath: {parser.toksToString(every)}")
 
 
 def readSubformula(parser, group_type, lbrace=None):
@@ -847,9 +848,6 @@ class VCenter(box.VBoxCommand):
     As if it is a \\vbox command, but put the box into a VCent atom. In addition
     this command cannot be used to access the box value.
     """
-    def __init__(self):
-        super().__init__(False)
-
     def execute(self, parser):
         top = parser.lists[-1]
         if top.type != lists.LISTTYPE.MATH:
@@ -859,6 +857,8 @@ class VCenter(box.VBoxCommand):
 
     def boxValue(self, parser, inner):
         raise ValueError("\\vcenter does not return a be used in math mode")
+    
+    group_type = GROUP_TYPE.VCENTER
 
 
 class NonscriptGlue(nd.Glue):

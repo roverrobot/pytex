@@ -13,6 +13,7 @@ from pytex.dimen import Dimen, DimenCommand, DimenArrayItemAccessor
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
+from pytex.lexer import TokenListScanner
 from math import inf
 import enum
 import types
@@ -228,11 +229,8 @@ class BuildBox(Command):
         """
         raise NotImplementedError
     
-    def groupType(self):
-        """
-        return the reason for reading the box
-        """
-        raise NotImplementedError
+    group_type = None # howto start the group
+    vertical = None
     
     def execute(self, parser):
         box = self.boxValue(parser, False)
@@ -264,7 +262,7 @@ class BuildBox(Command):
                 parser.state.globals["afterassignment"] = None
                 parser.input.unread(afterassignment)
         parser.input.unread(t)
-        parser.readList(box.list, self.groupType())
+        parser.readList(box.list, self.group_type)
         box.typeset()
         return box
 
@@ -279,8 +277,8 @@ class HBoxCommand(BuildBox):
     def box(self, to, spread):
         return HBox(to, spread)
     
-    def groupType(self):
-        return GROUP_TYPE.HBOX
+    group_type = GROUP_TYPE.HBOX
+    vertical = False
     
 
 def readBox(parser, setbox=False): 
@@ -353,7 +351,7 @@ class VBoxWrapInfo:
     @param nodes: the nodes
     @param vtop: whether the box is a vtop
     """
-    def __init__(self, nodes, vtop):
+    def __init__(self, nodes):
         self.natural_height = Dimen()
         self.width = None
         self.depth = Dimen()
@@ -381,11 +379,6 @@ class VBoxWrapInfo:
             if isinstance(last, nd.Box):
                 self.natural_height -= d
                 self.depth = d
-            if vtop:
-                first = nodes[0]
-                w, h, d = self.boxDimen(first)
-                self.depth = self.natural_height - h + d
-                self.natural_height = h
 
     def boxDimen(self, n):
         if isinstance(n, nd.Rule):
@@ -403,6 +396,16 @@ class VBoxWrapInfo:
         return w, h, d
 
 
+class VTopWrapInfo(VBoxWrapInfo):
+    def __init__(self, nodes):
+        super().__init__(nodes)
+        if nodes:
+            first = nodes[0]
+            w, h, d = self.boxDimen(first)
+            self.depth = self.natural_height - h + d
+            self.natural_height = h
+
+
 class VBox(Box):
     """
     A vertical box.
@@ -410,11 +413,11 @@ class VBox(Box):
     @param spread: the spread
     @param vtop: whether the box is a vtop
     """
-    def __init__(self, to, spread, vtop):
+    def __init__(self, to, spread):
         super().__init__(to, spread)
-        self.vtop = vtop
 
-    node_type = nd.NODE_TYPE.VLIST
+    node_type = nd.NODE_TYPE.VLIST  
+    wrap_info_generator = VBoxWrapInfo
 
     def typeset(self, packed=None):
         """
@@ -422,7 +425,7 @@ class VBox(Box):
         @param packed: optionally the packed vlist.
         """
         self.content, glues = packed if packed is not None else self.list.pack()
-        info = VBoxWrapInfo(self.content, self.vtop)
+        info = self.wrap_info_generator(self.content)
         if self.to is None:
             self.height = info.natural_height + self.spread
         else:
@@ -455,23 +458,33 @@ class VBox(Box):
         return f"VBox({self.width}, {self.height}, {self.depth}, {self.content})"
 
 
+class VTop(VBox):
+    wrap_info_generator = VTopWrapInfo
+
+
 class VBoxCommand(BuildBox):
     """
-    the \\hbox command
-    @param vtop: whether the box is a vtop
+    the \\vbox command
     """
-    def __init__(self, vtop):
-        self.vtop = vtop
-
     def list(self, parser):
         return vmode.VList(parser)
     
     def box(self, to, spread):
-        return VBox(to, spread, self.vtop)
+        return VBox(to, spread)
     
-    def groupType(self):
-        return GROUP_TYPE.VTOP if self.vtop else GROUP_TYPE.VBOX
+    vertical = True
+    group_type = GROUP_TYPE.VBOX
     
+
+class VTopCommand(VBoxCommand):
+    """
+    the \\vtop command
+    """
+    def box(self, to, spread):
+        return VTop(to, spread)
+    
+    group_type = GROUP_TYPE.VTOP
+
 
 class BoxDimenAccessor(ArrayItemAccessor, DimenCommand):
     def readValue(self, parser):
@@ -730,8 +743,8 @@ mod = Module("hbox",
         "copy": BoxCommand(False),
         "ifvoid": IfVoid(),
         "hbox": HBoxCommand(),
-        "vbox": VBoxCommand(False),
-        "vtop": VBoxCommand(True),
+        "vbox": VBoxCommand(),
+        "vtop": VTopCommand(),
         "wd": BoxDimenCommand("width"),
         "ht": BoxDimenCommand("height"),
         "dp": BoxDimenCommand("depth"),

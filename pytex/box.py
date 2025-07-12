@@ -261,6 +261,13 @@ class BuildBox(Command):
             if afterassignment is not None:
                 parser.state.globals["afterassignment"] = None
                 parser.input.unread(afterassignment)
+                if parser.tracingcommands > 0 and parser.checkRange():
+                    parser.message(f"afterassignment: {parser.tokenToString(afterassignment)}")
+        every = parser.everyvbox.value if self.vertical else parser.everyhbox.value
+        if every:
+            parser.input.push(TokenListScanner(every))
+            if parser.tracingcommands > 0 and parser.checkRange():
+                parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         parser.input.unread(t)
         parser.readList(box.list, self.group_type)
         box.typeset()

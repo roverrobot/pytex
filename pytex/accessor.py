@@ -102,6 +102,8 @@ class Accessor(token.Command):
         if t is not None:
             parser.input.unread(t)
             parser.state.globals["afterassignment"] = None
+            if parser.tracingcommands > 0 and parser.checkRange():
+                parser.message(f"afterassignment: {parser.tokenToString(t)}")
     
     def execute(self, parser):
         """

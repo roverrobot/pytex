@@ -96,23 +96,31 @@ class AlignCommand(lists.ModeDependentCommand):
         the tokens that terminate a cell are: \\cr, \\crcr, &, and \\span
         """
         t = parser.token_expand() if expand else parser.token()
-        if t is None or t.catcode == token.CATCODE.ALIGNMENT_TAB:
+        if t is None:
             return t, t
-        if t.is_command:
-            if t.definition == crcr:
-                t.definition = cr
-                return t, cr
-            if t.definition == cr:
-                # is the next token a \crcr? \cr\crcr is the same
-                t1 = parser.token()
-                if t1 is not None:
-                    if t1.is_command and t1.definition == crcr:
-                        return t, cr
-                    parser.input.unread(t1)
-                return t, cr
-            if t.definition == span:
-                return t, span
-        return t, None
+        if t.catcode == token.CATCODE.ALIGNMENT_TAB:
+            terminator = t
+        elif not t.is_command:
+            terminator = None
+        elif t.definition is crcr:
+            terminator = cr
+        elif t.definition is cr:
+            # is the next token a \crcr? \cr\crcr is the same
+            t1 = parser.token()
+            if t1 is not None and (not t1.is_command or t1.definition != crcr):
+                parser.input.unread(t1)
+            terminator = cr
+        elif t.definition is span:
+            terminator = span
+        else:
+            terminator = None
+        if terminator is cr:
+            every = parser.everycr.value
+            if every:
+                parser.input.push(lexer.TokenListScanner(every))
+                if parser.tracingcommands > 0 and parser.checkRange():
+                    parser.message(f"everycr: {parser.toksToString(every)}")
+        return t, terminator
     
     def readTokens(self, parser, is_template: bool):
         """

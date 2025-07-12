@@ -333,6 +333,8 @@ class Parser:
                 self.lists.pop()
         if aftergroup:
             self.input.push(lexer.TokenListScanner(aftergroup))
+            if self.tracingcommands > 0 and self.checkRange():
+                self.message(f"aftergroup: {self.toksToString(aftergroup)}")
 
     def newHList(self):
         """
@@ -361,9 +363,11 @@ class Parser:
         # in Chapter 25. (The TeX Book pp.282)        """
         hlist = paragraph.Paragraph(self, indent)
         self.lists.append(hlist)
-        everypar = self.state.parameters["everypar"]
-        if len(everypar) > 0:
+        everypar = self.everypar.value
+        if everypar:
             self.input.push(lexer.TokenListScanner(everypar))
+            if self.tracingcommands > 0 and self.checkRange():
+                self.message(f"everypar: {self.toksToString(everypar)}")
         # the spacefactor is set to 1000 at the beginning of a paragraph
         self.state.globals["spacefactor"] = 1000
         return hlist

@@ -115,15 +115,17 @@ class Parser:
             t = self.token()
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
+            self.current_token = t
             if t is not None and t.is_command:
                 definition = t.definition
                 if definition is None:
                     raise ValueError("undefined command" + t.name, self.input.position())
-                elif definition.expand is not None:
+                if definition.expand is not None:
                     if self.tracingcommands:
                         self.trace(t, mode="expand")
-                    definition.expand(self)
-                    continue
+                    t = definition.expand(self)
+                    if t is None:
+                        continue
             return t
 
 
@@ -141,6 +143,7 @@ class Parser:
         self.state.volatile["time"] = date.hour * 60 + date.minute
         self.readFrom(input, name)
         self.run = True
+        self.boxlevel = 0
         self.loop()
         if len(self.ifstack) > 0:
             raise ValueError("missing \\fi")
@@ -156,7 +159,6 @@ class Parser:
                 break
             if self.tracingcommands:
                 self.trace(t, mode="execute")
-            self.current_token = t
             t.execute(self)
 
     def readFrom(self, input, name: typing.Optional[str] = None):

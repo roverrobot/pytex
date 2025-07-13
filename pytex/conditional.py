@@ -49,29 +49,35 @@ class Branch(Command):
     @param command_name: the name of the command
     """
     def expand(self, parser):
-        if len(parser.ifstack) == 0:
+        if not parser.ifstack:
             raise ValueError("unexpected " + self.name, parser.input.position())
+        top = parser.ifstack[-1]
+        if len(top) == 2: 
+            # we are reading the condition
+            # we are not yet ready to handle it
+            return parser.current_token
+        self._expand(parser)
+
+    def _expand(self, parser):
         skipAll(parser)
-
-
-class Else(Branch):
-    """ the \\else command """
-    pass
 
 
 class Or(Branch):
     """ the \\or command """
-    def expand(self, parser):
-        if len(parser.ifstack) == 0 or not isinstance(parser.ifstack[-1][0], IfCase):
+    def _expand(self, parser):
+        if not isinstance(parser.ifstack[-1][0], IfCase):
             raise ValueError("unexpected \\or")
         skipAll(parser)
 
 
 class Fi(Branch):
-    def expand(self, parser):
-        if len(parser.ifstack) == 0:
-            raise ValueError("unexpected " + self.name, parser.input.position())
+    def _expand(self, parser):
         parser.ifstack.pop()
+
+
+_else = Branch()
+_or = Or()
+fi = Fi()
 
 
 class Conditional(Command):
@@ -101,11 +107,11 @@ class Conditional(Command):
     def skipTo(self, parser, condition, level):
         for i in range(condition):
             c = skipBranch(parser, level)
-            if isinstance(c, Or) and not isinstance(self, IfCase):
+            if c == _or and not isinstance(self, IfCase):
                 raise ValueError("unexpected \\or")
-            if isinstance(c, Else):
+            if c == _else:
                 return
-            elif isinstance(c, Fi):
+            elif c == fi:
                 parser.ifstack.pop()
                 return
 
@@ -115,7 +121,7 @@ class Conditional(Command):
         # the ifstack saved the command, position in input stack, and branch (condition)
         state = [self, parser.input.position()]
         parser.ifstack.append(state)
-        condition = self.condition(parser)
+        condition = self.condition(parser)        
         state.append(condition)
         self.skipTo(parser, condition, level = state)
 
@@ -256,8 +262,8 @@ mod = Module("conditional",
         "ifodd": IfOdd(),
         "iftrue": Conditional(),
         "iffalse": IfFalse(),
-        "else": Else(),
-        "or": Or(),
+        "else": _else,
+        "or": _or,
         "fi": fi,
     }
 )

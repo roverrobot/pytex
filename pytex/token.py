@@ -145,7 +145,7 @@ class Token(Command):
         execute the token. The default behavior is to raise an error.
         @param parser: the parser
         """
-        raise ValueError("invalid token: " + str(self))
+        raise ValueError(f"invalid token: {self.meaning(parser)}", parser.input.position())
     
     def saveInfo(self):
         return {"init": {"name": self.name, "catcode": self.catcode}}

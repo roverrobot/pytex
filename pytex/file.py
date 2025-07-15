@@ -98,14 +98,14 @@ class WriteOp(FileOp):
     
     def execute(self, parser):
         scanner = TokenListScanner(self.tokens)
-        scanner.terminate = True
+        # do not pop the scanner
+        scanner.stop = lambda: True
         parser.input.push(scanner)
         file = self.file(parser)
         tokens = []
         while True:
             t = parser.token_expand()
             if t is None:
-                parser.input.pop()
                 break
             # "#" will be written as "##"
             if t.catcode == token.CATCODE.PARAMETER:
@@ -146,7 +146,7 @@ class ReadOp(ParameterAccessor):
         done = False
         for s in file:
             scanner = StringScanner(parser.state, s)
-            scanner.terminate = True
+            scanner.stop = lambda: True
             parser.input.push(scanner)
             while True:
                 t = parser.token()
@@ -161,7 +161,6 @@ class ReadOp(ParameterAccessor):
                         break
                     level -= 1
                 tokens.append(t)
-            parser.input.pop()
             if done:
                 break
         if level > 0:

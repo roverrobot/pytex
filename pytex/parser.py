@@ -50,6 +50,10 @@ class Parser:
         # command and its position in the input.
         self.ifstack = []
         # the list stack
+        # the alignment currently being built
+        self.alignment = None
+        # the alignment stack
+        self.alignments = []
         self.lists = [vmode.VList(self, inner=False)]
         self.log = self.getLogFile()
         # the dumper instance variable should point to a function that takes the content of 
@@ -115,7 +119,6 @@ class Parser:
             t = self.token()
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
-            self.current_token = t
             if t is not None and t.is_command:
                 definition = t.definition
                 if definition is None:
@@ -123,6 +126,7 @@ class Parser:
                 if definition.expand is not None:
                     if self.tracingcommands:
                         self.trace(t, mode="expand")
+                    self.current_token = t
                     t = definition.expand(self)
                     if t is None:
                         continue
@@ -143,10 +147,9 @@ class Parser:
         self.state.volatile["time"] = date.hour * 60 + date.minute
         self.readFrom(input, name)
         self.run = True
-        self.boxlevel = 0
         self.loop()
         if len(self.ifstack) > 0:
-            raise ValueError("missing \\fi")
+            raise ValueError(f"missing \\fi for {self.ifstack[-1][0].name} at {self.ifstack[-1][1]}")
         
     def loop(self):
         """
@@ -159,6 +162,7 @@ class Parser:
                 break
             if self.tracingcommands:
                 self.trace(t, mode="execute")
+            self.current_token = t
             t.execute(self)
 
     def readFrom(self, input, name: typing.Optional[str] = None):
@@ -437,3 +441,41 @@ class Parser:
         if not self.log.closed:
             self.log.close()
         return self.logContent()
+
+
+    def newAlignment(self):
+        """
+        create a new alignment
+        """
+        vertical = self.lists[-1].type != lists.LISTTYPE.HORIZONTAL
+        builder = align.AlignmentBuilder(vertical)
+        if self.alignment is not None:
+            self.alignments.append(self.alignment)
+        self.alignment = builder
+        builder.begin(self)
+
+    def finishAlignment(self):
+        """
+        finish the current alignment
+        """
+        alignment = self.alignment
+        assert alignment is not None, "no alignment to finish {self.input.position()}"
+        if self.alignments:
+            self.alignment = self.alignments.pop()
+        else:
+            self.alignment = None
+        top = self.lists[-1]
+        top.append(alignment.alignment)
+        if top.type != lists.LISTTYPE.MATH:
+            return
+        # if we are in math mode, we need to check nothing but assignments are left
+        while True:
+            t = self.token_expand()
+            if t is None:
+                raise ValueError("expecting $$", self.input.position())
+            if t.catcode == token.CATCODE.MATH_SHIFT:
+                self.input.unread(t)
+                return
+            c = t.definition
+            if hasattr(c, "assign"):
+                c.execute(self)

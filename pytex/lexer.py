@@ -176,6 +176,8 @@ class Scanner:
         self.column = 0
         # read the first line
         self.feed()
+    
+    stop = None
 
     def feed(self):
         """
@@ -249,6 +251,8 @@ class TokenListScanner:
         self.toks = toks
         self.iter = iter(toks)
 
+    stop = None
+
     def read(self) -> typing.Optional[Token]:
         """
         read the next token from the list
@@ -276,7 +280,6 @@ class InputStack:
     """
     def __init__(self):
         self.top = None
-        self.terminate = False
         # the stack of scanners
         self.stack = []
         # the saved tokens that are unread
@@ -294,15 +297,17 @@ class InputStack:
             return self.saved.pop()
         while self.top:
             t = self.top.read()
-            if t or self.terminate:
+            if t:
                 return t
+            stop = self.top.stop
             if self.stack:
-                self.top, self.terminate, self.active = self.stack.pop()
+                self.top, self.active = self.stack.pop()
             else:
                 self.top = None
-                self.terminate = False
                 self.active = None
-        return None
+            if stop is not None and stop():
+                # the scanner is not terminated, so we can read from it again
+                return
 
     def unread(self, token):
         """
@@ -318,14 +323,13 @@ class InputStack:
         @param lexer: the scanner to push
         """
         if self.top is not None:
-            self.stack.append((self.top, self.terminate, self.active))
+            self.stack.append((self.top, self.active))
         if self.saved:
             # remember that the saved tokens are on a stack. So we need to reverse it
             self.saved.reverse()
-            self.stack.append((TokenListScanner(self.saved), False, self.active))
+            self.stack.append((TokenListScanner(self.saved), self.active))
             self.saved = []
         self.top = lexer
-        self.terminate = hasattr(lexer, "terminate") and lexer.terminate
         if lexer.position is not None:
             self.active = lexer
     
@@ -335,10 +339,9 @@ class InputStack:
         @param to: the scanner to pop to (including to)
         """
         if self.stack:
-            self.top, self.terminate, self.active = self.stack.pop()
+            self.top, self.active = self.stack.pop()
         else:
             self.top = None
-            self.terminate = False
             self.active = None
 
     def clear(self):
@@ -346,7 +349,6 @@ class InputStack:
         clear the stack of scanners
         """
         self.top = None
-        self.terminate = False
         self.saved = []
         self.stack = []
         self.active = None

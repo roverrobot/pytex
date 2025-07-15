@@ -23,11 +23,10 @@ def test_tabskip(cmr10):
     cmr10.parse("\\tabskip 1pt\\halign{1 #\\tabskip 2pt& 2 #\\cr a & b\\cr}")
     top = cmr10.lists[-1]
     node = top[0]
-    row = node.rows[0]
-    assert len(row.tabskips) == 3
-    assert row.tabskips[0] == glue.Glue(1)
-    assert row.tabskips[1] == glue.Glue(2)
-    assert row.tabskips[2] == glue.Glue(2)
+    assert len(node.tabskips) == 3
+    assert node.tabskips[0] == glue.Glue(1)
+    assert node.tabskips[1] == glue.Glue(2)
+    assert node.tabskips[2] == glue.Glue(2)
 
 
 def test_noalign(cmr10):
@@ -51,9 +50,8 @@ def test_span(cmr10):
     top = cmr10.lists[-1]
     node = top[0]
     row = node.rows[0]
-    len(row.cells) == 2
-    assert row.cells[0].span == True
-    assert row.cells[1].span == False
+    len(row.cells) == 1
+    assert row.cells[0].span == 1
 
 
 def test_omit(cmr10):
@@ -61,5 +59,6 @@ def test_omit(cmr10):
     top = cmr10.lists[-1]
     node = top[0]
     row = node.rows[0]
-    len(row.cells) == 2
-    assert len(row.cells[1]) == 1
+    assert len(row.cells) == 1
+    assert row.cells[0].span == 1
+    assert len(row.cells[0]) == 6

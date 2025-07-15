@@ -36,7 +36,9 @@ def token_expand(parser):
             parser.trace(t, "expand")
         if definition.expanded:
             return t, definition.expanded(parser)
-        definition.expand(parser)
+        t = definition.expand(parser)
+        if t:
+            return t
 
 
 def readBalancedText(parser, toks: list = [], expand: bool = False, macro: bool = False):

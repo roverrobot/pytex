@@ -24,6 +24,7 @@ class MacroScanner:
         self.next_token = next(self.active)
 
     position = None
+    stop = None
 
     def read(self):
         """

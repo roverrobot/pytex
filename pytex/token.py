@@ -318,6 +318,27 @@ class ActiveToken(CommandToken):
         return self.name
 
 
+class AlignmentTabToken(Token):
+    """ 
+    a token that represents an alignment tab &.
+    This is used in tabular environments.
+    """
+    def meaning(self, parser):
+        return f"alignment tab character {self.name}"
+    
+    def execute(self, parser):
+        """
+        Execute the alignment tab token. 
+        @param parser: the parser
+
+        This command can only appear in alignment.
+        """
+        alignment = parser.alignment
+        if alignment is None:
+            raise ValueError("unexpected &", parser.input.position())
+        alignment.endOfCell(parser, command=self)
+
+
 class ParameterToken(Token):
     """
     represent the # token in a macro definition
@@ -329,7 +350,7 @@ class ParameterToken(Token):
         return super().saveInfo() | {"extra": {"parameter": self.parameter}}
 
     def execute(self, parser):
-        raise ValueError("unexpected #")
+        raise ValueError("unexpected #", parser.input.position())
     
     def meaning(self, parser):
         """
@@ -415,7 +436,7 @@ Token.generators = [
     BeginGroupToken,  # BEGIN_GROUP = 1
     EndGroupToken,  # END_GROUP = 2
     MathShiftToken,  # MATH_SHIFT = 3
-    Token,  # ALIGNMENT_TAB = 5
+    AlignmentTabToken,  # ALIGNMENT_TAB = 4
     None,  # END_OF_LINE = 5
     ParameterToken,  # PARAMETER = 6
     SuperscriptToken,  # SUPERSCRIPT = 7

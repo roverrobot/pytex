@@ -26,6 +26,8 @@ class NODE_TYPE(enum.IntEnum):
     UNSET = 14
     MATHNODE= 15 # math mode nodes
     ACCENT = 16 # accent node
+    # pytex extension
+    ALIGNMENT = 17
 
 
 class Node(serialization.Serializable):

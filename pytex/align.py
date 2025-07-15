@@ -38,7 +38,7 @@ class Row(serialization.Serializable):
         return f"Row({self.cells})"
 
 
-class Alignment(nd.WhatsIt):
+class Alignment(nd.Node):
     """
     An alignment node.
     """
@@ -47,6 +47,8 @@ class Alignment(nd.WhatsIt):
         # the first noalign before the first row
         self.noalign = None
         self.tabskips = []
+
+    node_type = nd.NODE_TYPE.ALIGNMENT
 
     def saveInfo(self):
         return {

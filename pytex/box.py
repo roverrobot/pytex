@@ -504,7 +504,8 @@ class BoxDimenAccessor(ArrayItemAccessor, DimenCommand):
         setattr(self.domain, self.index, value)
 
     def dimenValue(self, parser):
-        return getattr(self.domain, self.index)
+        d = getattr(self.domain, self.index)
+        return 0 if d is None else d
 
 
 class BoxDimenCommand(ArrayAccessor, DimenCommand):
@@ -516,7 +517,8 @@ class BoxDimenCommand(ArrayAccessor, DimenCommand):
         return BoxDimenAccessor(parser.state.box[parser.readInteger()], self.domain)
     
     def dimenValue(self, parser):
-        return getattr(parser.state.box[parser.readInteger()], self.domain)
+        d = getattr(parser.state.box[parser.readInteger()], self.domain)
+        return 0 if d is None else d
 
 
 class UnBox(Command):

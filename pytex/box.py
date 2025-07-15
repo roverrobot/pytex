@@ -184,6 +184,8 @@ class VoidBox(nd.Box):
         super().__init__(0, 0, 0)
         self.content = None
 
+    node_type = None
+
     def saveInfo(self):
         return {}
     
@@ -342,14 +344,17 @@ class SetBox(ArrayAccessor):
         return BoxArrayItemAccessor(self.domain, parser.readInteger())
 
 
-class IfVoid(conditional.Conditional):
+class IfBox(conditional.Conditional):
     """
     The \\ifinner command.
     """
+    def __init__(self, type):
+        self.type = type
+
     def condition(self, parser):
         index = parser.readInteger()
         box = parser.state.box[index]
-        return 0 if isinstance(box, VoidBox) else 1
+        return 0 if isinstance(box, self.type) else 1
 
 
 class VBoxWrapInfo:
@@ -750,7 +755,9 @@ mod = Module("hbox",
     commands={
         "box": BoxCommand(True),
         "copy": BoxCommand(False),
-        "ifvoid": IfVoid(),
+        "ifvoid": IfBox(VoidBox),
+        "ifhbox": IfBox(HBox),
+        "ifvbox": IfBox(VBox),
         "hbox": HBoxCommand(),
         "vbox": VBoxCommand(),
         "vtop": VTopCommand(),

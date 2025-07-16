@@ -448,7 +448,9 @@ class Parser:
         create a new alignment
         """
         vertical = self.lists[-1].type != lists.LISTTYPE.HORIZONTAL
-        builder = align.AlignmentBuilder(vertical)
+        # to/spread clause
+        to, spread = self.readToSpread()
+        builder = align.AlignmentBuilder(vertical, to=to, spread=spread)
         if self.alignment is not None:
             self.alignments.append(self.alignment)
         self.alignment = builder

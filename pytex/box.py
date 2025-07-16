@@ -215,6 +215,22 @@ class BoxCommand(Command):
             return box
         return box.copy()    
 
+
+def readToSpread(parser):
+    """
+    read the to/spread spec from the input stack
+    @param parser: the parser
+    @return: a tuple (to, spread)
+    """
+    spec = parser.readKeyword(["to", "spread"])
+    if spec is None:
+        return None, Dimen()
+    dim = parser.readDimen()
+    if spec == "to":
+        return dim, Dimen()
+    return None, dim
+
+
 class BuildBox(Command):
     """
     the base class for \\hbox, \\vbox and \\vtop commands
@@ -239,18 +255,7 @@ class BuildBox(Command):
         parser.lists[-1].append(box)
 
     def boxValue(self, parser, setbox):
-        spec = parser.readKeyword(["to", "spread"])
-        if spec is None:
-            to = None
-            spread = 0
-        else:
-            dim = parser.readDimen()
-            if spec == "to":
-                to = dim
-                spread = 0
-            else:
-                to = None
-                spread = dim
+        to, spread = readToSpread(parser)
         box = self.box(to, spread)
         box.list = self.list(parser)
         parser.skipFiller()
@@ -748,6 +753,7 @@ mod = Module("hbox",
     },
     attributes={
         "readBox": readBox,
+        "readToSpread": readToSpread,
     },
     commands={
         "box": BoxCommand(True),

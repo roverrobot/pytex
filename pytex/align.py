@@ -12,6 +12,7 @@ from pytex import glue
 from pytex import accessor
 from pytex.state import GROUP_TYPE
 from pytex.module import Module
+from pytex.dimen import Dimen
 
 
 class Row(serialization.Serializable):
@@ -42,11 +43,13 @@ class Alignment(nd.Node):
     """
     An alignment node.
     """
-    def __init__(self):
+    def __init__(self, to=None, spread=Dimen()):
         self.rows = []
         # the first noalign before the first row
         self.noalign = None
         self.tabskips = []
+        self.to = to
+        self.spread = spread
 
     node_type = nd.NODE_TYPE.ALIGNMENT
 
@@ -129,10 +132,10 @@ class AlignmentBuilder:
     It is used to build an alignment from a list of tokens.
     @param enclosing: the enclosing list in the parser
     """
-    def __init__(self, vertical: bool):
+    def __init__(self, vertical: bool, to=None, spread=Dimen()):
         self.vertical = vertical
         # the alignment being built
-        self.alignment = Alignment()
+        self.alignment = Alignment(to, spread)
         # the current row being built
         self.row = None
         # the current cell being built

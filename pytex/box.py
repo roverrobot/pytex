@@ -307,6 +307,8 @@ def readBox(parser, setbox=False):
 
 class BoxArrayItemAccessor(ArrayItemAccessor):
     def readValue(self, parser):
+        if self.index == 1:
+            x=0
         return readBox(parser, setbox=True)
     
     def boxValue(self, parser):
@@ -729,17 +731,12 @@ class LastBox(Command):
     """
     def boxValue(self, parser, setbox):
         top = parser.lists[-1]
-        if top.type == LISTTYPE.VERTICAL and not top.inner:
-            raise ValueError("\\lastbox cannot be used in vertical mode")
-        if len(top) > 0:
-            last = top[-1]
-            #is the last node a paragraph? If so, break it into lines
-            if last.node_type == nd.NODE_TYPE.HLIST and hasattr(last, "inner") and not last.inner:
-                parser.lineBreak()
-                last = top[-1]
-            if isinstance(last, Box):
-                return top.pop()
-        return VoidBox()
+        # this command can only be unsed in horizontal mode or in ner vertical mode
+        if top.type == LISTTYPE.VERTICAL and not self.inner:
+            raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
+        if top.type == LISTTYPE.MATH:
+            raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())
+        return top.pop() if top and isinstance(top[-1], Box) else VoidBox()
     
     def execute(self, parser):
         self.boxValue(parser, False)

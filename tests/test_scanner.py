@@ -158,3 +158,38 @@ def test_command(state):
     assert t.catcode is None and t.name == "\\:"
     t = scanner.read()
     assert t.isSpace(False)
+
+
+def test_endlinechar_negative_one_skips_empty_line(state):
+    state.parameters["endlinechar"] = -1
+    scanner = lexer.StringScanner(state, "\nA")
+    token = scanner.read()
+    assert token is not None
+    assert token.name == "A"
+    assert token.catcode == CATCODE.LETTER
+    token = scanner.read()
+    assert token is None
+
+
+def test_carets_at_eol_with_no_endlinechar(state):
+    state.parameters["endlinechar"] = -1
+    scanner = lexer.StringScanner(state, "^^")
+    tokens = []
+    while True:
+        token = scanner.read()
+        if token is None:
+            break
+        tokens.append(token)
+    assert [t.name for t in tokens] == ["^", "^"]
+    assert [t.catcode for t in tokens] == [CATCODE.SUPERSCRIPT, CATCODE.SUPERSCRIPT]
+
+
+def test_carets_at_eol_with_default_endlinechar(state):
+    state.parameters["endlinechar"] = ord("\r")
+    scanner = lexer.StringScanner(state, "^^")
+    token = scanner.read()
+    assert token is not None
+    assert token.name == "M"
+    assert token.catcode == CATCODE.LETTER
+    token = scanner.read()
+    assert token is None

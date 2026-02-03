@@ -34,13 +34,24 @@ class Tokenizer:
         self.equitable = state.equitable
         # skip the leading spaces in line and set self.pos to the first non-space character
         self.line = enumerate(line)
+        self.pos = -1
+        self.first = -1
+        self.saved = []
+        last = None
+        last_pos = -1
         for self.pos, c in self.line:
+            last = c
+            last_pos = self.pos
             if self.catcode[ord(c)] != CATCODE.SPACE:
+                self.first = self.pos
+                self.saved = [c]
                 break
-        # the position of the first non-space character
-        self.first = self.pos
-        # the saved characters that are unread
-        self.saved = [c]
+        else:
+            if last is not None:
+                # line has only spaces; keep the last one for current behavior
+                self.pos = last_pos
+                self.first = last_pos
+                self.saved = [last]
 
 
     def char(self):
@@ -80,10 +91,13 @@ class Tokenizer:
             self.unread(c1)
             return c, catcode
         c2, catcode2 = self.char()
+        if c2 is None:
+            self.unread(c1)
+            return c, catcode
         # handle ^^ followed by two hex digits
-        if ("0" <= c2 <= "9") or ("a" <= c2 <= "f"):
+        if ("0" <= c2 <= "9") or ("a" <= c2 <= "f") or ("A" <= c2 <= "F"):
             c3, catcode3 = self.char()
-            if ("0" <= c3 <= "9") or ("a" <= c3 <= "f"):
+            if c3 is not None and (("0" <= c3 <= "9") or ("a" <= c3 <= "f") or ("A" <= c3 <= "F")):
                 c = int(c2 + c3, 16)
                 catcode = self.catcode[c]
                 return chr(c), catcode
@@ -192,7 +206,10 @@ class Scanner:
                 line += chr(eol)
             self.tokenizer = Tokenizer(line, self.state)
         except StopIteration:
-            self.column = self.tokenizer.pos
+            if self.tokenizer is not None:
+                self.column = self.tokenizer.pos
+            else:
+                self.column = 0
             self.tokenizer = None
             if not self.stream.closed:
                 self.stream.close()

@@ -50,35 +50,63 @@ def readBalancedText(parser, toks: list = [], expand: bool = False, macro: bool 
     @param macro: whether reading the body of a macro definition
     @return: toks with the balanced text added (including the enclosing }
     """
-    if expand:
-        tok = lambda: token_expand(parser)
-    else:
-        tok = lambda: (parser.token(), None)
+    begin_group = CATCODE.BEGIN_GROUP
+    end_group = CATCODE.END_GROUP
+    parameter = CATCODE.PARAMETER
+    other = CATCODE.OTHER
+    append = toks.append
+    extend = toks.extend
     level = 0
-    while True:
-        t, expanded = tok()
-        if t is None:
-            raise ValueError("unbalanced token list", parser.input.position())        
-        if t.catcode == CATCODE.BEGIN_GROUP:
-            # keep reading the tokens until we meet a matching }
-            level += 1
-        elif t.catcode == CATCODE.END_GROUP:
-            if level == 0:
-                # we are done
-                toks.append(t)
-                return toks
-            level -= 1
-        elif expanded is not None:
-            toks.extend(expanded)
-            continue
-        elif t.catcode == CATCODE.PARAMETER and macro:
-            t = Token.token(t.name, CATCODE.PARAMETER)
-            t1, expanded = tok()
-            if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
-                t.parameter = int(t1.name) - 1
-            elif t1.catcode != CATCODE.PARAMETER:
-                raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
-        toks.append(t)
+
+    if expand:
+        tok = token_expand
+        token_factory = Token.token
+        while True:
+            t, expanded = tok(parser)
+            if t is None:
+                raise ValueError("unbalanced token list", parser.input.position())
+            catcode = t.catcode
+            if catcode == begin_group:
+                level += 1
+            elif catcode == end_group:
+                if level == 0:
+                    append(t)
+                    return toks
+                level -= 1
+            elif expanded is not None:
+                extend(expanded)
+                continue
+            elif macro and catcode == parameter:
+                t = token_factory(t.name, parameter)
+                t1, _expanded = tok(parser)
+                if t1.catcode == other and ("1" <= t1.name <= "9"):
+                    t.parameter = int(t1.name) - 1
+                elif t1.catcode != parameter:
+                    raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
+            append(t)
+    else:
+        tok = parser.token
+        token_factory = Token.token
+        while True:
+            t = tok()
+            if t is None:
+                raise ValueError("unbalanced token list", parser.input.position())
+            catcode = t.catcode
+            if catcode == begin_group:
+                level += 1
+            elif catcode == end_group:
+                if level == 0:
+                    append(t)
+                    return toks
+                level -= 1
+            elif macro and catcode == parameter:
+                t = token_factory(t.name, parameter)
+                t1 = tok()
+                if t1.catcode == other and ("1" <= t1.name <= "9"):
+                    t.parameter = int(t1.name) - 1
+                elif t1.catcode != parameter:
+                    raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
+            append(t)
 
 def skipFiller(parser):
     """

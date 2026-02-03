@@ -14,14 +14,16 @@ class MacroScanner:
     a scanner for expanding the macro replacement text
     """
     def __init__(self, parser, replacement, args):
-        self.replacement = iter(replacement)
+        self.replacement = replacement
+        self.repl_index = 0
+        self.repl_len = len(replacement)
         self.parser = parser
         self.args = args
         parser.input.push(self)
-        self.active = self.replacement
-        # read the next token. Note that replacement is guaranteed to be unon-empty,
-        # so this always succeeds
-        self.next_token = next(self.active)
+        self.active = replacement
+        self.active_index = 0
+        self.active_len = self.repl_len
+        self.active_is_replacement = True
 
     position = None
     stop = None
@@ -33,9 +35,19 @@ class MacroScanner:
         handle arguments and ## in the replacement text
         """
         while True:
-            t = self.next_token
-            if t is None:
-                return t
+            if self.active_index >= self.active_len:
+                if self.active_is_replacement:
+                    return None
+                # finished an argument list; resume replacement
+                self.active = self.replacement
+                self.active_is_replacement = True
+                self.active_index = self.repl_index
+                self.active_len = self.repl_len
+                continue
+
+            t = self.active[self.active_index]
+            self.active_index += 1
+
             # check if t represent a parameter
             if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
                 try:
@@ -43,32 +55,14 @@ class MacroScanner:
                 except IndexError:
                     raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
                 if args:
-                    self.active = iter(args)
-                    self.next_token = next(self.active)
-                    continue
-                # we got empty an argument. Continue reading the replacement text
-                try:
-                    self.next_token = next(self.active)
-                    continue
-                except StopIteration:
-                    # we are done with the replacement text
-                    return None
-            # read next_token. Here t is not None and is not a parameter token
-            try:
-                self.next_token = next(self.active)
-            except StopIteration:
-                # the current token list is exhausted. We need to check if we are reading from
-                # an argument list. If so, we need to switch to the replacement text
-                if self.active is not self.replacement:
-                    self.active = self.replacement
-                    try:
-                        self.next_token = next(self.active)
-                    except StopIteration:
-                        self.next_token = None
-                        self.parser.input.pop()  # pop the scanner
-                else:
-                    self.next_token = None
-                    self.parser.input.pop()  # pop the scanner
+                    if self.active_is_replacement:
+                        self.repl_index = self.active_index
+                    self.active = args
+                    self.active_is_replacement = False
+                    self.active_index = 0
+                    self.active_len = len(args)
+                # if the argument is empty, continue reading the replacement
+                continue
             return t
 
 
@@ -127,25 +121,35 @@ class Macro(Command):
         protected = "\\protected " if self.protected else ""
         return f"{long}{outer}{protected}macro:{parser.toksToString(self.parameters(self.brackets))}->{parser.toksToString(self.replacement)}"
     
-    def matchDelimited(self, parser, bracket):
+    def matchDelimited(self, parser, bracket, bracket_len):
         """
         match the next delimiter in the parameter list
         @param parser: the parser
         @param bracket: a token list to match
+        @param bracket_len: the length of bracket
         @return None for matched, or a token list that has been read but not matched
         """
+        p = bracket[0]
+        t = parser.token()
+        if t is None:
+            raise ValueError(f"macro does not match the definition {self}", parser.input.position())
+        if t.catcode != p.catcode or t.name != p.name:
+            return t
         matched = []
-        for p in bracket:
+        first = t
+        i = 1
+        while i < bracket_len:
+            p = bracket[i]
+            i += 1
             t = parser.token()
             if t is None:
                 raise ValueError(f"macro does not match the definition {self}", parser.input.position())
             if t.catcode != p.catcode or t.name != p.name:
-                if matched:
-                    parser.input.unread(t)
-                    for m in reversed(matched[1:]):
+                parser.input.unread(t)
+                if i > 2:
+                    for m in reversed(matched):
                         parser.input.unread(m)
-                    return matched[0]
-                return t
+                return first
             matched.append(t)
         return None
 
@@ -156,9 +160,10 @@ class Macro(Command):
         @param start: the start position in the parameters list
         @return: the argument as a list of tokens
         """
+        bracket_len = len(bracket)
         # if the bracket is empty, then the argument is undelimited. In this case, the argument 
         # is the next non-space token,, and if the token is {, then the argument is a balanced text
-        if not bracket:
+        if bracket_len == 0:
             # skip spaces
             while True:
                 t = parser.token()
@@ -175,12 +180,12 @@ class Macro(Command):
         # otherwise, the argument is delimited. In this case, we match the next delimiter
         # in the parameter list. If the delimiter is not matched, we put the unmatched token
         # in the argument and match again.
-        t = self.matchDelimited(parser, bracket)
+        t = self.matchDelimited(parser, bracket, bracket_len)
         if t is None:
             return []
         if t.catcode == CATCODE.BEGIN_GROUP:
             result = parser.readBalancedText([t], expand=False, macro=False)
-            t = self.matchDelimited(parser, bracket)
+            t = self.matchDelimited(parser, bracket, bracket_len)
             if t is None:
                 # matched the bracket: the argument is enclosed in {}. Drop them
                 return result[1:-1]
@@ -188,7 +193,7 @@ class Macro(Command):
         else:
             result = [t]
         while True:
-            t = self.matchDelimited(parser, bracket)
+            t = self.matchDelimited(parser, bracket, bracket_len)
             if t is None:
                 return result
             result.append(t)

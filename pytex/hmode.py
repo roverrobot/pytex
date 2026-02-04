@@ -211,7 +211,7 @@ class Indent(lists.ModeDependentCommand):
         # An empty box of width \parindent is appended to the current list,
         # and the space factor is set to 1000. (The TeX Book pp.286)
         hlist.append(IndentBox(parser))
-        parser.state.globals.spacefactor = 1000
+        parser.state.globals["spacefactor"] = 1000
 
     def math(self, parser, mlist):
         # An empty box of width \parindent is appended to the current list,

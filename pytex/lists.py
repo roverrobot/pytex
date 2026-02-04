@@ -27,8 +27,8 @@ class List(list, serialization.Serializable):
 
     The internal mode means an internal vlist, or restricted hlist, or nondisplay mlist.
     """
-    def __init__(self, parser, type: LISTTYPE, inner: bool=True, nodes=[]):
-        super().__init__(nodes)
+    def __init__(self, parser, type: LISTTYPE, inner: bool=True, nodes=None):
+        super().__init__([] if nodes is None else nodes)
         self.parser = parser
         self.type = type
         self.inner = inner
@@ -200,14 +200,7 @@ class Rule(ModeDependentCommand):
         self.horizontal(parser, mlist)
 
 
-class Penalty(Command):
-    """
-    The \\penalty command.
-    """
-    def execute(self, parser):
-        penalty = parser.readInteger()
-        node = nd.Penalty(penalty)
-        parser.lists[-1].append(node)
+# Duplicate Penalty class removed (see above).
 
 
 class Insert(Command):

@@ -479,5 +479,6 @@ class Parser:
                 self.input.unread(t)
                 return
             c = t.definition
-            if hasattr(c, "assign"):
-                c.execute(self)
+            if not hasattr(c, "assign"):
+                raise ValueError("only assignments are allowed in math mode after an alignment", self.input.position())
+            c.execute(self)

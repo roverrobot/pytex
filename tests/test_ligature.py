@@ -24,8 +24,8 @@ def test_ligatures(cmr10, input, char):
     lig = nodes[1]
     assert ord(lig.char) == char
     assert isinstance(lig, hmode.Ligature)
-    assert len(lig.characters) == len(input)
-    content = "".join([c.char for c in lig.characters])
+    assert len(lig.source) == len(input)
+    content = "".join([c.char for c in lig.source])
     assert content == input
 
 

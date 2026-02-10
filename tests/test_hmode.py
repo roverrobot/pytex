@@ -14,7 +14,8 @@ def test_new_paragraph(cmr10):
     assert len(cmr10.lists) == 2
     hlist = cmr10.lists[-1]
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
-    assert len(hlist) == len(s)+2
+    # Ligatures/kerns are now applied while characters are appended.
+    assert len(hlist) == len(s) + 3
     node = hlist[0]
     assert isinstance(node, hmode.IndentBox)
     node = hlist[1]

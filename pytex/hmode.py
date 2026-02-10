@@ -20,15 +20,16 @@ class Ligature(nd.CharNode):
     It is a char node that stores the characters that are combined into the
     ligature.
     @param char: the ligature character
+    @param replaced: the original char nodes replaced by the ligature
     """
-    def __init__(self, char, characters):
+    def __init__(self, char, replaced):
         super().__init__(char.char, char.font)
-        self.characters = characters
+        self.source = list(replaced)
 
     node_type = nd.NODE_TYPE.LIGATURE
 
     def __repr__(self):
-        s = "".join([c.char for c in self.characters])
+        s = "".join([c.char for c in self.source])
         return f"Ligature({s})"
 
 
@@ -36,53 +37,90 @@ class HList(lists.List):
     """
     A horizontal list.
     """
-    def __init__(self, parser, inner=True, nodes=[], ligaturing=False):
+    def __init__(self, parser, inner=True, nodes=[]):
         super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner, nodes=nodes)
-        self.ligaturing = ligaturing
+        self.lig_base = None
+        self.in_word = False
 
     def append(self, node):
-        if self.ligaturing:
-            self._appendLigature(node)
-            return
         # \spacefactor for characters has been handled in parser.addChar. Now we need to set
         # \spacefactor to 1000 for other nodes.
         if node.node_type != nd.NODE_TYPE.CHAR:
             self.parser.state.globals["spacefactor"] = 1000
-        list.append(self, node)
-
-    def _appendLigature(self, node):
-        if node.node_type == nd.NODE_TYPE.CHAR and len(self) > 0:
-            last = self[-1]
-            if isinstance(last, nd.CharNode) and last.font == node.font:
-                next = ord(node.char)
-                program = last.char_info.program
-                if program is not None and next in program:
-                    op = program[next]
-                    if op.isKern:
-                        list.append(self, nd.Kern(op.kern * last.font.at, True))
-                        list.append(self, node)
-                        return
-                    # Merge into a ligature chain.
-                    if last.node_type != nd.NODE_TYPE.LIGATURE:
-                        last = Ligature(last, [last])
-                        self[-1] = last
-                    last.characters.append(node)
-                    insert = Ligature(last.font[chr(op.insert)], last.characters)
-                    move = op.move
-                    if op.delete_current:
-                        self.pop()
-                        list.append(self, insert)
-                    elif move == 0:
-                        self._appendLigature(insert)
+            list.append(self, node)
+            self.lig_base = None
+            self.in_word = False
+            return
+        # we should check for the start/end of a word to handle boundary characters.
+        nextchar = ord(node.char)
+        lc = self.parser.state.lccode[nextchar]
+        if not self.in_word and  lc != 0:
+            # boundary character at the start of a word, we should check for left boundary
+            self.in_word = True
+            # todo
+        elif self.in_word and lc == 0:
+            # boundary character at the end of a word, we should check for right boundary
+            self.in_word = False
+            # todo
+        # we should check for ligature
+        if self.lig_base is None:
+            self.lig_base = node
+            list.append(self, node)
+            return
+        # now we are building a ligature, we need to check if the current node can be combined with the ligature base
+        base = self.lig_base
+        font = base.font
+        if font != node.font:
+            # different fonts, cannot be combined
+            list.append(self, node)
+            self.lig_base = node
+            return
+        assert self[-1] is base, "the ligature base should always be the last character in the list"
+        program = base.char_info.program
+        if program is None or nextchar not in program:
+            # no ligature program, cannot be combined
+            list.append(self, node)
+            self.lig_base = node
+            return
+        self.pop()
+        # The ligature program may recurse; run it on a temporary working list.
+        working = [base, node]
+        cursor = 0
+        def replaced_nodes(n):
+            return list(n.source) if isinstance(n, Ligature) else [n]
+        while cursor < len(working) - 1:
+            base, next = working[cursor:cursor+2]
+            if not isinstance(base, nd.CharNode) or not isinstance(next, nd.CharNode):
+                break
+            if base.font != next.font:
+                break
+            program = base.char_info.program
+            nextchar = ord(next.char)
+            if program is None or nextchar not in program:
+                break
+            step = program[nextchar]
+            if step.isKern:
+                # this is a kerning step, we should insert a kern and stop
+                working.insert(cursor+1, nd.Kern(step.kern * base.font.at, True))
+                cursor += 2
+            else:
+                # this is a ligature step
+                insert_char = base.font[chr(step.insert)]
+                if step.delete_current:
+                    replaced = replaced_nodes(base)
+                    if not step.keep_next:
+                        replaced.extend(replaced_nodes(next))
+                        working[cursor:cursor+2] = [Ligature(insert_char, replaced)]
                     else:
-                        list.append(self, insert)
-                        move -= 1
-                    if not op.keep_next:
-                        return
-                    if move == 0:
-                        self._appendLigature(Ligature(node, last.characters))
-                    return
-        list.append(self, node)
+                        working[cursor] = Ligature(insert_char, replaced)
+                elif not step.keep_next:
+                    replaced = replaced_nodes(next)
+                    working[cursor+1] = Ligature(insert_char, replaced)
+                else:
+                    working.insert(cursor+1, insert_char)
+                cursor += step.move
+        self.extend(working)
+        self.lig_base = working[-1]
     
     def _expandNode(self, node, parser):
         typeset = node.typeset
@@ -121,14 +159,10 @@ class HList(lists.List):
         else:
             items.extend(raw)
 
-        ligatured = HList(parser, inner=self.inner, nodes=[], ligaturing=True)
-        for node in items:
-            ligatured.append(node)
-
         nodes = []
         glues = []
         migrate = []
-        for node in ligatured:
+        for node in items:
             node_type = node.node_type
             if node_type == nd.NODE_TYPE.GLUE:
                 glues.append(node)

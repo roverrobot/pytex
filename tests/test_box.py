@@ -59,7 +59,7 @@ def test_hbox(cmr10):
     assert box.width == 55.58344
     assert box.height == 6.94444
     assert box.depth == 1.94444
-    assert len(box.content) == 14
+    assert len(box.list) == 14
 
 def test_hbox_to(cmr10):
     cmr10.parse("\\hbox to 100pt{Hello, world!}\\relax")
@@ -92,7 +92,7 @@ def test_vbox(box):
     assert box.width == 55.58344
     assert box.height == 6.94444 + 6.94444 + 1.94444 + 10.00002
     assert box.depth == 1.94444
-    assert len(box.content) == 3
+    assert len(box.list) == 3
 
 
 def test_vbox_to(box):
@@ -104,7 +104,7 @@ def test_vbox_to(box):
     assert box.width == 55.58344
     assert box.height == 100
     assert box.depth == 1.94444
-    assert len(box.content) == 3
+    assert len(box.list) == 3
 
 
 def test_vbox_spread(box):
@@ -116,7 +116,7 @@ def test_vbox_spread(box):
     assert box.width == 55.58344
     assert box.height == 6.94444 + 6.94444 + 1.94444 + 10.00002 + 10
     assert box.depth == 1.94444
-    assert len(box.content) == 3
+    assert len(box.list) == 3
 
 
 def test_vtop(box):
@@ -128,7 +128,7 @@ def test_vtop(box):
     assert box.width == 55.58344
     assert box.height == 6.94444 
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
-    assert len(box.content) == 3
+    assert len(box.list) == 3
 
 
 def test_vtop_to(box):
@@ -140,7 +140,7 @@ def test_vtop_to(box):
     assert box.width == 55.58344
     assert box.height == 100
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
-    assert len(box.content) == 3
+    assert len(box.list) == 3
 
 def test_vtop_spread(box):
     box.parse("\\vtop spread 10pt{\\copy0\\vskip1em plus 1em\\box0}\\relax")
@@ -151,7 +151,7 @@ def test_vtop_spread(box):
     assert box.width == 55.58344
     assert box.height == 6.94444 + 10
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
-    assert len(box.content) == 3
+    assert len(box.list) == 3
 
 
 @pytest.mark.parametrize("cmd, attr", [
@@ -175,8 +175,8 @@ def test_box_void(box):
 def test_unhbox(box):
     box.parse("1\\unhbox0")
     top = box.lists[-1]
-    assert len(top) == 15
-    assert box.state.box[0].content is None
+    assert len(top) == 16
+    assert box.state.box[0].list is None
 
 
 def test_unhbox_wrongmode(box):
@@ -198,9 +198,9 @@ def test_unvbox_wrongbox(box):
 def test_unhcopy(box):
     box.parse("1\\unhcopy0")
     top = box.lists[-1]
-    assert len(top) == 15
+    assert len(top) == 16
     box0 = box.state.box[0]
-    assert len(box0.list) == 13
+    assert len(box0.list) == 14
 
 
 def test_unvbox(box):
@@ -208,7 +208,7 @@ def test_unvbox(box):
     top = box.lists[-1]
     assert len(top) == 1
     assert top[0].node_type == NODE_TYPE.HLIST
-    assert box.state.box[1].content is None
+    assert box.state.box[1].list is None
 
 
 def test_accent_nochar(cmr10):
@@ -235,8 +235,8 @@ def test_accent(cmr10):
     assert kern.kern == -1.25000
     accent = top[1] 
     assert accent.node_type == NODE_TYPE.HLIST
-    assert len(accent.content) == 1
-    assert accent.content[0].char == "A"
+    assert len(accent.list) == 1
+    assert accent.list[0].char == "A"
     kern = top[2]
     assert kern.node_type == NODE_TYPE.KERN
     assert kern.kern == -6.25002
@@ -251,7 +251,7 @@ def test_lastbox(cmr10):
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 2
     box = cmr10.state.box[0]
-    assert len(box.list) == 13
+    assert len(box.list) == 14
 
 
 def test_lastbox_empty(cmr10):

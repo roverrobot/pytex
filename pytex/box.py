@@ -29,8 +29,6 @@ class Box(nd.Box):
         super().__init__(None, None, None)
         # the hlist or vlist that this box wraps
         self.list = None
-        # the packed list with glues and rule dimensions set correctly
-        self.content = None
         self.to = to
         self.spread = spread
         self.shifted = 0
@@ -47,12 +45,12 @@ class Box(nd.Box):
             }
         }
 
-    def typeset(self, packed=None):
+    def typeset(self, parser=None, packed=None):
         """
         typeset the box
         @param packed: optionally the packed hlist.
         """
-        raise NotImplementedError("this method should be implemented by subclasses")
+        return None
 
     def copy(self):
         """
@@ -65,8 +63,8 @@ class Box(nd.Box):
         box.depth = self.depth
         box.shifted = self.shifted
         box.list = self.list
-        box.content = self.content
         box.migrate = self.migrate
+        box.source = self.source
         return box
 
 
@@ -127,13 +125,40 @@ class HBox(Box):
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def typeset(self, packed=None):
+    def typeset(self, parser=None, packed=None):
         """
         typeset the box
         @param packed: optionally the packed hlist.
         """
-        self.content, glues, self.migrate = packed if packed is not None else self.list.pack()
-        info = HBoxWrapInfo(self.content)
+        if self.width is None and packed is None:
+            parser = self.list.parser if parser is None else parser
+            expanded = []
+            for node in self.list:
+                typeset = node.typeset
+                if typeset is None:
+                    expanded.append(node)
+                    continue
+                content = typeset(parser)
+                if content is None:
+                    expanded.append(node)
+                    continue
+                if not isinstance(content, list):
+                    try:
+                        content = list(content)
+                    except TypeError:
+                        content = [content]
+                for n in content:
+                    if n is node:
+                        continue
+                    if getattr(n, "source", None) is None:
+                        n.source = node
+                expanded.extend(content)
+            self.list, glues, self.migrate = self.list.pack(expanded, apply_typeset=False)
+        elif packed is not None:
+            self.list, glues, self.migrate = packed
+        else:
+            return None
+        info = HBoxWrapInfo(self.list)
         if self.to is None:
             self.width = info.natural_width + self.spread
         else:
@@ -163,6 +188,7 @@ class HBox(Box):
                 shrink = g.glue.shrink
                 s = shrink.factor * ratio if shrink.order == order else 0
                 g.kern = g.glue.dimen - s
+        return None
 
     def copy(self):
         """
@@ -173,7 +199,7 @@ class HBox(Box):
         return box
     
     def __repr__(self):
-        return f"HBox({self.width}, {self.height}, {self.depth}, {self.content})"
+        return f"HBox({self.width}, {self.height}, {self.depth}, {self.list})"
 
 
 class VoidBox(nd.Box):
@@ -182,7 +208,7 @@ class VoidBox(nd.Box):
     """
     def __init__(self):
         super().__init__(0, 0, 0)
-        self.content = None
+        self.list = None
 
     node_type = None
 
@@ -338,7 +364,7 @@ class BoxArray(Array):
         """
         values = {}
         for i, v in enumerate(self):
-            if v.content is not None:
+            if v.list is not None:
                 values[i] = v
         return values
 
@@ -438,13 +464,15 @@ class VBox(Box):
     node_type = nd.NODE_TYPE.VLIST  
     wrap_info_generator = VBoxWrapInfo
 
-    def typeset(self, packed=None):
+    def typeset(self, parser=None, packed=None):
         """
         typeset the box
         @param packed: optionally the packed vlist.
         """
-        self.content, glues = packed if packed is not None else self.list.pack()
-        info = self.wrap_info_generator(self.content)
+        if self.width is not None and packed is None:
+            return None
+        self.list, glues = packed if packed is not None else self.list.pack()
+        info = self.wrap_info_generator(self.list)
         if self.to is None:
             self.height = info.natural_height + self.spread
         else:
@@ -472,9 +500,10 @@ class VBox(Box):
                 shrink = g.glue.shrink
                 s = shrink.factor * ratio if shrink.order == order else 0
                 g.kern = g.glue.dimen - s
+        return None
 
     def __repr__(self):
-        return f"VBox({self.width}, {self.height}, {self.depth}, {self.content})"
+        return f"VBox({self.width}, {self.height}, {self.depth}, {self.list})"
 
 
 class VTop(VBox):
@@ -613,16 +642,15 @@ class AccentBox(Box):
         self.width = accent.width
         self.height = accent.height
         self.depth = accent.depth
-        self.content = [accent]
+        self.list = [accent]
 
     def saveInfo(self):
         return {"init": {"accent": self.accent}}
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def typeset(self, hlist):
-        # there is not need to typeset the box
-        pass
+    def typeset(self, parser=None):
+        return None
 
 
 class AccentNode(nd.Node):
@@ -638,26 +666,28 @@ class AccentNode(nd.Node):
     
     node_type = nd.NODE_TYPE.ACCENT
 
-    def typeset(self, hlist):
+    def typeset(self, parser=None):
+        nodes = []
         char, accent = self.base, self.accent
         if char is None:
-            hlist.append(accent)
-            return
+            nodes.append(accent)
+            return nodes
         # build the accent
         # append a kern to shift the accent so that it aligns with the char
         w = char.width + char.italic
         dx = (w - accent.width) / 2
         if dx != 0:
-            hlist.append(nd.Kern(dx))
+            nodes.append(nd.Kern(dx))
         accentbox = AccentBox(accent)
         ex = char.font.param[4] # font dimen 5 is ex
         dy = ex - char.height
         if dy < 0:
             accentbox.shifted = dy
-        hlist.append(accentbox)
+        nodes.append(accentbox)
         # move the char back by the width of the accent box
-        hlist.append(nd.Kern(-(float(char.width) + float(accent.width)) / 2))
-        hlist.append(char)
+        nodes.append(nd.Kern(-(float(char.width) + float(accent.width)) / 2))
+        nodes.append(char)
+        return nodes
 
 
 class IndentBox(Box):
@@ -669,7 +699,7 @@ class IndentBox(Box):
         self.width = parser.state.parameters["parindent"]
         self.height = Dimen()
         self.depth = Dimen()
-        self.content = None
+        self.list = []
 
     def saveInfo(self):
         return {}
@@ -680,9 +710,8 @@ class IndentBox(Box):
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def typeset(self, hlist):
-        # there is not need to typeset the box
-        pass
+    def typeset(self, parser=None):
+        return None
 
 
 class LEADERS_TYPE(enum.Enum):

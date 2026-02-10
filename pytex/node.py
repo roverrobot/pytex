@@ -34,8 +34,27 @@ class Node(serialization.Serializable):
     """
     Base class for all nodes.
     """
+    typeset = None
+    source = None
+
     def __repr__(self):
         return self.node_type.name
+
+
+class MathShift(Node):
+    """
+    A math on/off node.
+    """
+    def __init__(self, on: bool):
+        self.on = on
+
+    def saveInfo(self):
+        return {"init": {"on": self.on}}
+
+    node_type = NODE_TYPE.MATH
+
+    def __repr__(self):
+        return "MathOn" if self.on else "MathOff"
     
 
 class Box(Node):

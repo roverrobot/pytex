@@ -32,57 +32,78 @@ class Ligature(nd.CharNode):
         return f"Ligature({s})"
 
 
-def addNode(nodes, node):
-    if node.node_type == nd.NODE_TYPE.CHAR and len(nodes) > 0:
-        last = nodes[-1]
-        if isinstance(last, nd.CharNode) and last.font == node.font:
-            # check if there is a program
-            next = ord(node.char)
-            program = last.char_info.program
-            if program is not None and next in program:
-                op = last.char_info.program[next]
-                if op.isKern:
-                    nodes.append(nd.Kern(op.kern*last.font.at, True))
-                    nodes.append(node)
-                    return nodes
-                # a ligature
-                if last.node_type != nd.NODE_TYPE.LIGATURE:
-                    last = Ligature(last, [last])
-                    nodes[-1] = last
-                last.characters.append(node)
-                insert = Ligature(last.font[chr(op.insert)], last.characters)
-                move = op.move
-                if op.delete_current:
-                    nodes.pop()
-                    nodes.append(insert)
-                elif move == 0:
-                    nodes = addNode(nodes, insert)
-                else:
-                    nodes.append(insert)
-                    move -= 1
-                if not op.keep_next:
-                    return nodes
-                if move == 0:
-                    return addNode(nodes, Ligature(node, last.characters))
-    nodes.append(node)
-    return nodes
-
-
 class HList(lists.List):
     """
     A horizontal list.
     """
-    def __init__(self, parser, inner=True, nodes=[]):
+    def __init__(self, parser, inner=True, nodes=[], ligaturing=False):
         super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner, nodes=nodes)
+        self.ligaturing = ligaturing
 
     def append(self, node):
+        if self.ligaturing:
+            self._appendLigature(node)
+            return
         # \spacefactor for characters has been handled in parser.addChar. Now we need to set
         # \spacefactor to 1000 for other nodes.
         if node.node_type != nd.NODE_TYPE.CHAR:
             self.parser.state.globals["spacefactor"] = 1000
-        super().append(node)
+        list.append(self, node)
+
+    def _appendLigature(self, node):
+        if node.node_type == nd.NODE_TYPE.CHAR and len(self) > 0:
+            last = self[-1]
+            if isinstance(last, nd.CharNode) and last.font == node.font:
+                next = ord(node.char)
+                program = last.char_info.program
+                if program is not None and next in program:
+                    op = program[next]
+                    if op.isKern:
+                        list.append(self, nd.Kern(op.kern * last.font.at, True))
+                        list.append(self, node)
+                        return
+                    # Merge into a ligature chain.
+                    if last.node_type != nd.NODE_TYPE.LIGATURE:
+                        last = Ligature(last, [last])
+                        self[-1] = last
+                    last.characters.append(node)
+                    insert = Ligature(last.font[chr(op.insert)], last.characters)
+                    move = op.move
+                    if op.delete_current:
+                        self.pop()
+                        list.append(self, insert)
+                    elif move == 0:
+                        self._appendLigature(insert)
+                    else:
+                        list.append(self, insert)
+                        move -= 1
+                    if not op.keep_next:
+                        return
+                    if move == 0:
+                        self._appendLigature(Ligature(node, last.characters))
+                    return
+        list.append(self, node)
     
-    def pack(self):
+    def _expandNode(self, node, parser):
+        typeset = node.typeset
+        if typeset is None:
+            return [node]
+        content = typeset(parser)
+        if content is None:
+            return [node]
+        if not isinstance(content, list):
+            try:
+                content = list(content)
+            except TypeError:
+                content = [content]
+        for n in content:
+            if n is node:
+                continue
+            if getattr(n, "source", None) is None:
+                n.source = node
+        return content
+
+    def pack(self, content=None, apply_typeset=True):
         """
         prepare the list for typesetting.
 
@@ -91,23 +112,31 @@ class HList(lists.List):
         This will combine characters into ligatures, glues, and  nodes that need
         to be migrated.
         """
+        parser = self.parser
+        raw = self if content is None else content
+        items = []
+        if apply_typeset:
+            for node in raw:
+                items.extend(self._expandNode(node, parser))
+        else:
+            items.extend(raw)
+
+        ligatured = HList(parser, inner=self.inner, nodes=[], ligaturing=True)
+        for node in items:
+            ligatured.append(node)
+
         nodes = []
         glues = []
         migrate = []
-        for node in self:
+        for node in ligatured:
             node_type = node.node_type
             if node_type == nd.NODE_TYPE.GLUE:
                 glues.append(node)
                 nodes.append(node)
-            elif node_type == nd.NODE_TYPE.ACCENT:
-                hlist = []
-                node.typeset(hlist)
-                for n in hlist:
-                    nodes = addNode(nodes, n)
             elif node_type == nd.NODE_TYPE.ADJUST or node_type == nd.NODE_TYPE.MARK or node_type == nd.NODE_TYPE.INS:
                 migrate.append(node)
             else:
-                nodes = addNode(nodes, node)
+                nodes.append(node)
         return nodes, glues, migrate
 
 

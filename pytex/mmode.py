@@ -112,6 +112,31 @@ class MList(lists.List):
             node = Box(node)
         super().append(node)
 
+    def typeset(self, parser=None):
+        nodes = []
+        nodes.append(nd.MathShift(True))
+        for node in self:
+            typeset = node.typeset
+            if typeset is None:
+                nodes.append(node)
+                continue
+            content = typeset(parser)
+            if content is None:
+                nodes.append(node)
+                continue
+            if not isinstance(content, list):
+                content = list(content) if isinstance(content, lists.List) else [content]
+            for n in content:
+                if n is node:
+                    continue
+                if getattr(n, "source", None) is None:
+                    n.source = node
+            nodes.extend(content)
+        nodes.append(nd.MathShift(False))
+        for n in (nodes[0], nodes[-1]):
+            n.source = self
+        return nodes
+
     def pack(self):
         raise NotImplementedError
 
@@ -502,9 +527,11 @@ class MuKern(nd.Kern):
     def saveInfo(self):
         return {"init": {"dimen": self.dimen}}
 
-    def typeset(self, parser, hlist):
-        dimen = mudimen(self.kern, parser)
-        hlist.append(nd.Kern(dimen))
+    def typeset(self, parser=None):
+        if parser is None:
+            raise ValueError("typeset requires a parser for mu units")
+        dimen = mudimen(parser, self.kern)
+        return [nd.Kern(dimen)]
 
 
 class MKern(lists.ModeDependentCommand):
@@ -524,8 +551,10 @@ class MuGlue(nd.Glue):
     def saveInfo(self):
         return {"init": {"glue": self.glue}}
 
-    def typeset(self, parser, hlist):
-        hlist.append(nd.Glue(self.glue))
+    def typeset(self, parser=None):
+        if parser is None:
+            raise ValueError("typeset requires a parser for mu units")
+        return [nd.Glue(muglue(parser, self.glue))]
 
 
 class MSkip(lists.ModeDependentCommand):

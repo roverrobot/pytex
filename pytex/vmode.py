@@ -41,25 +41,42 @@ class VList(lists.List):
 
         This will migrate the \\marks and \\vadjusts in an hbox to the list.
         """
+        def expand(node):
+            typeset = node.typeset
+            if typeset is None:
+                return [node]
+            content = typeset(self.parser)
+            if content is None:
+                return [node]
+            if not isinstance(content, list):
+                content = list(content) if isinstance(content, lists.List) else [content]
+            for n in content:
+                if n is node:
+                    continue
+                if getattr(n, "source", None) is None:
+                    n.source = node
+            return content
+
         nodes = []
         glues = []
         for node in self:
-            if node.node_type == nd.NODE_TYPE.GLUE:
-                glues.append(node)
-            elif node.node_type is None:
-                # this is a paragraph. We have not implemented it yet
-                # raise NotImplementedError("paragraphs are not implemented yet")
-                pass
-            elif node.node_type == nd.NODE_TYPE.HLIST:
-                nodes.append(node)
-                for n in node.migrate:
-                    if n.node_type == nd.NODE_TYPE.VADJUST:
-                        nodes.extend(n.list)
-                    else:
-                        # n.node_type == nd.NODE_TYPE.MARK or n.node_type == nd.NODE_TYPE.INS:
-                        nodes.append(n)
-                continue
-            nodes.append(node)
+            for n in expand(node):
+                if n.node_type == nd.NODE_TYPE.GLUE:
+                    glues.append(n)
+                elif n.node_type is None:
+                    # this is a paragraph. We have not implemented it yet
+                    # raise NotImplementedError("paragraphs are not implemented yet")
+                    pass
+                elif n.node_type == nd.NODE_TYPE.HLIST:
+                    nodes.append(n)
+                    for m in n.migrate:
+                        if m.node_type == nd.NODE_TYPE.VADJUST:
+                            nodes.extend(m.list)
+                        else:
+                            # m.node_type == nd.NODE_TYPE.MARK or m.node_type == nd.NODE_TYPE.INS:
+                            nodes.append(m)
+                    continue
+                nodes.append(n)
         return nodes, glues
 
 

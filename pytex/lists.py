@@ -27,6 +27,9 @@ class List(list, serialization.Serializable):
 
     The internal mode means an internal vlist, or restricted hlist, or nondisplay mlist.
     """
+    typeset = None
+    source = None
+
     def __init__(self, parser, type: LISTTYPE, inner: bool=True, nodes=None):
         super().__init__([] if nodes is None else nodes)
         self.parser = parser
@@ -42,6 +45,15 @@ class List(list, serialization.Serializable):
             type = "MList"
         inner = "inner" if self.inner else ""
         return f'{type}({inner}, [{", ".join(repr(node) for node in self)}])'
+
+    def append(self, node):
+        # A raw horizontal list must not become a node in another list.
+        # Paragraph is the only horizontal-list-like value allowed on a list,
+        # and it marks itself with node_type = None.
+        if isinstance(node, List) and node.type == LISTTYPE.HORIZONTAL:
+            if getattr(node, "node_type", nd.NODE_TYPE.HLIST) == nd.NODE_TYPE.HLIST:
+                raise ValueError("HList cannot be added directly to a list")
+        super().append(node)
     
     def saveInfo(self):
         return {

@@ -110,7 +110,7 @@ def test_vrule(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
-    node = box.content[1]
+    node = box.list[1]
     assert node.node_type == nd.NODE_TYPE.RULE
     assert node.width == 2.0
     assert node.height == box.height
@@ -183,7 +183,7 @@ def test_insert_migrate(cmr10):
     assert len(top) == 1
     box = top[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
-    assert len(box.content) == 1
+    assert len(box.list) == 1
     assert len(box.migrate) == 1
     node = top[0].migrate[0]
     assert node.node_type == nd.NODE_TYPE.INS
@@ -203,7 +203,7 @@ def test_mark(cmr10):
     assert len(top) == 1
     box = top[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
-    assert len(box.content) == 0
+    assert len(box.list) == 0
     assert len(box.migrate) == 1
     assert toksToString(cmr10, box.migrate[0].tokens) == "123"
 

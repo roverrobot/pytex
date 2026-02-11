@@ -342,18 +342,6 @@ class Parser:
             if self.tracingcommands > 0 and self.checkRange():
                 self.message(f"aftergroup: {self.toksToString(aftergroup)}")
 
-    def newHList(self):
-        """
-        create a new restricted horizontal list
-        """
-        return hmode.HList(self, True)
-    
-    def newVList(self):
-        """
-        create a new vertical list
-        """
-        return vmode.VList(self)
-    
     def newIndentBox(self):
         """
         create a new indent box

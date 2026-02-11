@@ -122,58 +122,6 @@ class HList(lists.List):
         self.extend(working)
         self.lig_base = working[-1]
     
-    def _expandNode(self, node, parser):
-        typeset = node.typeset
-        if typeset is None:
-            return [node]
-        content = typeset(parser)
-        if content is None:
-            return [node]
-        if not isinstance(content, list):
-            try:
-                content = list(content)
-            except TypeError:
-                content = [content]
-        for n in content:
-            if n is node:
-                continue
-            if getattr(n, "source", None) is None:
-                n.source = node
-        return content
-
-    def pack(self, content=None, apply_typeset=True):
-        """
-        prepare the list for typesetting.
-
-        @return a new list with ligatures combined, and the glues in the list
-
-        This will combine characters into ligatures, glues, and  nodes that need
-        to be migrated.
-        """
-        parser = self.parser
-        raw = self if content is None else content
-        items = []
-        if apply_typeset:
-            for node in raw:
-                items.extend(self._expandNode(node, parser))
-        else:
-            items.extend(raw)
-
-        nodes = []
-        glues = []
-        migrate = []
-        for node in items:
-            node_type = node.node_type
-            if node_type == nd.NODE_TYPE.GLUE:
-                glues.append(node)
-                nodes.append(node)
-            elif node_type == nd.NODE_TYPE.ADJUST or node_type == nd.NODE_TYPE.MARK or node_type == nd.NODE_TYPE.INS:
-                migrate.append(node)
-            else:
-                nodes.append(node)
-        return nodes, glues, migrate
-
-
 class HorizontalCommand(lists.ModeDependentCommand):
     """
     A command that behaves differently in different modes.

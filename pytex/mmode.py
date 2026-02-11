@@ -112,7 +112,7 @@ class MList(lists.List):
             node = Box(node)
         super().append(node)
 
-    def typeset(self, parser=None):
+    def typeset(self, parser):
         nodes = []
         nodes.append(nd.MathShift(True))
         for node in self:
@@ -527,7 +527,7 @@ class MuKern(nd.Kern):
     def saveInfo(self):
         return {"init": {"dimen": self.dimen}}
 
-    def typeset(self, parser=None):
+    def typeset(self, parser):
         if parser is None:
             raise ValueError("typeset requires a parser for mu units")
         dimen = mudimen(parser, self.kern)
@@ -551,9 +551,7 @@ class MuGlue(nd.Glue):
     def saveInfo(self):
         return {"init": {"glue": self.glue}}
 
-    def typeset(self, parser=None):
-        if parser is None:
-            raise ValueError("typeset requires a parser for mu units")
+    def typeset(self, parser):
         return [nd.Glue(muglue(parser, self.glue))]
 
 

@@ -16,7 +16,7 @@ def test_box_dimensions(box):
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     box0 = box.state.box[0]
-    box0.typeset()
+    box0.typeset(box)
     assert Dimen(box0.width) == Dimen(55.58344)
     assert Dimen(box0.height) == 6.94444
     assert Dimen(box0.depth) == 1.94444    
@@ -27,7 +27,7 @@ def test_box_command(box):
     box.parse("\\box0")
     top = box.lists[-1]
     assert top[-1] == box0
-    assert isinstance(box.state.box[0], bx.VoidBox)
+    assert box.state.box[0] is None
 
 
 def test_copy(box):
@@ -138,8 +138,8 @@ def test_vtop_to(box):
     box = top[-1]
     assert box.node_type == NODE_TYPE.VLIST
     assert box.width == 55.58344
-    assert box.height == 100
-    assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
+    assert box.height == 6.94444
+    assert box.depth == 100 - 6.94444 + 1.94444
     assert len(box.list) == 3
 
 def test_vtop_spread(box):
@@ -149,8 +149,8 @@ def test_vtop_spread(box):
     box = top[-1]
     assert box.node_type == NODE_TYPE.VLIST
     assert box.width == 55.58344
-    assert box.height == 6.94444 + 10
-    assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
+    assert box.height == 6.94444
+    assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444 + 10
     assert len(box.list) == 3
 
 
@@ -176,7 +176,7 @@ def test_unhbox(box):
     box.parse("1\\unhbox0")
     top = box.lists[-1]
     assert len(top) == 16
-    assert box.state.box[0].list is None
+    assert box.state.box[0] is None
 
 
 def test_unhbox_wrongmode(box):
@@ -208,7 +208,7 @@ def test_unvbox(box):
     top = box.lists[-1]
     assert len(top) == 1
     assert top[0].node_type == NODE_TYPE.HLIST
-    assert box.state.box[1].list is None
+    assert box.state.box[1] is None
 
 
 def test_accent_nochar(cmr10):
@@ -229,18 +229,21 @@ def test_accent(cmr10):
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 1
     assert top[0].node_type == NODE_TYPE.ACCENT
-    top, glue, migrate = top.pack()
-    kern = top[0]
+    hbox = bx.HBox(cmr10, None, Dimen())
+    hbox.list = top
+    hbox.typeset(cmr10)
+    packed = hbox.list
+    kern = packed[0]
     assert kern.node_type == NODE_TYPE.KERN
     assert kern.kern == -1.25000
-    accent = top[1] 
+    accent = packed[1]
     assert accent.node_type == NODE_TYPE.HLIST
     assert len(accent.list) == 1
     assert accent.list[0].char == "A"
-    kern = top[2]
+    kern = packed[2]
     assert kern.node_type == NODE_TYPE.KERN
     assert kern.kern == -6.25002
-    char = top[3]
+    char = packed[3]
     assert char.node_type == NODE_TYPE.CHAR
     assert char.char == "1"
 
@@ -260,7 +263,7 @@ def test_lastbox_empty(cmr10):
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 2
     box = cmr10.state.box[0]
-    assert isinstance(box, bx.VoidBox)
+    assert box is None
 
 
 def test_lastbox_vmode(cmr10):
@@ -271,7 +274,7 @@ def test_lastbox_vmode(cmr10):
     vbox = top[0]
     assert len(vbox.list) == 0
     box = cmr10.state.box[0]
-    assert isinstance(box, bx.VoidBox)
+    assert box is None
     try:
         cmr10.parse("\\hbox{Hello, world!}\\setbox0=\\lastbox")
         assert False

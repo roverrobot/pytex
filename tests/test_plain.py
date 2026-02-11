@@ -37,5 +37,6 @@ def test_plain(plain):
     assert len(top) == 3
     hlist = top[0]
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
-    assert len(hlist) == 18
+    # Kerning is now applied while characters are appended to the hlist.
+    assert len(hlist) == 19
     assert hlist[-3].node_type == nd.NODE_TYPE.MATH

@@ -88,6 +88,10 @@ class Dimen(serialization.Serializable):
         return Dimen(round(float(self), n))
 
 
+MAX_DIMEN = Dimen(integer=0xffffffff)
+NEG_MAX_DIMEN = Dimen(integer=-0xffffffff)
+
+
 def readUnsignedNumber(parser):
     """
     read an unsigned number from the input

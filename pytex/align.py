@@ -6,6 +6,8 @@ from pytex import serialization
 from pytex import lists
 from pytex import node as nd
 from pytex import box as bx
+from pytex import hmode
+from pytex import vmode
 from pytex.token import Token, CATCODE, Command
 from pytex import lexer
 from pytex import glue
@@ -246,7 +248,7 @@ class AlignmentBuilder:
         if t is None:
             raise ValueError("unexpected end of input in alignment", parser.input.position())
         if t.is_command and t.definition == noalign:
-            list = parser.newVList() if self.vertical else parser.newHList()
+            list = vmode.VList(parser) if self.vertical else hmode.HList(parser, True)
             parser.readList(list, GROUP_TYPE.NO_ALIGN)
             if self.row is None:
                 # we are in the preamble, so we just store the noalign list
@@ -314,7 +316,7 @@ class AlignmentBuilder:
         if span:
             self.cell.span += 1
         else:
-            cell = parser.newHList() if self.vertical else parser.newVList()
+            cell = hmode.HList(parser, True) if self.vertical else vmode.VList(parser)
             cell.span = 0
             self.cell = cell
             self.row.cells.append(cell)

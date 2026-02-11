@@ -6,6 +6,8 @@ The horizontal and vertical lists of TeX.
 from pytex import serialization
 from pytex import node as nd
 from pytex.token import Command, CATCODE
+from math import inf
+from pytex.dimen import Dimen, NEG_MAX_DIMEN
 import enum
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
@@ -27,9 +29,6 @@ class List(list, serialization.Serializable):
 
     The internal mode means an internal vlist, or restricted hlist, or nondisplay mlist.
     """
-    typeset = None
-    source = None
-
     def __init__(self, parser, type: LISTTYPE, inner: bool=True, nodes=None):
         super().__init__([] if nodes is None else nodes)
         self.parser = parser
@@ -179,13 +178,13 @@ class Rule(ModeDependentCommand):
 
     def readRule(self, parser):
         if self.vert:
-            width = None
-            height = 0.4
-            depth = 0
+            width = NEG_MAX_DIMEN
+            height = Dimen(0.4)
+            depth = Dimen()
         else:
-            width = 0.4
-            height = None
-            depth = None
+            width = Dimen(0.4)
+            height = NEG_MAX_DIMEN
+            depth = NEG_MAX_DIMEN
         while True:
             k = parser.readKeyword(["width", "height", "depth"])
             if k is None:

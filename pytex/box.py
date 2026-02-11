@@ -2,9 +2,10 @@
 parse and wrap up an hbox
 """
 
-from pytex import node as nd
+from pytex import node as nd, parser
+from pytex import hmode
 from pytex import vmode
-from pytex.glue import Stretchness
+from pytex.glue import Glue
 from pytex.module import Module
 from pytex.accessor import Accessor, ArrayAccessor, ArrayItemAccessor
 from pytex.state import Array
@@ -24,14 +25,15 @@ class Box(nd.Box):
     the base class for \\hbox, \\vbox, and \\vtop
     @param to: the target width or height
     @param spread: the spread
+    @param list: the list of nodes in the box
     """
-    def __init__(self, to, spread):
+    def __init__(self, to, spread, list):
         super().__init__(None, None, None)
-        # the hlist or vlist that this box wraps
-        self.list = None
         self.to = to
         self.spread = spread
+        self.list = list
         self.shifted = 0
+        self.glue_ratio = 0
 
     def saveInfo(self):
         return {
@@ -42,75 +44,80 @@ class Box(nd.Box):
             "extra": {
                 "shifted": self.shifted,
                 "list": self.list,
+                "glue_ratio": self.glue_ratio,
             }
         }
 
-    def typeset(self, parser=None, packed=None):
+    def typeset(self, parser):
         """
         typeset the box
         @param packed: optionally the packed hlist.
         """
-        return None
+        content = []
+        for n in self.list:
+            self._expand(parser, content, n)
+        self.list.clear()
+        self.list.extend(content)
+        glues = []
+        natural = Glue()
+        self.width = Dimen()
+        self.height = Dimen()
+        self.depth = Dimen()
+        for n in self.list:
+            node_type = n.node_type
+            if node_type == nd.NODE_TYPE.GLUE:
+                glues.append(n)
+                natural += n.glue
+            elif node_type == nd.NODE_TYPE.KERN:
+                natural.dimen += n.kern
+            elif isinstance(n, nd.Box):
+                shifted = n.shifted if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) else 0
+                w = n.width
+                h = n.height - shifted
+                d = n.depth + shifted
+                natural = self.calculate(n, natural, (w, h, d))
+            else:
+                natural = self.calculate(n, natural, None)
+        # calculate the ratio
+        spread = self.spread if self.to is None else self.to - natural.dimen
+        if spread is None:
+            self.glue_ratio = 0
+        if self.to is None:
+            self.to = natural.dimen + self.spread
+        elif spread > 0 and natural.stretch.factor != 0:
+            self.glue_ratio = spread / natural.stretch.factor
+        elif spread < 0 and natural.shrink.factor != 0:
+            self.glue_ratio = spread / natural.shrink.factor
+        else:
+            self.glue_ratio = 0
+
+    def _expand(self, parser, content, node):
+        """
+        Expand the current list and collect nodes/glues/migratory nodes.
+        """
+        typeset = node.typeset
+        if typeset is not None:
+            nodes = node.typeset(parser)
+            if nodes:
+                content.extend(nodes)
+                return
+        content.append(node)
+
 
     def copy(self):
         """
         return a copy of the box
         """
         BoxType = type(self)
-        box = BoxType(self.to, self.spread)
+        box = BoxType(self.list.parser, self.to, self.spread)
         box.width = self.width
         box.height = self.height
         box.depth = self.depth
         box.shifted = self.shifted
         box.list = self.list
-        box.migrate = self.migrate
         box.source = self.source
+        box.glue_ratio = self.glue_ratio
         return box
-
-
-class HBoxWrapInfo:
-    """
-    The natural dimension,  stretchness and migratable nodes of an hlist
-    @param nodes: the nodes
-    """
-    def __init__(self, nodes):
-        self.natural_width = Dimen()
-        self.height = None
-        self.depth = None
-        self.stretch = Stretchness(0,0)
-        self.shrink = Stretchness(0,0)
-        self.rules = [] # the rules which depth or height is not set (i.e., is None)
-        for n in nodes:
-            if isinstance(n, nd.Glue):
-                self.stretch += n.glue.stretch
-                self.shrink += n.glue.shrink
-                self.natural_width += n.glue.dimen
-            elif isinstance(n, nd.Box):
-                w, h, d = self.boxDimen(n)
-                self.natural_width += w
-                if self.height is None or h > float(self.height):
-                    self.height = h
-                if self.depth is None or d > float(self.depth):
-                    self.depth = d
-                if isinstance(n, nd.Rule) and (n.height is None or n.depth is None):
-                    self.rules.append(n)
-            elif isinstance(n, nd.Kern):
-                self.natural_width += n.kern
-
-    def boxDimen(self, n):
-        if isinstance(n, nd.Rule):
-            w = 0 if n.width is None else n.width
-            h = -inf if n.height is None else n.height
-            d = -inf if n.depth is None else n.depth
-        else:
-            if n.node_type == nd.NODE_TYPE.HLIST or n.node_type == nd.NODE_TYPE.VLIST:
-                shifted = n.shifted
-            else:
-                shifted = 0
-            w = n.width
-            h = n.height - shifted
-            d = n.depth + shifted
-        return w, h, d
 
 
 class HBox(Box):
@@ -119,104 +126,54 @@ class HBox(Box):
     @param to: the target width
     @param spread: the spread
     """
-    def __init__(self, to, spread):
-        super().__init__(to, spread)
+    def __init__(self, parser, to, spread):
+        super().__init__(to, spread, hmode.HList(parser, True))
         self.migrate = []
+
+    @classmethod
+    def new(cls, parser, **kwargs):
+        return cls(parser, kwargs["to"], kwargs["spread"])
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def typeset(self, parser=None, packed=None):
-        """
-        typeset the box
-        @param packed: optionally the packed hlist.
-        """
-        if self.width is None and packed is None:
-            parser = self.list.parser if parser is None else parser
-            expanded = []
-            for node in self.list:
-                typeset = node.typeset
-                if typeset is None:
-                    expanded.append(node)
-                    continue
-                content = typeset(parser)
-                if content is None:
-                    expanded.append(node)
-                    continue
-                if not isinstance(content, list):
-                    try:
-                        content = list(content)
-                    except TypeError:
-                        content = [content]
-                for n in content:
-                    if n is node:
-                        continue
-                    if getattr(n, "source", None) is None:
-                        n.source = node
-                expanded.extend(content)
-            self.list, glues, self.migrate = self.list.pack(expanded, apply_typeset=False)
-        elif packed is not None:
-            self.list, glues, self.migrate = packed
-        else:
-            return None
-        info = HBoxWrapInfo(self.list)
-        if self.to is None:
-            self.width = info.natural_width + self.spread
-        else:
-            self.width = self.to
-        self.height = info.height
-        self.depth = info.depth
-        for r in info.rules:
-            if r.height is None:
-                r.height = self.height
-            if r.depth is None:
-                r.depth = self.depth
-        diff = self.width - info.natural_width
-        if diff == 0: # natural
-            for g in glues:
-                g.kern = g.glue.dimen
-        elif diff > 0: # stretch
-            ratio = 1 if info.stretch.factor == 0 else diff / info.stretch.factor
-            order = info.stretch.order
-            for g in glues:
-                stretch = g.glue.stretch
-                s = stretch.factor * ratio if stretch.order == order else 0
-                g.kern = g.glue.dimen + s
-        else: # shrink
-            ratio = min(1, -diff / info.shrink.factor)
-            order = info.shrink.order
-            for g in glues:
-                shrink = g.glue.shrink
-                s = shrink.factor * ratio if shrink.order == order else 0
-                g.kern = g.glue.dimen - s
-        return None
-
-    def copy(self):
-        """
-        return a copy of the box
-        """
-        box = super().copy()
-        box.migrate = self.migrate
-        return box
+    def _expand(self, parser, content, node):
+        if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
+            # these nodes are not expanded, but their content is migrated to the current list.
+            self.migrate.append(node)
+            content.append(node)
+            return
+        super()._expand(parser, content, node)
     
+    def calculate(self, node, natural, dim):
+        if dim is None:
+            # node is something else.
+            if node.node_type == nd.NODE_TYPE.DISC:
+                parser = self.list.parser
+                box = HBox(parser, None, None)
+                box.list = node.replace
+                box.typeset(parser)
+                w = box.width
+                h = box.height
+                d = box.depth
+            elif node.node_type == nd.NODE_TYPE.MATH:
+                natural.dimen += self.list.parser.layout["mathsurround"]
+                return natural
+            else:
+                return natural
+        w, h, d = dim
+        natural.dimen += w
+        if self.height is None or h > float(self.height):
+            self.height = h
+        if self.depth is None or d > float(self.depth):
+            self.depth = d
+        return natural
+    
+    def typeset(self, parser):
+        super().typeset(parser)
+        self.width = self.to
+
     def __repr__(self):
         return f"HBox({self.width}, {self.height}, {self.depth}, {self.list})"
-
-
-class VoidBox(nd.Box):
-    """
-    An empty box.
-    """
-    def __init__(self):
-        super().__init__(0, 0, 0)
-        self.list = None
-
-    node_type = None
-
-    def saveInfo(self):
-        return {}
-    
-    def __repr__(self):
-        return "Box()"
 
 
 class BoxCommand(Command):
@@ -229,7 +186,7 @@ class BoxCommand(Command):
     
     def execute(self, parser):
         box = self.boxValue(parser, False)
-        if isinstance(box, VoidBox):
+        if box is None:
             return
         parser.lists[-1].append(box)
     
@@ -237,7 +194,7 @@ class BoxCommand(Command):
         index = parser.readInteger()
         box = parser.state.box[index]
         if self.wipe:
-            parser.state.box[index] = VoidBox()
+            parser.state.box[index] = None
             return box
         return box.copy()    
 
@@ -261,12 +218,6 @@ class BuildBox(Command):
     """
     the base class for \\hbox, \\vbox and \\vtop commands
     """
-    def list(self, parser):
-        """
-        create a new list
-        """
-        raise NotImplementedError
-    
     def box(self):
         """
         create a new box
@@ -278,12 +229,22 @@ class BuildBox(Command):
     
     def execute(self, parser):
         box = self.boxValue(parser, False)
-        parser.lists[-1].append(box)
+        top = parser.lists[-1]
+        top.append(box)
+        # if we are in vertical model, then migrate
+        if top.type == LISTTYPE.VERTICAL:
+            migrate = getattr(box, "migrate", None)
+            if migrate:
+                for n in migrate:
+                    if n.node_type == nd.NODE_TYPE.ADJUST:
+                        for m in n.vlist:
+                            top.append(m)
+                    else:
+                        top.append(n)
 
     def boxValue(self, parser, setbox):
         to, spread = readToSpread(parser)
-        box = self.box(to, spread)
-        box.list = self.list(parser)
+        box = self.box(parser, to, spread)
         parser.skipFiller()
         t = parser.token_expand()
         if t.catcode != CATCODE.BEGIN_GROUP:
@@ -303,7 +264,7 @@ class BuildBox(Command):
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         parser.input.unread(t)
         parser.readList(box.list, self.group_type)
-        box.typeset()
+        box.typeset(parser)
         return box
 
 
@@ -311,11 +272,8 @@ class HBoxCommand(BuildBox):
     """
     the \\hbox command
     """
-    def list(self, parser):
-        return parser.newHList()
-    
-    def box(self, to, spread):
-        return HBox(to, spread)
+    def box(self, parser, to, spread):
+        return HBox(parser, to, spread)
     
     group_type = GROUP_TYPE.HBOX
     vertical = False
@@ -355,7 +313,7 @@ class BoxArray(Array):
     an array of boxes
     """
     def __init__(self, state):
-        super().__init__("box", state, VoidBox)
+        super().__init__("box", state, None)
     
     def dump(self):
         """
@@ -364,7 +322,7 @@ class BoxArray(Array):
         """
         values = {}
         for i, v in enumerate(self):
-            if v.list is not None:
+            if v is not None:
                 values[i] = v
         return values
 
@@ -387,68 +345,9 @@ class IfBox(conditional.Conditional):
     def condition(self, parser):
         index = parser.readInteger()
         box = parser.state.box[index]
+        if self.type is None:
+            return 0 if box is None else 1
         return 0 if isinstance(box, self.type) else 1
-
-
-class VBoxWrapInfo:
-    """
-    The natural dimension,  stretchness and migratable nodes of an hlist
-    @param nodes: the nodes
-    @param vtop: whether the box is a vtop
-    """
-    def __init__(self, nodes):
-        self.natural_height = Dimen()
-        self.width = None
-        self.depth = Dimen()
-        self.stretch = Stretchness(0,0)
-        self.shrink = Stretchness(0,0)
-        self.rules = []
-        d = 0
-        h = 0
-        for n in nodes:
-            if isinstance(n, nd.Glue):
-                self.stretch += n.glue.stretch
-                self.shrink += n.glue.shrink
-                self.natural_height += n.glue.dimen
-            elif isinstance(n, nd.Box):
-                w, h, d = self.boxDimen(n)
-                if self.width is None or w > float(self.width):
-                    self.width = w
-                self.natural_height += h + d
-                if isinstance(n, nd.Rule) and n.width is None:
-                    self.rules.append(n)
-            elif isinstance(n, nd.Kern):
-                self.natural_height += n.kern
-        if len(nodes) > 0:
-            last = nodes[-1]
-            if isinstance(last, nd.Box):
-                self.natural_height -= d
-                self.depth = d
-
-    def boxDimen(self, n):
-        if isinstance(n, nd.Rule):
-            w = -inf if n.width is None else n.width
-            h = 0 if n.height is None else n.height
-            d = 0 if n.depth is None else n.depth
-        else:
-            h = n.height
-            d = n.depth
-            if n.node_type == nd.NODE_TYPE.HLIST or n.node_type == nd.NODE_TYPE.VLIST:
-                shifted = n.shifted
-            else:
-                shifted = 0
-            w = n.width - shifted
-        return w, h, d
-
-
-class VTopWrapInfo(VBoxWrapInfo):
-    def __init__(self, nodes):
-        super().__init__(nodes)
-        if nodes:
-            first = nodes[0]
-            w, h, d = self.boxDimen(first)
-            self.depth = self.natural_height - h + d
-            self.natural_height = h
 
 
 class VBox(Box):
@@ -458,67 +357,54 @@ class VBox(Box):
     @param spread: the spread
     @param vtop: whether the box is a vtop
     """
-    def __init__(self, to, spread):
-        super().__init__(to, spread)
+    def __init__(self, parser, to, spread):
+        super().__init__(to, spread, vmode.VList(parser))
+
+    @classmethod
+    def new(cls, parser, **kwargs):
+        return cls(parser, kwargs["to"], kwargs["spread"])
 
     node_type = nd.NODE_TYPE.VLIST  
-    wrap_info_generator = VBoxWrapInfo
 
-    def typeset(self, parser=None, packed=None):
+    def calculate(self, node, natural, dim):
+        if dim is None:
+            natural.dimen += self.depth
+            self.depth = 0
+            return natural
+        w, h, d = dim
+        if self.width is None or w > float(self.width):
+            self.width = w
+        natural.dimen += h + self.depth
+        self.depth = d
+        return natural
+
+    def typeset(self, parser):
         """
         typeset the box
         @param packed: optionally the packed vlist.
         """
-        if self.width is not None and packed is None:
-            return None
-        self.list, glues = packed if packed is not None else self.list.pack()
-        info = self.wrap_info_generator(self.list)
-        if self.to is None:
-            self.height = info.natural_height + self.spread
-        else:
-            self.height = self.to
-        self.width = info.width
-        self.depth = info.depth
-        for r in info.rules:
-            if r.width is None:
-                r.width = self.width
-        diff = self.height - info.natural_height
-        if diff == 0:
-            for g in glues:
-                g.kern = g.glue.dimen
-        elif diff > 0:
-            ratio = 1 if info.stretch.factor == 0 else diff / info.stretch.factor
-            order = info.stretch.order
-            for g in glues:
-                stretch = g.glue.stretch
-                s = stretch.factor * ratio if stretch.order == order else 0
-                g.kern = g.glue.dimen + s
-        else:
-            ratio = min(1, -diff / info.shrink.factor)
-            order = info.shrink.order
-            for g in glues:
-                shrink = g.glue.shrink
-                s = shrink.factor * ratio if shrink.order == order else 0
-                g.kern = g.glue.dimen - s
-        return None
+        super().typeset(parser)
+        self.height = self.to
 
     def __repr__(self):
         return f"VBox({self.width}, {self.height}, {self.depth}, {self.list})"
 
 
 class VTop(VBox):
-    wrap_info_generator = VTopWrapInfo
+    def typeset(self, parser):
+        super().typeset(parser)
+        total = self.height + self.depth
+        if self.list:
+            self.height = getattr(self.list[0], "height", 0)
+            self.depth = total - self.height
 
 
 class VBoxCommand(BuildBox):
     """
     the \\vbox command
     """
-    def list(self, parser):
-        return vmode.VList(parser)
-    
-    def box(self, to, spread):
-        return VBox(to, spread)
+    def box(self, parser, to, spread):
+        return VBox(parser, to, spread)
     
     vertical = True
     group_type = GROUP_TYPE.VBOX
@@ -528,8 +414,8 @@ class VTopCommand(VBoxCommand):
     """
     the \\vtop command
     """
-    def box(self, to, spread):
-        return VTop(to, spread)
+    def box(self, parser, to, spread):
+        return VTop(parser, to, spread)
     
     group_type = GROUP_TYPE.VTOP
 
@@ -578,8 +464,8 @@ class UnBox(Command):
             raise ValueError("box index out of range", parser.input.position())
         box = parser.state.box[index]
         if self.wipe:
-            parser.state.box[index] = VoidBox()
-        if isinstance(box, VoidBox):
+            parser.state.box[index] = None
+        if box is None:
             return
         top = parser.lists[-1]
         if top.type == LISTTYPE.MATH and not self.vertical:
@@ -597,8 +483,8 @@ class UnBox(Command):
 class Shift(ModeDependentCommand):
     """
     The \\raise, \\lower, \\moveleft, \\moveright command.
-    @param vertical whether the command is vertical (\moveleft, \moveright) or
-    horizontal (\raise, \lower)
+    @param vertical whether the command is vertical (\\moveleft, \\moveright) or
+    horizontal (\\raise, \\lower)
     @param direction: the direction of the shift (-1, or 1). Here -1 means right or up,
     and 1 means left or down.
     """
@@ -637,20 +523,17 @@ class AccentBox(Box):
     An accent box.
     """
     def __init__(self, accent):
-        super().__init__(None, None)
+        super().__init__(None, None, [accent])
         self.accent = accent
         self.width = accent.width
         self.height = accent.height
         self.depth = accent.depth
-        self.list = [accent]
-
-    def saveInfo(self):
-        return {"init": {"accent": self.accent}}
+        self.typeset = None
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def typeset(self, parser=None):
-        return None
+    def saveInfo(self):
+        return {"init": {"accent": self.accent}}
 
 
 class AccentNode(nd.Node):
@@ -666,7 +549,7 @@ class AccentNode(nd.Node):
     
     node_type = nd.NODE_TYPE.ACCENT
 
-    def typeset(self, parser=None):
+    def typeset(self, parser):
         nodes = []
         char, accent = self.base, self.accent
         if char is None:
@@ -695,11 +578,11 @@ class IndentBox(Box):
     An indent box.
     """
     def __init__(self, parser):
-        super().__init__(None, None)
+        super().__init__(None, None, None)
         self.width = parser.state.parameters["parindent"]
         self.height = Dimen()
         self.depth = Dimen()
-        self.list = []
+        self.typeset = None
 
     def saveInfo(self):
         return {}
@@ -709,9 +592,6 @@ class IndentBox(Box):
         return cls(parser)
 
     node_type = nd.NODE_TYPE.HLIST
-
-    def typeset(self, parser=None):
-        return None
 
 
 class LEADERS_TYPE(enum.Enum):
@@ -770,7 +650,7 @@ class LastBox(Command):
             raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
         if top.type == LISTTYPE.MATH:
             raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())
-        return top.pop() if top and isinstance(top[-1], Box) else VoidBox()
+        return top.pop() if top and isinstance(top[-1], Box) else None
     
     def execute(self, parser):
         self.boxValue(parser, False)
@@ -787,7 +667,7 @@ mod = Module("hbox",
     commands={
         "box": BoxCommand(True),
         "copy": BoxCommand(False),
-        "ifvoid": IfBox(VoidBox),
+        "ifvoid": IfBox(None),
         "ifhbox": IfBox(HBox),
         "ifvbox": IfBox(VBox),
         "hbox": HBoxCommand(),

@@ -6,6 +6,7 @@ from pytex import texlive
 from pytex import hmode
 from pytex.box import LEADERS_TYPE
 from pytex import texlive
+from pytex import dimen
 from pytex.expandable import toksToString
 
 def test_new_paragraph(cmr10):
@@ -86,7 +87,7 @@ def test_hrule(cmr10):
     assert len(top) == 1
     node = top[0]
     assert node.node_type == nd.NODE_TYPE.RULE
-    assert node.width is None
+    assert node.width == dimen.NEG_MAX_DIMEN
     assert node.height == 0.4
     assert node.depth == 0.0
     cmr10.parse("\\hrule width 345pt")
@@ -96,7 +97,7 @@ def test_hrule(cmr10):
     assert node.depth == 0.0
     cmr10.parse("\\hrule height 1in depth 1in")
     node = top[-1]
-    assert node.width is None
+    assert node.width == dimen.NEG_MAX_DIMEN
     assert node.height == 72.26999
     assert node.depth == 72.26999
     cmr10.parse("\\hrule width 345pt width 1in")
@@ -114,8 +115,8 @@ def test_vrule(cmr10):
     node = box.list[1]
     assert node.node_type == nd.NODE_TYPE.RULE
     assert node.width == 2.0
-    assert node.height == box.height
-    assert node.depth == box.depth
+    assert node.height == dimen.NEG_MAX_DIMEN
+    assert node.depth == dimen.NEG_MAX_DIMEN
 
 
 def test_penalty(cmr10):
@@ -181,10 +182,10 @@ def test_insert_migrate(cmr10):
     cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
+    assert len(top) == 2
     box = top[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
-    assert len(box.list) == 1
+    assert len(box.list) == 2
     assert len(box.migrate) == 1
     node = top[0].migrate[0]
     assert node.node_type == nd.NODE_TYPE.INS
@@ -201,10 +202,10 @@ def test_mark(cmr10):
     cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
+    assert len(top) == 2
     box = top[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
-    assert len(box.list) == 0
+    assert len(box.list) == 1
     assert len(box.migrate) == 1
     assert toksToString(cmr10, box.migrate[0].tokens) == "123"
 

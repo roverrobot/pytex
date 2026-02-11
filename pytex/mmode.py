@@ -112,30 +112,30 @@ class MList(lists.List):
             node = Box(node)
         super().append(node)
 
-    def typeset(self, parser):
-        nodes = []
-        nodes.append(nd.MathShift(True))
+    def typeset(self, parser, packed):
+        if packed is None:
+            raise ValueError("typeset requires a packed list")
+        math_shift = nd.MathShift(True)
+        math_shift.source = self
+        packed.append(math_shift)
         for node in self:
             typeset = node.typeset
             if typeset is None:
-                nodes.append(node)
+                packed.append(node)
                 continue
-            content = typeset(parser)
-            if content is None:
-                nodes.append(node)
+            start = len(packed)
+            typeset(parser, packed)
+            if len(packed) == start:
+                packed.append(node)
                 continue
-            if not isinstance(content, list):
-                content = list(content) if isinstance(content, lists.List) else [content]
-            for n in content:
+            for n in packed[start:]:
                 if n is node:
                     continue
                 if getattr(n, "source", None) is None:
                     n.source = node
-            nodes.extend(content)
-        nodes.append(nd.MathShift(False))
-        for n in (nodes[0], nodes[-1]):
-            n.source = self
-        return nodes
+        math_shift = nd.MathShift(False)
+        math_shift.source = self
+        packed.append(math_shift)
 
     def pack(self):
         raise NotImplementedError
@@ -527,11 +527,14 @@ class MuKern(nd.Kern):
     def saveInfo(self):
         return {"init": {"dimen": self.dimen}}
 
-    def typeset(self, parser):
+    def typeset(self, parser, packed):
+        if packed is None:
+            raise ValueError("typeset requires a packed list")
         if parser is None:
             raise ValueError("typeset requires a parser for mu units")
         dimen = mudimen(parser, self.kern)
-        return [nd.Kern(dimen)]
+        packed.append(nd.Kern(dimen))
+        return
 
 
 class MKern(lists.ModeDependentCommand):
@@ -551,8 +554,11 @@ class MuGlue(nd.Glue):
     def saveInfo(self):
         return {"init": {"glue": self.glue}}
 
-    def typeset(self, parser):
-        return [nd.Glue(muglue(parser, self.glue))]
+    def typeset(self, parser, packed):
+        if packed is None:
+            raise ValueError("typeset requires a packed list")
+        packed.append(nd.Glue(muglue(parser, self.glue)))
+        return
 
 
 class MSkip(lists.ModeDependentCommand):

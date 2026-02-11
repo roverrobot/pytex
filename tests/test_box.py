@@ -16,7 +16,7 @@ def test_box_dimensions(box):
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     box0 = box.state.box[0]
-    box0.typeset(box)
+    box0.typeset(box, [])
     assert Dimen(box0.width) == Dimen(55.58344)
     assert Dimen(box0.height) == 6.94444
     assert Dimen(box0.depth) == 1.94444    
@@ -231,7 +231,7 @@ def test_accent(cmr10):
     assert top[0].node_type == NODE_TYPE.ACCENT
     hbox = bx.HBox(cmr10, None, Dimen())
     hbox.list = top
-    hbox.typeset(cmr10)
+    hbox.typeset(cmr10, [])
     packed = hbox.list
     kern = packed[0]
     assert kern.node_type == NODE_TYPE.KERN

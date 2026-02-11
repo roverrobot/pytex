@@ -2,7 +2,7 @@
 parse and wrap up an hbox
 """
 
-from pytex import node as nd, parser
+from pytex import node as nd
 from pytex import hmode
 from pytex import vmode
 from pytex.glue import Glue
@@ -48,16 +48,19 @@ class Box(nd.Box):
             }
         }
 
-    def typeset(self, parser):
+    def typeset(self, parser, packed):
         """
         typeset the box
-        @param packed: optionally the packed hlist.
+        @param packed: if provided, append this node and skip in-place typesetting.
         """
+        if self.width is not None: 
+            # we have been typeset. do nothing
+            packed.append(self)
+            return
         content = []
         for n in self.list:
             self._expand(parser, content, n)
-        self.list.clear()
-        self.list.extend(content)
+        self.list[:] = content
         glues = []
         natural = Glue()
         self.width = Dimen()
@@ -90,6 +93,7 @@ class Box(nd.Box):
             self.glue_ratio = spread / natural.shrink.factor
         else:
             self.glue_ratio = 0
+        packed.append(self)
 
     def _expand(self, parser, content, node):
         """
@@ -97,9 +101,14 @@ class Box(nd.Box):
         """
         typeset = node.typeset
         if typeset is not None:
-            nodes = node.typeset(parser)
-            if nodes:
-                content.extend(nodes)
+            start = len(content)
+            typeset(parser, content)
+            if len(content) > start:
+                for n in content[start:]:
+                    if n is node:
+                        continue
+                    if getattr(n, "source", None) is None:
+                        n.source = node
                 return
         content.append(node)
 
@@ -151,7 +160,7 @@ class HBox(Box):
                 parser = self.list.parser
                 box = HBox(parser, None, None)
                 box.list = node.replace
-                box.typeset(parser)
+                box.typeset(parser, [])
                 w = box.width
                 h = box.height
                 d = box.depth
@@ -168,8 +177,8 @@ class HBox(Box):
             self.depth = d
         return natural
     
-    def typeset(self, parser):
-        super().typeset(parser)
+    def typeset(self, parser, packed):
+        super().typeset(parser, packed)
         self.width = self.to
 
     def __repr__(self):
@@ -264,7 +273,7 @@ class BuildBox(Command):
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         parser.input.unread(t)
         parser.readList(box.list, self.group_type)
-        box.typeset(parser)
+        box.typeset(parser, [])
         return box
 
 
@@ -378,12 +387,12 @@ class VBox(Box):
         self.depth = d
         return natural
 
-    def typeset(self, parser):
+    def typeset(self, parser, packed):
         """
         typeset the box
-        @param packed: optionally the packed vlist.
+        @param packed: if provided, append this node and skip in-place typesetting.
         """
-        super().typeset(parser)
+        super().typeset(parser, packed)
         self.height = self.to
 
     def __repr__(self):
@@ -391,8 +400,8 @@ class VBox(Box):
 
 
 class VTop(VBox):
-    def typeset(self, parser):
-        super().typeset(parser)
+    def typeset(self, parser, packed):
+        super().typeset(parser, packed)
         total = self.height + self.depth
         if self.list:
             self.height = getattr(self.list[0], "height", 0)
@@ -549,12 +558,14 @@ class AccentNode(nd.Node):
     
     node_type = nd.NODE_TYPE.ACCENT
 
-    def typeset(self, parser):
-        nodes = []
+    def typeset(self, parser, packed):
+        if packed is None:
+            raise ValueError("typeset requires a packed list")
+        nodes = packed
         char, accent = self.base, self.accent
         if char is None:
             nodes.append(accent)
-            return nodes
+            return
         # build the accent
         # append a kern to shift the accent so that it aligns with the char
         w = char.width + char.italic
@@ -570,7 +581,7 @@ class AccentNode(nd.Node):
         # move the char back by the width of the accent box
         nodes.append(nd.Kern(-(float(char.width) + float(accent.width)) / 2))
         nodes.append(char)
-        return nodes
+        return
 
 
 class IndentBox(Box):

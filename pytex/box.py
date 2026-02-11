@@ -453,8 +453,15 @@ class BoxDimenCommand(ArrayAccessor, DimenCommand):
         return BoxDimenAccessor(parser.state.box[parser.readInteger()], self.domain)
     
     def dimenValue(self, parser):
-        d = getattr(parser.state.box[parser.readInteger()], self.domain)
-        return 0 if d is None else d
+        box = parser.state.box[parser.readInteger()]
+        if box is None:
+            return 0
+        d = getattr(box, self.domain)
+        if d is None:
+            # not typeset yet
+            box.typeset(parser, [])
+            d = getattr(box, self.domain)
+        return d
 
 
 class UnBox(Command):

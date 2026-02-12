@@ -14,16 +14,13 @@ class MacroScanner:
     a scanner for expanding the macro replacement text
     """
     def __init__(self, parser, replacement, args):
-        self.replacement = replacement
-        self.repl_index = 0
-        self.repl_len = len(replacement)
         self.parser = parser
         self.args = args
         parser.input.push(self)
-        self.active = replacement
-        self.active_index = 0
-        self.active_len = self.repl_len
-        self.active_is_replacement = True
+        # Read tokens from replacement text and temporarily switch to argument
+        # token lists when encountering #1..#9 placeholders.
+        self.active = iter(replacement)
+        self.stack = []
 
     position = None
     stop = None
@@ -35,18 +32,12 @@ class MacroScanner:
         handle arguments and ## in the replacement text
         """
         while True:
-            if self.active_index >= self.active_len:
-                if self.active_is_replacement:
-                    return None
-                # finished an argument list; resume replacement
-                self.active = self.replacement
-                self.active_is_replacement = True
-                self.active_index = self.repl_index
-                self.active_len = self.repl_len
-                continue
-
-            t = self.active[self.active_index]
-            self.active_index += 1
+            t = next(self.active, None)
+            if t is None:
+                if self.stack:
+                    self.active = self.stack.pop()
+                    continue
+                return None
 
             # check if t represent a parameter
             if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
@@ -55,12 +46,8 @@ class MacroScanner:
                 except IndexError:
                     raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
                 if args:
-                    if self.active_is_replacement:
-                        self.repl_index = self.active_index
-                    self.active = args
-                    self.active_is_replacement = False
-                    self.active_index = 0
-                    self.active_len = len(args)
+                    self.stack.append(self.active)
+                    self.active = iter(args)
                 # if the argument is empty, continue reading the replacement
                 continue
             return t

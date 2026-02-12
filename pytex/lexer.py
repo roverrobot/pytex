@@ -275,10 +275,7 @@ class TokenListScanner:
         read the next token from the list
         @return: the next token, or None if the end of the list is reached
         """
-        try:
-            return next(self.iter)
-        except StopIteration:
-            return None
+        return next(self.iter, None)
 
     # this scanner does not support token position
     position = None
@@ -291,7 +288,7 @@ class TokenListScanner:
 
 class InputStack:
     """
-    A stack of scanners. The goal is to support tex commands such as \input and \include
+    A stack of scanners. The goal is to support tex commands such as \\input and \\include
 
     The main methods are push(), read() and unread()
     """

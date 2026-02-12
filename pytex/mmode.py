@@ -113,11 +113,19 @@ class MList(lists.List):
         super().append(node)
 
     def typeset(self, parser, packed):
-        if packed is None:
-            raise ValueError("typeset requires a packed list")
-        math_shift = nd.MathShift(True)
-        math_shift.source = self
-        packed.append(math_shift)
+        if self.inner:
+            math_shift = nd.MathShift(True)
+            math_shift.source = self
+            packed.append(math_shift)
+        else:
+            # TODO: display math needs full paragraph integration:
+            # break paragraph at display math, handle eqno/leqno placement,
+            # insert display penalties/glues, and set prevgraf.
+            hbox = box.HBox(parser, None, 0)
+            hbox.list[:] = self
+            hbox.source = self
+            packed.append(hbox)
+            packed = hbox.list
         for node in self:
             typeset = node.typeset
             if typeset is None:
@@ -133,12 +141,10 @@ class MList(lists.List):
                     continue
                 if getattr(n, "source", None) is None:
                     n.source = node
-        math_shift = nd.MathShift(False)
-        math_shift.source = self
-        packed.append(math_shift)
-
-    def pack(self):
-        raise NotImplementedError
+        if self.inner:
+            math_shift = nd.MathShift(False)
+            math_shift.source = self
+            packed.append(math_shift)
 
 
 class StyleNode(nd.Node):

@@ -63,7 +63,30 @@ def test_mlist_mismatch(parser):
         assert False
     except ValueError as e:
         assert "missing" in str(e)
-    
+
+
+def test_mlist_typeset_inline(math):
+    math.parse("$a$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    assert len(packed) == 3
+    assert isinstance(packed[0], nd.MathShift)
+    assert packed[0].on
+    assert isinstance(packed[-1], nd.MathShift)
+    assert not packed[-1].on
+
+
+def test_mlist_typeset_display(math):
+    math.parse("$$a$$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    assert len(packed) == 1
+    display = packed[0]
+    assert display.node_type == nd.NODE_TYPE.HLIST
+    assert display.source is mlist
+
 
 def test_subformula(parser):
     parser.parse("${ab}")

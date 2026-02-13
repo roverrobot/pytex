@@ -22,8 +22,18 @@ argparser.add_argument("-f", "--format", default="initex",
                     help="load the format FMT. If FMT is initex, it dumps a format file. The format is provided in file", metavar="FMT")
 argparser.add_argument("-p", "--profile", action="store_true",
                     help="whether to profile the parser")
+argparser.add_argument(
+    "-s",
+    "--sort",
+    default=None,
+    choices=["calls", "cumulative", "filename", "line", "module", "name", "nfl", "pcalls", "stdname", "time"],
+    help="sorting key for profile results (used with --profile). Default is time (tottime).",
+)
 argparser.add_argument("file")
 args = argparser.parse_args()
+
+if args.sort is not None and not args.profile:
+    print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
 
 
 parser = Parser()
@@ -42,6 +52,8 @@ def dumper(parser, data):
         fmt.write(data)
 parser.dumper = types.MethodType(dumper, parser)
 
+if args.profile:
+    parser.console = open(os.devnull, "w")
 
 if args.format == "initex":
     if os.path.isabs(args.file):
@@ -54,7 +66,7 @@ if args.format == "initex":
     source = args.file
     if len(file_parts) > 1 and file_parts[1] == "" and parser.resolver.format != "plain": # no extension
         source += ".ini"
-    print(f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.json")
+    print(f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.json", file = parser.console)
 else:
     parser.resolver.format = args.format
     fmt = parser.resolver.openIn(args.format, "dump")
@@ -67,8 +79,11 @@ if input is None:
     raise ValueError(f"cannot find {source}")
 
 if args.profile:
-    cProfile.run("parser.parse(input)")
+    # disable tex engine console output
+    profile_sort = args.sort if args.sort is not None else "time"
+    cProfile.run("parser.parse(input)", sort=profile_sort)
     # no need tto dump. stop
+    parser.console.close()
     exit(0)
 else:
     parser.parse(input)

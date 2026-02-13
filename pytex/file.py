@@ -115,7 +115,7 @@ class WriteOp(FileOp):
         if file is None:
             print(s, file=parser.log)
             if self.file_id >= 0:
-                print(s)
+                print(s, file=parser.console)
         else:
             print(s, file=file)
         

@@ -56,6 +56,8 @@ class Parser:
         self.alignments = []
         self.lists = [vmode.VList(self, inner=False)]
         self.log = self.getLogFile()
+        # the console file. None to standard output, or os.devnull for no output
+        self.console = None
         # the dumper instance variable should point to a function that takes the content of 
         # a dump file and writes it to a file. The \dump command (vmode.Dump) handles the 
         # dump and uses this variable. Here is an example of setting it.
@@ -91,7 +93,7 @@ class Parser:
         """
         print(message, file=self.log)
         if console:
-            print(message)
+            print(message, file=self.console)
     
     def token(self):
         """

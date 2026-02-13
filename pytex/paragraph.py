@@ -25,10 +25,10 @@ class ParagraphTypesetContext:
             self.prevgraf = 0 if prev_context.line_count is None else prev_context.line_count
         else:
             self.prevgraf = 0
-        self.hsize = Dimen(parser.state.layout["hsize"])
-        self.leftskip = parser.state.layout["leftskip"].copy()
-        self.rightskip = parser.state.layout["rightskip"].copy()
-        self.parfillskip = parser.state.parameters["parfillskip"].copy()
+        self.hsize = parser.state.layout["hsize"]
+        self.leftskip = parser.state.layout["leftskip"]
+        self.rightskip = parser.state.layout["rightskip"]
+        self.parfillskip = parser.state.parameters["parfillskip"]
         self.pretolerance = parser.state.layout["pretolerance"]
         self.tolerance = parser.state.layout["tolerance"]
         self.linepenalty = parser.state.layout["linepenalty"]
@@ -38,9 +38,9 @@ class ParagraphTypesetContext:
         self.doublehyphendemerits = parser.state.layout["doublehyphendemerits"]
         self.finalhyphendemerits = parser.state.layout["finalhyphendemerits"]
         self.looseness = parser.state.layout["looseness"]
-        self.hangindent = Dimen(parser.state.layout["hangindent"])
+        self.hangindent = parser.state.layout["hangindent"]
         self.hangafter = parser.state.layout["hangafter"]
-        self.parshape = [(Dimen(indent), Dimen(width)) for indent, width in parser.state.globals["parshape"]]
+        self.parshape = parser.state.globals["parshape"]
         self.language = parser.state.parameters["language"]
 
     def setLineCount(self, line_count):
@@ -161,19 +161,19 @@ def _lineShape(context, line_no):
         if i >= len(context.parshape):
             i = len(context.parshape) - 1
         return context.parshape[i]
-    return Dimen(), Dimen(context.hsize)
+    return Dimen(), context.hsize
 
 
 def _emitLine(parser, para, vlist, line_nodes, line_no, last_line, add_parfillskip):
     context = para.typeset_context
     indent, measure = _lineShape(context, line_no)
-    packed = [nd.Glue(context.leftskip.copy())]
+    packed = [nd.Glue(context.leftskip)]
     if indent != 0:
-        packed.insert(0, nd.Glue(Glue(Dimen(indent))))
+        packed.insert(0, nd.Glue(Glue(indent)))
     packed.extend(_trimLineStart([n for n in line_nodes if n.node_type != nd.NODE_TYPE.PENALTY]))
     if last_line and add_parfillskip:
-        packed.append(nd.Glue(context.parfillskip.copy()))
-    packed.append(nd.Glue(context.rightskip.copy()))
+        packed.append(nd.Glue(context.parfillskip))
+    packed.append(nd.Glue(context.rightskip))
     hbox = bx.HBox(parser, measure, Dimen())
     hbox.list[:] = packed
     hbox.typeset(parser, vlist)

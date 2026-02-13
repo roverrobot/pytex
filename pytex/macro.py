@@ -13,17 +13,38 @@ class MacroScanner:
     """
     a scanner for expanding the macro replacement text
     """
-    def __init__(self, parser, replacement, args):
-        self.parser = parser
-        self.args = args
-        parser.input.push(self)
+    def __init__(self, replacement, args):
+        # stack of suspended macro-expansion frames
+        self.frames = []
         # Read tokens from replacement text and temporarily switch to argument
         # token lists when encountering #1..#9 placeholders.
-        self.active = iter(replacement)
-        self.stack = []
+        self.active = None
+        self.pending = None
+        self.resume = None
+        self.args = []
+        self.pushExpansion(replacement, args)
 
     position = None
     stop = None
+
+    def pushExpansion(self, replacement, args):
+        """
+        push a macro expansion frame
+        """
+        if self.active is not None:
+            # Tail-call optimization: if there is no continuation in this scanner,
+            # replace the active frame instead of saving it.
+            if self.resume is not None:
+                self.frames.append((self.active, self.pending, self.resume, self.args))
+            else:
+                if self.pending is None:
+                    self.pending = next(self.active, None)
+                if self.pending is not None:
+                    self.frames.append((self.active, self.pending, self.resume, self.args))
+        self.active = iter(replacement)
+        self.pending = None
+        self.resume = None
+        self.args = args
 
     def read(self):
         """
@@ -32,21 +53,30 @@ class MacroScanner:
         handle arguments and ## in the replacement text
         """
         while True:
-            t = next(self.active, None)
+            if self.pending is not None:
+                t = self.pending
+                self.pending = None
+            else:
+                t = next(self.active, None)
             if t is None:
-                if self.stack:
-                    self.active = self.stack.pop()
+                if self.resume is not None:
+                    self.active = self.resume
+                    self.resume = None
+                    self.pending = None
+                    continue
+                if self.frames:
+                    self.active, self.pending, self.resume, self.args = self.frames.pop()
                     continue
                 return None
 
             # check if t represent a parameter
-            if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
+            if t.catcode == CATCODE.PARAMETER and t.parameter is not None and self.resume is None:
                 try:
                     args = self.args[t.parameter]
                 except IndexError:
                     raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
                 if args:
-                    self.stack.append(self.active)
+                    self.resume = self.active
                     self.active = iter(args)
                 # if the argument is empty, continue reading the replacement
                 continue
@@ -208,9 +238,11 @@ class Macro(Command):
         # we now create a MacroScanner and read from it.
         # only if the replacement text is not empty
         if self.replacement:
-            scanner = MacroScanner(parser, self.replacement, args)
-            scanner.name = self
-            # scanner is already pushed onto the stack
+            top = parser.input.top
+            if isinstance(top, MacroScanner) and not parser.input.saved:
+                top.pushExpansion(self.replacement, args)
+            else:
+                parser.input.push(MacroScanner(self.replacement, args))
 
     @classmethod
     def compareTokens(cls, l1, l2):

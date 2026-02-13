@@ -17,6 +17,7 @@ from pytex.accessor import ParameterAccessor
 from pytex.define import Define
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
+from pytex.dimen import Dimen
 from pytex import box
 import enum
 
@@ -116,6 +117,7 @@ class MList(lists.List):
         if self.inner:
             math_shift = nd.MathShift(True)
             math_shift.source = self
+            math_shift.kern = Dimen(parser.state.layout["mathsurround"])
             packed.append(math_shift)
         else:
             # TODO: display math needs full paragraph integration:
@@ -144,6 +146,7 @@ class MList(lists.List):
         if self.inner:
             math_shift = nd.MathShift(False)
             math_shift.source = self
+            math_shift.kern = Dimen(parser.state.layout["mathsurround"])
             packed.append(math_shift)
 
 

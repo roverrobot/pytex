@@ -165,7 +165,7 @@ class HBox(Box):
                 h = box.height
                 d = box.depth
             elif node.node_type == nd.NODE_TYPE.MATH:
-                natural.dimen += self.list.parser.layout["mathsurround"]
+                natural.dimen += self.list.parser.state.layout["mathsurround"]
                 return natural
             else:
                 return natural

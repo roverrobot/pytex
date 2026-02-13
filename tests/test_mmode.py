@@ -73,8 +73,10 @@ def test_mlist_typeset_inline(math):
     assert len(packed) == 3
     assert isinstance(packed[0], nd.MathShift)
     assert packed[0].on
+    assert packed[0].kern == math.state.layout["mathsurround"]
     assert isinstance(packed[-1], nd.MathShift)
     assert not packed[-1].on
+    assert packed[-1].kern == math.state.layout["mathsurround"]
 
 
 def test_mlist_typeset_display(math):

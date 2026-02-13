@@ -8,6 +8,7 @@ from pytex import box as bx
 from pytex import lists
 from pytex.module import Module
 from pytex.dimen import Dimen
+from pytex.glue import Glue
 
 
 class ParagraphTypesetContext:
@@ -100,6 +101,119 @@ class Paragraph(hmode.HList):
             self.discretionary()
 
 
+def _isDiscardable(node):
+    return node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY)
+
+
+def _trimLineStart(nodes):
+    i = 0
+    while i < len(nodes) and _isDiscardable(nodes[i]):
+        i += 1
+    return nodes[i:]
+
+
+def _typesetNodes(parser, nodes):
+    packed = []
+    for node in nodes:
+        typeset = node.typeset
+        if typeset is None:
+            packed.append(node)
+            continue
+        start = len(packed)
+        typeset(parser, packed)
+        if len(packed) == start:
+            packed.append(node)
+            continue
+        for n in packed[start:]:
+            if n is node:
+                continue
+            if getattr(n, "source", None) is None:
+                n.source = node
+    return packed
+
+
+def _nodeWidth(parser, node):
+    node_type = node.node_type
+    if node_type == nd.NODE_TYPE.GLUE:
+        return node.glue.dimen
+    if node_type == nd.NODE_TYPE.KERN:
+        return node.kern
+    if node_type == nd.NODE_TYPE.DISC:
+        width = Dimen()
+        for n in node.replace:
+            width += _nodeWidth(parser, n)
+        return width
+    if node_type == nd.NODE_TYPE.MATH:
+        kern = getattr(node, "kern", None)
+        if kern is not None:
+            return kern
+        # Fallback for unresolved math markers.
+        return parser.state.layout["mathsurround"]
+    width = getattr(node, "width", None)
+    if width is None:
+        return Dimen()
+    return width
+
+
+def _lineShape(context, line_no):
+    if context.parshape:
+        i = line_no - 1
+        if i >= len(context.parshape):
+            i = len(context.parshape) - 1
+        return context.parshape[i]
+    return Dimen(), Dimen(context.hsize)
+
+
+def _emitLine(parser, para, vlist, line_nodes, line_no, last_line, add_parfillskip):
+    context = para.typeset_context
+    indent, measure = _lineShape(context, line_no)
+    packed = [nd.Glue(context.leftskip.copy())]
+    if indent != 0:
+        packed.insert(0, nd.Glue(Glue(Dimen(indent))))
+    packed.extend(_trimLineStart([n for n in line_nodes if n.node_type != nd.NODE_TYPE.PENALTY]))
+    if last_line and add_parfillskip:
+        packed.append(nd.Glue(context.parfillskip.copy()))
+    packed.append(nd.Glue(context.rightskip.copy()))
+    hbox = bx.HBox(parser, measure, Dimen())
+    hbox.list[:] = packed
+    hbox.typeset(parser, vlist)
+
+
+def _stripParagraphEnding(para):
+    context = para.typeset_context
+    nodes = list(para)
+    if (
+        len(nodes) >= 2
+        and nodes[-2].node_type == nd.NODE_TYPE.PENALTY
+        and nodes[-2].penalty == 10000
+        and nodes[-1].node_type == nd.NODE_TYPE.GLUE
+        and nodes[-1].glue == context.parfillskip
+    ):
+        return nodes[:-2], True
+    return nodes, False
+
+
+def _bestGreedyBreak(parser, nodes, start, target):
+    width = Dimen()
+    targetf = float(target)
+    best = None
+    for i in range(start, len(nodes)):
+        node = nodes[i]
+        widthf = float(width)
+        if node.node_type == nd.NODE_TYPE.GLUE:
+            if widthf <= targetf:
+                best = i
+        elif node.node_type == nd.NODE_TYPE.PENALTY:
+            if node.penalty <= -10000 or (node.penalty < 10000 and widthf <= targetf):
+                best = i
+        width += _nodeWidth(parser, node)
+    if float(width) <= targetf:
+        return len(nodes), len(nodes)
+    if best is None:
+        return None, None
+    return best, best + 1
+
+
 def _lineBreakRound(parser, para, vlist):
     """
     Run one line-breaking round.
@@ -120,9 +234,30 @@ def _lineBreakRound(parser, para, vlist):
     6) Record produced line count into `typeset_context.line_count` so
        subsequent paragraphs receive `\\prevgraf`.
     """
-
-    # TODO: implement TeX line-breaking (active list / demerits) for one round.
-    raise NotImplementedError("lineBreak round algorithm not implemented")
+    context = para.typeset_context
+    nodes, add_parfillskip = _stripParagraphEnding(para)
+    line_count = 0
+    start = 0
+    while start < len(nodes):
+        line_no = line_count + 1
+        indent, measure = _lineShape(context, line_no)
+        target = measure - indent - context.leftskip.dimen - context.rightskip.dimen
+        split, next_start = _bestGreedyBreak(parser, nodes, start, target)
+        if split is None:
+            return False
+        _emitLine(
+            parser,
+            para,
+            vlist,
+            nodes[start:split],
+            line_no,
+            last_line=split == len(nodes),
+            add_parfillskip=add_parfillskip,
+        )
+        line_count += 1
+        start = next_start
+    context.setLineCount(line_count)
+    return True
 
 
 def _hyphenate(parser, para):
@@ -158,6 +293,10 @@ def lineBreak(parser, para, vlist):
         raise ValueError("paragraph is missing typeset context")
     if getattr(vlist, "type", None) != lists.LISTTYPE.VERTICAL:
         raise ValueError("lineBreak expects a vertical list output")
+    # Expand typesettable nodes once before round 1; rounds operate on the same list.
+    if not getattr(para, "_linebreak_prepared", False):
+        para[:] = _typesetNodes(parser, para)
+        para._linebreak_prepared = True
     if _lineBreakRound(parser, para, vlist):
         return True
     _hyphenate(parser, para)

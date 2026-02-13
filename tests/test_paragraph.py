@@ -3,6 +3,8 @@ from pytex import paragraph
 from pytex import lists
 from pytex import node as nd
 from pytex import texlive
+from pytex import vmode
+from pytex import mmode
 
 
 def test_discretionaary(cmr10):
@@ -68,10 +70,40 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
     parser.parse("a\\par")
     para = parser.lists[-1][0]
     parser.parse("b")
-    with pytest.raises(NotImplementedError):
-        paragraph.lineBreak(parser, para, parser.lists[0])
+    out = vmode.VList(parser)
+    assert paragraph.lineBreak(parser, para, out)
+    assert len(out) == 1
+    assert out[0].node_type == nd.NODE_TYPE.HLIST
+    assert para.typeset_context.line_count == 1
 
 
 def test_linebreak_requires_paragraph(parser):
     with pytest.raises(ValueError):
         paragraph.lineBreak(parser, parser.lists[-1], parser.lists[-1])
+
+
+def test_linebreak_discards_leading_discardables(cmr10):
+    cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
+    para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
+    out = vmode.VList(cmr10)
+    assert paragraph.lineBreak(cmr10, para, out)
+    line = out[0]
+    assert line.node_type == nd.NODE_TYPE.HLIST
+    assert len(line.list) >= 2
+    assert line.list[0].node_type == nd.NODE_TYPE.GLUE
+    assert line.list[1].node_type == nd.NODE_TYPE.CHAR
+    assert line.list[1].char == "a"
+
+
+def test_linebreak_typesets_mlist_before_breaking(cmr10):
+    cmr10.parse("\\hsize=100pt\\noindent$a$\\par")
+    para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
+    out = vmode.VList(cmr10)
+    assert paragraph.lineBreak(cmr10, para, out)
+    line = out[0]
+    assert line.node_type == nd.NODE_TYPE.HLIST
+    assert not any(isinstance(n, mmode.MList) for n in line.list)
+    math_nodes = [n for n in line.list if isinstance(n, nd.MathShift)]
+    assert len(math_nodes) == 2
+    assert math_nodes[0].kern == cmr10.state.layout["mathsurround"]
+    assert math_nodes[1].kern == cmr10.state.layout["mathsurround"]

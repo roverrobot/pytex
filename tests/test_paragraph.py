@@ -62,3 +62,16 @@ def test_paragraph_chain_break_on_nonparagraph(parser):
     assert p1.typeset_context.next_context is None
     assert p2.typeset_context.prev_context is None
     assert p2.typeset_context.prevgraf == 0
+
+
+def test_linebreak_uses_explicit_paragraph_argument(parser):
+    parser.parse("a\\par")
+    para = parser.lists[-1][0]
+    parser.parse("b")
+    with pytest.raises(NotImplementedError):
+        paragraph.lineBreak(parser, para, parser.lists[0])
+
+
+def test_linebreak_requires_paragraph(parser):
+    with pytest.raises(ValueError):
+        paragraph.lineBreak(parser, parser.lists[-1], parser.lists[-1])

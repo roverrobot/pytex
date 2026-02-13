@@ -5,6 +5,7 @@ This module implement paragraph handling (unrestricted hlist).
 from pytex import hmode
 from pytex import node as nd
 from pytex import box as bx
+from pytex import lists
 from pytex.module import Module
 from pytex.dimen import Dimen
 
@@ -99,15 +100,70 @@ class Paragraph(hmode.HList):
             self.discretionary()
 
 
-def lineBreak(parser):
+def _lineBreakRound(parser, para, vlist):
     """
-    break a line into paragraphs
-    @param parser: the parser
+    Run one line-breaking round.
+    @param vlist: vertical list to receive the resulting line boxes
+    @return: True if a feasible set of breaks is found and emitted
+
+    TeX's algorithm, at a high level:
+    1) Build legal breakpoints (glue, penalties, discretionary nodes) and
+       evaluate candidate lines from prior active breakpoints.
+    2) Compute badness from line shortfall/excess using the paragraph context
+       (`hsize`, `parshape`, skips, hanging-indent settings).
+    3) Classify each feasible line into fitness classes and accumulate
+       demerits (line penalties, hyphen penalties, adjacency penalties, etc.).
+    4) Keep best active candidates per fitness class and prune impossible
+       ones as scanning proceeds.
+    5) At paragraph end, pick best total demerits path, reconstruct breaks,
+       then package each line as an hbox.
+    6) Record produced line count into `typeset_context.line_count` so
+       subsequent paragraphs receive `\\prevgraf`.
     """
-    top = parser.lists[-1]
-    if not isinstance(top, Paragraph):
-        return
-    raise NotImplementedError("lineBreak")
+
+    # TODO: implement TeX line-breaking (active list / demerits) for one round.
+    raise NotImplementedError("lineBreak round algorithm not implemented")
+
+
+def _hyphenate(parser, para):
+    """
+    Insert discretionary nodes for automatic hyphenation before round 2.
+    """
+    # TODO: implement paragraph hyphenation pass.
+    return
+
+
+def lineBreak(parser, para, vlist):
+    """
+    Break one paragraph into lines (TeXbook Appendix H line-breaking model).
+
+    This routine is intentionally paragraph-driven, not stack-driven:
+    callers must pass the Paragraph node to break, so lazy typesetting can
+    process paragraphs in any order.
+
+    TeX runs this in rounds:
+    - Round 1: no automatic hyphenation.
+    - If no feasible breaks are found, run hyphenation and repeat the same
+      algorithm in round 2.
+    `_lineBreakRound` assumes discretionary nodes are already present.
+
+    @param parser: parser environment (used for helper routines/output hooks)
+    @param para: the Paragraph node to be line-broken
+    @param vlist: vertical list that receives the line boxes
+    @return: True if feasible breaks are found in round 1 (or round 2 later)
+    """
+    if not isinstance(para, Paragraph):
+        raise ValueError("lineBreak expects a Paragraph node")
+    if para.typeset_context is None:
+        raise ValueError("paragraph is missing typeset context")
+    if getattr(vlist, "type", None) != lists.LISTTYPE.VERTICAL:
+        raise ValueError("lineBreak expects a vertical list output")
+    if _lineBreakRound(parser, para, vlist):
+        return True
+    _hyphenate(parser, para)
+    # TODO: round 2 after hyphenation:
+    # return _lineBreakRound(parser, para, vlist)
+    return False
 
 
 mod = Module("paragraph",

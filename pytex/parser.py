@@ -383,7 +383,12 @@ class Parser:
         # \hskip\parfillskip
         hlist.append(node.Glue(self.state.parameters["parfillskip"]))
         self.lists.pop()
-        self.lists[-1].append(hlist)
+        top = self.lists[-1]
+        prev_context = None
+        if len(top) > 0 and isinstance(top[-1], paragraph.Paragraph):
+            prev_context = top[-1].typeset_context
+        hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist, prev_context)
+        top.append(hlist)
 
     def hyphenChar(self):
         """

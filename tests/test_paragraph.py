@@ -22,3 +22,43 @@ def test_language(cmr10):
     lang = top[2]
     assert isinstance(lang, paragraph.Language)
     assert lang.language == 1
+
+
+def test_paragraph_typeset_context_snapshot(parser):
+    parser.parse("\\hsize=10pt a\\par")
+    vlist = parser.lists[-1]
+    p = vlist[0]
+    assert isinstance(p, paragraph.Paragraph)
+    assert p.typeset_context is not None
+    assert p.typeset_context.paragraph is p
+    assert p.typeset_context.hsize == 10
+    assert p.typeset_context.prevgraf == 0
+    parser.parse("\\hsize=20pt")
+    assert p.typeset_context.hsize == 10
+
+
+def test_paragraph_prevgraf_propagation(parser):
+    parser.parse("a\\par b\\par")
+    vlist = parser.lists[-1]
+    p1 = vlist[0]
+    p2 = vlist[1]
+    assert isinstance(p1, paragraph.Paragraph)
+    assert isinstance(p2, paragraph.Paragraph)
+    assert p1.typeset_context.next_context is p2.typeset_context
+    assert p2.typeset_context.prev_context is p1.typeset_context
+    assert p1.typeset_context.prevgraf == 0
+    assert p2.typeset_context.prevgraf == 0
+    p1.typeset_context.setLineCount(7)
+    assert p2.typeset_context.prevgraf == 7
+
+
+def test_paragraph_chain_break_on_nonparagraph(parser):
+    parser.parse("a\\par\\vskip1pt b\\par")
+    vlist = parser.lists[-1]
+    p1 = vlist[0]
+    p2 = vlist[2]
+    assert isinstance(p1, paragraph.Paragraph)
+    assert isinstance(p2, paragraph.Paragraph)
+    assert p1.typeset_context.next_context is None
+    assert p2.typeset_context.prev_context is None
+    assert p2.typeset_context.prevgraf == 0

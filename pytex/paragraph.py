@@ -243,14 +243,17 @@ def _lineBreakRound(parser, para, vlist):
 def _hyphenate(parser, para):
     """
     Insert discretionary nodes for automatic hyphenation before round 2.
+    @param parser the parser
+    @param para the paragraph to hyphenate
+    @return boolean indicating whether discretionary nodes have been inserted.
     """
     # TODO: implement paragraph hyphenation pass.
-    return
+    return False
 
 
 def lineBreak(parser, para, vlist):
     """
-    Break one paragraph into lines (TeXbook Appendix H line-breaking model).
+    Break one paragraph into lines (TeXbook Chapter 14).
 
     This routine is intentionally paragraph-driven, not stack-driven:
     callers must pass the Paragraph node to break, so lazy typesetting can
@@ -265,7 +268,6 @@ def lineBreak(parser, para, vlist):
     @param parser: parser environment (used for helper routines/output hooks)
     @param para: the Paragraph node to be line-broken
     @param vlist: vertical list that receives the line boxes
-    @return: True if feasible breaks are found in round 1 (or round 2 later)
     """
     if not isinstance(para, Paragraph):
         raise ValueError("lineBreak expects a Paragraph node")
@@ -277,12 +279,8 @@ def lineBreak(parser, para, vlist):
     if not getattr(para, "_linebreak_prepared", False):
         para[:] = para.typesetNodes(parser, para)
         para._linebreak_prepared = True
-    if _lineBreakRound(parser, para, vlist):
-        return True
-    _hyphenate(parser, para)
-    # TODO: round 2 after hyphenation:
-    # return _lineBreakRound(parser, para, vlist)
-    return False
+    if not _lineBreakRound(parser, para, vlist) and _hyphenate(parser, para):
+        _lineBreakRound(parser, para, vlist)
 
 
 mod = Module("paragraph",

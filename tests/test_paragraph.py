@@ -71,7 +71,7 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
     para = parser.lists[-1][0]
     parser.parse("b")
     out = vmode.VList(parser)
-    assert paragraph.lineBreak(parser, para, out)
+    paragraph.lineBreak(parser, para, out)
     assert len(out) == 1
     assert out[0].node_type == nd.NODE_TYPE.HLIST
     assert para.typeset_context.line_count == 1
@@ -86,7 +86,7 @@ def test_linebreak_discards_leading_discardables(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
     para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
     out = vmode.VList(cmr10)
-    assert paragraph.lineBreak(cmr10, para, out)
+    paragraph.lineBreak(cmr10, para, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
     assert len(line.list) >= 2
@@ -99,7 +99,7 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent$a$\\par")
     para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
     out = vmode.VList(cmr10)
-    assert paragraph.lineBreak(cmr10, para, out)
+    paragraph.lineBreak(cmr10, para, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
     assert not any(isinstance(n, mmode.MList) for n in line.list)

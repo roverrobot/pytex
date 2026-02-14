@@ -112,26 +112,6 @@ def _trimLineStart(nodes):
     return nodes[i:]
 
 
-def _typesetNodes(parser, nodes):
-    packed = []
-    for node in nodes:
-        typeset = node.typeset
-        if typeset is None:
-            packed.append(node)
-            continue
-        start = len(packed)
-        typeset(parser, packed)
-        if len(packed) == start:
-            packed.append(node)
-            continue
-        for n in packed[start:]:
-            if n is node:
-                continue
-            if getattr(n, "source", None) is None:
-                n.source = node
-    return packed
-
-
 def _nodeWidth(parser, node):
     node_type = node.node_type
     if node_type == nd.NODE_TYPE.GLUE:
@@ -295,7 +275,7 @@ def lineBreak(parser, para, vlist):
         raise ValueError("lineBreak expects a vertical list output")
     # Expand typesettable nodes once before round 1; rounds operate on the same list.
     if not getattr(para, "_linebreak_prepared", False):
-        para[:] = _typesetNodes(parser, para)
+        para[:] = para.typesetNodes(parser, para)
         para._linebreak_prepared = True
     if _lineBreakRound(parser, para, vlist):
         return True

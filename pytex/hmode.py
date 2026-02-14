@@ -121,6 +121,37 @@ class HList(lists.List):
                 cursor += step.move
         self.extend(working)
         self.lig_base = working[-1]
+
+    def typesetNode(self, parser, node, packed):
+        """
+        Typeset/expand one node into packed output with source propagation.
+        """
+        typeset = node.typeset
+        if typeset is None:
+            packed.append(node)
+            return
+        start = len(packed)
+        typeset(parser, packed)
+        if len(packed) == start:
+            packed.append(node)
+            return
+        for n in packed[start:]:
+            if n is node:
+                continue
+            if getattr(n, "source", None) is None:
+                n.source = node
+
+    def typesetNodes(self, parser, nodes=None, packed=None):
+        """
+        Typeset/expand nodes into packed output.
+        """
+        if nodes is None:
+            nodes = self
+        if packed is None:
+            packed = []
+        for node in nodes:
+            self.typesetNode(parser, node, packed)
+        return packed
     
 class HorizontalCommand(lists.ModeDependentCommand):
     """
@@ -178,7 +209,7 @@ class Par(HorizontalCommand):
     """
     the \\par command, which ends the current paragraph
 
-    The primitive \\par command, also called \endgraf in plain TeX, does
+    The primitive \\par command, also called \\endgraf in plain TeX, does
     nothing in restricted horizontal mode. But it terminates horizontal mode: 
     The current list is finished oﬀ by doing 
     \\unskip \\penalty10000 \\hskip\\parfillskip, 

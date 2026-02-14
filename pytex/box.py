@@ -58,8 +58,12 @@ class Box(nd.Box):
             packed.append(self)
             return
         content = []
-        for n in self.list:
-            self._expand(parser, content, n)
+        typeset_nodes = getattr(self.list, "typesetNodes", None)
+        if typeset_nodes is None:
+            for n in self.list:
+                self._expand(parser, content, n)
+        else:
+            typeset_nodes(parser, self.list, content)
         self.list[:] = content
         glues = []
         natural = Glue()
@@ -100,17 +104,19 @@ class Box(nd.Box):
         Expand the current list and collect nodes/glues/migratory nodes.
         """
         typeset = node.typeset
-        if typeset is not None:
-            start = len(content)
-            typeset(parser, content)
-            if len(content) > start:
-                for n in content[start:]:
-                    if n is node:
-                        continue
-                    if getattr(n, "source", None) is None:
-                        n.source = node
-                return
-        content.append(node)
+        if typeset is None:
+            content.append(node)
+            return
+        start = len(content)
+        typeset(parser, content)
+        if len(content) == start:
+            content.append(node)
+            return
+        for n in content[start:]:
+            if n is node:
+                continue
+            if getattr(n, "source", None) is None:
+                n.source = node
 
 
     def copy(self):
@@ -145,14 +151,6 @@ class HBox(Box):
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def _expand(self, parser, content, node):
-        if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
-            # these nodes are not expanded, but their content is migrated to the current list.
-            self.migrate.append(node)
-            content.append(node)
-            return
-        super()._expand(parser, content, node)
-    
     def calculate(self, node, natural, dim):
         if dim is None:
             # node is something else.
@@ -179,6 +177,10 @@ class HBox(Box):
     
     def typeset(self, parser, packed):
         super().typeset(parser, packed)
+        self.migrate = [
+            n for n in self.list
+            if n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS)
+        ]
         self.width = self.to
 
     def __repr__(self):

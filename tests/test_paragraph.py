@@ -185,3 +185,38 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
     assert len(out) == 4
     endings = [_lineEndingWord(line) for line in out]
     assert endings[:3] == ["technique", "than", "less"]
+
+
+def test_linebreaker_select_final_positive_looseness():
+    finals = [
+        types.SimpleNamespace(line_no=4, demerits=10),
+        types.SimpleNamespace(line_no=5, demerits=40),
+        types.SimpleNamespace(line_no=6, demerits=30),
+        types.SimpleNamespace(line_no=6, demerits=20),
+    ]
+    baseline, chosen = paragraph._LineBreaker._selectFinal(finals, 2)
+    assert baseline.line_no == 4
+    assert chosen.line_no == 6
+    assert chosen.demerits == 20
+
+
+def test_linebreaker_select_final_negative_looseness():
+    finals = [
+        types.SimpleNamespace(line_no=4, demerits=10),
+        types.SimpleNamespace(line_no=3, demerits=30),
+        types.SimpleNamespace(line_no=2, demerits=100),
+    ]
+    baseline, chosen = paragraph._LineBreaker._selectFinal(finals, -2)
+    assert baseline.line_no == 4
+    assert chosen.line_no == 2
+
+
+def test_paragraph_looseness_resets_after_paragraph(parser):
+    parser.parse("\\looseness=2 a\\par b\\par")
+    vlist = parser.lists[-1]
+    p1 = vlist[0]
+    p2 = vlist[1]
+    assert isinstance(p1, paragraph.Paragraph)
+    assert isinstance(p2, paragraph.Paragraph)
+    assert p1.typeset_context.looseness == 2
+    assert p2.typeset_context.looseness == 0

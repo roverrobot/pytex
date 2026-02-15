@@ -42,6 +42,7 @@ class ParagraphTypesetContext:
         self.hangafter = parser.state.layout["hangafter"]
         self.parshape = parser.state.globals["parshape"]
         self.language = parser.state.parameters["language"]
+        self.actual_looseness = 0
 
     def setLineCount(self, line_count):
         self.line_count = line_count
@@ -390,6 +391,7 @@ class _LineBreaker:
         self.tolerance = tolerance
         self.allow_overfull = allow_overfull
         self.breaks = breaks
+        self.actual_looseness = 0
 
     def _lineShape(self, line_no):
         return _lineShape(self.context, line_no)
@@ -456,6 +458,35 @@ class _LineBreaker:
                 self.hyphenated = line.hyphenated
                 self.demerits = line.demerits
 
+    @staticmethod
+    def _selectFinal(finals, looseness):
+        baseline = min(finals, key=lambda state: state.demerits)
+        if looseness == 0:
+            return baseline, baseline
+        base_lines = baseline.line_no
+        if looseness > 0:
+            admissible = [
+                state
+                for state in finals
+                if 0 <= state.line_no - base_lines <= looseness
+            ]
+        else:
+            admissible = [
+                state
+                for state in finals
+                if looseness <= state.line_no - base_lines <= 0
+            ]
+        if not admissible:
+            return baseline, baseline
+        chosen = min(
+            admissible,
+            key=lambda state: (
+                abs((state.line_no - base_lines) - looseness),
+                state.demerits,
+            ),
+        )
+        return baseline, chosen
+
     def run(self):
         """
         Execute one line-breaking round using DP and return chosen lines.
@@ -506,13 +537,8 @@ class _LineBreaker:
         if not finals:
             return None
 
-        best = min(finals, key=lambda state: state.demerits)
-        looseness = self.context.looseness
-        if looseness != 0:
-            target = best.line_no + looseness
-            matched = [state for state in finals if state.line_no == target]
-            if matched:
-                best = min(matched, key=lambda state: state.demerits)
+        baseline, best = self._selectFinal(finals, self.context.looseness)
+        self.actual_looseness = best.line_no - baseline.line_no
 
         plan = []
         line = best.line
@@ -578,27 +604,31 @@ def lineBreak(parser, para, vlist):
     pre_tolerance = context.pretolerance
     if pre_tolerance < 0:
         pre_tolerance = context.tolerance
-    lines = _LineBreaker(
+    breaker = _LineBreaker(
         para,
         scan.candidates,
         pre_tolerance,
-    ).run()
+    )
+    lines = breaker.run()
     if lines is None and _hyphenate(para):
         scan = _BreakCandidateScan(para)
-        lines = _LineBreaker(
+        breaker = _LineBreaker(
             para,
             scan.candidates,
             context.tolerance,
-        ).run()
+        )
+        lines = breaker.run()
     if lines is None:
-        lines = _LineBreaker(
+        breaker = _LineBreaker(
             para,
             scan.candidates,
             max(context.tolerance, 10000),
             allow_overfull=True,
-        ).run()
+        )
+        lines = breaker.run()
     if lines is None:
         return
+    context.actual_looseness = breaker.actual_looseness
     for i, line in enumerate(lines):
         line_nodes = _lineNodes(para, line)
         indent, measure = _lineShape(context, i + 1)

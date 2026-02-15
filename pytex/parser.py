@@ -388,6 +388,8 @@ class Parser:
         if len(top) > 0 and isinstance(top[-1], paragraph.Paragraph):
             prev_context = top[-1].typeset_context
         hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist, prev_context)
+        # TeX clears \\looseness after each paragraph.
+        self.state.layout["looseness"] = 0
         top.append(hlist)
 
     def hyphenChar(self):

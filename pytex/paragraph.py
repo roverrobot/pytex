@@ -148,7 +148,6 @@ class _BreakCandidate:
     - `discard`: total discardable glue/kern right after this break.
     - `line_start_index`: first non-discardable index when the next line starts.
     - `natural`: natural segment (dimen/stretch/shrink) from this start to next candidate.
-    - `line`: best `_Line` ending at this break.
     """
     def __init__(self, break_index):
         self.break_index = break_index
@@ -158,7 +157,6 @@ class _BreakCandidate:
         self.discard = Glue()
         self.line_start_index = break_index
         self.natural = Glue()
-        self.line = None
 
     @property
     def forced(self):
@@ -173,11 +171,11 @@ class _Line:
     `(linepenalty + badness)^2`, penalty contribution, fitness adjacency
     demerits, and hyphenation demerits.
     """
-    def __init__(self, breaker, begin, end, natural):
+    def __init__(self, breaker, prev, begin, end, natural):
         context = breaker.context
         self.begin = begin
         self.end = end
-        self.prev = begin.line
+        self.prev = prev
         self.line_no = 1 if self.prev is None else self.prev.line_no + 1
         self.hyphenated = end.hyphenated
         self.badness = 10001
@@ -440,50 +438,84 @@ class _LineBreaker:
             return None, None
         return ratio, self._badness(ratio)
 
+    class _State:
+        """
+        DP state at one breakpoint.
+        """
+        def __init__(self, break_pos, line):
+            self.break_pos = break_pos
+            self.line = line
+            if line is None:
+                self.line_no = 0
+                self.fitness = 1
+                self.hyphenated = False
+                self.demerits = 0
+            else:
+                self.line_no = line.line_no
+                self.fitness = line.fitness
+                self.hyphenated = line.hyphenated
+                self.demerits = line.demerits
+
     def run(self):
         """
-        Execute one line-breaking round and return chosen lines.
+        Execute one line-breaking round using DP and return chosen lines.
         """
         n = len(self.breaks)
         if n == 0:
             return None
 
-        for candidate in self.breaks:
-            candidate.line = None
+        frontier = [self._State(0, None)]
+        finals = []
 
-        for i, begin in enumerate(self.breaks[:-1]):
-            if i > 0 and begin.line is None:
-                continue
-            natural = Glue() - begin.discard
-            if begin.disc is not None:
-                natural.dimen += begin.disc.post_width
-            for j in range(i + 1, n):
-                natural += self.breaks[j - 1].natural
-                end = self.breaks[j]
-                natural_for_line = natural
-                if end.disc is not None:
-                    natural_for_line = natural.copy()
-                    natural_for_line.dimen += end.disc.pre_width
-                line = _Line(self, begin, end, natural_for_line)
-                if not line.feasible:
-                    if (
-                        line.ratio is not None
-                        and line.ratio < -1.0
-                        and not end.forced
-                        and not self.allow_overfull
-                    ):
-                        break
-                elif end.line is None or line.demerits < end.line.demerits:
-                    end.line = line
-                if end.disc is not None:
-                    natural.dimen += end.disc.replace_width
+        while frontier:
+            next_states = {}
+            for state in frontier:
+                i = state.break_pos
+                begin = self.breaks[i]
+                natural = Glue() - begin.discard
+                if begin.disc is not None:
+                    natural.dimen += begin.disc.post_width
+                for j in range(i + 1, n):
+                    natural += self.breaks[j - 1].natural
+                    end = self.breaks[j]
+                    natural_for_line = natural
+                    if end.disc is not None:
+                        natural_for_line = natural.copy()
+                        natural_for_line.dimen += end.disc.pre_width
+                    line = _Line(self, state.line, begin, end, natural_for_line)
+                    if not line.feasible:
+                        if (
+                            line.ratio is not None
+                            and line.ratio < -1.0
+                            and not end.forced
+                            and not self.allow_overfull
+                        ):
+                            break
+                    else:
+                        key = (j, line.line_no, line.fitness, line.hyphenated)
+                        best = next_states.get(key)
+                        if best is None or line.demerits < best.demerits:
+                            next_states[key] = self._State(j, line)
+                    if end.disc is not None:
+                        natural.dimen += end.disc.replace_width
+            if not next_states:
+                break
+            frontier = list(next_states.values())
+            finals.extend([state for state in frontier if state.break_pos == n - 1])
 
-        final = self.breaks[-1].line
-        if final is None:
+        if not finals:
             return None
 
+        best = min(finals, key=lambda state: state.demerits)
+        looseness = self.context.looseness
+        if looseness != 0:
+            target = best.line_no + looseness
+            matched = [state for state in finals if state.line_no == target]
+            if matched:
+                best = min(matched, key=lambda state: state.demerits)
+
         plan = []
-        line = final
+        line = best.line
         while line is not None:
             plan.append(line)
             line = line.prev

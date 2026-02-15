@@ -143,3 +143,45 @@ def test_lineshape_parshape_precedes_hangindent():
     )
     assert paragraph._lineShape(ctx, 1) == (3, 9)
     assert paragraph._lineShape(ctx, 3) == (3, 9)
+
+
+def _lineEndingWord(hbox):
+    words = []
+    current = ""
+    for node in hbox.list:
+        if node.node_type == nd.NODE_TYPE.CHAR:
+            current += node.char
+            continue
+        if node.node_type == nd.NODE_TYPE.LIGATURE:
+            source = getattr(node, "source", None)
+            if source:
+                current += "".join(char.char for char in source)
+            else:
+                current += node.char
+            continue
+        if node.node_type == nd.NODE_TYPE.KERN:
+            continue
+        if current:
+            words.append(current)
+            current = ""
+    if current:
+        words.append(current)
+    return words[-1] if words else ""
+
+
+def test_linebreak_matches_tex_reference_paragraph(cmr10):
+    text = (
+        "TEX attempts to choose desirable places to divide your document into individual "
+        "pages, and its technique for doing this usually works pretty well. But the problem "
+        "of page make-up is considerably more difficult than the problem of line breaking "
+        "that we considered in the previous chapter, because pages often have much less "
+        "flexibility than lines do."
+    )
+    cmr10.parse("\\hsize=6.5in\\parindent=0pt\\pretolerance=100\\tolerance=200 ")
+    cmr10.parse(text + "\\par")
+    para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
+    out = vmode.VList(cmr10)
+    paragraph.lineBreak(cmr10, para, out)
+    assert len(out) == 4
+    endings = [_lineEndingWord(line) for line in out]
+    assert endings[:3] == ["technique", "than", "less"]

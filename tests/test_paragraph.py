@@ -1,10 +1,12 @@
 import pytest
+import types
 from pytex import paragraph
 from pytex import lists
 from pytex import node as nd
 from pytex import texlive
 from pytex import vmode
 from pytex import mmode
+from pytex.dimen import Dimen
 
 
 def test_discretionaary(cmr10):
@@ -107,3 +109,37 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
     assert len(math_nodes) == 2
     assert math_nodes[0].kern == cmr10.state.layout["mathsurround"]
     assert math_nodes[1].kern == cmr10.state.layout["mathsurround"]
+
+
+def test_lineshape_hangindent_after_positive():
+    ctx = types.SimpleNamespace(
+        parshape=[],
+        hsize=Dimen(20),
+        hangindent=Dimen(5),
+        hangafter=1,
+    )
+    assert paragraph._lineShape(ctx, 1) == (0, 20)
+    assert paragraph._lineShape(ctx, 2) == (5, 15)
+
+
+def test_lineshape_hangindent_after_negative():
+    ctx = types.SimpleNamespace(
+        parshape=[],
+        hsize=Dimen(20),
+        hangindent=Dimen(-4),
+        hangafter=-2,
+    )
+    assert paragraph._lineShape(ctx, 1) == (0, 16)
+    assert paragraph._lineShape(ctx, 2) == (0, 16)
+    assert paragraph._lineShape(ctx, 3) == (0, 20)
+
+
+def test_lineshape_parshape_precedes_hangindent():
+    ctx = types.SimpleNamespace(
+        parshape=[(Dimen(3), Dimen(9))],
+        hsize=Dimen(20),
+        hangindent=Dimen(5),
+        hangafter=-10,
+    )
+    assert paragraph._lineShape(ctx, 1) == (3, 9)
+    assert paragraph._lineShape(ctx, 3) == (3, 9)

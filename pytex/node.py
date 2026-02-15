@@ -163,10 +163,34 @@ class Disc(Node):
     """
     A discretionary node.
     """
+    @staticmethod
+    def _fixedWidth(nodes):
+        """
+        Compute fixed width of a discretionary pre/post/replace list.
+
+        TeX restricts these lists to fixed-width material (no glue/disc).
+        """
+        width = Dimen()
+        for node in nodes:
+            node_type = node.node_type
+            if node_type in (NODE_TYPE.GLUE, NODE_TYPE.DISC):
+                raise ValueError("discretionary pre/post/replace must be fixed-width")
+            if node_type == NODE_TYPE.KERN:
+                width += node.kern
+                continue
+            w = getattr(node, "width", None)
+            if w is None:
+                raise ValueError("discretionary node width is unresolved")
+            width += w
+        return width
+
     def __init__(self, pre, post, replace):
         self.pre = pre
         self.post = post
         self.replace = replace
+        self.pre_width = self._fixedWidth(pre)
+        self.post_width = self._fixedWidth(post)
+        self.replace_width = self._fixedWidth(replace)
 
     def saveInfo(self):
         return {"init": {"pre": self.pre, "post": self.post, "replace": self.replace}}

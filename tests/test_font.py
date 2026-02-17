@@ -34,6 +34,10 @@ def test_hyphenchar(collector):
     assert collector.state.equitable["\\f"].fontchar["hyphenchar"] == 45
     collector.parse('\\the\\hyphenchar\\f')
     assert collector.getString() == '45'
+    collector.parse('\\defaulthyphenchar=-1 \\relax\\font\\f=cmr10')
+    assert collector.state.equitable["\\f"].fontchar["hyphenchar"] == -1
+    collector.parse('\\the\\hyphenchar\\f')
+    assert collector.getString() == '-1'
 
 
 def test_skewchar(collector):
@@ -41,6 +45,10 @@ def test_skewchar(collector):
     assert collector.state.equitable["\\f"].fontchar["skewchar"] == 45
     collector.parse('\\the\\skewchar\\f')
     assert collector.getString() == '45'
+    collector.parse('\\defaultskewchar=127 \\relax\\font\\f=cmr10')
+    assert collector.state.equitable["\\f"].fontchar["skewchar"] == 127
+    collector.parse('\\the\\skewchar\\f')
+    assert collector.getString() == '127'
 
 
 def test_fontname(collector):

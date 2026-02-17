@@ -174,6 +174,8 @@ class FontDefineAccessor(ParameterAccessor):
             at = tfm.header.size * parser.mag.value / 1000
         f = Font(tfm, at)
         f.name = self.entry.name
+        f.fontchar["hyphenchar"] = parser.state.parameters["defaulthyphenchar"]
+        f.fontchar["skewchar"] = parser.state.parameters["defaultskewchar"]
         return f
 
 

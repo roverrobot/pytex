@@ -9,23 +9,13 @@ from pytex import mmode
 from pytex.dimen import Dimen
 
 
-def test_discretionaary(cmr10):
-    cmr10.parse("a-b")
+def test_language(cmr10):
+    cmr10.parse("\\language 1 ab\\setlanguage 1 c")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 6
-    disc = top[4]
-    assert isinstance(disc, nd.Disc)
-
-
-def test_language(cmr10):
-    cmr10.parse("a\\language 1 b")
-    top = cmr10.lists[-1]
-    assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 5
-    lang = top[2]
-    assert isinstance(lang, paragraph.Language)
-    assert lang.language == 1
+    assert cmr10.state.parameters["language"] == 1
+    assert isinstance(top[3], paragraph.Language)
 
 
 def test_paragraph_typeset_context_snapshot(parser):
@@ -39,6 +29,17 @@ def test_paragraph_typeset_context_snapshot(parser):
     assert p.typeset_context.prevgraf == 0
     parser.parse("\\hsize=20pt")
     assert p.typeset_context.hsize == 10
+
+
+def test_paragraph_typeset_context_captures_words_and_hyphenation(cmr10):
+    cmr10.parse("\\hyphenation{Tech-nique}\\lefthyphenmin=2\\righthyphenmin=3\\hsize=10pt\\parindent=0pt")
+    # This is preceeded by the indent box, is and a are too short. So the only word to be hyphenated is technique
+    cmr10.parse("This is a technique\\par")
+    p = cmr10.lists[-1][0]
+    assert isinstance(p, paragraph.Paragraph)
+    ctx = p.typeset_context
+    assert [word.text for word in ctx.words] == ["technique"]
+    assert p[ctx.words[0].begin].char == "t" and p[ctx.words[0].end-1].char == "e"
 
 
 def test_paragraph_prevgraf_propagation(parser):
@@ -73,22 +74,17 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
     para = parser.lists[-1][0]
     parser.parse("b")
     out = vmode.VList(parser)
-    paragraph.lineBreak(parser, para, out)
+    para.typeset(parser, out)
     assert len(out) == 1
     assert out[0].node_type == nd.NODE_TYPE.HLIST
     assert para.typeset_context.line_count == 1
 
 
-def test_linebreak_requires_paragraph(parser):
-    with pytest.raises(ValueError):
-        paragraph.lineBreak(parser, parser.lists[-1], parser.lists[-1])
-
-
 def test_linebreak_discards_leading_discardables(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
-    para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
+    para = cmr10.lists[-1][-1]
     out = vmode.VList(cmr10)
-    paragraph.lineBreak(cmr10, para, out)
+    para.typeset(cmr10, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
     assert len(line.list) >= 2
@@ -101,7 +97,7 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent$a$\\par")
     para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
     out = vmode.VList(cmr10)
-    paragraph.lineBreak(cmr10, para, out)
+    para.typeset(cmr10, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
     assert not any(isinstance(n, mmode.MList) for n in line.list)
@@ -109,6 +105,16 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
     assert len(math_nodes) == 2
     assert math_nodes[0].kern == cmr10.state.layout["mathsurround"]
     assert math_nodes[1].kern == cmr10.state.layout["mathsurround"]
+
+
+def test_hyphenate_uses_snapshot_words(cmr10):
+    cmr10.parse("\\hyphenation{tech-nical}a technical\\par")
+    para = cmr10.lists[-1][-1]
+    scan = paragraph._BreakCandidateScan(para.typeset_context, para)
+    assert len(scan.candidates)==3 # begin, space, end
+    hyphenate_scan = para._hyphenate(cmr10, para, scan.candidates)
+    assert len(hyphenate_scan) == 4
+    assert hyphenate_scan[2].disc is not None
 
 
 def test_lineshape_hangindent_after_positive():
@@ -179,9 +185,9 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
     )
     cmr10.parse("\\hsize=6.5in\\parindent=0pt\\pretolerance=100\\tolerance=200 ")
     cmr10.parse(text + "\\par")
-    para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
+    para = cmr10.lists[-1][-1]
     out = vmode.VList(cmr10)
-    paragraph.lineBreak(cmr10, para, out)
+    para.typeset(cmr10, out)
     assert len(out) == 4
     endings = [_lineEndingWord(line) for line in out]
     assert endings[:3] == ["technique", "than", "less"]

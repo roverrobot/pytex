@@ -12,7 +12,7 @@ import pyphen
 
 class Hyphenation(token.Command):
     """
-    The \\hyphenattion command
+    The \\hyphenation command
     """
     def execute(self, parser):
         words = {}
@@ -26,9 +26,13 @@ class Hyphenation(token.Command):
                 word = ""
                 positions = []
             elif t.catcode == token.CATCODE.LETTER:
-                word += t.name
+                c = parser.state.lccode[ord(t.name)]
+                if c != 0:
+                    word += chr(c)
             elif t.name == hyphenchar:
                 positions.append(len(word))
+        if word:
+            words[word] = positions
         parser.hyphenator.addWords(words)
 
 
@@ -42,6 +46,7 @@ class Hyphenator:
         self.dicts = [{} for i in range(self.LANGUAGES)]
         self.language = 0
         self.words = self.dicts[self.language]
+        self.patterns = {}
 
     def setLanguage(self, language):
         """
@@ -67,7 +72,12 @@ class Hyphenator:
         """
         if word in self.words:
             return self.words[word]
-        return []
+        pattern = self.patterns.get(self.language, None)
+        if pattern is None:
+            # TODO: map integer language ids to specific pattern names.
+            pattern = pyphen.Pyphen(lang="en_US")
+            self.patterns[self.language] = pattern
+        return pattern.positions(word)
 
 
 class Patterns(token.Command):

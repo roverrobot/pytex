@@ -9,6 +9,18 @@ from pytex import lists
 from pytex.module import Module
 from pytex.dimen import Dimen
 from pytex.glue import Glue
+from pytex.hmode import HorizontalCommand
+
+
+class Word:
+    """
+    Snapshot of one word in the original paragraph node list.
+    """
+    def __init__(self, language, begin, end, text):
+        self.language = language
+        self.begin = begin
+        self.end = end
+        self.text = text
 
 
 class ParagraphTypesetContext:
@@ -41,13 +53,95 @@ class ParagraphTypesetContext:
         self.hangindent = parser.state.layout["hangindent"]
         self.hangafter = parser.state.layout["hangafter"]
         self.parshape = parser.state.globals["parshape"]
-        self.language = parser.state.parameters["language"]
+        self.lefthyphenmin = parser.state.layout["lefthyphenmin"]
+        self.righthyphenmin = parser.state.layout["righthyphenmin"]
+        self.words = self.buildWords(parser, paragraph)
         self.actual_looseness = 0
 
     def setLineCount(self, line_count):
         self.line_count = line_count
         if self.next_context is not None:
             self.next_context.prevgraf = line_count
+
+    def buildWords(self, parser, paragraph):
+        # TEX looks for potentially hyphenatable words by searching ahead from each
+        # glue item that is not in a math formula. The search bypasses charac-
+        # ters whose \lccode is zero, or ligatures that begin with such characters; it also by-
+        # passes whatsits and implicit kern items, i.e., kerns that were inserted by T EX it-
+        # self because of information stored with the font. If the search finds a charac-
+        # ter with nonzero \lccode, or if it finds a ligature that begins with such a charac-
+        # ter, that character is called the starting letter. But if any other type of item oc-
+        # curs before a suitable starting letter is found, hyphenation is abandoned (until af-
+        # ter the next glue item). Thus, a box or rule or mark, or a kern that was explicitly in-
+        # serted by \kern or \/, must not intervene between glue and a hyphenatable word. If
+        # the starting letter is not lowercase (i.e., if it doesn’t equal its own \lccode), hyphen-
+        # ation is abandoned unless \uchyph is positive
+        words = []
+        language = parser.state.parameters["language"]
+        lccode = parser.state.lccode
+        start = None # the start index of the current word
+        # states: 0 = allow, 1 = disallow, 2 = in word
+        state = 0 # allowed at the beginning of the paragraph
+        text = []
+        uchyph = parser.state.layout["uchyph"] > 0
+        font = None
+        hyphenchar = None
+
+        for i, node in enumerate(paragraph):
+            if state == 0:
+                # start only if we see a char with nonzero lccode or a ligature that begins with such a char
+                if node.node_type == nd.NODE_TYPE.LIGATURE:
+                    chars =getattr(node, "source", None)
+                    node = chars[0]
+                if node.node_type == nd.NODE_TYPE.CHAR:
+                    if font != node.font:
+                        font = node.font
+                        hyphenchar = font.fontchar["hyphenchar"]
+                    if hyphenchar < 0 or font.bc > hyphenchar or hyphenchar > font.ec:
+                        continue
+                    c = ord(node.char)
+                    lc = lccode[c]
+                    if lc == c or (lc !=0 and uchyph > 0):
+                        state = 2
+                        start = i
+                        text.append(node.char)
+                        continue
+                state = 1
+                continue
+            if state == 1:
+                # wait until we see a glue
+                if node.node_type == nd.NODE_TYPE.GLUE:
+                    state = 0
+                continue
+            # now state == 2. We are in a word, and we want to keep going until we see something that cannot be part of a word.
+            if node.node_type == nd.NODE_TYPE.KERN and node.automatic and start is not None:
+                continue
+            if node.node_type == nd.NODE_TYPE.CHAR and lccode[ord(node.char)] != 0:
+                text.append(node.char)
+                continue
+            if node.node_type == nd.NODE_TYPE.LIGATURE:
+                source = getattr(node, "source", [])
+                all = True
+                chars = []
+                for c in source:
+                    if c.node_type == nd.NODE_TYPE.CHAR:
+                        if lccode[ord(c.char)] == 0:
+                            all = False
+                            break
+                        chars.append(c.char)
+                if all:
+                    text.extend(chars)
+                    continue
+            if isinstance(node, Language):
+                language = node.language
+            # if the word is too short, do not hyphenate
+            text = "".join(text)
+            if len(text) >= self.lefthyphenmin + self.righthyphenmin:
+                words.append(Word(language, start, i, text))
+            start = None
+            state = 0 if node.node_type == nd.NODE_TYPE.GLUE else 1
+            text = []
+        return words
 
 
 class Language(nd.WhatsIt):
@@ -66,8 +160,6 @@ class Paragraph(hmode.HList):
     """
     def __init__(self, parser, indent: bool):
         super().__init__(parser, inner=False)
-        self.current_language = parser.state.parameters["language"]
-        self.disc = False
         self.typeset_context = None
         if indent:
             self.append(bx.IndentBox(parser))
@@ -80,26 +172,199 @@ class Paragraph(hmode.HList):
         d["init"]["indent"] = self.inner
         del d["init"]["inner"]
         return d | {"extra": {"disc": self.disc}}
+    
+    def typeset(self, parser, vlist): 
+        """
+        typeset the paragraph into the given vertical list, using the current typeset context.
+        """
+        # TODO: add a parskip into vlist first
+        # pre-typeset the nodes into a new HList
+        context = self.typeset_context
+        hlist = hmode.HList(parser, inner=True)
+        words = iter(context.words)
+        word = next(words, None)
+        for i, node in enumerate(self):
+            if word is not None:
+                if i == word.begin:
+                    word.begin = len(hlist)
+                elif i == word.end:
+                    word.end = len(hlist)
+                    word = next(words, None)
+            self.typesetNode(parser, node, hlist)
+        # line break the hlist into lines and pack them into the vlist
+        lines = self.lineBreak(parser, hlist)
+        # add the lines into the vlist
+        if lines:
+            for i, line in enumerate(lines):
+                packed = []
+                indent, measure = _lineShape(context, i + 1)
+                if indent != 0:
+                    packed.append(nd.Glue(Glue(indent)))
+                packed.append(nd.Glue(context.leftskip))
+                # if the line starts with a ligature then add in the post nodes
+                if line.begin.disc is not None:
+                    packed.extend(line.begin.disc.post)
+                discarding = True
+                # for any disc node in between, replace it with the replace list
+                for node in hlist[line.begin.break_index:line.end.break_index]:
+                    if discarding:
+                        if _isDiscardable(node):
+                            continue
+                        else:
+                            discarding = False
+                    if node.node_type == nd.NODE_TYPE.DISC:
+                        packed.extend(node.replace)
+                    else:
+                        packed.append(node)
+                # if the line ends at a ligature, append the pre nodes
+                if line.end.disc is not None:
+                    packed.extend(line.end.disc.pre)
+                packed.append(nd.Glue(context.rightskip))
+                hbox = bx.HBox(parser, measure, None)
+                hbox.list = packed
+                hbox.typeset(parser, [])
+                hbox.source = self
+                # TODO add an interline glue into the vlist
+                vlist.append(hbox)
+            context.setLineCount(len(lines))
 
-    def discretionary(self):
-        self.disc = False
-        disc = nd.Disc(hmode.DiscHList(), hmode.DiscHList(), hmode.DiscHList())
-        self.append(disc)
+    def lineBreak(self, parser, hlist):
+        """
+        Break the paragraph into lines (TeXbook Chapter 14).
 
-    def append(self, node):
-        disc = False
-        if isinstance(node, nd.CharNode):
-            language = self.parser.state.parameters["language"]
-            if self.current_language != language:
-                self.current_language = language
-                super().append(Language(language))
-            if ord(node.char) == self.parser.hyphenChar():
-                disc = True
-        super().append(node)
-        if disc:
-            self.disc = True
-        elif self.disc:
-            self.discretionary()
+        This routine is paragraph-driven (the paragraph is explicit), so lazy
+        typesetting can line-break paragraphs later.
+
+        Round strategy:
+        - Round 1: no automatic hyphenation.
+        - If no feasible result, hyphenate and run round 2.
+        - If still infeasible, run a fallback round that allows overfull forced
+        breaks (matching TeX's "always break somehow" behavior).
+        """
+        context = self.typeset_context
+        scan = _BreakCandidateScan(context, hlist)
+        pre_tolerance = context.pretolerance
+        if pre_tolerance < 0:
+            pre_tolerance = context.tolerance
+        breaker = _LineBreaker(
+            self,
+            scan.candidates,
+            pre_tolerance,
+        )
+        lines = breaker.run()
+        if lines is None or (
+            context.looseness != 0
+            and breaker.actual_looseness != context.looseness
+        ):
+            breaks = self._hyphenate(parser, hlist, scan.candidates)
+            if breaks:
+                hyphen_breaker = _LineBreaker(
+                    self,
+                    breaks,
+                    context.tolerance,
+                )
+                hyphen_lines = hyphen_breaker.run()
+                if hyphen_lines is not None:
+                    breaker = hyphen_breaker
+                    lines = hyphen_lines
+        if lines is None:
+            breaker = _LineBreaker(
+                self,
+                scan.candidates,
+                max(context.tolerance, 10000),
+                allow_overfull=True,
+            )
+            lines = breaker.run()
+        context.actual_looseness = breaker.actual_looseness
+        return lines
+
+    def _hyphenate(self, parser, hlist, scan):
+        """
+        Build virtual discretionary break candidates for automatic hyphenation.
+        @param scan: the initial break candidate scan result without hyphenation.
+        @return boolean indicating whether virtual discretionary candidates are available.
+        """
+        cached = {}
+        context = self.typeset_context
+        breaks = []
+        words = iter(context.words)
+        current_word = next(words, None)
+        # if no word to hyphenate, return immediately
+        if not scan or current_word is None:
+            return None
+        # for each candidate, check if the current word is hyphenatable
+        n = len(scan)
+        next_candidate = scan[0]
+        hyphen = None
+        font = None
+        for i in range(n-1):
+            candidate = next_candidate
+            next_candidate = scan[i + 1]
+            breaks.append(candidate)
+            # while current_word is in the candidate, try to hyphenate it
+            while candidate.break_index <= current_word.begin < next_candidate.break_index:
+                key = (current_word.language, current_word.text)
+                if key in cached:
+                    hyphen_points = cached[key]
+                else:
+                    parser.hyphenator.setLanguage(current_word.language)
+                    hyphen_points = parser.hyphenator.hyphenate(current_word.text)
+                    cached[key] = hyphen_points
+                if not hyphen_points:
+                    break
+                hyphens = iter(hyphen_points)
+                left = hyphen_points[0]
+                right = len(current_word.text) - hyphen_points[-1]
+                if left < context.lefthyphenmin or right < context.righthyphenmin:
+                    break
+                # check if the word contains a ligature, as these have different DISC nodes.
+                pos = 0 # the current character position in the word
+                hyphen_point = next(hyphens, None)
+                disc = None
+                for j in range(current_word.begin, current_word.end):
+                    node = hlist[j]
+                    if node.node_type == nd.NODE_TYPE.LIGATURE:
+                        if font != node.font:
+                            font = node.font
+                            hyphen = font.hyphenChar()
+                        if pos <= hyphen_point < pos + len(node.source):
+                            # we are breaking in the middle of a ligature.
+                            if hyphen is None:
+                                break
+                            pre = node.source[0:hyphen_point - pos]
+                            pre.append(hyphen)
+                            post = node.source[hyphen_point - pos:]
+                            replace = [node]
+                            disc = nd.Disc(pre, post, replace)
+                            disc.source = node
+                            # TODO We are chaning the original paragraph node list here, which is not ideal. 
+                            hlist[j] = disc
+                        pos += len(node.source)
+                    elif node.node_type == nd.NODE_TYPE.CHAR:
+                        if font != node.font:
+                            font = node.font
+                            hyphen = font.hyphenChar()
+                        if pos == hyphen_point:
+                            # we are breaking at a character boundary.
+                            if hyphen is None:
+                                break
+                            disc = nd.Disc([hyphen], [], [])
+                        pos += 1
+                    if disc is not None:
+                        # add a break candidate here
+                        new = _BreakCandidate(j)
+                        new.disc = disc
+                        new.hyphenated = True
+                        breaks.append(new)
+                        # move to the next hyphenation point
+                        hyphen_point = next(hyphens, None)
+                        if hyphen_point is None:
+                            break
+                current_word = next(words, None)
+                if current_word is None:
+                    breaks.extend(scan[i + 1:])
+                    return breaks
+        return breaks
 
 
 def _isDiscardable(node):
@@ -155,6 +420,7 @@ class _BreakCandidate:
         self.penalty = 0
         self.hyphenated = False
         self.disc = None
+        self.disc_skip = 0
         self.discard = Glue()
         self.line_start_index = break_index
         self.natural = Glue()
@@ -230,9 +496,9 @@ class _BreakCandidateScan:
     This preprocessing is independent from tolerance and demerit settings,
     so one scan can be reused across multiple line-breaking rounds.
     """
-    def __init__(self, para):
+    def __init__(self, context, para):
         self.para = para
-        self.context = para.typeset_context
+        self.context = context
         if (
             len(para) < 2
             or para[-2].node_type != nd.NODE_TYPE.PENALTY
@@ -303,7 +569,7 @@ class _BreakCandidateScan:
         if candidate.disc is not None:
             # For discretionary breaks, start with post-break material;
             # discardables after the break are not subtracted here.
-            candidate.line_start_index = candidate.break_index + 1
+            candidate.line_start_index = candidate.break_index + candidate.disc_skip
             candidate.discard = Glue()
             return
 
@@ -360,6 +626,7 @@ class _BreakCandidateScan:
             if node_type == nd.NODE_TYPE.DISC:
                 candidate = _BreakCandidate(i)
                 candidate.disc = node
+                candidate.disc_skip = 1
                 candidate.hyphenated = self._discHyphenated(node)
                 candidate.penalty = self.context.exhyphenpenalty
                 append_candidate(candidate)
@@ -374,10 +641,26 @@ class _BreakCandidateScan:
 
         for i, candidate in enumerate(candidates[:-1]):
             nxt = candidates[i + 1]
-            start = candidate.break_index + 1 if candidate.disc is not None else candidate.break_index
+            if candidate.disc is not None:
+                start = candidate.break_index + candidate.disc_skip
+            else:
+                start = candidate.break_index
             candidate.natural = self.segmentNatural(start, nxt.break_index)
         candidates[-1].natural = Glue()
         return candidates
+
+
+class _VirtualDisc:
+    """
+    Discretionary payload for an automatic hyphenation break candidate.
+    """
+    def __init__(self, pre, post=None, replace=None):
+        self.pre = list(pre)
+        self.post = [] if post is None else list(post)
+        self.replace = [] if replace is None else list(replace)
+        self.pre_width = nd.Disc._fixedWidth(self.pre)
+        self.post_width = nd.Disc._fixedWidth(self.post)
+        self.replace_width = nd.Disc._fixedWidth(self.replace)
 
 
 class _LineBreaker:
@@ -387,7 +670,7 @@ class _LineBreaker:
     def __init__(self, para, breaks, tolerance, allow_overfull=False):
         self.para = para
         self.context = para.typeset_context
-        self.end = len(para)
+        self.end = breaks[-1].break_index if breaks else len(para)
         self.tolerance = tolerance
         self.allow_overfull = allow_overfull
         self.breaks = breaks
@@ -549,104 +832,14 @@ class _LineBreaker:
         return plan
 
 
-def _hyphenate(para):
-    """
-    Insert discretionary nodes for automatic hyphenation before round 2.
-    @param para the paragraph to hyphenate
-    @return boolean indicating whether discretionary nodes have been inserted.
-    """
-    # TODO: implement paragraph hyphenation pass.
-    return False
-
-
-def _lineNodes(nodes, line):
-    line_nodes = list(nodes[line.begin.line_start_index:line.end.break_index])
-    expanded = []
-    for node in line_nodes:
-        if node.node_type == nd.NODE_TYPE.DISC:
-            expanded.extend(node.replace)
-        else:
-            expanded.append(node)
-    if line.begin.disc is not None and line.begin.disc.post:
-        expanded = list(line.begin.disc.post) + expanded
-    if line.end.disc is not None and line.end.disc.pre:
-        expanded.extend(line.end.disc.pre)
-    return expanded
-
-
-def lineBreak(parser, para, vlist):
-    """
-    Break one paragraph into lines (TeXbook Chapter 14).
-
-    This routine is paragraph-driven (the paragraph is explicit), so lazy
-    typesetting can line-break paragraphs later.
-
-    Round strategy:
-    - Round 1: no automatic hyphenation.
-    - If no feasible result, hyphenate and run round 2.
-    - If still infeasible, run a fallback round that allows overfull forced
-      breaks (matching TeX's "always break somehow" behavior).
-    """
-    if not isinstance(para, Paragraph):
-        raise ValueError("lineBreak expects a Paragraph node")
-    if para.typeset_context is None:
-        raise ValueError("paragraph is missing typeset context")
-    if getattr(vlist, "type", None) != lists.LISTTYPE.VERTICAL:
-        raise ValueError("lineBreak expects a vertical list output")
-
-    # Expand typesettable nodes once before round 1.
-    if not getattr(para, "_linebreak_prepared", False):
-        para[:] = para.typesetNodes(para.parser, para)
-        para._linebreak_prepared = True
-
-    context = para.typeset_context
-    scan = _BreakCandidateScan(para)
-    pre_tolerance = context.pretolerance
-    if pre_tolerance < 0:
-        pre_tolerance = context.tolerance
-    breaker = _LineBreaker(
-        para,
-        scan.candidates,
-        pre_tolerance,
-    )
-    lines = breaker.run()
-    if lines is None and _hyphenate(para):
-        scan = _BreakCandidateScan(para)
-        breaker = _LineBreaker(
-            para,
-            scan.candidates,
-            context.tolerance,
-        )
-        lines = breaker.run()
-    if lines is None:
-        breaker = _LineBreaker(
-            para,
-            scan.candidates,
-            max(context.tolerance, 10000),
-            allow_overfull=True,
-        )
-        lines = breaker.run()
-    if lines is None:
-        return
-    context.actual_looseness = breaker.actual_looseness
-    for i, line in enumerate(lines):
-        line_nodes = _lineNodes(para, line)
-        indent, measure = _lineShape(context, i + 1)
-        packed = [nd.Glue(context.leftskip)]
-        if indent != 0:
-            packed.insert(0, nd.Glue(Glue(indent)))
-        packed.extend(line_nodes)
-        packed.append(nd.Glue(context.rightskip))
-        hbox = bx.HBox(parser, measure, Dimen())
-        hbox.list[:] = packed
-        hbox.typeset(parser, [])
-        hbox.source = para
-        vlist.append(hbox)
-    context.setLineCount(len(lines))
+class SetLanguage(HorizontalCommand):
+    def horizontal(self, parser, hlist):
+        language = parser.readInteger()
+        hlist.append(Language(language))
 
 
 mod = Module("paragraph",
-    attributes={
-        "lineBreak": lineBreak,
+    commands={
+        "setlanguage": SetLanguage(),
     },
 )

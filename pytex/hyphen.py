@@ -77,6 +77,85 @@ class Hyphenator:
         self.words = self.dicts[self.language]
         self.pattern_trie = self.pattern_tries[self.language]
 
+    @staticmethod
+    def _insertPattern(root, letters, weights):
+        """
+        Insert one normalized TeX pattern into a trie root.
+        """
+        node = root
+        for c in letters:
+            child = node.children.get(c)
+            if child is None:
+                child = _PatternTrieNode()
+                node.children[c] = child
+            node = child
+        node.weights = list(weights)
+
+    @staticmethod
+    def _dumpPatternTrie(root):
+        """
+        Flatten one trie into serializable [letters, weights] pairs.
+        """
+        out = []
+        stack = [("", root)]
+        while stack:
+            letters, node = stack.pop()
+            if node.weights is not None:
+                out.append([letters, list(node.weights)])
+            # Keep deterministic dump order.
+            keys = sorted(node.children.keys(), reverse=True)
+            for c in keys:
+                stack.append((letters + c, node.children[c]))
+        return out
+
+    def dump(self):
+        """
+        Dump hyphenator data for parser format files.
+        """
+        words = {}
+        for i, d in enumerate(self.dicts):
+            if d:
+                words[str(i)] = {word: list(pos) for word, pos in d.items()}
+        patterns = {}
+        for i, root in enumerate(self.pattern_tries):
+            flattened = self._dumpPatternTrie(root)
+            if flattened:
+                patterns[str(i)] = flattened
+        return {
+            "language": self.language,
+            "words": words,
+            "patterns": patterns,
+        }
+
+    def load(self, data):
+        """
+        Load hyphenator data previously produced by dump().
+        """
+        self.dicts = [{} for i in range(self.LANGUAGES)]
+        self.pattern_tries = [_PatternTrieNode() for i in range(self.LANGUAGES)]
+        words = data.get("words", {})
+        for key, d in words.items():
+            i = int(key)
+            if i < 0 or i >= self.LANGUAGES:
+                continue
+            self.dicts[i] = {word: list(pos) for word, pos in d.items()}
+        patterns = data.get("patterns", {})
+        for key, flattened in patterns.items():
+            i = int(key)
+            if i < 0 or i >= self.LANGUAGES:
+                continue
+            root = self.pattern_tries[i]
+            for item in flattened:
+                letters, weights = item
+                self._insertPattern(root, letters, weights)
+        language = data.get("language", 0)
+        if not isinstance(language, int) or language < 0 or language >= self.LANGUAGES:
+            language = 0
+        self.language = 0
+        self.words = self.dicts[0]
+        self.pattern_trie = self.pattern_tries[0]
+        self.setLanguage(language)
+
     def setLanguage(self, language):
         """
         Set the language

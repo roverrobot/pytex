@@ -405,7 +405,11 @@ class Parser:
         dump the state as a format (JSON) file
         @return: the format file content
         """
-        dump = serialization.serialize(self.state.dump())
+        dump = {
+            "state": serialization.serialize(self.state.dump()),
+        }
+        if hasattr(self, "hyphenator"):
+            dump["hyphenator"] = self.hyphenator.dump()
         return json.dumps(dump)
 
     def load(self, file):
@@ -414,7 +418,16 @@ class Parser:
         @param file: the file to load the state
         """
         format = json.loads(file.read())
-        self.state.load(serialization.deserialize(self, format))
+        # Backward compatible: old dumps stored only state data at top level.
+        if "state" in format:
+            state_data = format["state"]
+            hyphen_data = format.get("hyphenator", None)
+        else:
+            state_data = format
+            hyphen_data = None
+        self.state.load(serialization.deserialize(self, state_data))
+        if hyphen_data is not None and hasattr(self, "hyphenator"):
+            self.hyphenator.load(hyphen_data)
 
     def end(self):
         """

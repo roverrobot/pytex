@@ -1,13 +1,12 @@
 """
 This module implements hyphenation
 
-We keep the adhoc hyphenation command \\hyphenation, but the general algorithm uses
-the pyphen library. The \\patterns command thus does nothing.
+Only explicit \\hyphenation exceptions are implemented for now.
+\\patterns is currently a no-op until TeX pattern hyphenation is added.
 """
 
 from pytex import token
 from pytex.module import Module
-import pyphen
 
 
 class Hyphenation(token.Command):
@@ -70,21 +69,14 @@ class Hyphenator:
         """
         Hyphenate a word
         """
-        if word in self.words:
-            return self.words[word]
-        pattern = self.patterns.get(self.language, None)
-        if pattern is None:
-            # TODO: map integer language ids to specific pattern names.
-            pattern = pyphen.Pyphen(lang="en_US")
-            self.patterns[self.language] = pattern
-        return pattern.positions(word)
+        return self.words.get(word, [])
 
 
 class Patterns(token.Command):
     """
     The \\patterns command
 
-    THe hyphanator will use external libraries. So patterns are not implemented
+    Pattern hyphenation is not implemented yet.
     """
     def execute(self, parser):
         parser.readGeneralText()

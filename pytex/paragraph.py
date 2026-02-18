@@ -304,61 +304,60 @@ class Paragraph(hmode.HList):
             while candidate.break_index <= current_word.begin < next_candidate.break_index:
                 parser.hyphenator.setLanguage(current_word.language)
                 hyphen_points = parser.hyphenator.hyphenate(current_word.text)
-                if not hyphen_points:
-                    break
-                hyphens = iter(hyphen_points)
-                left = hyphen_points[0]
-                right = len(current_word.text) - hyphen_points[-1]
-                if left < context.lefthyphenmin or right < context.righthyphenmin:
-                    break
-                # check if the word contains a ligature, as these have different DISC nodes.
-                pos = 0 # the current character position in the word
-                hyphen_point = next(hyphens, None)
-                disc = None
-                for j in range(current_word.begin, current_word.end):
-                    node = hlist[j]
-                    if node.node_type == nd.NODE_TYPE.LIGATURE:
-                        if font != node.font:
-                            font = node.font
-                            hyphen = font.hyphenChar()
-                        if pos <= hyphen_point < pos + len(node.source):
-                            # we are breaking in the middle of a ligature.
-                            if hyphen is None:
-                                break
-                            pre = node.source[0:hyphen_point - pos]
-                            pre.append(hyphen)
-                            post = node.source[hyphen_point - pos:]
-                            replace = [node]
-                            disc = nd.Disc(pre, post, replace)
-                            disc.source = node
-                            # TODO We are chaning the original paragraph node list here, which is not ideal. 
-                            hlist[j] = disc
-                        pos += len(node.source)
-                    elif node.node_type == nd.NODE_TYPE.CHAR:
-                        if font != node.font:
-                            font = node.font
-                            hyphen = font.hyphenChar()
-                        if pos == hyphen_point:
-                            # we are breaking at a character boundary.
-                            if hyphen is None:
-                                break
-                            disc = nd.Disc([hyphen], [], [])
-                        pos += 1
-                    if disc is not None:
-                        # add a break candidate here
-                        new = _BreakCandidate(j)
-                        new.disc = disc
-                        new.hyphenated = True
-                        breaks.append(new)
-                        # move to the next hyphenation point
+                if hyphen_points:
+                    hyphens = iter(hyphen_points)
+                    left = hyphen_points[0]
+                    right = len(current_word.text) - hyphen_points[-1]
+                    if left >= context.lefthyphenmin and right >= context.righthyphenmin:
+                        # check if the word contains a ligature, as these have different DISC nodes.
+                        pos = 0 # the current character position in the word
                         hyphen_point = next(hyphens, None)
-                        if hyphen_point is None:
-                            break
+                        for j in range(current_word.begin, current_word.end):
+                            disc = None
+                            node = hlist[j]
+                            if node.node_type == nd.NODE_TYPE.LIGATURE:
+                                if font != node.font:
+                                    font = node.font
+                                    hyphen = font.hyphenChar()
+                                if pos <= hyphen_point < pos + len(node.source):
+                                    # we are breaking in the middle of a ligature.
+                                    if hyphen is None:
+                                        break
+                                    pre = node.source[0:hyphen_point - pos]
+                                    pre.append(hyphen)
+                                    post = node.source[hyphen_point - pos:]
+                                    replace = [node]
+                                    disc = nd.Disc(pre, post, replace)
+                                    disc.source = node
+                                    # TODO We are chaning the original paragraph node list here, which is not ideal. 
+                                    hlist[j] = disc
+                                pos += len(node.source)
+                            elif node.node_type == nd.NODE_TYPE.CHAR:
+                                if font != node.font:
+                                    font = node.font
+                                    hyphen = font.hyphenChar()
+                                if pos == hyphen_point:
+                                    # we are breaking at a character boundary.
+                                    if hyphen is None:
+                                        break
+                                    disc = nd.Disc([hyphen], [], [])
+                                pos += 1
+                            if disc is not None:
+                                # add a break candidate here
+                                new = _BreakCandidate(j)
+                                new.disc = disc
+                                new.hyphenated = True
+                                breaks.append(new)
+                                # move to the next hyphenation point
+                                hyphen_point = next(hyphens, None)
+                                if hyphen_point is None:
+                                    break
                 current_word = next(words, None)
                 if current_word is None:
                     breaks.extend(scan[i + 1:])
-                    return breaks
-        return breaks
+                    return _BreakCandidateScan.fillMetrics(context, hlist, breaks)
+        breaks.extend(scan[n - 1:])
+        return _BreakCandidateScan.fillMetrics(context, hlist, breaks)
 
 
 def _isDiscardable(node):
@@ -629,6 +628,18 @@ class _BreakCandidateScan:
             end_candidate = _BreakCandidate(self.end)
             end_candidate.penalty = -10000
             append_candidate(end_candidate)
+
+        return self._fillMetrics(candidates)
+
+    @classmethod
+    def fillMetrics(cls, context, para, candidates):
+        scan = cls.__new__(cls)
+        scan.context = context
+        scan.para = para
+        scan.end = len(para)
+        return scan._fillMetrics(candidates)
+
+    def _fillMetrics(self, candidates):
 
         for candidate in candidates:
             self._prepareCandidateStart(candidate)

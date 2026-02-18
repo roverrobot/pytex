@@ -226,13 +226,15 @@ class Hyphenator:
         """
         Hyphenate a word
         """
+        # Explicit exceptions take precedence and are looked up directly.
+        # We cache only pattern-derived results.
+        exceptions = self.words.get(word, None)
+        if exceptions is not None:
+            return exceptions
+
         cached = self.cache.get(word, None)
         if cached is not None:
             return cached
-        exceptions = self.words.get(word, None)
-        if exceptions is not None:
-            self.cache[word] = exceptions
-            return exceptions
         # TeX pattern matching is done against ".word.".
         text = "." + word + "."
         boundaries = [0] * (len(text) + 1)

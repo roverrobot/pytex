@@ -193,6 +193,22 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
     assert endings[:3] == ["technique", "than", "less"]
 
 
+def test_linebreak_plain_hyphenate_ends_line_one_with_hyphen(parser):
+    parser.parse("\\input plain")
+    parser.parse(
+        "\\noindent TEX will henceforth insert discretionary hyphens in the specified positions,"
+        " whenever it attempts to hyphenate a word that matches an entry in the exception dictionary,"
+        " except that plain TEX blocks hyphens after the very first letter or before the last or"
+        " second-last letter of a word.\\par"
+    )
+    para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
+    out = vmode.VList(parser)
+    para.typeset(parser, out)
+    assert len(out) == 3
+    endings = [_lineEndingWord(line) for line in out]
+    assert endings[0] == "hyphen-"
+
+
 def test_linebreaker_select_final_positive_looseness():
     finals = [
         types.SimpleNamespace(line_no=4, demerits=10),

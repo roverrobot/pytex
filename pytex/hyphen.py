@@ -1,8 +1,8 @@
 """
 This module implements hyphenation
 
-Only explicit \\hyphenation exceptions are implemented for now.
-\\patterns is parsed and stored, but pattern matching is not implemented yet.
+Explicit \\hyphenation exceptions are supported.
+\\patterns is parsed, stored in a trie, and used for pattern hyphenation.
 
 Planned \\patterns representation:
 - one trie per integer \\language id.
@@ -218,7 +218,34 @@ class Hyphenator:
         """
         Hyphenate a word
         """
-        return self.words.get(word, [])
+        exceptions = self.words.get(word, None)
+        if exceptions is not None:
+            return exceptions
+        # TeX pattern matching is done against ".word.".
+        text = "." + word + "."
+        boundaries = [0] * (len(text) + 1)
+        root = self.pattern_trie
+
+        for start in range(len(text)):
+            node = root
+            pos = start
+            while pos < len(text):
+                node = node.children.get(text[pos], None)
+                if node is None:
+                    break
+                if node.weights is not None:
+                    for i, w in enumerate(node.weights):
+                        b = start + i
+                        if w > boundaries[b]:
+                            boundaries[b] = w
+                pos += 1
+
+        points = []
+        # In ".word.", word boundary k corresponds to boundary index k+1.
+        for k in range(1, len(word)):
+            if boundaries[k + 1] % 2 == 1:
+                points.append(k)
+        return points
 
 
 class Patterns(token.Command):

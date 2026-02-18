@@ -77,3 +77,31 @@ def test_patterns_are_language_scoped(parser):
     root5 = parser.hyphenator._dumpPatternTrie(parser.hyphenator.pattern_tries[5])
     assert root0 == [["ab", [0, 1, 0]]]
     assert root5 == [["cd", [0, 2, 0]]]
+
+
+def test_pattern_hyphenation_basic(parser):
+    parser.parse("\\patterns{a1b}")
+    assert parser.hyphenator.hyphenate("ab") == [1]
+    assert parser.hyphenator.hyphenate("zz") == []
+
+
+def test_pattern_hyphenation_uses_max_weights(parser):
+    parser.parse("\\patterns{ab1c b2c}")
+    # both patterns hit boundary between b and c, max is 2 (even) -> no break
+    assert parser.hyphenator.hyphenate("abc") == []
+    parser.parse("\\patterns{b3c}")
+    # now max becomes 3 (odd) -> break at position 2
+    assert parser.hyphenator.hyphenate("abc") == [2]
+
+
+def test_pattern_hyphenation_respects_boundary_dot(parser):
+    parser.parse("\\patterns{.a1}")
+    # start-of-word-only pattern
+    assert parser.hyphenator.hyphenate("ab") == [1]
+    assert parser.hyphenator.hyphenate("ba") == []
+
+
+def test_hyphenation_exceptions_precede_patterns(parser):
+    parser.parse("\\patterns{a1b}")
+    parser.parse("\\hyphenation{ab-cd}")
+    assert parser.hyphenator.hyphenate("abcd") == [2]

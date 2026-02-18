@@ -105,3 +105,17 @@ def test_hyphenation_exceptions_precede_patterns(parser):
     parser.parse("\\patterns{a1b}")
     parser.parse("\\hyphenation{ab-cd}")
     assert parser.hyphenator.hyphenate("abcd") == [2]
+
+
+def test_hyphenator_cache_invalidated_by_patterns(parser):
+    parser.parse("\\patterns{a1b}")
+    assert parser.hyphenator.hyphenate("ab") == [1]
+    parser.parse("\\patterns{a2b}")
+    assert parser.hyphenator.hyphenate("ab") == []
+
+
+def test_hyphenator_cache_invalidated_by_exceptions(parser):
+    parser.parse("\\patterns{a1b}")
+    assert parser.hyphenator.hyphenate("ab") == [1]
+    parser.parse("\\hyphenation{ab}")
+    assert parser.hyphenator.hyphenate("ab") == []

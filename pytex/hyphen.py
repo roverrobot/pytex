@@ -74,9 +74,12 @@ class Hyphenator:
         self.dicts = [{} for i in range(self.LANGUAGES)]
         # one pattern trie per language id (filled by \\patterns in a later step)
         self.pattern_tries = [_PatternTrieNode() for i in range(self.LANGUAGES)]
+        # per-language cache of computed hyphenation points
+        self.caches = [{} for i in range(self.LANGUAGES)]
         self.language = 0
         self.words = self.dicts[self.language]
         self.pattern_trie = self.pattern_tries[self.language]
+        self.cache = self.caches[self.language]
 
     @staticmethod
     def _insertPattern(root, letters, weights):
@@ -128,6 +131,7 @@ class Hyphenator:
             letters, weights = self._parsePattern(pattern)
             if self._insertPattern(root, letters, weights):
                 duplicates.append(letters)
+        self.cache.clear()
         return duplicates
 
     @staticmethod
@@ -172,6 +176,7 @@ class Hyphenator:
         """
         self.dicts = [{} for i in range(self.LANGUAGES)]
         self.pattern_tries = [_PatternTrieNode() for i in range(self.LANGUAGES)]
+        self.caches = [{} for i in range(self.LANGUAGES)]
         words = data.get("words", {})
         for key, d in words.items():
             i = int(key)
@@ -193,6 +198,7 @@ class Hyphenator:
         self.language = 0
         self.words = self.dicts[0]
         self.pattern_trie = self.pattern_tries[0]
+        self.cache = self.caches[0]
         self.setLanguage(language)
 
     def setLanguage(self, language):
@@ -203,6 +209,7 @@ class Hyphenator:
             self.language = language
             self.words = self.dicts[self.language]
             self.pattern_trie = self.pattern_tries[self.language]
+            self.cache = self.caches[self.language]
 
     def addWords(self, words):
         """
@@ -213,13 +220,18 @@ class Hyphenator:
                 self.words[word] += positions
             else:
                 self.words[word] = positions
+        self.cache.clear()
 
     def hyphenate(self, word):
         """
         Hyphenate a word
         """
+        cached = self.cache.get(word, None)
+        if cached is not None:
+            return cached
         exceptions = self.words.get(word, None)
         if exceptions is not None:
+            self.cache[word] = exceptions
             return exceptions
         # TeX pattern matching is done against ".word.".
         text = "." + word + "."
@@ -245,6 +257,7 @@ class Hyphenator:
         for k in range(1, len(word)):
             if boundaries[k + 1] % 2 == 1:
                 points.append(k)
+        self.cache[word] = points
         return points
 
 

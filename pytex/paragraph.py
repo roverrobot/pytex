@@ -284,7 +284,6 @@ class Paragraph(hmode.HList):
         @param scan: the initial break candidate scan result without hyphenation.
         @return boolean indicating whether virtual discretionary candidates are available.
         """
-        cached = {}
         context = self.typeset_context
         breaks = []
         words = iter(context.words)
@@ -303,13 +302,8 @@ class Paragraph(hmode.HList):
             breaks.append(candidate)
             # while current_word is in the candidate, try to hyphenate it
             while candidate.break_index <= current_word.begin < next_candidate.break_index:
-                key = (current_word.language, current_word.text)
-                if key in cached:
-                    hyphen_points = cached[key]
-                else:
-                    parser.hyphenator.setLanguage(current_word.language)
-                    hyphen_points = parser.hyphenator.hyphenate(current_word.text)
-                    cached[key] = hyphen_points
+                parser.hyphenator.setLanguage(current_word.language)
+                hyphen_points = parser.hyphenator.hyphenate(current_word.text)
                 if not hyphen_points:
                     break
                 hyphens = iter(hyphen_points)

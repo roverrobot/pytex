@@ -3,10 +3,33 @@ This module implements hyphenation
 
 Only explicit \\hyphenation exceptions are implemented for now.
 \\patterns is currently a no-op until TeX pattern hyphenation is added.
+
+Planned \\patterns representation:
+- one trie per integer \\language id.
+- each pattern is split into:
+  - letters (trie path), and
+  - inter-letter weights stored at the terminal node.
+- during matching, we will walk the trie from each start position in ".word."
+  and merge terminal weights with element-wise max, then keep odd positions.
 """
 
 from pytex import token
 from pytex.module import Module
+
+
+class _PatternTrieNode:
+    """
+    Trie node for TeX hyphenation patterns.
+
+    - `children`: next letter -> child node.
+    - `weights`: terminal pattern weights at this node, or None if this node
+      does not terminate a pattern.
+    """
+    __slots__ = ("children", "weights")
+
+    def __init__(self):
+        self.children = {}
+        self.weights = None
 
 
 class Hyphenation(token.Command):
@@ -37,15 +60,22 @@ class Hyphenation(token.Command):
 
 class Hyphenator:
     """
-    The hyphenator class
+    Hyphenator state for all TeX language ids.
+
+    Data model:
+    - `dicts[lang]`: explicit \\hyphenation exception map for that language.
+    - `pattern_tries[lang]`: root trie node for \\patterns of that language.
+    - `words` / `pattern_trie`: active views for current `language`.
     """
     LANGUAGES = 256
     def __init__(self):
         # the words are organized into dictionaries that are indexed by the language
         self.dicts = [{} for i in range(self.LANGUAGES)]
+        # one pattern trie per language id (filled by \\patterns in a later step)
+        self.pattern_tries = [_PatternTrieNode() for i in range(self.LANGUAGES)]
         self.language = 0
         self.words = self.dicts[self.language]
-        self.patterns = {}
+        self.pattern_trie = self.pattern_tries[self.language]
 
     def setLanguage(self, language):
         """
@@ -54,6 +84,7 @@ class Hyphenator:
         if self.language != language:
             self.language = language
             self.words = self.dicts[self.language]
+            self.pattern_trie = self.pattern_tries[self.language]
 
     def addWords(self, words):
         """

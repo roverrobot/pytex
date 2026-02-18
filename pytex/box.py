@@ -163,7 +163,7 @@ class HBox(Box):
                 h = box.height
                 d = box.depth
             elif node.node_type == nd.NODE_TYPE.MATH:
-                natural.dimen += self.list.parser.state.layout["mathsurround"]
+                natural.dimen += node.kern # .kern has been set by MList.typeset
                 return natural
             else:
                 return natural

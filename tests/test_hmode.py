@@ -4,6 +4,7 @@ from pytex import glue
 from pytex import lists
 from pytex import texlive
 from pytex import hmode
+from pytex import paragraph
 from pytex.box import LEADERS_TYPE
 from pytex import texlive
 from pytex import dimen
@@ -31,7 +32,7 @@ def test_par(cmr10):
     assert len(cmr10.lists) == 1
     vlist = cmr10.lists[-1]
     assert vlist.type == lists.LISTTYPE.VERTICAL
-    hlist = vlist[0]
+    hlist = next(node for node in vlist if isinstance(node, paragraph.Paragraph))
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
     assert len(hlist) == 8 # indent, h, e, l, l, o, penalty(10000), glue,
     node = hlist[0]
@@ -51,15 +52,11 @@ def test_vskip(cmr10):
     assert len(cmr10.lists) == 1
     vlist = cmr10.lists[-1]
     assert vlist.type == lists.LISTTYPE.VERTICAL
-    assert len(vlist) == 3
-    hlist = vlist[0]
-    assert hlist.type == lists.LISTTYPE.HORIZONTAL
-    assert len(hlist) == 8
-    node = vlist[1]
-    assert node.node_type == nd.NODE_TYPE.GLUE
-    assert node.glue.dimen == 72.26999
-    hlist = vlist[2]
-    assert hlist.type == lists.LISTTYPE.HORIZONTAL
+    hlists = [node for node in vlist if isinstance(node, paragraph.Paragraph)]
+    assert len(hlists) == 2
+    assert len(hlists[0]) == 8
+    vs = [node for node in vlist if node.node_type == nd.NODE_TYPE.GLUE and node.glue.dimen == 72.26999]
+    assert len(vs) == 1
 
 
 def test_controlled_space(cmr10):

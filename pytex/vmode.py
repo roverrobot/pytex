@@ -25,12 +25,44 @@ class VList(lists.List):
         super().__init__(parser, lists.LISTTYPE.VERTICAL, inner=inner)
         parser.state.volatile["prevdepth"] = init_prevdepth
 
-    def append(self, node):
+    def append(self, node, context=None):
         """
         Append a node to the list.
         @param node: the node to append
         """
-        self.parser.state.volatile["prevdepth"] = node.depth if isinstance(node, nd.Box) else init_prevdepth
+        if isinstance(node, nd.Box):
+            is_rule = getattr(node, "node_type", None) == nd.NODE_TYPE.RULE
+            prevdepth = self.parser.state.volatile["prevdepth"]
+            if (not is_rule) and prevdepth > init_prevdepth:
+                if context is None:
+                    layout = self.parser.state.layout
+                    baselineskip = layout["baselineskip"]
+                    lineskip = layout["lineskip"]
+                    lineskiplimit = layout["lineskiplimit"]
+                    interlinepenalty = layout["interlinepenalty"]
+                else:
+                    baselineskip = context.baselineskip
+                    lineskip = context.lineskip
+                    lineskiplimit = context.lineskiplimit
+                    interlinepenalty = context.interlinepenalty
+                if interlinepenalty != 0:
+                    super().append(nd.Penalty(interlinepenalty))
+                d = baselineskip.dimen - prevdepth - node.height
+                if d < lineskiplimit:
+                    super().append(nd.Glue(lineskip))
+                else:
+                    super().append(nd.Glue(Glue(d, baselineskip.stretch, baselineskip.shrink)))
+            if is_rule:
+                # Rules suppress interline glue around themselves.
+                self.parser.state.volatile["prevdepth"] = init_prevdepth
+            else:
+                self.parser.state.volatile["prevdepth"] = (
+                    init_prevdepth if node.depth is None else node.depth
+                )
+        else:
+            # Penalties do not break baseline chaining.
+            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                self.parser.state.volatile["prevdepth"] = init_prevdepth
         super().append(node)
 
 

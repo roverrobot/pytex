@@ -357,6 +357,9 @@ class Parser:
         # TeX’s input. The page builder is exercised. When the paragraph is 
         # eventually completed, horizontal mode will come to an end as described 
         # in Chapter 25. (The TeX Book pp.282)        """
+        top = self.lists[-1]
+        if top.type == lists.LISTTYPE.VERTICAL and (not top.inner or len(top) > 0):
+            top.append(node.Glue(self.state.parameters["parskip"]))
         hlist = paragraph.Paragraph(self, indent)
         self.lists.append(hlist)
         everypar = self.everypar.value
@@ -366,6 +369,7 @@ class Parser:
                 self.message(f"everypar: {self.toksToString(everypar)}")
         # the spacefactor is set to 1000 at the beginning of a paragraph
         self.state.globals["spacefactor"] = 1000
+        self.state.globals["prevgraf"] = 0
         return hlist
 
     def endParagraph(self):
@@ -384,10 +388,7 @@ class Parser:
         hlist.append(node.Glue(self.state.parameters["parfillskip"]))
         self.lists.pop()
         top = self.lists[-1]
-        prev_context = None
-        if len(top) > 0 and isinstance(top[-1], paragraph.Paragraph):
-            prev_context = top[-1].typeset_context
-        hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist, prev_context)
+        hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist)
         # TeX clears \\looseness after each paragraph.
         self.state.layout["looseness"] = 0
         top.append(hlist)

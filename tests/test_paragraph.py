@@ -21,7 +21,7 @@ def test_language(cmr10):
 def test_paragraph_typeset_context_snapshot(parser):
     parser.parse("\\hsize=10pt a\\par")
     vlist = parser.lists[-1]
-    p = vlist[0]
+    p = next(node for node in vlist if isinstance(node, paragraph.Paragraph))
     assert isinstance(p, paragraph.Paragraph)
     assert p.typeset_context is not None
     assert p.typeset_context.paragraph is p
@@ -35,33 +35,19 @@ def test_paragraph_typeset_context_captures_words_and_hyphenation(cmr10):
     cmr10.parse("\\hyphenation{Tech-nique}\\lefthyphenmin=2\\righthyphenmin=3\\hsize=10pt\\parindent=0pt")
     # This is preceeded by the indent box, is and a are too short. So the only word to be hyphenated is technique
     cmr10.parse("This is a technique\\par")
-    p = cmr10.lists[-1][0]
+    p = next(node for node in cmr10.lists[-1] if isinstance(node, paragraph.Paragraph))
     assert isinstance(p, paragraph.Paragraph)
     ctx = p.typeset_context
     assert [word.text for word in ctx.words] == ["technique"]
     assert p[ctx.words[0].begin].char == "t" and p[ctx.words[0].end-1].char == "e"
 
 
-def test_paragraph_prevgraf_propagation(parser):
-    parser.parse("a\\par b\\par")
-    vlist = parser.lists[-1]
-    p1 = vlist[0]
-    p2 = vlist[1]
-    assert isinstance(p1, paragraph.Paragraph)
-    assert isinstance(p2, paragraph.Paragraph)
-    assert p1.typeset_context.next_context is p2.typeset_context
-    assert p2.typeset_context.prev_context is p1.typeset_context
-    assert p1.typeset_context.prevgraf == 0
-    assert p2.typeset_context.prevgraf == 0
-    p1.typeset_context.setLineCount(7)
-    assert p2.typeset_context.prevgraf == 7
-
-
 def test_paragraph_chain_break_on_nonparagraph(parser):
     parser.parse("a\\par\\vskip1pt b\\par")
     vlist = parser.lists[-1]
-    p1 = vlist[0]
-    p2 = vlist[2]
+    ps = [node for node in vlist if isinstance(node, paragraph.Paragraph)]
+    p1 = ps[0]
+    p2 = ps[1]
     assert isinstance(p1, paragraph.Paragraph)
     assert isinstance(p2, paragraph.Paragraph)
     assert p1.typeset_context.next_context is None
@@ -71,13 +57,21 @@ def test_paragraph_chain_break_on_nonparagraph(parser):
 
 def test_linebreak_uses_explicit_paragraph_argument(parser):
     parser.parse("a\\par")
-    para = parser.lists[-1][0]
+    para = next(node for node in parser.lists[-1] if isinstance(node, paragraph.Paragraph))
     parser.parse("b")
     out = vmode.VList(parser)
     para.typeset(parser, out)
     assert len(out) == 1
     assert out[0].node_type == nd.NODE_TYPE.HLIST
     assert para.typeset_context.line_count == 1
+
+
+def test_implicit_paragraph_adds_parskip(parser):
+    parser.parse("\\parskip=5pt a\\par")
+    top = parser.lists[-1]
+    assert top[0].node_type == nd.NODE_TYPE.GLUE
+    assert top[0].glue.dimen == 5
+    assert isinstance(top[1], paragraph.Paragraph)
 
 
 def test_linebreak_discards_leading_discardables(cmr10):
@@ -175,6 +169,10 @@ def _lineEndingWord(hbox):
     return words[-1] if words else ""
 
 
+def _lineBoxes(vlist):
+    return [node for node in vlist if node.node_type == nd.NODE_TYPE.HLIST]
+
+
 def test_linebreak_matches_tex_reference_paragraph(cmr10):
     text = (
         "TEX attempts to choose desirable places to divide your document into individual "
@@ -188,8 +186,9 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
     para = cmr10.lists[-1][-1]
     out = vmode.VList(cmr10)
     para.typeset(cmr10, out)
-    assert len(out) == 4
-    endings = [_lineEndingWord(line) for line in out]
+    lines = _lineBoxes(out)
+    assert len(lines) == 4
+    endings = [_lineEndingWord(line) for line in lines]
     assert endings[:3] == ["technique", "than", "less"]
 
 
@@ -207,8 +206,9 @@ def test_linebreak_matches_tex_reference_paragraph_looseness(parser):
     para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
     out = vmode.VList(parser)
     para.typeset(parser, out)
-    assert len(out) == 4
-    endings = [_lineEndingWord(line) for line in out]
+    lines = _lineBoxes(out)
+    assert len(lines) == 4
+    endings = [_lineEndingWord(line) for line in lines]
     assert endings[:3] == ["tech-", "difficult", "much"]
 
 
@@ -223,9 +223,23 @@ def test_linebreak_plain_hyphenate_ends_line_one_with_hyphen(parser):
     para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
     out = vmode.VList(parser)
     para.typeset(parser, out)
-    assert len(out) == 3
-    endings = [_lineEndingWord(line) for line in out]
+    lines = _lineBoxes(out)
+    assert len(lines) == 3
+    endings = [_lineEndingWord(line) for line in lines]
     assert endings[0] == "hyphen-"
+
+
+def test_paragraph_typeset_inserts_interline_glue(cmr10):
+    cmr10.parse("\\hsize=20pt\\parindent=0pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt ")
+    cmr10.parse("a a a a a\\par")
+    para = cmr10.lists[-1][-1]
+    out = vmode.VList(cmr10)
+    para.typeset(cmr10, out)
+    lines = _lineBoxes(out)
+    assert len(lines) > 1
+    interline = [node for node in out if node.node_type == nd.NODE_TYPE.GLUE]
+    assert len(interline) >= len(lines) - 1
+    assert interline[0].glue.dimen > 0
 
 
 def test_linebreaker_select_final_positive_looseness():
@@ -255,8 +269,9 @@ def test_linebreaker_select_final_negative_looseness():
 def test_paragraph_looseness_resets_after_paragraph(parser):
     parser.parse("\\looseness=2 a\\par b\\par")
     vlist = parser.lists[-1]
-    p1 = vlist[0]
-    p2 = vlist[1]
+    ps = [node for node in vlist if isinstance(node, paragraph.Paragraph)]
+    p1 = ps[0]
+    p2 = ps[1]
     assert isinstance(p1, paragraph.Paragraph)
     assert isinstance(p2, paragraph.Paragraph)
     assert p1.typeset_context.looseness == 2

@@ -5,6 +5,7 @@ from pytex import token
 from pytex import font
 from pytex import lists
 from pytex import node as nd
+from pytex import paragraph
 import json
 import io
 
@@ -34,8 +35,7 @@ def test_plain(plain):
     # the content of the log file
     top = plain.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 3
-    hlist = top[0]
+    hlist = next(node for node in top if isinstance(node, paragraph.Paragraph))
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
     # Kerning is now applied while characters are appended to the hlist.
     assert len(hlist) == 19

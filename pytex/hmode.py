@@ -241,12 +241,8 @@ class Indent(lists.ModeDependentCommand):
     The \\indent command.
     """
     def vertical(self, parser, vlist):
-        # The \parskip glue is appended to the current list, unless TeX is in
-        # internal vertical mode and the current list is empty. Then TeX enters 
-        # unrestricted horizontal mode (i.e., start a new paragraph). See 
-        # The TeX Book pp.282
-        if not vlist.inner or len(vlist) > 0:
-            vlist.append(nd.Glue(parser.state.parameters["parskip"]))
+        # Enter unrestricted horizontal mode (i.e., start a new paragraph).
+        # \parskip handling is centralized in Parser.newParagraph.
         parser.newParagraph()
     
     def horizontal(self, parser, hlist):
@@ -268,8 +264,7 @@ class NoIndent(lists.ModeDependentCommand):
     def vertical(self, parser, vlist):
         # This is exactly like \indent, except that T EX starts out in 
         # horizontal mode with an empty list instead of with an indentation.
-        if not vlist.inner or len(vlist) > 0:
-            vlist.append(nd.Glue(parser.state.parameters["parskip"]))
+        # \parskip handling is centralized in Parser.newParagraph.
         parser.newParagraph(indent=False)
     
     def horizontal(self, parser, hlist):

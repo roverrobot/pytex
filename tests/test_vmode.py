@@ -3,6 +3,9 @@ from pytex import node as nd
 from pytex import glue
 from pytex import lists
 from pytex import texlive
+from pytex import vmode
+from pytex import box as bx
+from pytex.dimen import Dimen
 from pytex.box import LEADERS_TYPE
 from pytex.expandable import toksToString
 
@@ -137,3 +140,33 @@ def test_unkern(cmr10, cmd):
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     assert len(top) == 0
+
+
+def _test_hbox(parser, height=6, depth=2):
+    hbox = bx.HBox(parser, None, 0)
+    hbox.width = Dimen(0)
+    hbox.height = Dimen(height)
+    hbox.depth = Dimen(depth)
+    hbox.list = []
+    return hbox
+
+
+def test_prevdepth_penalty_does_not_reset(parser):
+    parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
+    vlist = vmode.VList(parser)
+    vlist.append(_test_hbox(parser))
+    vlist.append(nd.Penalty(0))
+    vlist.append(_test_hbox(parser))
+    glues = [n for n in vlist if n.node_type == nd.NODE_TYPE.GLUE]
+    assert len(glues) == 1
+    assert glues[0].glue.dimen == 4
+
+
+def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
+    parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
+    vlist = vmode.VList(parser)
+    vlist.append(_test_hbox(parser))
+    vlist.append(nd.Rule(0, 4, 0))
+    vlist.append(_test_hbox(parser))
+    glues = [n for n in vlist if n.node_type == nd.NODE_TYPE.GLUE]
+    assert len(glues) == 0

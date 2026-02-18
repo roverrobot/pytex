@@ -27,23 +27,25 @@ class ParagraphTypesetContext:
     """
     Frozen typesetting context for a paragraph.
     """
-    def __init__(self, parser, paragraph, prev_context=None):
+    def __init__(self, parser, paragraph):
         self.paragraph = paragraph
-        self.prev_context = prev_context
+        self.prev_context = None
         self.next_context = None
         self.line_count = None
-        if prev_context is not None:
-            prev_context.next_context = self
-            self.prevgraf = 0 if prev_context.line_count is None else prev_context.line_count
-        else:
-            self.prevgraf = 0
+        # In TeX, \prevgraf is reset to 0 at paragraph start unless display-math
+        # machinery sets it; display math integration is handled separately.
+        self.prevgraf = 0
         self.hsize = parser.state.layout["hsize"]
         self.leftskip = parser.state.layout["leftskip"]
         self.rightskip = parser.state.layout["rightskip"]
         self.parfillskip = parser.state.parameters["parfillskip"]
+        self.baselineskip = parser.state.layout["baselineskip"]
+        self.lineskip = parser.state.layout["lineskip"]
+        self.lineskiplimit = parser.state.layout["lineskiplimit"]
         self.pretolerance = parser.state.layout["pretolerance"]
         self.tolerance = parser.state.layout["tolerance"]
         self.linepenalty = parser.state.layout["linepenalty"]
+        self.interlinepenalty = parser.state.layout["interlinepenalty"]
         self.hyphenpenalty = parser.state.layout["hyphenpenalty"]
         self.exhyphenpenalty = parser.state.layout["exhyphenpenalty"]
         self.adjdemerits = parser.state.layout["adjdemerits"]
@@ -60,8 +62,6 @@ class ParagraphTypesetContext:
 
     def setLineCount(self, line_count):
         self.line_count = line_count
-        if self.next_context is not None:
-            self.next_context.prevgraf = line_count
 
     def buildWords(self, parser, paragraph):
         # TEX looks for potentially hyphenatable words by searching ahead from each
@@ -204,14 +204,8 @@ class Paragraph(hmode.HList):
                 # if the line starts with a ligature then add in the post nodes
                 if line.begin.disc is not None:
                     packed.extend(line.begin.disc.post)
-                discarding = True
                 # for any disc node in between, replace it with the replace list
-                for node in hlist[line.begin.break_index:line.end.break_index]:
-                    if discarding:
-                        if _isDiscardable(node):
-                            continue
-                        else:
-                            discarding = False
+                for node in hlist[line.begin.line_start_index:line.end.break_index]:
                     if node.node_type == nd.NODE_TYPE.DISC:
                         packed.extend(node.replace)
                     else:
@@ -224,8 +218,7 @@ class Paragraph(hmode.HList):
                 hbox.list = packed
                 hbox.typeset(parser, [])
                 hbox.source = self
-                # TODO add an interline glue into the vlist
-                vlist.append(hbox)
+                vlist.append(hbox, context=context)
             context.setLineCount(len(lines))
 
     def lineBreak(self, parser, hlist):

@@ -2,7 +2,7 @@
 This module implements hyphenation
 
 Only explicit \\hyphenation exceptions are implemented for now.
-\\patterns is currently a no-op until TeX pattern hyphenation is added.
+\\patterns is parsed and stored, but pattern matching is not implemented yet.
 
 Planned \\patterns representation:
 - one trie per integer \\language id.
@@ -37,6 +37,7 @@ class Hyphenation(token.Command):
     The \\hyphenation command
     """
     def execute(self, parser):
+        parser.hyphenator.setLanguage(parser.state.parameters["language"])
         words = {}
         content = parser.readGeneralText()
         word = ""
@@ -81,7 +82,11 @@ class Hyphenator:
     def _insertPattern(root, letters, weights):
         """
         Insert one normalized TeX pattern into a trie root.
+
+        @return True if this pattern key already existed.
         """
+        if not letters:
+            return False
         node = root
         for c in letters:
             child = node.children.get(c)
@@ -89,7 +94,41 @@ class Hyphenator:
                 child = _PatternTrieNode()
                 node.children[c] = child
             node = child
+        duplicate = node.weights is not None
+        # For now we keep the latter declaration when duplicates occur.
         node.weights = list(weights)
+        return duplicate
+
+    @staticmethod
+    def _parsePattern(pattern):
+        """
+        Parse one normalized pattern token into letters and inter-letter weights.
+        """
+        letters = []
+        weights = [0]
+        for c in pattern:
+            if "0" <= c <= "9":
+                value = ord(c) - ord("0")
+                if value > weights[-1]:
+                    weights[-1] = value
+                continue
+            letters.append(c)
+            weights.append(0)
+        return "".join(letters), weights
+
+    def addPatterns(self, patterns):
+        """
+        Add normalized pattern tokens to the trie of the current language.
+
+        @return list of duplicate pattern letter-keys.
+        """
+        root = self.pattern_trie
+        duplicates = []
+        for pattern in patterns:
+            letters, weights = self._parsePattern(pattern)
+            if self._insertPattern(root, letters, weights):
+                duplicates.append(letters)
+        return duplicates
 
     @staticmethod
     def _dumpPatternTrie(root):
@@ -186,16 +225,52 @@ class Patterns(token.Command):
     """
     The \\patterns command
 
-    Pattern hyphenation is not implemented yet.
+    Parse and store TeX hyphenation patterns for the current language.
     """
     def execute(self, parser):
-        parser.readGeneralText()
+        parser.hyphenator.setLanguage(parser.state.parameters["language"])
+        content = parser.readGeneralText()
+        lccode = parser.state.lccode
+        patterns = []
+        current = []
+
+        for t in content:
+            if t.isSpace(True):
+                if current:
+                    patterns.append(current)
+                    current = []
+                continue
+
+            c = None
+            if t.catcode == token.CATCODE.LETTER:
+                code = lccode[ord(t.name)]
+                if code != 0:
+                    c = chr(code)
+            elif t.catcode == token.CATCODE.OTHER and (
+                ("0" <= t.name <= "9") or t.name == "."
+            ):
+                c = t.name
+
+            if c is not None:
+                current.append(c)
+
+        if current:
+            patterns.append(current)
+
+        duplicates = parser.hyphenator.addPatterns(patterns)
+        for letters in duplicates:
+            parser.message(
+                f"warning: duplicate hyphenation pattern '{letters}', using latter weights",
+                console=False,
+            )
+
+
+def init(parser):
+    parser.hyphenator = Hyphenator()
 
 
 mod = Module("hyphen",
-    attributes={
-        "hyphenator": Hyphenator()
-    },
+    init=init,
     commands={
         "hyphenation": Hyphenation(),
         "patterns": Patterns(),

@@ -72,6 +72,13 @@ class Font(Command):
         @param parser: the parser
         """
         return self
+    
+    def hyphenChar(self):
+        """
+        get the hyphenchar of the font as a CharNode 
+        """
+        h = self.fontchar["hyphenchar"]
+        return self.charnode[h-self.bc] if self.bc <= h <= self.ec else None
 
 
 def readFont(parser):

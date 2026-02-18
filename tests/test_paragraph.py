@@ -201,15 +201,8 @@ def test_linebreak_matches_tex_reference_paragraph_looseness(parser):
         "that we considered in the previous chapter, because pages often have much less "
         "flexibility than lines do."
     )
-    parser.parse("\\font\\f=cmr10 \\f")
-    parser.state.sfcode[ord(",")] = 1250
-    parser.state.sfcode[ord(".")] = 3000
-    parser.parse(
-        "\\hsize=6.5in\\parindent=20pt\\pretolerance=100\\tolerance=200"
-        "\\linepenalty=10\\hyphenpenalty=50\\exhyphenpenalty=50"
-        "\\adjdemerits=10000\\doublehyphendemerits=10000\\finalhyphendemerits=5000"
-        "\\lefthyphenmin=2\\righthyphenmin=3\\hyphenation{tech-nique}\\looseness=-1 "
-    )
+    parser.parse("\\input plain")
+    parser.parse("\\looseness=-1 ")
     parser.parse(text + "\\par")
     para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
     out = vmode.VList(parser)
@@ -217,6 +210,22 @@ def test_linebreak_matches_tex_reference_paragraph_looseness(parser):
     assert len(out) == 4
     endings = [_lineEndingWord(line) for line in out]
     assert endings[:3] == ["tech-", "difficult", "much"]
+
+
+def test_linebreak_plain_hyphenate_ends_line_one_with_hyphen(parser):
+    parser.parse("\\input plain")
+    parser.parse(
+        "\\noindent TEX will henceforth insert discretionary hyphens in the specified positions,"
+        " whenever it attempts to hyphenate a word that matches an entry in the exception dictionary,"
+        " except that plain TEX blocks hyphens after the very first letter or before the last or"
+        " second-last letter of a word.\\par"
+    )
+    para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
+    out = vmode.VList(parser)
+    para.typeset(parser, out)
+    assert len(out) == 3
+    endings = [_lineEndingWord(line) for line in out]
+    assert endings[0] == "hyphen-"
 
 
 def test_linebreaker_select_final_positive_looseness():

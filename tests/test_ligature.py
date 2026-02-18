@@ -18,7 +18,7 @@ from pytex import hmode
 def test_ligatures(cmr10, input, char):
     cmr10.parse(input)
     top = cmr10.lists[-1]
-    assert len(top) == 3 + (input[-1] == "-")
+    assert len(top) == 3
     assert top[2].node_type == nd.NODE_TYPE.GLUE
     lig = top[1]
     assert ord(lig.char) == char

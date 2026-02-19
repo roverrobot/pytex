@@ -141,7 +141,6 @@ class MList(lists.List):
             hbox = box.HBox(parser, None, 0)
             hbox.list[:] = self
             hbox.source = self
-            hbox.typeset(parser, [])
             packed.append(hbox)
             packed = hbox.list
         for node in self:
@@ -164,6 +163,8 @@ class MList(lists.List):
             math_shift.source = self
             math_shift.kern = Dimen(parser.state.layout["mathsurround"])
             packed.append(math_shift)
+        else:
+            hbox.typeset(parser, [])
 
 
 class StyleNode(nd.Node):

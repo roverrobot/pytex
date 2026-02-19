@@ -50,8 +50,6 @@ def test_paragraph_chain_break_on_nonparagraph(parser):
     p2 = ps[1]
     assert isinstance(p1, paragraph.Paragraph)
     assert isinstance(p2, paragraph.Paragraph)
-    assert p1.typeset_context.next_context is None
-    assert p2.typeset_context.prev_context is None
     assert p2.typeset_context.prevgraf == 0
 
 

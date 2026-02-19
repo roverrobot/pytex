@@ -29,8 +29,6 @@ class ParagraphTypesetContext:
     """
     def __init__(self, parser, paragraph):
         self.paragraph = paragraph
-        self.prev_context = None
-        self.next_context = None
         self.line_count = None
         # In TeX, \prevgraf is reset to 0 at paragraph start unless display-math
         # machinery sets it; display math integration is handled separately.
@@ -163,6 +161,9 @@ class Paragraph(hmode.HList):
         self.typeset_context = None
         if indent:
             self.append(bx.IndentBox(parser))
+        # these two fields are used to link paragraphs together for display math integration,
+        self.next_paragraph = None
+        self.prev_paragraph = None
 
     # not a proper node
     node_type = None

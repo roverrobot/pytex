@@ -51,9 +51,17 @@ def test_mlist(parser, inner):
     assert node.atom_type == mmode.ATOM_TYPE.ORD
     parser.parse(f"{close}")
     top = parser.lists[-1]
-    assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 3
-    node = top[1]
+    if inner:
+        assert top.type == lists.LISTTYPE.HORIZONTAL
+        assert len(top) == 3
+        node = top[1]
+    else:
+        assert top.type == lists.LISTTYPE.HORIZONTAL
+        vtop = parser.lists[0]
+        assert vtop.type == lists.LISTTYPE.VERTICAL
+        node = next(n for n in vtop if isinstance(n, mmode.MList))
+        glues = [n for n in vtop if n.node_type == nd.NODE_TYPE.GLUE]
+        assert len(glues) >= 2
     assert node.node_type == nd.NODE_TYPE.MATH
 
 
@@ -81,7 +89,8 @@ def test_mlist_typeset_inline(math):
 
 def test_mlist_typeset_display(math):
     math.parse("$$a$$")
-    mlist = math.lists[-1][1]
+    top = math.lists[0]
+    mlist = next(n for n in top if isinstance(n, mmode.MList))
     packed = []
     mlist.typeset(math, packed)
     assert len(packed) == 1
@@ -364,10 +373,9 @@ def test_fractions(math, cmd, bar, thickness, left, right):
 def test_eqno(math, left):
     cmd = "\\leqno" if left else "\\eqno"
     math.parse(f"$$a{cmd}1$$")
-    top = math.lists[-1]
-    assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 3
-    mlist = top[1]
+    top = math.lists[0]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    mlist = next(n for n in top if isinstance(n, mmode.MList))
     assert mlist.node_type == nd.NODE_TYPE.MATH
     assert len(mlist) == 1
     atom = mlist[0]

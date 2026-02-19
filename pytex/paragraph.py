@@ -37,13 +37,13 @@ class ParagraphTypesetContext:
         self.leftskip = parser.state.layout["leftskip"]
         self.rightskip = parser.state.layout["rightskip"]
         self.parfillskip = parser.state.parameters["parfillskip"]
+        self.interlinepenalty = parser.state.layout["interlinepenalty"]
         self.baselineskip = parser.state.layout["baselineskip"]
         self.lineskip = parser.state.layout["lineskip"]
         self.lineskiplimit = parser.state.layout["lineskiplimit"]
         self.pretolerance = parser.state.layout["pretolerance"]
         self.tolerance = parser.state.layout["tolerance"]
         self.linepenalty = parser.state.layout["linepenalty"]
-        self.interlinepenalty = parser.state.layout["interlinepenalty"]
         self.hyphenpenalty = parser.state.layout["hyphenpenalty"]
         self.exhyphenpenalty = parser.state.layout["exhyphenpenalty"]
         self.adjdemerits = parser.state.layout["adjdemerits"]
@@ -57,9 +57,6 @@ class ParagraphTypesetContext:
         self.righthyphenmin = parser.state.layout["righthyphenmin"]
         self.words = self.buildWords(parser, paragraph)
         self.actual_looseness = 0
-
-    def setLineCount(self, line_count):
-        self.line_count = line_count
 
     def buildWords(self, parser, paragraph):
         # TEX looks for potentially hyphenatable words by searching ahead from each
@@ -150,6 +147,26 @@ class Language(nd.WhatsIt):
         self.language = language
 
 
+class LineContext:
+    """
+    Context for line-breaking a paragraph.
+    """
+    def __init__(self, parser, context, line):
+        line_no = line.line_no
+        if line_no == 2:
+            adjust = parser.state.layout["clubpenalty"]
+        elif line_no == context.line_count - 1:
+            adjust = parser.state.layout["widowpenalty"]
+        else:
+            adjust = 0
+        if line.hyphenated:
+            adjust += parser.state.layout["hyphenpenalty"]
+        self.interlinepenalty = context.interlinepenalty + adjust
+        self.baselineskip = context.baselineskip
+        self.lineskip = context.lineskip
+        self.lineskiplimit = context.lineskiplimit
+
+
 class Paragraph(hmode.HList):
     """
     A paragraph.
@@ -194,6 +211,8 @@ class Paragraph(hmode.HList):
             self.typesetNode(parser, node, hlist)
         # line break the hlist into lines and pack them into the vlist
         lines = self.lineBreak(parser, hlist)
+        line_count = len(lines)
+        context.line_count = line_count
         # add the lines into the vlist
         if lines:
             for i, line in enumerate(lines):
@@ -219,8 +238,8 @@ class Paragraph(hmode.HList):
                 hbox.list = packed
                 hbox.typeset(parser, [])
                 hbox.source = self
-                vlist.append(hbox, context=context)
-            context.setLineCount(len(lines))
+                hbox.typeset_context = LineContext(parser, context, line)
+                vlist.append(hbox)
 
     def lineBreak(self, parser, hlist):
         """

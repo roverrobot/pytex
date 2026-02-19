@@ -1,4 +1,5 @@
 import pytest
+import types
 from pytex import node as nd
 from pytex import glue
 from pytex import lists
@@ -157,9 +158,19 @@ def test_prevdepth_penalty_does_not_reset(parser):
     vlist.append(_test_hbox(parser))
     vlist.append(nd.Penalty(0))
     vlist.append(_test_hbox(parser))
-    glues = [n for n in vlist if n.node_type == nd.NODE_TYPE.GLUE]
+    packed = vlist.typesetNodes(parser, [])
+    glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 1
     assert glues[0].glue.dimen == 4
+
+
+def test_prevdepth_kept_across_glue_kern_penalty(parser):
+    vlist = vmode.VList(parser)
+    vlist.append(_test_hbox(parser, depth=3))
+    vlist.append(nd.Glue(glue.Glue(1)))
+    vlist.append(nd.Kern(1))
+    vlist.append(nd.Penalty(0))
+    assert vlist.resolvePrevDepth() == 3
 
 
 def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
@@ -168,8 +179,31 @@ def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
     vlist.append(_test_hbox(parser))
     vlist.append(nd.Rule(0, 4, 0))
     vlist.append(_test_hbox(parser))
-    glues = [n for n in vlist if n.node_type == nd.NODE_TYPE.GLUE]
+    packed = vlist.typesetNodes(parser, [])
+    glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 0
+
+
+def test_rule_resets_resolved_prevdepth(parser):
+    vlist = vmode.VList(parser)
+    vlist.append(_test_hbox(parser, depth=3))
+    vlist.append(nd.Rule(0, 4, 0))
+    assert vlist.resolvePrevDepth() == vmode.init_prevdepth
+
+
+def test_box_context_keeps_interlinepenalty(parser):
+    parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt\\interlinepenalty=0")
+    vlist = vmode.VList(parser)
+    first = _test_hbox(parser)
+    second = _test_hbox(parser)
+    second.typeset_context = vmode.VNodeContext(parser, vmode.init_prevdepth)
+    second.typeset_context.interlinepenalty = 123
+    vlist.append(first)
+    vlist.append(second)
+    packed = vlist.typesetNodes(parser, [])
+    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert len(penalties) == 1
+    assert penalties[0].penalty == 123
 
 
 def test_prevdepth_accessor_is_vlist_local(parser):

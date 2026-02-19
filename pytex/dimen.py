@@ -66,6 +66,12 @@ class Dimen(serialization.Serializable):
     def __gt__(self, other):
         return self.value > round(float(other)*self.scale)
 
+    def __ge__(self, other):
+        return self.value >= int(float(other) * self.scale)
+    
+    def __le__(self, other):
+        return self.value <= int(float(other) * self.scale)
+
     def __add__(self, other):
         return Dimen(float(self) + float(other))
     
@@ -86,7 +92,7 @@ class Dimen(serialization.Serializable):
     
     def __round__(self, n):
         return Dimen(round(float(self), n))
-
+    
 
 MAX_DIMEN = Dimen(integer=0xffffffff)
 NEG_MAX_DIMEN = Dimen(integer=-0xffffffff)

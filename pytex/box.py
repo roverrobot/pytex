@@ -63,7 +63,7 @@ class Box(nd.Box):
             for n in self.list:
                 self._expand(parser, content, n)
         else:
-            typeset_nodes(parser, self.list, content)
+            typeset_nodes(parser, content)
         self.list[:] = content
         glues = []
         natural = Glue()
@@ -176,6 +176,9 @@ class HBox(Box):
         return natural
     
     def typeset(self, parser, packed):
+        if self.width is not None:
+            packed.append(self)
+            return
         super().typeset(parser, packed)
         self.migrate = [
             n for n in self.list
@@ -394,6 +397,9 @@ class VBox(Box):
         typeset the box
         @param packed: if provided, append this node and skip in-place typesetting.
         """
+        if self.width is not None:
+            packed.append(self)
+            return
         super().typeset(parser, packed)
         self.height = self.to
 
@@ -403,6 +409,9 @@ class VBox(Box):
 
 class VTop(VBox):
     def typeset(self, parser, packed):
+        if self.width is not None:
+            packed.append(self)
+            return
         super().typeset(parser, packed)
         total = self.height + self.depth
         if self.list:

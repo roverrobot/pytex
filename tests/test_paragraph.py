@@ -233,9 +233,10 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     para = cmr10.lists[-1][-1]
     out = vmode.VList(cmr10)
     para.typeset(cmr10, out)
-    lines = _lineBoxes(out)
+    packed = out.typesetNodes(cmr10, [])
+    lines = _lineBoxes(packed)
     assert len(lines) > 1
-    interline = [node for node in out if node.node_type == nd.NODE_TYPE.GLUE]
+    interline = [node for node in packed if node.node_type == nd.NODE_TYPE.GLUE]
     assert len(interline) >= len(lines) - 1
     assert interline[0].glue.dimen > 0
 

@@ -148,15 +148,11 @@ class HList(lists.List):
             if getattr(n, "source", None) is None:
                 n.source = node
 
-    def typesetNodes(self, parser, nodes=None, packed=None):
+    def typesetNodes(self, parser, packed):
         """
         Typeset/expand nodes into packed output.
         """
-        if nodes is None:
-            nodes = self
-        if packed is None:
-            packed = []
-        for node in nodes:
+        for node in self:
             self.typesetNode(parser, node, packed)
         return packed
     

@@ -16,6 +16,19 @@ from pytex.accessor import Accessor
 init_prevdepth = Dimen(-1000.0)
 
 
+class VNodeContext:
+    """
+    The context for a node in vertical mode. This is used to store the parameters that affect the typesetting of the node, such as baselineskip, lineskip, etc.
+    """
+    def __init__(self, parser, prevdepth):
+        layout = parser.state.layout
+        self.baselineskip = layout["baselineskip"]
+        self.lineskip = layout["lineskip"]
+        self.lineskiplimit = layout["lineskiplimit"]
+        self.interlinepenalty = layout["interlinepenalty"]
+        self.prevdepth = prevdepth
+
+
 class VList(lists.List):
     """
     A vertical list.
@@ -24,47 +37,106 @@ class VList(lists.List):
     """
     def __init__(self, parser, inner=True):
         super().__init__(parser, lists.LISTTYPE.VERTICAL, inner=inner)
+        # Explicit override set by \prevdepth, or init_prevdepth after glue/kern/rule.
+        # None means "derive from the last contextual node lazily".
         self.prevdepth = init_prevdepth
 
-    def append(self, node, context=None):
+    def _expandNode(self, parser, node):
+        # expand a node without side effects on this vertical list
+        typeset = getattr(node, "typeset", None)
+        if typeset is None:
+            return [node]
+        packed = []
+        node.typeset(parser, packed)
+        if not packed:
+            return [node]
+        for n in packed:
+            if n is node:
+                continue
+            if getattr(n, "source", None) is None:
+                n.source = node
+        return packed
+
+    def resolvePrevDepth(self):
+        if self.prevdepth is not None:
+            return self.prevdepth
+        for i in range(len(self)-1, -1, -1):
+            node = self[i]
+            # if it has a typeset_context, then it is either a box or can be expanded into a box
+            context = getattr(node, "typeset_context", None)
+            if context is not None:
+                # we return the depth of the node
+                depth = getattr(node, "depth", None)
+                if depth is None:
+                    # if there is no depth, we need to expand it in-place
+                    nodes = self._expandNode(self.parser, node)
+                    self[i:i+1] = nodes
+                    # we search backwards for the first box with a depth
+                    for n in reversed(nodes):
+                        depth = getattr(n, "depth", None)
+                        if depth is not None:
+                            return depth
+                    depth = init_prevdepth
+                return depth
+            elif node.node_type == nd.NODE_TYPE.RULE:
+                # rules reset the prevdepth to init_prevdepth
+                break
+        return init_prevdepth
+
+    def append(self, node):
         """
         Append a node to the list.
         @param node: the node to append
         """
-        if isinstance(node, nd.Box):
-            is_rule = getattr(node, "node_type", None) == nd.NODE_TYPE.RULE
-            prevdepth = self.prevdepth
-            if (not is_rule) and prevdepth > init_prevdepth:
-                if context is None:
-                    layout = self.parser.state.layout
-                    baselineskip = layout["baselineskip"]
-                    lineskip = layout["lineskip"]
-                    lineskiplimit = layout["lineskiplimit"]
-                    interlinepenalty = layout["interlinepenalty"]
-                else:
-                    baselineskip = context.baselineskip
-                    lineskip = context.lineskip
-                    lineskiplimit = context.lineskiplimit
-                    interlinepenalty = context.interlinepenalty
-                if interlinepenalty != 0:
-                    super().append(nd.Penalty(interlinepenalty))
-                d = baselineskip.dimen - prevdepth - node.height
-                if d < lineskiplimit:
-                    super().append(nd.Glue(lineskip))
-                else:
-                    super().append(nd.Glue(Glue(d, baselineskip.stretch, baselineskip.shrink)))
-            if is_rule:
-                # Rules suppress interline glue around themselves.
-                self.prevdepth = init_prevdepth
-            else:
-                self.prevdepth = (
-                    init_prevdepth if node.depth is None else node.depth
-                )
-        else:
-            # Penalties do not break baseline chaining.
-            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                self.prevdepth = init_prevdepth
+        context = getattr(node, "typeset_context", None)
+        is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+        if context is None and is_box:
+            node.typeset_context = VNodeContext(self.parser, self.prevdepth)
+        if is_box:
+            # if the box has a depth, we capture it. Otherwise, we will resolve it lazily when needed.
+            self.prevdepth = getattr(node, "depth", None)
+        elif node.node_type == nd.NODE_TYPE.RULE:
+            # rules reset the prevdepth to init_prevdepth
+            self.prevdepth = init_prevdepth
+        elif context is not None:
+            self.prevdepth = None
         super().append(node)
+
+    def typesetNodes(self, parser, packed):
+        prevdepth = init_prevdepth
+        firstbox = True
+        for node in self:
+            expanded = self._expandNode(parser, node)
+            for item in expanded:
+                if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                    # if the prevdepth is explicitly set, we use it. Otherwise, we use the current prevdepth
+                    context = getattr(item, "typeset_context", None)
+                    if context is None:
+                        context = getattr(node, "typeset_context", None)
+                    # add interline penalty if needed
+                    if context.interlinepenalty != 0 and not firstbox:
+                        packed.append(nd.Penalty(context.interlinepenalty))
+                    d = getattr(context, "prevdepth", None)
+                    if d is not None:
+                        prevdepth = d
+                    # if prevdepth <= -10000, do not add interline glue
+                    if float(prevdepth) > float(init_prevdepth):
+                        baselineskip = context.baselineskip
+                        diff = baselineskip.dimen - prevdepth - item.height
+                        if diff < context.lineskiplimit:
+                            packed.append(nd.Glue(context.lineskip))
+                        else:
+                            packed.append(nd.Glue(Glue(diff, baselineskip.stretch, baselineskip.shrink)))
+                    # update prevdepth for the next item
+                    prevdepth = item.depth
+                    if firstbox:
+                        firstbox = False
+                # reset prevdepth for rules
+                elif item.node_type == nd.NODE_TYPE.RULE:
+                    prevdepth = init_prevdepth
+                # other nodes do not change the prevdepth
+                packed.append(item)
+        return packed
 
 
 class PrevDepth(Accessor, DimenCommand):
@@ -87,7 +159,7 @@ class PrevDepth(Accessor, DimenCommand):
         top = parser.lists[-1]
         if top.type != lists.LISTTYPE.VERTICAL:
             raise ValueError("\\prevdepth can only be used in vertical mode")
-        return top.prevdepth
+        return top.resolvePrevDepth()
 
 
 class VerticalCommand(lists.ModeDependentCommand):

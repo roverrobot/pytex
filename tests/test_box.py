@@ -92,7 +92,7 @@ def test_vbox(box):
     assert box.width == 55.58344
     assert box.height == 6.94444 + 6.94444 + 1.94444 + 10.00002
     assert box.depth == 1.94444
-    assert len(box.list) == 3
+    assert len(box.list) == 4
 
 
 def test_vbox_to(box):
@@ -104,7 +104,7 @@ def test_vbox_to(box):
     assert box.width == 55.58344
     assert box.height == 100
     assert box.depth == 1.94444
-    assert len(box.list) == 3
+    assert len(box.list) == 4
 
 
 def test_vbox_spread(box):
@@ -116,7 +116,7 @@ def test_vbox_spread(box):
     assert box.width == 55.58344
     assert box.height == 6.94444 + 6.94444 + 1.94444 + 10.00002 + 10
     assert box.depth == 1.94444
-    assert len(box.list) == 3
+    assert len(box.list) == 4
 
 
 def test_vtop(box):
@@ -128,7 +128,7 @@ def test_vtop(box):
     assert box.width == 55.58344
     assert box.height == 6.94444 
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
-    assert len(box.list) == 3
+    assert len(box.list) == 4
 
 
 def test_vtop_to(box):
@@ -140,7 +140,7 @@ def test_vtop_to(box):
     assert box.width == 55.58344
     assert box.height == 6.94444
     assert box.depth == 100 - 6.94444 + 1.94444
-    assert len(box.list) == 3
+    assert len(box.list) == 4
 
 def test_vtop_spread(box):
     box.parse("\\vtop spread 10pt{\\copy0\\vskip1em plus 1em\\box0}\\relax")
@@ -151,7 +151,7 @@ def test_vtop_spread(box):
     assert box.width == 55.58344
     assert box.height == 6.94444
     assert box.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444 + 10
-    assert len(box.list) == 3
+    assert len(box.list) == 4
 
 
 @pytest.mark.parametrize("cmd, attr", [

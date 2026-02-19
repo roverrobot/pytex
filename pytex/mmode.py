@@ -88,6 +88,21 @@ class Style(serialization.Serializable):
         return f"Style({self.style}{cramped})"
 
 
+class MathTypesetContext:
+    """
+    the typesetting context for math mode, which is used to determine the interline penalty and baselineskip for display math
+    """
+    def __init__(self, parser, inner):
+        # the interline settings
+        if not inner:
+            layout = parser.state.layout
+            self.baselineskip = layout["baselineskip"]
+            self.lineskip = layout["lineskip"]
+            self.lineskiplimit = layout["lineskiplimit"]
+            self.interlinepenalty = layout["interlinepenalty"]
+            self.prevdepth = None
+
+
 class MList(lists.List):
     """
     a math list
@@ -126,6 +141,7 @@ class MList(lists.List):
             hbox = box.HBox(parser, None, 0)
             hbox.list[:] = self
             hbox.source = self
+            hbox.typeset(parser, [])
             packed.append(hbox)
             packed = hbox.list
         for node in self:
@@ -317,6 +333,7 @@ def mathShift(parser):
             raise ValueError("missing $", pos)
         # now the top list may have changed because of endGroup (during fraction handling)
         mlist = parser.lists.pop()
+        mlist.typeset_context = MathTypesetContext(parser, mlist.inner)
         # here top points to the enclosing horizontal list
         top = parser.lists[-1]
         # if mlist is inline math, then we simply add it to the enclosing list

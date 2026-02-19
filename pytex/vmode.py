@@ -8,7 +8,7 @@ from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command
-from pytex.dimen import Dimen, DimenParameterAccessor
+from pytex.dimen import Dimen, DimenArrayItemAccessor
 
 
 # initializer for prevdepth as -1000pt
@@ -23,7 +23,7 @@ class VList(lists.List):
     """
     def __init__(self, parser, inner=True):
         super().__init__(parser, lists.LISTTYPE.VERTICAL, inner=inner)
-        parser.state.volatile["prevdepth"] = init_prevdepth
+        parser.state.globals["prevdepth"] = init_prevdepth
 
     def append(self, node, context=None):
         """
@@ -32,7 +32,7 @@ class VList(lists.List):
         """
         if isinstance(node, nd.Box):
             is_rule = getattr(node, "node_type", None) == nd.NODE_TYPE.RULE
-            prevdepth = self.parser.state.volatile["prevdepth"]
+            prevdepth = self.parser.state.globals["prevdepth"]
             if (not is_rule) and prevdepth > init_prevdepth:
                 if context is None:
                     layout = self.parser.state.layout
@@ -54,15 +54,15 @@ class VList(lists.List):
                     super().append(nd.Glue(Glue(d, baselineskip.stretch, baselineskip.shrink)))
             if is_rule:
                 # Rules suppress interline glue around themselves.
-                self.parser.state.volatile["prevdepth"] = init_prevdepth
+                self.parser.state.globals["prevdepth"] = init_prevdepth
             else:
-                self.parser.state.volatile["prevdepth"] = (
+                self.parser.state.globals["prevdepth"] = (
                     init_prevdepth if node.depth is None else node.depth
                 )
         else:
             # Penalties do not break baseline chaining.
             if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                self.parser.state.volatile["prevdepth"] = init_prevdepth
+                self.parser.state.globals["prevdepth"] = init_prevdepth
         super().append(node)
 
 
@@ -134,8 +134,7 @@ mod = Module("vmode",
         "readVList": readVList
     },
     parameters={
-        # prevdepth is the previosu box's depth. It is reset to -1000pt in each vertical list.
-        # so it is not a layout parameter
-        "prevdepth": {"value": init_prevdepth, "accessor": DimenParameterAccessor, "domain": "volatile"},
+        # prevdepth is the previous box depth in vertical mode state.
+        "prevdepth": {"value": init_prevdepth, "accessor": DimenArrayItemAccessor, "domain": "globals"},
     }
 )

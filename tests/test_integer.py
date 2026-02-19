@@ -67,6 +67,8 @@ def test_integer_array(parser):
 def test_global_integer(parser):
     checkValues(parser, "{\\spacefactor=10}", [["globals", "spacefactor", 10]])
     checkValues(parser, "{\\prevgraf=7", [["globals", "prevgraf", 7]])
+    dump = parser.state.dump()
+    assert "globals" not in dump
 
 def test_chardef(collector):
     collector.parse("\\chardef\\a=65 \\a")

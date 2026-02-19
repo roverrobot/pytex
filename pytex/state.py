@@ -447,7 +447,6 @@ class State:
         @return: a dict that represents the state
         """
         data = {
-            "globals": self.globals, 
             "equitable": self.equitable.dump(),
             "parameters": self.parameters.dump(),
             "layout": self.layout.dump(),
@@ -461,8 +460,7 @@ class State:
         restore the state from a dump
         @param data: a previously dumped data
         """
-        if "globals" in data:
-            self.globals = data["globals"]
+        # Globals are runtime state and are intentionally not loaded from dumps.
         self.equitable.load(data.get("equitable", {}))
         self.parameters.load(data.get("parameters", {}))
         self.layout.load(data.get("layout", {}))

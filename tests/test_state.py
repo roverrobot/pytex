@@ -99,7 +99,7 @@ def test_parser_group_mismatch(parser):
 def test_dump(parser):
     parser.parse("\\count0=1{\\count0=2}\\def\\a{123}")
     data = parser.state.dump()
-    assert len(data) == 19
+    assert "globals" not in data
     assert "count" in data
     assert data["count"][0] == 1
     assert "equitable" in data

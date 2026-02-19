@@ -70,6 +70,14 @@ def test_controlled_space(cmr10):
     assert node.glue == cmr10.state.parameters["currentfont"].spaceglue
 
 
+def test_spacefactor_accessor(cmr10):
+    cmr10.parse("\\noindent\\spacefactor=1200\\count0=\\spacefactor\\par")
+    assert cmr10.state.count[0] == 1200
+    # \spacefactor assignment is not grouped; it belongs to the current hlist.
+    cmr10.parse("\\noindent{\\spacefactor=900}\\count0=\\spacefactor\\par")
+    assert cmr10.state.count[0] == 900
+
+
 def test_hrule_wrongmode(cmr10):
     try:
         cmr10.parse("1\\hrule width 345pt\n")
@@ -151,7 +159,7 @@ def test_discretionary_invalid_node(cmr10):
         cmr10.parse("\\discretionary{a}{b }{c}")
         assert False
     except ValueError as e:
-        assert "invalid" in str(e)
+        assert "fixed width" in str(e)
 
 
 def test_insert(cmr10):

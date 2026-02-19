@@ -164,7 +164,7 @@ class Disc(Node):
     A discretionary node.
     """
     @staticmethod
-    def _fixedWidth(nodes):
+    def _fixedWidth(nodes, name):
         """
         Compute fixed width of a discretionary pre/post/replace list.
 
@@ -172,15 +172,12 @@ class Disc(Node):
         """
         width = Dimen()
         for node in nodes:
-            node_type = node.node_type
-            if node_type in (NODE_TYPE.GLUE, NODE_TYPE.DISC):
-                raise ValueError("discretionary pre/post/replace must be fixed-width")
-            if node_type == NODE_TYPE.KERN:
+            if node.node_type == NODE_TYPE.KERN:
                 width += node.kern
                 continue
             w = getattr(node, "width", None)
             if w is None:
-                raise ValueError("discretionary node width is unresolved")
+                raise ValueError(f"discretionary nodes in {name} must have a fixed width")
             width += w
         return width
 
@@ -188,9 +185,9 @@ class Disc(Node):
         self.pre = pre
         self.post = post
         self.replace = replace
-        self.pre_width = self._fixedWidth(pre)
-        self.post_width = self._fixedWidth(post)
-        self.replace_width = self._fixedWidth(replace)
+        self.pre_width = self._fixedWidth(pre, "pre")
+        self.post_width = self._fixedWidth(post, "post")
+        self.replace_width = self._fixedWidth(replace, "replace")
 
     def saveInfo(self):
         return {"init": {"pre": self.pre, "post": self.post, "replace": self.replace}}

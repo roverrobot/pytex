@@ -41,16 +41,23 @@ class HList(lists.List):
         super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner, nodes=nodes)
         self.lig_base = None
         self.in_word = False
+        self.spacefactor = 1000
+        self.sfcode = parser.state.sfcode
 
     def append(self, node):
         # \spacefactor for characters has been handled in parser.addChar. Now we need to set
         # \spacefactor to 1000 for other nodes.
         if node.node_type != nd.NODE_TYPE.CHAR:
-            self.parser.state.globals["spacefactor"] = 1000
+            self.spacefactor = 1000
             list.append(self, node)
             self.lig_base = None
             self.in_word = False
             return
+        sf = self.sfcode[ord(node.char)]
+        if sf != 0:
+            if self.spacefactor < 1000 < sf:
+                sf = 1000
+            self.spacefactor = sf
         # we should check for the start/end of a word to handle boundary characters.
         nextchar = ord(node.char)
         lc = self.parser.state.lccode[nextchar]
@@ -249,7 +256,6 @@ class Indent(lists.ModeDependentCommand):
         # An empty box of width \parindent is appended to the current list,
         # and the space factor is set to 1000. (The TeX Book pp.286)
         hlist.append(IndentBox(parser))
-        parser.state.globals["spacefactor"] = 1000
 
     def math(self, parser, mlist):
         # An empty box of width \parindent is appended to the current list,
@@ -305,35 +311,16 @@ class ControlledSpace(HorizontalCommand):
         self.horizontal(parser, mlist)
 
 
-class DiscHList(HList):
-    """
-    A horizontal list that can contain discretionary nodes.
-    @param nodes: the nodes in the list
-    """
-    def __init__(self, nodes=[]):
-        # this list probably does not need to know the parser
-        super().__init__(None, inner=True, nodes=[])
-
-    def saveInfo(self):
-        return {"init": {"nodes": [n for n in self]}}
-
-    def append(self, node):
-        if isinstance(node, nd.Box) or isinstance(node, nd.Kern):
-            list.append(self, node)
-        else:
-            raise ValueError("invalid node in this \\disctretionary")
-
-
 class Discretionary(HorizontalCommand):
     """
     The \\discretionary command.
     """
     def readValue(self, parser):
-        pre = DiscHList()
+        pre = HList(parser)
         parser.readList(pre, GROUP_TYPE.DISC)
-        post = DiscHList()
+        post = HList(parser)
         parser.readList(post, GROUP_TYPE.DISC)
-        replace = DiscHList()
+        replace = HList(parser)
         parser.readList(replace, GROUP_TYPE.DISC)
         # Add the discretionary node
         return nd.Disc(pre, post, replace)
@@ -412,7 +399,32 @@ class Accent(HorizontalCommand):
     def math(self, parser, mlist):
         raise ValueError("please use \\mathaccent in math mode")
     
+
+class SpaceFactor(Accessor):
+    """
+    The \\spacefactor command, which sets the space factor in a horizontal list.
+    """
+    def setGlobal(self, parser, value):
+        return self.set(parser, value)
     
+    def set(self, parser, value):
+        if value < 0:
+            raise ValueError("invalid space factor")
+        top = parser.lists[-1]
+        if top.type != lists.LISTTYPE.HORIZONTAL:
+            raise ValueError("\\spacefactor can only be used in horizontal mode")
+        top.spacefactor = value
+
+    def intValue(self, parser):
+        top = parser.lists[-1]
+        if top.type != lists.LISTTYPE.HORIZONTAL:
+            raise ValueError("\\spacefactor can only be used in horizontal mode")
+        return top.spacefactor
+    
+    def readValue(self, parser):
+        return parser.readInteger()
+    
+
 mod = Module("hmode",
     commands={
         "char": Char(),
@@ -428,6 +440,7 @@ mod = Module("hmode",
         " ": ControlledSpace(),
         "discretionary": Discretionary(),
         "accent": Accent(),
+        "spacefactor": SpaceFactor(),
     },
     parameters={
         "parshape": {"value": list, "accessor": None, "domain": "globals"},

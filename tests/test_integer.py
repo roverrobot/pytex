@@ -65,7 +65,6 @@ def test_integer_array(parser):
     checkValues(parser, "{\\global\\count1=1}", [["count", 1, 1]])
 
 def test_global_integer(parser):
-    checkValues(parser, "{\\spacefactor=10}", [["globals", "spacefactor", 10]])
     checkValues(parser, "{\\prevgraf=7", [["globals", "prevgraf", 7]])
     dump = parser.state.dump()
     assert "globals" not in dump

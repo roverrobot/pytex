@@ -389,7 +389,6 @@ module = Module("integer",
         "month": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         "year": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         # global parameters
-        "spacefactor": {"value": 1000, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
         "prevgraf": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
         "deadcycles": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
         "insertpenalties": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},

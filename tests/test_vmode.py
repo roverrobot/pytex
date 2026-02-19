@@ -170,3 +170,16 @@ def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
     vlist.append(_test_hbox(parser))
     glues = [n for n in vlist if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 0
+
+
+def test_prevdepth_accessor_is_vlist_local(parser):
+    parser.parse("\\prevdepth=5pt\\dimen0=\\prevdepth")
+    assert parser.state.dimen[0] == 5
+
+
+def test_prevdepth_accessor_wrong_mode(cmr10):
+    try:
+        cmr10.parse("a\\prevdepth=1pt")
+        assert False
+    except ValueError as e:
+        assert "vertical mode" in str(e)

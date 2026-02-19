@@ -224,14 +224,7 @@ class Parser:
             # or after a ligature formed from a sequence that ends with such a 
             # character.
             f = self.state.parameters["currentfont"]
-            hlist = self.lists[-1]
-            hlist.append(f[c])
-            sf = self.state.sfcode[ord(c)]
-            if sf != 0:
-                cf = self.state.globals["spacefactor"]
-                if cf < 1000 < sf:
-                    sf = 1000
-                self.state.globals["spacefactor"] = sf
+            self.lists[-1].append(f[c])
         else:
             # math mode.
             code = self.state.mathcode[ord(c)]
@@ -263,7 +256,7 @@ class Parser:
             return
         # In horizontal mode, a space token appends glue to the current list,
         # see the TeX Book pp.76 for more details.
-        f = self.state.globals["spacefactor"]
+        f = top.spacefactor
         # If the space factor f is diﬀerent from 1000, the interword glue is 
         # computed as follows: Take the normal space glue for the current font, 
         # and add the extra space if f ≥ 2000. (Each font specifies a normal space, 
@@ -368,7 +361,6 @@ class Parser:
             if self.tracingcommands > 0 and self.checkRange():
                 self.message(f"everypar: {self.toksToString(everypar)}")
         # the spacefactor is set to 1000 at the beginning of a paragraph
-        self.state.globals["spacefactor"] = 1000
         self.state.globals["prevgraf"] = 0
         return hlist
 

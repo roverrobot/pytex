@@ -146,6 +146,8 @@ class MList(lists.List):
 
     def typesetNodes(self, parser, packed, context, style):
         # typeset the nodes n the list into an hlist
+        if not isinstance(style, Style):
+            style = Style(style)
         if packed is None:
             packed = HList(parser)
         for node in self:
@@ -184,7 +186,7 @@ class InlineMathList(MList):
         math_shift.source = self
         math_shift.kern = Dimen(parser.state.layout["mathsurround"])
         packed.append(math_shift)
-        self.typesetNodes(parser, packed, self.typeset_context, MATH_STYLE.T)
+        self.typesetNodes(parser, packed, self.typeset_context, Style(MATH_STYLE.T))
         math_shift = nd.MathShift(False)
         math_shift.kern = Dimen(parser.state.layout["mathsurround"])
         packed.append(math_shift)
@@ -231,7 +233,7 @@ class DisplayMathList(MList):
         if self.eqno is not None:
             eqno, left = self.eqno
             a = box.HBox(parser, None, 0)
-            eqno.typesetNodes(parser, a.list, self.typeset_context, MATH_STYLE.T)
+            eqno.typesetNodes(parser, a.list, self.typeset_context, Style(MATH_STYLE.T))
             a.typeset(parser, [])
             e = float(a.width)
             q = e + self.typeset_context.textfont[2].param[1] # quad
@@ -240,7 +242,7 @@ class DisplayMathList(MList):
             e = 0
             eqno = None
             left = None
-        h = self.typesetNodes(parser, None, self.typeset_context, MATH_STYLE.D)
+        h = self.typesetNodes(parser, None, self.typeset_context, Style(MATH_STYLE.D))
         b = box.HBox(parser, None, 0)
         b.list = h
         b.typeset(parser, [])

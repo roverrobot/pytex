@@ -114,12 +114,13 @@ class MathTypesetContext:
             self.abovedisplayskip = layout["abovedisplayskip"]
             self.belowdisplayskip = layout["belowdisplayskip"]
             self.abovedisplayshortskip = layout["abovedisplayshortskip"]
-            self.belowdisplayshortskip = layout["abovedisplayshortskip"]
+            self.belowdisplayshortskip = layout["belowdisplayshortskip"]
             # interline parameters
             self.baselineskip = layout["baselineskip"]
             self.lineskip = layout["lineskip"]
             self.lineskiplimit = layout["lineskiplimit"]
-            self.interlinepenalty = layout["predisplaypenalty"]
+            self.predisplaypenalty = layout["predisplaypenalty"]
+            self.interlinepenalty = 0 # do not emit interline penalty
 
     def __getitem__(self, index):
         return getattr(self, index, None)
@@ -172,7 +173,7 @@ class MList(lists.List):
 
 
 class InlineMathList(MList):
-    def __init(self, parser, nodes=None):
+    def __init__(self, parser, nodes=None):
         super().__init__(parser, True, nodes)
 
     def saveInfo(self):
@@ -230,10 +231,10 @@ class DisplayMathList(MList):
         if self.eqno is not None:
             eqno, left = self.eqno
             a = box.HBox(parser, None, 0)
-            a.typesetNodes(parser, a.list, self.typeset_context, MATH_STYLE.T)
+            eqno.typesetNodes(parser, a.list, self.typeset_context, MATH_STYLE.T)
             a.typeset(parser, [])
             e = float(a.width)
-            q = e + self.textfont[1].param[1] # quad
+            q = e + self.typeset_context.textfont[2].param[1] # quad
         else:
             q = 0
             e = 0
@@ -286,6 +287,7 @@ class DisplayMathList(MList):
         # appended as an hbox by itself, shifted right s and preceded by interline glue as usual;
         # an infinite penalty is also appended, to prevent a page break between this number and
         # the display. Otherwise a glue item ga is placed on the vertical list.
+        packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
         if d + s <= p or left is True:
             ga = self.typeset_context.abovedisplayskip
             gb = self.typeset_context.belowdisplayskip
@@ -293,8 +295,8 @@ class DisplayMathList(MList):
             ga = self.typeset_context.abovedisplayshortskip
             gb = self.typeset_context.belowdisplayshortskip
         if e == 0 and left is True:
-            a.typeset_context = VNodeContext(self.typeset_context)
-            a.shifted(s)
+            a.typeset_context = VNodeContext(self.typeset_context, None)
+            a.shifted = Dimen(s)
             packed.append(a)
             packed.append(nd.Penalty(10000))
         else:
@@ -333,8 +335,8 @@ class DisplayMathList(MList):
         if e == 0 and left is False:
             packed.append(nd.Penalty(10000))
             a.shifted = Dimen(s + z) - a.width
-            a.typeset_context = VNodeContext(self.typeset_context)
-            a.prevdepth = init_prevdepth
+            a.typeset_context = VNodeContext(self.typeset_context, None)
+            a.typeset_context.prevdepth = init_prevdepth
             packed.append(a)
             packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
         else:

@@ -148,11 +148,21 @@ class MList(lists.List):
         # typeset the nodes n the list into an hlist
         if not isinstance(style, Style):
             style = Style(style)
+        pass_through = {
+            nd.NODE_TYPE.RULE,
+            nd.NODE_TYPE.DISC,
+            nd.NODE_TYPE.PENALTY,
+            nd.NODE_TYPE.WHATSIT,
+        }
         if packed is None:
             packed = HList(parser)
         for node in self:
             if isinstance(node, StyleNode):
                 style = node.style
+                continue
+            # TeXbook Appendix G, rule 1: these nodes stay unchanged.
+            if node.node_type in pass_through:
+                packed.append(node)
                 continue
             typeset = node.typeset
             if typeset is None:

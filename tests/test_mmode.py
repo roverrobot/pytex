@@ -248,6 +248,22 @@ def test_style_node_is_consumed_by_typeset(math):
     assert isinstance(packed[2], nd.MathShift)
 
 
+def test_typesetnodes_rule1_passthrough_nodes(parser):
+    class DummyWhatsit(nd.WhatsIt):
+        def typeset(self, parser, packed, context, style):
+            raise AssertionError("Rule 1 nodes should not be typeset")
+
+    mlist = mmode.MList(parser)
+    rule = nd.Rule(1, 1, 0)
+    disc = nd.Disc([], [], [])
+    penalty = nd.Penalty(50)
+    whatsit = DummyWhatsit()
+    mlist.extend([rule, disc, penalty, whatsit])
+    packed = []
+    mlist.typesetNodes(parser, packed, mmode.MathTypesetContext(parser, True), mmode.Style(mmode.MATH_STYLE.T))
+    assert packed == [rule, disc, penalty, whatsit]
+
+
 @pytest.mark.parametrize("cmd, limits", [
     ["\\nolimits", mmode.MATH_LIMITS.NONE],
     ["\\limits", mmode.MATH_LIMITS.NORMAL],

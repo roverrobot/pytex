@@ -232,8 +232,20 @@ def test_mathstyle(math, cmd, style):
     node = top[0]
     assert isinstance(node, mmode.StyleNode)
     assert node.node_type == nd.NODE_TYPE.MATHNODE
-    assert node.style == style
+    assert node.style.style == style
+    assert not node.style.cramped
     math.parse("$")
+
+
+def test_style_node_is_consumed_by_typeset(math):
+    math.parse("$\\scriptstyle a$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    assert len(packed) == 3
+    assert isinstance(packed[0], nd.MathShift)
+    assert isinstance(packed[1], mmode.Atom)
+    assert isinstance(packed[2], nd.MathShift)
 
 
 @pytest.mark.parametrize("cmd, limits", [

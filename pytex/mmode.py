@@ -151,6 +151,9 @@ class MList(lists.List):
         if packed is None:
             packed = HList(parser)
         for node in self:
+            if isinstance(node, StyleNode):
+                style = node.style
+                continue
             typeset = node.typeset
             if typeset is None:
                 packed.append(node)
@@ -352,8 +355,11 @@ class StyleNode(nd.Node):
     """
     a node representing a math style change
     """
-    def __init__(self, style):
-        self.style = style
+    def __init__(self, style, cramped=False):
+        if isinstance(style, Style):
+            self.style = style
+        else:
+            self.style = Style(style, cramped)
 
     def saveInfo(self):
         return {"init": {"style": self.style}}

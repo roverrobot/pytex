@@ -20,8 +20,7 @@ class VNodeContext:
     """
     The context for a node in vertical mode. This is used to store the parameters that affect the typesetting of the node, such as baselineskip, lineskip, etc.
     """
-    def __init__(self, parser, prevdepth):
-        layout = parser.state.layout
+    def __init__(self, layout, prevdepth):
         self.baselineskip = layout["baselineskip"]
         self.lineskip = layout["lineskip"]
         self.lineskiplimit = layout["lineskiplimit"]
@@ -91,7 +90,7 @@ class VList(lists.List):
         context = getattr(node, "typeset_context", None)
         is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
         if context is None and is_box:
-            node.typeset_context = VNodeContext(self.parser, self.prevdepth)
+            node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)
         if is_box:
             # if the box has a depth, we capture it. Otherwise, we will resolve it lazily when needed.
             self.prevdepth = getattr(node, "depth", None)
@@ -120,7 +119,7 @@ class VList(lists.List):
                     if d is not None:
                         prevdepth = d
                     # if prevdepth <= -10000, do not add interline glue
-                    if float(prevdepth) > float(init_prevdepth):
+                    if float(prevdepth) > float(init_prevdepth) and not firstbox:
                         baselineskip = context.baselineskip
                         diff = baselineskip.dimen - prevdepth - item.height
                         if diff < context.lineskiplimit:
@@ -206,6 +205,7 @@ def readVList(parser, reason):
     @param reason: the reason for reading the list
     """
     vlist = VList(parser)
+    parser.clearParagraphSettings()
     return parser.readList(vlist, reason)
 
 

@@ -25,14 +25,14 @@ class Box(nd.Box):
     the base class for \\hbox, \\vbox, and \\vtop
     @param to: the target width or height
     @param spread: the spread
-    @param list: the list of nodes in the box
     """
-    def __init__(self, to, spread, list):
+    def __init__(self, to, spread, list=None):
         super().__init__(None, None, None)
         self.to = to
         self.spread = spread
         self.list = list
         self.shifted = 0
+        self.natural = None
         self.glue_ratio = 0
 
     def saveInfo(self):
@@ -86,7 +86,13 @@ class Box(nd.Box):
             else:
                 natural = self.calculate(n, natural, None)
         # calculate the ratio
-        spread = self.spread if self.to is None else self.to - natural.dimen
+        if self.spread is None:
+            if self.to is None:
+                self.to = natural.dimen
+            self.spread = self.to - natural.dimen
+        elif self.to is None:
+            self.to = self.spread + natural.dimen
+        spread = self.spread
         if spread is None:
             self.glue_ratio = 0
         if self.to is None:
@@ -98,6 +104,7 @@ class Box(nd.Box):
         else:
             self.glue_ratio = 0
         packed.append(self)
+        self.natural = natural
 
     def _expand(self, parser, content, node):
         """
@@ -145,6 +152,9 @@ class HBox(Box):
         super().__init__(to, spread, hmode.HList(parser, True))
         self.migrate = []
 
+    def saveInfo(self):
+        return super().saveInfo() | {"extra": {"migrate": self.migrate}}
+
     @classmethod
     def new(cls, parser, **kwargs):
         return cls(parser, kwargs["to"], kwargs["spread"])
@@ -185,6 +195,34 @@ class HBox(Box):
             if n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS)
         ]
         self.width = self.to
+
+    def rightmost(self):
+        # finf the right edge of the rightmost box
+        w = self.width
+        if self.spread > 0:
+            ratio = self.glue_ratio
+            s = self.natural.stretch
+        else:
+            ratio = -self.glue_ratio if self.spread < 0 else 0
+            s = self.natural.shrink
+        for node in reversed(self.list):
+            node_type = node.node_type
+            if node_type == nd.NODE_TYPE.KERN:
+                w -= node.kern
+            elif node_type == nd.NODE_TYPE.GLUE:
+                glue = node.glue
+                ss = glue.stretch if ratio > 0 else glue.shrink
+                if ss.order < s.order:
+                    continue
+                if ss.order == 0:
+                    w -= glue.dimen + ss.factor * ratio
+                else:
+                    w -= glue.dimen + ss.factor * ratio / s.factor * abs(self.spread)
+            else:
+                nw = getattr(node, "width", None)
+                if nw is not None:
+                    break
+        return w
 
     def __repr__(self):
         return f"HBox({self.width}, {self.height}, {self.depth}, {self.list})"

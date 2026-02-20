@@ -65,11 +65,12 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
 
 
 def test_implicit_paragraph_adds_parskip(parser):
-    parser.parse("\\parskip=5pt a\\par")
+    parser.parse("\\parskip=5pt a\\par b\\par")
     top = parser.lists[-1]
-    assert top[0].node_type == nd.NODE_TYPE.GLUE
-    assert top[0].glue.dimen == 5
-    assert isinstance(top[1], paragraph.Paragraph)
+    assert isinstance(top[0], paragraph.Paragraph)
+    assert top[1].node_type == nd.NODE_TYPE.GLUE
+    assert top[1].glue.dimen == 5
+    assert isinstance(top[2], paragraph.Paragraph)
 
 
 def test_linebreak_discards_leading_discardables(cmr10):

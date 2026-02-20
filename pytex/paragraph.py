@@ -214,6 +214,7 @@ class Paragraph(hmode.HList):
         line_count = len(lines)
         context.line_count = line_count
         # add the lines into the vlist
+        hbox = None
         if lines:
             for i, line in enumerate(lines):
                 packed = []
@@ -240,6 +241,22 @@ class Paragraph(hmode.HList):
                 hbox.source = self
                 hbox.typeset_context = LineContext(parser, context, line)
                 vlist.append(hbox)
+        if self.next_paragraph is not None:
+            self.next_paragraph.typeset_context.prevgraf = line_count
+            # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
+            # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
+            # the closing $$ of another display), p is set to -16383.99999 pt (i.e., to the smallest legal
+            # dimension, -\maxdimen). Otherwise TEX looks inside the hbox that was formed by the
+            # previous line, and sets p to the position of the right edge of the rightmost box inside
+            # that hbox, plus the indentation by which the enclosing hbox has been moved right, plus
+            # two ems in the current font.
+            if hbox is None:
+                p = Dimen(-16383.99999)
+            else:
+                p = hbox.rightmost()
+            parser.state.layout.predisplaysize = p
+            self.next_paragraph.typeset_context.predisplaysize = p
+            self.next_paragraph.typeset_context.prevdepth = hbox.depth
 
     def lineBreak(self, parser, hlist):
         """

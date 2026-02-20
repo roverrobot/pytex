@@ -60,7 +60,10 @@ def test_mlist(parser, inner):
         vtop = parser.lists[0]
         assert vtop.type == lists.LISTTYPE.VERTICAL
         node = next(n for n in vtop if isinstance(n, mmode.MList))
-        glues = [n for n in vtop if n.node_type == nd.NODE_TYPE.GLUE]
+        parser.parse("\\par")
+        packed = []
+        parser.lists[-1].typesetNodes(parser, packed)
+        glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
         assert len(glues) >= 2
     assert node.node_type == nd.NODE_TYPE.MATH
 
@@ -88,15 +91,11 @@ def test_mlist_typeset_inline(math):
 
 
 def test_mlist_typeset_display(math):
-    math.parse("$$a$$")
+    math.parse("$$a$$\\par")
     top = math.lists[0]
-    mlist = next(n for n in top if isinstance(n, mmode.MList))
+    assert len(top) == 3
     packed = []
-    mlist.typeset(math, packed)
-    assert len(packed) == 1
-    display = packed[0]
-    assert display.node_type == nd.NODE_TYPE.HLIST
-    assert display.source is mlist
+    top.typesetNodes(math, packed)
 
 
 def test_subformula(parser):

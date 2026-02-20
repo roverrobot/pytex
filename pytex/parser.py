@@ -343,7 +343,7 @@ class Parser:
         """
         return hmode.IndentBox(self)
 
-    def newParagraph(self, indent: bool = True):
+    def newParagraph(self, indent: bool = True, parskip: bool = True):
         """
         start a new paragraph: starting the horizontal list with an empty 
         # hbox whose width is \parindent. The \everypar tokens are inserted into 
@@ -351,7 +351,7 @@ class Parser:
         # eventually completed, horizontal mode will come to an end as described 
         # in Chapter 25. (The TeX Book pp.282)        """
         top = self.lists[-1]
-        if top.type == lists.LISTTYPE.VERTICAL and (not top.inner or len(top) > 0):
+        if top.type == lists.LISTTYPE.VERTICAL and (not top.inner) and len(top) > 0 and parskip:
             top.append(node.Glue(self.state.parameters["parskip"]))
         hlist = paragraph.Paragraph(self, indent)
         self.lists.append(hlist)
@@ -382,8 +382,14 @@ class Parser:
         top = self.lists[-1]
         hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist)
         # TeX clears \\looseness after each paragraph.
-        self.state.layout["looseness"] = 0
         top.append(hlist)
+        self.clearParagraphSettings()
+
+    def clearParagraphSettings(self):
+        self.state.layout["looseness"] = 0
+        self.state.layout["hangindent"] = 0
+        self.state.layout["hangafter"] = 0
+        self.state.layout["parshape"] = []
 
     def hyphenChar(self):
         """

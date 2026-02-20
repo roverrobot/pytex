@@ -10,7 +10,7 @@ when parsing the math list, but after the list is parsed.
 from pytex import serialization
 from pytex import lists
 from pytex import node as nd
-from pytex.token import CATCODE, CommandToken
+from pytex.token import CATCODE
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.accessor import ParameterAccessor
@@ -19,6 +19,8 @@ from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen
 from pytex import box
+from pytex.hmode import HList
+from pytex.vmode import VNodeContext, init_prevdepth
 import enum
 
 
@@ -94,13 +96,33 @@ class MathTypesetContext:
     """
     def __init__(self, parser, inner):
         # the interline settings
+        # fonts
+        def copy(array):
+            return [array[i] for i in range(16)]
+        self.textfont = copy(parser.state.textfont)
+        self.scriptfont = copy(parser.state.scriptfont)
+        self.scriptscriptfont = copy(parser.state.scriptscriptfont)
         if not inner:
+            self.prevgraf = None
             layout = parser.state.layout
+            # display math parameters
+            self.displaywidth = layout["displaywidth"]
+            self.displayindent = layout["displayindent"]
+            self.predisplaysize = None
+            self.prevdepth = None
+            self.postdisplaypenalty = layout["postdisplaypenalty"]
+            self.abovedisplayskip = layout["abovedisplayskip"]
+            self.belowdisplayskip = layout["belowdisplayskip"]
+            self.abovedisplayshortskip = layout["abovedisplayshortskip"]
+            self.belowdisplayshortskip = layout["abovedisplayshortskip"]
+            # interline parameters
             self.baselineskip = layout["baselineskip"]
             self.lineskip = layout["lineskip"]
             self.lineskiplimit = layout["lineskiplimit"]
-            self.interlinepenalty = layout["interlinepenalty"]
-            self.prevdepth = None
+            self.interlinepenalty = layout["predisplaypenalty"]
+
+    def __getitem__(self, index):
+        return getattr(self, index, None)
 
 
 class MList(lists.List):
@@ -109,18 +131,11 @@ class MList(lists.List):
     @param parser: the parser that created the list
     @param inner: whether the list is in internal mode (inline or subformula)
     """
-    def __init__(self, parser, inner=True):
-        super().__init__(parser, lists.LISTTYPE.MATH, inner)
+    def __init__(self, parser, inner=True, nodes=None):
+        super().__init__(parser, lists.LISTTYPE.MATH, inner, nodes)
         # is this list a denominator? if so, this points to the fraction node
         self.fraction = None 
-        # the equation number. If there is one, this holds a tuple (MList, bool)
-        # where the MList points to the equation number material, and the bool indicates
-        # whether the equation number is on the left
-        self.eqno = None
     
-    def saveInfo(self):
-        return super().saveInfo() | {"extra": { "eqno": self.eqno}}
-
     node_type = nd.NODE_TYPE.MATH
 
     def append(self, node):
@@ -128,28 +143,17 @@ class MList(lists.List):
             node = Box(node)
         super().append(node)
 
-    def typeset(self, parser, packed):
-        if self.inner:
-            math_shift = nd.MathShift(True)
-            math_shift.source = self
-            math_shift.kern = Dimen(parser.state.layout["mathsurround"])
-            packed.append(math_shift)
-        else:
-            # TODO: display math needs full paragraph integration:
-            # break paragraph at display math, handle eqno/leqno placement,
-            # insert display penalties/glues, and set prevgraf.
-            hbox = box.HBox(parser, None, 0)
-            hbox.list[:] = self
-            hbox.source = self
-            packed.append(hbox)
-            packed = hbox.list
+    def typesetNodes(self, parser, packed, context, style):
+        # typeset the nodes n the list into an hlist
+        if packed is None:
+            packed = HList(parser)
         for node in self:
             typeset = node.typeset
             if typeset is None:
                 packed.append(node)
                 continue
             start = len(packed)
-            typeset(parser, packed)
+            typeset(parser, packed, context, style)
             if len(packed) == start:
                 packed.append(node)
                 continue
@@ -158,13 +162,186 @@ class MList(lists.List):
                     continue
                 if getattr(n, "source", None) is None:
                     n.source = node
-        if self.inner:
-            math_shift = nd.MathShift(False)
-            math_shift.source = self
-            math_shift.kern = Dimen(parser.state.layout["mathsurround"])
-            packed.append(math_shift)
+        return packed
+
+    def typeset(self, parser, packed, context, style):
+        # typeset into an hbox
+        box = box.HBox(parser, None, None)
+        self.typesetNodes(parser, box.list, context, style)
+        box.typeset(parser, packed)
+
+
+class InlineMathList(MList):
+    def __init(self, parser, nodes=None):
+        super().__init__(parser, True, nodes)
+
+    def saveInfo(self):
+        return {"init": [x for x in self], "extra": { "fraction": self.fraction}}
+
+    def typeset(self, parser, packed):
+        math_shift = nd.MathShift(True)
+        math_shift.source = self
+        math_shift.kern = Dimen(parser.state.layout["mathsurround"])
+        packed.append(math_shift)
+        self.typesetNodes(parser, packed, self.typeset_context, MATH_STYLE.T)
+        math_shift = nd.MathShift(False)
+        math_shift.kern = Dimen(parser.state.layout["mathsurround"])
+        packed.append(math_shift)
+
+
+class DisplayMathList(MList):
+    def __init__(self, parser, nodes=None):
+        super().__init__(parser, False, nodes)
+        # the equation number. If there is one, this holds a tuple (MList, bool)
+        # where the MList points to the equation number material, and the bool indicates
+        # whether the equation number is on the left
+        self.eqno = None
+        self.typeset_context: MathTypesetContext = None
+        # these point to the unrestricted hlists before and after the display math
+        self.prev_paragraph = None
+        self.next_paragraph = None
+
+    def saveInfo(self):
+        return {
+            "init": [x for x in self], 
+            "extra": {
+                "eqno": self.eqno,
+            }
+        }
+
+    def typeset(self, parser, packed):
+        # display math
+        assert self.typeset_context.prevgraf is not None
+        # check the \predisplaysize
+        assert self.typeset_context.predisplaysize is not None
+        # After a display has been read, TEX converts it from a math list to a horizontal
+        # list h in display style, as explained in Appendix G. An equation number, if
+        # present, is processed in text style and put into an hbox a with its natural width. Now
+        # the fussy processing begins: Let z, s, and p be the current values of \displaywidth,
+        # \displayindent, and \predisplaysize. Let q and e be zero if there is no equation
+        # number; otherwise let e be the width of the equation number, and let q be equal to
+        # eplus one quad in the symbols font (i.e., in \textfont2). Let w0 be the natural width
+        # of the displayed formula h. If w0 + q ≤z, list h is packaged in an hbox b having its
+        # natural width w0. But if w0 + q>z (i.e., if the display is too wide to fit at its natural
+        # width), TEX performs the following “squeeze routine”: If e!= 0 and if there is enough
+        # shrinkability in the displayed formula h to reduce its width to z−q, then list h is
+        # packaged in an hbox b of width z−q. Otherwise e is set to zero, and list h is packaged
+        # in a (possibly overfull) hbox b of width min(w0,z).
+        if self.eqno is not None:
+            eqno, left = self.eqno
+            a = box.HBox(parser, None, 0)
+            a.typesetNodes(parser, a.list, self.typeset_context, MATH_STYLE.T)
+            a.typeset(parser, [])
+            e = float(a.width)
+            q = e + self.textfont[1].param[1] # quad
         else:
-            hbox.typeset(parser, [])
+            q = 0
+            e = 0
+            eqno = None
+            left = None
+        h = self.typesetNodes(parser, None, self.typeset_context, MATH_STYLE.D)
+        b = box.HBox(parser, None, 0)
+        b.list = h
+        b.typeset(parser, [])
+        w0 = float(b.width)
+        z = self.typeset_context.displaywidth
+        s = self.typeset_context.displayindent
+        p = self.typeset_context.predisplaysize
+        if w0 + q > z:
+            # look at all the stretchness of a
+            if e != 0:
+                b = box.HBox(parser, to=z-q, spread=None)
+                b.list = h
+                b.typeset(parser, [])
+                if b.glue_ratio > 1:
+                    e = 0
+            if e == 0:
+                b = box.HBox(parser, to=min(w0, z), spread=None)
+                b.list = h
+                b.typeset(parser, [])
+        # TEX tries now to center the display without regard to the
+        # equation number. But if such centering would make it too close to that number
+        # (where “too close” means that the space between them is less than the width e), the
+        # equation is either centered in the remaining space or placed as far from the equation
+        # number as possible. The latter alternative is chosen only if the first item on list h is
+        # glue, since T EX assumes that such glue was placed there in order to control the spacing
+        # precisely. But let’s state the rules more formally: Let w be the width of box b. TEX
+        # computes a displacement d, to be used later when positioning box b, by first setting
+        # d=(z−w). If e>0 and if d<2e, then d is reset to (z−w−e) or to zero, where
+        # zero is chosen if list h begins with a glue item
+        w = b.width
+        d = z - w
+        if e > 0 and d < 2*e:
+            d = 0 if h[0].node_type == nd.NODE_TYPE.GLUE else z - w - e
+        # TEX is now ready to put things onto the current vertical list,
+        # just after the material previously constructed for the paragraph-so-far. First
+        # comes a penalty item, whose cost is an integer parameter called \predisplaypenalty.
+        # Then comes glue. If d+ s ≤ p, or if there was a left equation number (\leqno),
+        # TEX sets ga and gb to glue items specified by the parameters \abovedisplayskip and
+        # \belowdisplayskip, respectively; otherwise ga and gb become glue items correspond-
+        # ing to \abovedisplayshortskip and \belowdisplayshortskip. [Translation: If the
+        # predisplaysize is short enough so that it doesn’t overlap the displayed formula, the glue
+        # above and below the display will be “short” by comparison with the glue that is used
+        # when there is an overlap.] If e= 0 and if there is an \leqno, the equation number is
+        # appended as an hbox by itself, shifted right s and preceded by interline glue as usual;
+        # an infinite penalty is also appended, to prevent a page break between this number and
+        # the display. Otherwise a glue item ga is placed on the vertical list.
+        if d + s <= p or left is True:
+            ga = self.typeset_context.abovedisplayskip
+            gb = self.typeset_context.belowdisplayskip
+        else:
+            ga = self.typeset_context.abovedisplayshortskip
+            gb = self.typeset_context.belowdisplayshortskip
+        if e == 0 and left is True:
+            a.typeset_context = VNodeContext(self.typeset_context)
+            a.shifted(s)
+            packed.append(a)
+            packed.append(nd.Penalty(10000))
+        else:
+            packed.append(nd.Glue(ga))
+        if e != 0:
+            # Now comes the displayed equation itself. If e!= 0, the
+            # equation number box a is combined with the formula box b as follows: Let k
+            # be a kern of width z−w−e−d. In the \eqno case, box b is replaced by an hbox
+            # containing (b,k,a); in the \leqno case, box b is replaced by an hbox containing (a,k,b),
+            # and d is set to zero. In all cases, box b is then appended to the vertical list, shifted
+            # right by s+ d.
+            line = box.HBox(parser, None, None)
+            if e != 0:
+                k = nd.Kern(z-w-e-d)
+                if left:
+                    line.list.append(a)
+                    line.list.append(k)
+                    line.list.append(b)
+                    d = 0
+                else:
+                    line.list.append(b)
+                    line.list.append(k)
+                    line.list.append(a)
+            b = line
+        b.typeset(parser, [])
+        b.shifted = Dimen(s+d)
+        b.typeset_context = VNodeContext(self.typeset_context, None)
+        b.typeset_context.prevdepth = init_prevdepth # prevent interline glue
+        packed.append(b)
+        # The final task is to append the glue or the equation number
+        # that follows the display. If there was an \eqno and if e = 0, an infinite
+        # penalty is placed on the vertical list, followed by the equation number box a shifted
+        # right by s+ z minus its width, followed by a penalty item whose cost is the value
+        # of \postdisplaypenalty. Otherwise a penalty item for the \postdisplaypenalty is
+        # appended first, followed by a glue item for gb as specified above.
+        if e == 0 and left is False:
+            packed.append(nd.Penalty(10000))
+            a.shifted = Dimen(s + z) - a.width
+            a.typeset_context = VNodeContext(self.typeset_context)
+            a.prevdepth = init_prevdepth
+            packed.append(a)
+            packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
+        else:
+            packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
+            packed.append(nd.Glue(gb))
+        # TEX now adds 3 to \prevgraf and returns to horizontal mode, ready to resume the paragraph.
+        self.next_paragraph.typeset_context.prevgraf = self.typeset_context.prevgraf + 3
 
 
 class StyleNode(nd.Node):
@@ -345,10 +522,12 @@ def mathShift(parser):
             parser.endParagraph()
             vlist = parser.lists[-1] # the enclosing vertical list
             vlist.append(mlist)
-            parser.newParagraph(indent=False)
+            parser.newParagraph(indent=False, parskip=False)
             new_par = parser.lists[-1] # the new paragraph after the display math
-            top.next_paragraph = new_par
-            new_par.prev_paragraph = top
+            top.next_paragraph = mlist
+            mlist.prev_paragraph = top
+            mlist.next_paragraph = new_par
+            new_par.prev_paragraph = mlist
         return
     # otherwise, we are starting a new math mode
     # if we are current in a vertical mode, unread the token, enter the horizontal mode,
@@ -374,7 +553,8 @@ def mathShift(parser):
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
     parser.beginGroup(pos, GROUP_TYPE.MATH_SHIFT)
-    parser.lists.append(MList(parser, inner=inner))
+    mlist = InlineMathList(parser) if inner else DisplayMathList(parser)
+    parser.lists.append(mlist)
     every = parser.everymath.value if inner else parser.everydisplay.value
     if every:
         parser.input.push(TokenListScanner(every))

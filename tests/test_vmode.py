@@ -196,7 +196,7 @@ def test_box_context_keeps_interlinepenalty(parser):
     vlist = vmode.VList(parser)
     first = _test_hbox(parser)
     second = _test_hbox(parser)
-    second.typeset_context = vmode.VNodeContext(parser, vmode.init_prevdepth)
+    second.typeset_context = vmode.VNodeContext(parser.state.layout, vmode.init_prevdepth)
     second.typeset_context.interlinepenalty = 123
     vlist.append(first)
     vlist.append(second)

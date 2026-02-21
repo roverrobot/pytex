@@ -39,19 +39,6 @@ class Style(serialization.Serializable):
     def saveInfo(self):
         return {"init": {"style": self.style.value, "cramped": self.cramped}}
     
-    def font(self, settings, family):
-        """
-        get the font of a family in the current style
-        @param settings: the settings for typesetting the math list
-        @param family: the family
-        @return: the font
-        """
-        if self.style < MATH_STYLE.S:
-            return settings.textfont[family]
-        if self.style == MATH_STYLE.S:
-            return settings.scriptfont[family]
-        return settings.scriptscriptfont[family]
-    
     def superscript(self):
         """
         get the style for a superscript
@@ -124,7 +111,25 @@ class MathTypesetContext:
 
     def __getitem__(self, index):
         return getattr(self, index, None)
+    
+    def font(self, style, family):
+        """
+        get the font of a family in the current style
+        @param settings: the settings for typesetting the math list
+        @param family: the family
+        @return: the font
+        """
+        if style.style < MATH_STYLE.S:
+            return self.textfont[family]
+        if style.style == MATH_STYLE.S:
+            return self.scriptfont[family]
+        return self.scriptscriptfont[family]
 
+    def sigma(self, style: Style):
+        return self.font(style, 2).param
+
+    def xi(self, style: Style):
+        return self.font(style, 3).param
 
 class AtomTypesetContext:
     """
@@ -510,11 +515,27 @@ class Atom(nd.Node):
             return
         prev_atom_type = context.prev_atom_type
         atom_type = self.atom_type
+        sigma = context.sigma(style)
+        xi = context.xi(style)
         # TeXbook Appendix G, rule 5.
         if atom_type == ATOM_TYPE.BIN and (
             prev_atom_type is None
             or prev_atom_type in (ATOM_TYPE.BIN, ATOM_TYPE.OP, ATOM_TYPE.REL, ATOM_TYPE.OPEN, ATOM_TYPE.PUNCT)
         ):
+            atom_type = ATOM_TYPE.ORD
+        # TeXbook Appendix G, rule 6. If the current item is a Rel or Close or Punct atom, and if the most recent 
+        # previous atom was Bin, change that previous Bin to Ord.
+        elif atom_type in (ATOM_TYPE.REL, ATOM_TYPE.CLOSE, ATOM_TYPE.PUNCT) and prev_atom_type == ATOM_TYPE.BIN:
+            prev_atom_type = ATOM_TYPE.ORD
+        # TeXbook Appendix G, rule 8. If the current item is a Vcent atom (from \vcenter), let its nucleus be a vbox
+        # of height-plus-depth v. Change the height to 1/2 v+ a and the depth to 1/2 v−a, where
+        # a is the axis height, σ22. Change this atom to type Ord 
+        elif atom_type == ATOM_TYPE.VCENT:
+            box = self.nucleus
+            v = box.height + box.depth
+            a = sigma[21]
+            box.height = Dimen(float(v)/2 + a)
+            box.depth = Dimen(float(v)/2 - a)
             atom_type = ATOM_TYPE.ORD
         context.atom_type = atom_type
         # placeholder until full atom layout rules are implemented.
@@ -551,10 +572,10 @@ class MathSymbol(Atom):
                 family = fam
         return type, family, chr(char)
 
-    def typesetNucleus(self, settings, hlist):
+    def typesetNucleus(self, parser, packed, context, style):
         char, fam = self.nucleus
-        font = settings.style.font(settings, fam)
-        hlist.append(font[char])
+        font = context.font(style, fam)
+        packed.append(font[char])
 
 
 class Subformula(Atom):
@@ -822,7 +843,7 @@ def mudimen(context, style, dimen):
 
     The mu unit is 1/18 of the em unit of \\textfont[2]
     """
-    return dimen * style.font(context, 2).param[5] / 18 # fontdimen 6 is em
+    return dimen * context.font(style, 2).param[5] / 18 # fontdimen 6 is em
 
 
 def muglue(context, style, glue):

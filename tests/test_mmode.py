@@ -218,6 +218,40 @@ def test_nonscript_keeps_following_glue_or_kern_when_style_is_scriptscript(math)
     assert float(kerns[1].kern) == pytest.approx(2 * sigma, abs=1e-4)
 
 
+def test_mathchoice_uses_current_text_style(math):
+    math.parse("$\\mathchoice{\\mkern18mu}{\\mkern36mu}{\\mkern54mu}{\\mkern72mu}$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
+    assert len(kerns) == 1
+    sigma = mlist.typeset_context.textfont[2].param[5]
+    assert float(kerns[0].kern) == pytest.approx(2 * sigma, abs=1e-4)
+
+
+def test_mathchoice_uses_current_script_style(math):
+    math.parse("$\\scriptstyle\\mathchoice{\\mkern18mu}{\\mkern36mu}{\\mkern54mu}{\\mkern72mu}$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
+    assert len(kerns) == 1
+    sigma = mlist.typeset_context.scriptfont[2].param[5]
+    assert float(kerns[0].kern) == pytest.approx(3 * sigma, abs=1e-4)
+
+
+def test_nested_mathchoice_expands_without_mutating_list(math):
+    math.parse("$\\mathchoice{\\mkern18mu}{\\mathchoice{\\mkern18mu}{\\mkern36mu}{\\mkern54mu}{\\mkern72mu}}{\\mkern90mu}{\\mkern108mu}$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
+    assert len(kerns) == 1
+    sigma = mlist.typeset_context.textfont[2].param[5]
+    assert float(kerns[0].kern) == pytest.approx(2 * sigma, abs=1e-4)
+    assert any(isinstance(n, mmode.ChoiceNode) for n in mlist)
+
+
 def test_indent(math):
     math.parse("$a\\indent b")
     top = math.lists[-1]

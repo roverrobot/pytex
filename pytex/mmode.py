@@ -156,24 +156,41 @@ class MList(lists.List):
         }
         if packed is None:
             packed = HList(parser)
+        current = self
         i = 0
-        while i < len(self):
-            node = self[i]
+        stack = []
+        while current is not None:
+            if i >= len(current):
+                if not stack:
+                    break
+                current, i = stack.pop()
+                continue
+            node = current[i]
+            i += 1
+            # TeXBook Appdex G, Rule 3: If the current item is a style change, set C to the specified style. Delete the
+            # current item from the list and move on to the next.
             if isinstance(node, StyleNode):
                 style = node.style
-                i += 1
+                continue
+            # TeXbook Appendix G, rule 4.
+            if isinstance(node, ChoiceNode):
+                branch = node.branch(style)
+                if isinstance(branch, Subformula):
+                    branch = branch.nucleus
+                if branch is not None:
+                    stack.append((current, i))
+                    current = branch
+                    i = 0
                 continue
             if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
                 # TeXbook Appendix G, rule 2.
                 if getattr(node, "nonscript", False):
                     packed.append(node)
-                    if style.style <= MATH_STYLE.S and i + 1 < len(self):
+                    if style.style <= MATH_STYLE.S and i < len(current):
                         # remove the immediately following glue/kern item.
-                        nxt = self[i + 1]
+                        nxt = current[i]
                         if nxt.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                            i += 2
-                            continue
-                    i += 1
+                            i += 1
                     continue
                 if getattr(node, "mu", False):
                     start = len(packed)
@@ -183,33 +200,27 @@ class MList(lists.List):
                             continue
                         if getattr(n, "source", None) is None:
                             n.source = node
-                    i += 1
                     continue
                 packed.append(node)
-                i += 1
                 continue
             # TeXbook Appendix G, rule 1: these nodes stay unchanged.
             if node.node_type in pass_through:
                 packed.append(node)
-                i += 1
                 continue
             typeset = node.typeset
             if typeset is None:
                 packed.append(node)
-                i += 1
                 continue
             start = len(packed)
             typeset(parser, packed, context, style)
             if len(packed) == start:
                 packed.append(node)
-                i += 1
                 continue
             for n in packed[start:]:
                 if n is node:
                     continue
                 if getattr(n, "source", None) is None:
                     n.source = node
-            i += 1
         return packed
 
     def typeset(self, parser, packed, context, style):
@@ -899,6 +910,16 @@ class ChoiceNode(nd.Node):
                 "scriptscript": self.scriptscript
             }
         }
+
+    def branch(self, style):
+        current = style.style if isinstance(style, Style) else style
+        if current == MATH_STYLE.D:
+            return self.display
+        if current == MATH_STYLE.T:
+            return self.text
+        if current == MATH_STYLE.S:
+            return self.script
+        return self.scriptscript
 
     node_type = nd.NODE_TYPE.MATHNODE
 

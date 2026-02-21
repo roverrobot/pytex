@@ -186,6 +186,38 @@ def test_mkern(math):
     math.parse("$")
 
 
+def test_mkern_typeset_uses_style_sigma6(math):
+    math.parse("$\\scriptstyle\\mkern18mu$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
+    assert len(kerns) == 1
+    assert float(kerns[0].kern) == pytest.approx(mlist.typeset_context.scriptfont[2].param[5], abs=1e-4)
+
+
+def test_nonscript_removes_immediately_following_glue_or_kern(math):
+    math.parse("$\\nonscript\\mkern18mu\\mkern36mu$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
+    assert len(kerns) == 1
+    assert float(kerns[0].kern) == pytest.approx(2 * mlist.typeset_context.textfont[2].param[5], abs=1e-4)
+
+
+def test_nonscript_keeps_following_glue_or_kern_when_style_is_scriptscript(math):
+    math.parse("$\\scriptscriptstyle\\nonscript\\mkern18mu\\mkern36mu$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
+    assert len(kerns) == 2
+    sigma = mlist.typeset_context.scriptscriptfont[2].param[5]
+    assert float(kerns[0].kern) == pytest.approx(sigma, abs=1e-4)
+    assert float(kerns[1].kern) == pytest.approx(2 * sigma, abs=1e-4)
+
+
 def test_indent(math):
     math.parse("$a\\indent b")
     top = math.lists[-1]

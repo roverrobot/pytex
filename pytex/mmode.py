@@ -156,28 +156,60 @@ class MList(lists.List):
         }
         if packed is None:
             packed = HList(parser)
-        for node in self:
+        i = 0
+        while i < len(self):
+            node = self[i]
             if isinstance(node, StyleNode):
                 style = node.style
+                i += 1
+                continue
+            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                # TeXbook Appendix G, rule 2.
+                if getattr(node, "nonscript", False):
+                    packed.append(node)
+                    if style.style <= MATH_STYLE.S and i + 1 < len(self):
+                        # remove the immediately following glue/kern item.
+                        nxt = self[i + 1]
+                        if nxt.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                            i += 2
+                            continue
+                    i += 1
+                    continue
+                if getattr(node, "mu", False):
+                    start = len(packed)
+                    node.typeset(parser, packed, context, style)
+                    for n in packed[start:]:
+                        if n is node:
+                            continue
+                        if getattr(n, "source", None) is None:
+                            n.source = node
+                    i += 1
+                    continue
+                packed.append(node)
+                i += 1
                 continue
             # TeXbook Appendix G, rule 1: these nodes stay unchanged.
             if node.node_type in pass_through:
                 packed.append(node)
+                i += 1
                 continue
             typeset = node.typeset
             if typeset is None:
                 packed.append(node)
+                i += 1
                 continue
             start = len(packed)
             typeset(parser, packed, context, style)
             if len(packed) == start:
                 packed.append(node)
+                i += 1
                 continue
             for n in packed[start:]:
                 if n is node:
                     continue
                 if getattr(n, "source", None) is None:
                     n.source = node
+            i += 1
         return packed
 
     def typeset(self, parser, packed, context, style):
@@ -728,7 +760,7 @@ class MathCharDefAccesor(ParameterAccessor):
 mathchardef = Define(MathCharDefAccesor)
 
 
-def mudimen(parser, dimen):
+def mudimen(context, style, dimen):
     """
     calculate the actual dimension of a mu dimen
     @param parser: the parser
@@ -737,30 +769,30 @@ def mudimen(parser, dimen):
 
     The mu unit is 1/18 of the em unit of \\textfont[2]
     """
-    return dimen * parser.state.textfont[2].param[5] / 18 # fontdimen 6 is em
+    return dimen * style.font(context, 2).param[5] / 18 # fontdimen 6 is em
 
 
-def muglue(parser, glue):
+def muglue(context, style, glue):
     """
     calculate the actual dimension of a mu glue
     @param parser: the parser
     @param glue: the mu glue
     @return: the true dimension
     """
-    dimen = mudimen(parser, glue.dimen)
-    stretch = nustretchness(parser, glue.stretch)
-    shrink = nustretchness(parser, glue.shrink)
+    dimen = mudimen(context, style, glue.dimen)
+    stretch = nustretchness(context, style, glue.stretch)
+    shrink = nustretchness(context, style, glue.shrink)
     return Glue(dimen, stretch, shrink)
 
 
-def nustretchness(parser, stretch):
+def nustretchness(context, style, stretch):
     """
     calculate the actual stretchness of a mu glue
     @param parser: the parser
     @param stretch: the stretchness
     @return: the true stretchness
     """
-    factor = mudimen(parser, stretch.factor) if stretch.order == 0 else stretch.factor
+    factor = mudimen(context, style, stretch.factor) if stretch.order == 0 else stretch.factor
     return Stretchness(factor, stretch.order)
 
 
@@ -772,12 +804,12 @@ class MuKern(nd.Kern):
     def saveInfo(self):
         return {"init": {"dimen": self.dimen}}
 
-    def typeset(self, parser, packed):
+    def typeset(self, parser, packed, context, style):
         if packed is None:
             raise ValueError("typeset requires a packed list")
         if parser is None:
             raise ValueError("typeset requires a parser for mu units")
-        dimen = mudimen(parser, self.kern)
+        dimen = mudimen(context, style, self.kern)
         packed.append(nd.Kern(dimen))
         return
 
@@ -799,10 +831,10 @@ class MuGlue(nd.Glue):
     def saveInfo(self):
         return {"init": {"glue": self.glue}}
 
-    def typeset(self, parser, packed):
+    def typeset(self, parser, packed, context, style):
         if packed is None:
             raise ValueError("typeset requires a packed list")
-        packed.append(nd.Glue(muglue(parser, self.glue)))
+        packed.append(nd.Glue(muglue(context, style, self.glue)))
         return
 
 

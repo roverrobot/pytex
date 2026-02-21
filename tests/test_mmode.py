@@ -252,6 +252,61 @@ def test_nested_mathchoice_expands_without_mutating_list(math):
     assert any(isinstance(n, mmode.ChoiceNode) for n in mlist)
 
 
+def test_rule5_bin_conversion_uses_effective_previous_atom_type(parser):
+    class ProbeAtom(mmode.Atom):
+        def __init__(self, atom_type):
+            super().__init__(atom_type)
+            self.observed_prev = None
+            self.observed_type = None
+            self.nucleus = None
+
+        def typeset(self, parser, packed, context, style):
+            super().typeset(parser, [], context, style)
+            self.observed_prev = context.prev_atom_type
+            self.observed_type = context.atom_type
+            packed.append(nd.Kern(0))
+
+    first = ProbeAtom(mmode.ATOM_TYPE.BIN)
+    second = ProbeAtom(mmode.ATOM_TYPE.BIN)
+    mlist = mmode.MList(parser)
+    mlist.extend([first, second])
+    packed = []
+    ctx = mmode.MathTypesetContext(parser, True)
+    mlist.typesetNodes(parser, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+
+    assert first.observed_prev is None
+    assert first.observed_type == mmode.ATOM_TYPE.ORD
+    assert second.observed_prev == mmode.ATOM_TYPE.ORD
+    assert second.observed_type == mmode.ATOM_TYPE.BIN
+    # Rule 5 must not mutate the source atoms.
+    assert first.atom_type == mmode.ATOM_TYPE.BIN
+    assert second.atom_type == mmode.ATOM_TYPE.BIN
+
+
+def test_rule5_bin_after_rel_becomes_ord(parser):
+    class ProbeAtom(mmode.Atom):
+        def __init__(self, atom_type):
+            super().__init__(atom_type)
+            self.observed_type = None
+            self.nucleus = None
+
+        def typeset(self, parser, packed, context, style):
+            super().typeset(parser, [], context, style)
+            self.observed_type = context.atom_type
+            packed.append(nd.Kern(0))
+
+    rel = ProbeAtom(mmode.ATOM_TYPE.REL)
+    bin_atom = ProbeAtom(mmode.ATOM_TYPE.BIN)
+    mlist = mmode.MList(parser)
+    mlist.extend([rel, bin_atom])
+    packed = []
+    ctx = mmode.MathTypesetContext(parser, True)
+    mlist.typesetNodes(parser, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+
+    assert rel.observed_type == mmode.ATOM_TYPE.REL
+    assert bin_atom.observed_type == mmode.ATOM_TYPE.ORD
+
+
 def test_indent(math):
     math.parse("$a\\indent b")
     top = math.lists[-1]

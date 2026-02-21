@@ -126,6 +126,25 @@ class MathTypesetContext:
         return getattr(self, index, None)
 
 
+class AtomTypesetContext:
+    """
+    Transient context for typesetting one atom.
+
+    Carries list-level context plus the previous/effective atom type used by
+    Appendix G rule 5.
+    """
+    def __init__(self, context, prev_atom_type):
+        self.context = context
+        self.prev_atom_type = prev_atom_type
+        self.atom_type = None
+
+    def __getitem__(self, index):
+        return getattr(self.context, index, None)
+
+    def __getattr__(self, name):
+        return getattr(self.context, name)
+
+
 class MList(lists.List):
     """
     a math list
@@ -159,6 +178,7 @@ class MList(lists.List):
         current = self
         i = 0
         stack = []
+        prev_atom_type = None
         while current is not None:
             if i >= len(current):
                 if not stack:
@@ -206,6 +226,11 @@ class MList(lists.List):
             # TeXbook Appendix G, rule 1: these nodes stay unchanged.
             if node.node_type in pass_through:
                 packed.append(node)
+                continue
+            if isinstance(node, Atom):
+                atom_context = AtomTypesetContext(context, prev_atom_type)
+                node.typeset(parser, packed, atom_context, style)
+                prev_atom_type = node.atom_type if atom_context.atom_type is None else atom_context.atom_type
                 continue
             typeset = node.typeset
             if typeset is None:
@@ -477,6 +502,23 @@ class Atom(nd.Node):
         left = f"{self.left}" if self.left is not None else ""
         right = f"{self.right}" if self.right is not None else ""
         return f"{left}{self.__class__.__name__}({self.nucleus}{sub}{sup}){right}"
+    
+    def typeset(self, parser, packed, context=None, style=None):
+        if context is None:
+            # Fallback for generic list/box expansion paths.
+            packed.append(self)
+            return
+        prev_atom_type = context.prev_atom_type
+        atom_type = self.atom_type
+        # TeXbook Appendix G, rule 5.
+        if atom_type == ATOM_TYPE.BIN and (
+            prev_atom_type is None
+            or prev_atom_type in (ATOM_TYPE.BIN, ATOM_TYPE.OP, ATOM_TYPE.REL, ATOM_TYPE.OPEN, ATOM_TYPE.PUNCT)
+        ):
+            atom_type = ATOM_TYPE.ORD
+        context.atom_type = atom_type
+        # placeholder until full atom layout rules are implemented.
+        packed.append(self)
     
 
 class MathSymbol(Atom):

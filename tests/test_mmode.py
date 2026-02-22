@@ -6,6 +6,10 @@ from pytex import texlive
 from pytex.dimen import Dimen
 
 
+def isSymbol(node, fam, char):
+    return isinstance(node, mmode.MathSymbol) and node.fam == fam and node.char == char
+
+
 @pytest.fixture()
 def math(cmr10):
     fonts="""
@@ -47,9 +51,7 @@ def test_mlist(parser, inner):
     assert isinstance(node, mmode.Atom)
     assert node.sub is None
     assert node.sup is None
-    assert isinstance(node.nucleus, mmode.MathSymbol)
-    assert node.nucleus.fam == 1
-    assert node.nucleus.char == "a"
+    assert isSymbol(node.nucleus, 1, "a")
     assert node.atom_type == mmode.ATOM_TYPE.ORD
     parser.parse(f"{close}")
     top = parser.lists[-1]
@@ -139,9 +141,7 @@ def test_scripts(parser, field, value, type):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert isinstance(node.nucleus, mmode.MathSymbol)
-    assert node.nucleus.fam == 1
-    assert node.nucleus.char == "a"
+    assert isSymbol(node.nucleus, 1, "a")
     script = getattr(node, field)
     other = getattr(node, other)
     assert script is not None
@@ -167,9 +167,7 @@ def test_mathchar(parser, cmd):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert isinstance(node.nucleus, mmode.MathSymbol)
-    assert node.nucleus.fam == 2
-    assert node.nucleus.char == chr(0x34)
+    assert isSymbol(node.nucleus, 2, chr(0x34))
     assert node.atom_type == mmode.ATOM_TYPE.OP
     parser.parse("$")
 
@@ -191,9 +189,7 @@ def test_active(parser):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert isinstance(node.nucleus, mmode.MathSymbol)
-    assert node.nucleus.fam == 0
-    assert node.nucleus.char == "1"
+    assert isSymbol(node.nucleus, 0, "1")
     parser.parse("$")
 
 
@@ -441,12 +437,9 @@ def test_radical(math):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Rad)
-    assert node.delim.small.fam == 2
-    assert node.delim.small.char == chr(0x70)
-    assert node.delim.large.fam == 3
-    assert node.delim.large.char == chr(0x70)
-    assert node.oprand.fam == 1
-    assert node.oprand.char == "a"
+    assert isSymbol(node.delim.small, 2, chr(0x70))
+    assert isSymbol(node.delim.large, 3, chr(0x70))
+    assert isSymbol(node.oprand, 1, "a")
     info = node.saveInfo()
     assert info["init"]["delim"] is node.delim
     assert info["init"]["oprand"] is node.oprand
@@ -460,10 +453,8 @@ def test_mathaccent(math):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Accent)
-    assert node.base.fam == 1
-    assert node.base.char == "a"
-    assert node.accent.fam == 3
-    assert node.accent.char == chr(0x62)
+    assert isSymbol(node.base, 1, "a")
+    assert isSymbol(node.accent, 3, chr(0x62))
     info = node.saveInfo()
     assert info["init"]["accent"] is node.accent
     assert info["init"]["base"] is node.base
@@ -481,9 +472,7 @@ def test_delimiter(math):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert isinstance(node.nucleus, mmode.MathSymbol)
-    assert node.nucleus.fam == 2
-    assert node.nucleus.char == chr(0x70)
+    assert isSymbol(node.nucleus, 2, chr(0x70))
     assert node.atom_type == mmode.ATOM_TYPE.OP
     math.parse("$ $\\left(a+b\\right)")
     top = math.lists[-1]
@@ -492,10 +481,8 @@ def test_delimiter(math):
     assert isinstance(node, mmode.Atom)
     assert isinstance(node.nucleus, mmode.MList)
     assert len(node.nucleus) == 3
-    assert node.left.small.fam == 0
-    assert node.left.small.char == chr(0x28)
-    assert node.right.small.fam == 0
-    assert node.right.small.char == chr(0x29)
+    assert isSymbol(node.left.small, 0, chr(0x28))
+    assert isSymbol(node.right.small, 0, chr(0x29))
     math.parse("$")
 
 
@@ -519,20 +506,16 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     if left is None:
         assert frac.left is None
     else:
-        assert frac.left.small.fam == left[0]
-        assert frac.left.small.char == left[1]
+        assert isSymbol(frac.left.small, left[0], left[1])
     if right is None:
         assert frac.right is None
     else:
-        assert frac.right.small.fam == right[0]
-        assert frac.right.small.char == right[1]
+        assert isSymbol(frac.right.small, right[0], right[1])
     num, den, bar, thickness = frac.nucleus
     assert len(num) == 1
-    assert num[0].nucleus.fam == 1
-    assert num[0].nucleus.char == "a"
+    assert isSymbol(num[0].nucleus, 1, "a")
     assert len(den) == 1
-    assert den[0].nucleus.fam == 1
-    assert den[0].nucleus.char == "b"
+    assert isSymbol(den[0].nucleus, 1, "b")
     assert bar == bar
     assert thickness == thickness
     math.parse(f"$\\left(a{cmd} b\\right)")
@@ -541,23 +524,19 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert node.left.small.fam == 0
-    assert node.left.small.char == chr(0x28)
-    assert node.right.small.fam == 0
-    assert node.right.small.char == chr(0x29)
+    assert isSymbol(node.left.small, 0, chr(0x28))
+    assert isSymbol(node.right.small, 0, chr(0x29))
     assert len(node.nucleus) == 1
     frac = node.nucleus[0]
     assert isinstance(frac, mmode.Over)
     if left is None:
         assert frac.left is None
     else:
-        assert frac.left.small.fam == left[0]
-        assert frac.left.small.char == left[1]
+        assert isSymbol(frac.left.small, left[0], left[1])
     if right is None:
         assert frac.right is None
     else:
-        assert frac.right.small.fam == right[0]
-        assert frac.right.small.char == right[1]
+        assert isSymbol(frac.right.small, right[0], right[1])
     math.parse("$")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
@@ -574,9 +553,7 @@ def test_eqno(math, left):
     assert len(mlist) == 1
     atom = mlist[0]
     assert isinstance(atom, mmode.Atom)
-    assert isinstance(atom.nucleus, mmode.MathSymbol)
-    assert atom.nucleus.fam == 1
-    assert atom.nucleus.char == "a"
+    assert isSymbol(atom.nucleus, 1, "a")
     assert mlist.eqno is not None
     eqno, eqno_left = mlist.eqno
     assert eqno_left == left
@@ -584,9 +561,7 @@ def test_eqno(math, left):
     assert len(eqno) == 1
     node = eqno[0]
     assert isinstance(node, mmode.Atom)
-    assert isinstance(node.nucleus, mmode.MathSymbol)
-    assert node.nucleus.fam == 0
-    assert node.nucleus.char == "1"
+    assert isSymbol(node.nucleus, 0, "1")
 
 def test_eqno_inline(math):
     try:
@@ -610,9 +585,7 @@ def test_italic_correction(math):
     assert len(top) == 2
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert isinstance(node.nucleus, mmode.MathSymbol)
-    assert node.nucleus.fam == 1
-    assert node.nucleus.char == "l"
+    assert isSymbol(node.nucleus, 1, "l")
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.KERN
     assert node.kern == 0

@@ -304,10 +304,9 @@ class Parser:
         @param callback: the callback function
         """
         # if we are already in math mode, then we are reading a subformula
-        if self.lists[-1].type == lists.LISTTYPE.MATH:
-            mlist = mmode.MList(self)
-            self.lists[-1].append(mmode.Subformula(mlist))
-            self.lists.append(mlist)
+        if group_type == state.GROUP_TYPE.SIMPLE and self.lists[-1].type == lists.LISTTYPE.MATH:
+            self.lists.append(mmode.MList(self))
+            callback = mmode.SubformulaEndGroupCallBack(self)
         self.state.beginGroup(position, group_type, callback)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
@@ -317,21 +316,6 @@ class Parser:
         @param group_type: the type of the group
         """
         aftergroup = self.state.endGroup(position, group_type)
-        if self.lists[-1].type == lists.LISTTYPE.MATH:
-            # check if we are building a general fraction
-            if self.lists[-1].fraction is not None:
-                den = self.lists.pop()
-                fraction = den.fraction
-                den.fraction = None
-                num, _, bar, thickness = fraction.nucleus
-                fraction.nucleus = (mmode.Subformula(num), mmode.Subformula(den), bar, thickness)
-            # now, on the list stack, we are either in a subformula, or an equation number,
-            # or the base math list started by a math shift. In the first two cases, we pop
-            # off the list as we do not need them
-            enclosing = self.lists[-2]
-            if enclosing.type == lists.LISTTYPE.MATH:
-                # this is a subformula. pop it.
-                self.lists.pop()
         if aftergroup:
             self.input.push(lexer.TokenListScanner(aftergroup))
             if self.tracingcommands > 0 and self.checkRange():

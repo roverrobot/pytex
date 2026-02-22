@@ -10,7 +10,7 @@ when parsing the math list, but after the list is parsed.
 from pytex import serialization
 from pytex import lists
 from pytex import node as nd
-from pytex.token import CATCODE
+from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.accessor import ParameterAccessor
@@ -158,14 +158,46 @@ class MList(lists.List):
     """
     def __init__(self, parser, inner=True, nodes=None):
         super().__init__(parser, lists.LISTTYPE.MATH, inner, nodes)
-        # is this list a denominator? if so, this points to the fraction node
-        self.fraction = None 
+        self.building_atom = None
     
     node_type = nd.NODE_TYPE.MATH
 
+    def clear(self):
+        super().clear()
+        self.building_atom = None
+
+    def buildAtom(self, field, atom=None):
+        if atom is None:
+            atom = self[-1] if len(self) > 0 else None
+            if not isinstance(atom, Atom):
+                atom = Subformula(MList(self.parser))
+                self.append(atom)
+        else:
+            self.append(atom)
+        if getattr(atom, field, None) is not None:
+            if field == "sub":
+                raise ValueError("double subscript", self.parser.input.position())
+            if field == "sup":
+                raise ValueError("double superscript", self.parser.input.position())
+            raise ValueError("double field", self.parser.input.position())
+        self.building_atom = (atom, field)
+
     def append(self, node):
+        if self.building_atom is not None:
+            atom, field = self.building_atom
+            setattr(atom, field, node)
+            self.building_atom = None
+            return
         if isinstance(node, box.Box):
             node = Box(node)
+        elif isinstance(node, MList):
+            n = Atom(ATOM_TYPE.ORD)
+            n.nucleus = node
+            node = n
+        elif isinstance(node, MathSymbol):
+            n = Atom(node.type)
+            n.nucleus = node
+            node = n
         super().append(node)
 
     def typesetNodes(self, parser, packed, context, style):
@@ -542,24 +574,20 @@ class Atom(nd.Node):
         packed.append(self)
     
 
-class MathSymbol(Atom):
+class MathSymbol(serialization.Serializable):
     """
     A math symbol
     @param mathcode: the math code
     @param fam: the \\fam value
     """
     def __init__(self, mathcode, fam):
-        type, fam, char = self.decode(mathcode, fam)
-        super().__init__(ATOM_TYPE(type))
-        self.nucleus = (fam, char)
+        self.type, self.fam, self.char = self.decode(mathcode, fam)
 
     def saveInfo(self):
-        return super().saveInfo() | {"init": {"mathcode": self.encode(), "fam": -1}}
+        return {"init": {"mathcode": self.encode(), "fam": -1}}
 
     def encode(self):
-        type = self.atom_type.value
-        fam, char = self.nucleus
-        return (type << 12) | (fam << 8) | ord(char)
+        return (self.type.value << 12) | (self.fam << 8) | ord(self.char)
 
     @classmethod
     def decode(cls, mathcode, fam=-1):
@@ -570,12 +598,11 @@ class MathSymbol(Atom):
             type = ATOM_TYPE.ORD
             if fam != -1:
                 family = fam
-        return type, family, chr(char)
+        return ATOM_TYPE(type), family, chr(char)
 
-    def typesetNucleus(self, parser, packed, context, style):
-        char, fam = self.nucleus
-        font = context.font(style, fam)
-        packed.append(font[char])
+    def typeset(self, parser, packed, context, style):
+        font = context.font(style, self.fam)
+        packed.append(font[self.char])
 
 
 class Subformula(Atom):
@@ -604,56 +631,79 @@ class Box(Atom):
         return super().saveInfo() | {"init": {"box": self.nucleus}}
 
 
+class MathEndGroupCallback:
+    def __init__(self, parser):
+        self.parser = parser
+
+    def endgroup(self, parser, top, mlist):
+        raise NotImplementedError("subclasses should implement it")
+
+    def __call__(self):
+        # first we need to check if we are building a general fraction
+        parser = self.parser
+
+        def _ensure_atom_complete(mlist):
+            if mlist.building_atom is not None:
+                raise ValueError("missing field", parser.input.position())
+
+        mlist = parser.lists.pop()
+        assert mlist.type == lists.LISTTYPE.MATH
+        _ensure_atom_complete(mlist)
+        if getattr(mlist, "is_denominator", False):
+            mlist = parser.lists.pop()
+            _ensure_atom_complete(mlist)
+        top = parser.lists[-1]
+        self.endgroup(parser, top, mlist)
+
+
+class MathShitfEndGroupCallback(MathEndGroupCallback):
+    def endgroup(self, parser, top, mlist):
+        mlist.typeset_context = MathTypesetContext(parser, mlist.inner)
+        # here top points to the enclosing horizontal list
+        # if mlist is inline math, then we simply add it to the enclosing list
+        if mlist.inner:
+            top.append(mlist)
+            return
+        # top is a paragraph. We need to end first
+        parser.endParagraph()
+        vlist = parser.lists[-1] # the enclosing vertical list
+        vlist.append(mlist)
+        parser.newParagraph(indent=False, parskip=False)
+        new_par = parser.lists[-1] # the new paragraph after the display math
+        top.next_paragraph = mlist
+        mlist.prev_paragraph = top
+        mlist.next_paragraph = new_par
+        new_par.prev_paragraph = mlist
+
+class SubformulaEndGroupCallBack(MathEndGroupCallback):
+    def endgroup(self, parser, top, mlist):
+        top.append(mlist)
+
 def mathShift(parser):
     """
     begin or end math mode
     @param parser: the parser
     @param position: the position of the token
     """
-    pos = parser.input.position()
+    # check if we are starting or terminating the math mode
     top = parser.lists[-1]
     # are we current in math mode or not?
     # if so, we are terminating the math mode
     if top.type == lists.LISTTYPE.MATH:
         # Now we are in math mode. We are terminating the math mode.
-        # we must first read a token to check for a second $. We should do it before
-        # ending the current group, as \aftergroup may insert tokens
         t = parser.token()
-        pos = parser.input.position()
-        # We first terminates the current group.
-        # if the current math list is not the base math list started by a math shift,
-        # nor is it an equation number, doing so will raise an error for mismatched groups.
-        parser.endGroup(pos, GROUP_TYPE.MATH_SHIFT)
-        # Now, if we are parsing equation numbers, ending the group will pop off
-        # the current list, leave us at the base math list. Otherwise, we are in the base list
-        # and ending the group will not pop the list off. So by now, we are at the base list.
-        top = parser.lists[-1]
         # are we in display math or inline math?
         if top.inner:
             if t:
                 parser.input.unread(t)
         elif t is None or t.catcode != CATCODE.MATH_SHIFT:
             # we are in display math mode. We should match $$, i.e., an additional $
-            raise ValueError("missing $", pos)
-        # now the top list may have changed because of endGroup (during fraction handling)
-        mlist = parser.lists.pop()
-        mlist.typeset_context = MathTypesetContext(parser, mlist.inner)
-        # here top points to the enclosing horizontal list
-        top = parser.lists[-1]
-        # if mlist is inline math, then we simply add it to the enclosing list
-        if mlist.inner:
-            top.append(mlist)
-        else:
-            # top is a paragraph. We need to end first
-            parser.endParagraph()
-            vlist = parser.lists[-1] # the enclosing vertical list
-            vlist.append(mlist)
-            parser.newParagraph(indent=False, parskip=False)
-            new_par = parser.lists[-1] # the new paragraph after the display math
-            top.next_paragraph = mlist
-            mlist.prev_paragraph = top
-            mlist.next_paragraph = new_par
-            new_par.prev_paragraph = mlist
+            raise ValueError("missing $", parser.input.position())
+        pos = parser.input.position()
+        # We first terminates the current group.
+        # if the current math list is not the base math list started by a math shift,
+        # nor is it an equation number, doing so will raise an error for mismatched groups.
+        parser.endGroup(pos, GROUP_TYPE.MATH_SHIFT)
         return
     # otherwise, we are starting a new math mode
     # if we are current in a vertical mode, unread the token, enter the horizontal mode,
@@ -678,7 +728,7 @@ def mathShift(parser):
             parser.input.unread(t)
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
-    parser.beginGroup(pos, GROUP_TYPE.MATH_SHIFT)
+    parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT, MathShitfEndGroupCallback(parser))
     mlist = InlineMathList(parser) if inner else DisplayMathList(parser)
     parser.lists.append(mlist)
     every = parser.everymath.value if inner else parser.everydisplay.value
@@ -688,80 +738,12 @@ def mathShift(parser):
             parser.message(f"everymath: {parser.toksToString(every)}")
 
 
-def readSubformula(parser, group_type, lbrace=None):
-    """
-    read a subformula
-    @param parser: the parser
-    @param group_type: the type of the new group
-    @param style: the current math style
-    @return: the subformula
-    """
-    if lbrace is None:
-        parser.skipFiller()
-        lbrace = parser.token_expand()
-        if lbrace.catcode != CATCODE.BEGIN_GROUP:
-            return None
-    parser.input.unread(lbrace)
-    list = MList(parser)
-    parser.readList(list, group_type)
-    assert len(list)== 1 and isinstance(list[-1], Subformula)
-    return list[-1]
-
-def readField(parser):
-    """
-    read a field in a math list
-    @param parser: the parser
-    @param group_type: the type of the new group
-    @return: the field
-    """
-    parser.skipFiller()
-    t = parser.token_expand()
-    if t is None:
-        raise ValueError("missing field")
-    if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
-        code = parser.state.mathcode[ord(t.name)]
-        char = parser.mathChar(code)
-        return char
-    if t.catcode == CATCODE.BEGIN_GROUP:
-        field = readSubformula(parser, GROUP_TYPE.SIMPLE, lbrace=t)
-        if field is not None:
-            return field
-    try:
-        return t.mathCharValue(parser)
-    except AttributeError:
-        raise ValueError("expecting a math field")
-
-
-def lastAtom(mlist):
-    """
-    get the last atom in a list
-    @param mlist: the list
-    """
-    if mlist.type != lists.LISTTYPE.MATH:
-        raise ValueError("not a math list")
-    if len(mlist) == 0:
-        atom = None
-    else:
-        atom = mlist[-1]
-        if not isinstance(atom, Atom):
-            atom = None
-    if atom is None:
-        atom = Subformula(MList(mlist.parser))
-        mlist.append(atom)
-    return atom
-
-
 def subscript(parser):
     """
     set the subscript of an atom
     @param parser: the parser
     """
-    top = parser.lists[-1]
-    atom = lastAtom(top)
-    if atom.sub is not None:
-        raise ValueError("double subscript", parser.input.position())
-    field = readField(parser)
-    atom.sub = field
+    parser.lists[-1].buildAtom("sub")
 
 
 def superscript(parser):
@@ -769,12 +751,7 @@ def superscript(parser):
     set the superscript of an atom
     @param parser: the parser
     """
-    top = parser.lists[-1]
-    atom = lastAtom(top)
-    if atom.sup is not None:
-        raise ValueError("double superscript", parser.input.position())
-    field = readField(parser)
-    atom.sup = field
+    parser.lists[-1].buildAtom("sup")
 
 
 class MathChar(lists.ModeDependentCommand):
@@ -929,9 +906,7 @@ class MathAtom(lists.ModeDependentCommand):
         self.atom_type = atom_type
 
     def math(self, parser, mlist):
-        field = readField(parser)
-        field.atom_type = self.atom_type
-        mlist.append(field)
+        mlist.buildAtom("nucleus", Atom(self.atom_type))
 
 
 class MATH_LIMITS(enum.Enum):
@@ -987,24 +962,37 @@ class ChoiceNode(nd.Node):
     node_type = nd.NODE_TYPE.MATHNODE
 
 
+class MathChoiceEndGroupCallback(MathEndGroupCallback):
+    def __init__(self, parser, node):
+        super().__init__(parser)
+        self.node = node
+        self.state = 0
+        self.attr = ["display", "text", "script", "scriptscript"]
+
+    def beginGroup(self, parser):
+        t = parser.token_expand()
+        pos = parser.input.position()
+        if t.catcode != CATCODE.BEGIN_GROUP:
+            raise ValueError("expecting a \"{\"", pos)
+        parser.lists.append(MList(parser))
+        parser.beginGroup(pos, GROUP_TYPE.MATH_CHOICE, self)
+
+    def endgroup(self, parser, top, mlist):
+        setattr(self.node, self.attr[self.state], mlist)
+        self.state += 1
+        if self.state < 4:
+            self.beginGroup(parser)
+
+
 class MathChoice(lists.ModeDependentCommand):
     """
     the \\mathchoice command
     """
     def math(self, parser, mlist):
-        display = readSubformula(parser, GROUP_TYPE.MATH_CHOICE)
-        if display is None:
-            raise ValueError("missing the display choice")
-        text = readSubformula(parser, GROUP_TYPE.MATH_CHOICE)
-        if text is None:
-            raise ValueError("missing the text choice")
-        script = readSubformula(parser, GROUP_TYPE.MATH_CHOICE)
-        if script is None:
-            raise ValueError("missing the script choice")
-        scriptscript = readSubformula(parser, GROUP_TYPE.MATH_CHOICE)
-        if scriptscript is None:
-            raise ValueError("missing the scriptscript choice")
-        mlist.append(ChoiceNode(display, text, script, scriptscript))
+        choice = ChoiceNode(None, None, None, None)
+        mlist.append(choice)
+        callback = MathChoiceEndGroupCallback(parser, choice)
+        callback.beginGroup(parser)
 
 
 class Delim(serialization.Serializable):
@@ -1039,10 +1027,11 @@ class Rad(Atom):
     """
     def __init__(self, delim, oprand):
         super().__init__(ATOM_TYPE.RAD)
-        self.nucleus = (delim, oprand)
+        self.delim = delim
+        self.oprand = oprand
 
     def saveInfo(self):
-        return {"init": {"delim": self.nucleus[0], "oprand": self.nucleus[1]}}
+        return {"init": {"delim": self.delim, "oprand": self.oprand}}
 
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -1089,9 +1078,17 @@ class Radical(lists.ModeDependentCommand):
     """
     def math(self, parser, mlist):
         delim = Delim(parser.readInteger(), parser.state.parameters["fam"])
-        oprand = readField(parser)
-        mlist.append(Rad(delim, oprand))
+        mlist.buildAtom("oprand", Rad(delim, None))
 
+
+class MathLeftEndGroupCallBack(MathEndGroupCallback):
+    def __init__(self, parser, atom):
+        super().__init__(parser)
+        self.atom = atom
+
+    def endgroup(self, parser, top, mlist):
+        self.atom.nucleus = mlist
+        self.atom.right = readDelimiter(parser)
 
 class Left(lists.ModeDependentCommand):
     """
@@ -1099,8 +1096,11 @@ class Left(lists.ModeDependentCommand):
     """
     def math(self, parser, mlist):
         delim = readDelimiter(parser)
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_LEFT)
-        parser.lists[-2][-1].left = delim
+        atom = Atom(ATOM_TYPE.ORD)
+        atom.left = delim
+        mlist.append(atom)
+        parser.lists.append(MList(parser))
+        parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_LEFT, MathLeftEndGroupCallBack(parser, atom))
 
 
 class Right(lists.ModeDependentCommand):
@@ -1108,10 +1108,7 @@ class Right(lists.ModeDependentCommand):
     the \\right command
     """
     def math(self, parser, mlist):
-        delim = readDelimiter(parser)
         parser.endGroup(parser.input.position(), GROUP_TYPE.MATH_LEFT)
-        atom = lastAtom(parser.lists[-1])
-        atom.right = delim
 
 
 class Over(Atom):
@@ -1147,29 +1144,28 @@ class GeneralFraction(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         # when TeX sees this command, it will change the current list to the numerator
         # Then it will start a new math list, and parse the denominator in the new list.
-        if mlist.fraction is not None:
+        if getattr(mlist, "is_denominator", False):
             raise ValueError("double fraction", parser.input.position())
         if self.delim:
             left = readDelimiter(parser)
             right = readDelimiter(parser)
-        thickness = parser.readDimen() if self.thickness else None            
-        replacement = MList(mlist.parser, mlist.inner)
-        mlist.inner = True
-        parser.lists[-1] = replacement
-        enclosing = parser.lists[-2]
-        if enclosing.type == lists.LISTTYPE.MATH:
-            # we are parsing a subformula, replace the last atom with the new list
-            enclosing[-1].nucleus = replacement
+        thickness = parser.readDimen() if self.thickness else None
+        # replace the current MList with a new one
+        numerator = MList(mlist.parser, mlist.inner)
+        numerator[:] = mlist
+        numerator.inner = True
+        mlist.clear()
+        # mlist becomes the numerator
         denominator = MList(mlist.parser, mlist.inner)
-        parser.lists.append(denominator)
-        fraction = Over(mlist, None, self.bar, thickness)
-        replacement.append(fraction)
+        fraction = Over(numerator, denominator, self.bar, thickness)
         if self.delim:
             fraction.left = left
             fraction.right = right
         if self.thickness:
             fraction.thickness = thickness
-        denominator.fraction = fraction
+        mlist.append(fraction)
+        parser.lists.append(denominator)
+        denominator.is_denominator = True
 
 
 class Accent(Atom):
@@ -1180,10 +1176,11 @@ class Accent(Atom):
     """
     def __init__(self, accent, base):
         super().__init__(ATOM_TYPE.ACC)
-        self.nucleus = (accent, base)
+        self.accent = accent
+        self.base = base
 
     def saveInfo(self):
-        return {"init": {"accent": self.nucleus[0], "base": self.nucleus[1]}}
+        return {"init": {"accent": self.accent, "base": self.base}}
     
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -1194,8 +1191,7 @@ class MathAccent(lists.ModeDependentCommand):
     """
     def math(self, parser, mlist):
         accent = MathSymbol(parser.readInteger(), parser.state.parameters["fam"])
-        base = readField(parser)
-        mlist.append(Accent(accent, base))
+        mlist.buildAtom("base", Accent(accent, None))
 
 
 class Eqno(lists.ModeDependentCommand):
@@ -1207,6 +1203,9 @@ class Eqno(lists.ModeDependentCommand):
         self.left = left
 
     def math(self, parser, mlist):
+        def callback():
+            assert parser.lists.pop() is getattr(parser.lists[-1], "eqno", [None, None])[0]
+            parser.input.unread(MathShiftToken("$", CATCODE.MATH_SHIFT))
         # we must be at the bottom of the math lists
         enclosing = parser.lists[-2]
         if enclosing.type == lists.LISTTYPE.MATH:
@@ -1215,12 +1214,10 @@ class Eqno(lists.ModeDependentCommand):
             raise ValueError("only display math can have an equation number", parser.input.position())
         # We start a new group, parsing the equation number, then we pop it off during the 
         # mathShift function before ending the math mode.
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT)
-        # now we have a new subformula for the equation number
-        eqno = parser.lists[-1]
+        eqno = MList(parser)
+        parser.lists.append(eqno)
         mlist.eqno = (eqno, self.left)
-        # the last entry of mlist should be the subformula. We do not need it
-        mlist.pop()
+        parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT, callback)
 
 
 class VCent(Box):

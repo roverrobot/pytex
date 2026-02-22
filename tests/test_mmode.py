@@ -47,7 +47,9 @@ def test_mlist(parser, inner):
     assert isinstance(node, mmode.Atom)
     assert node.sub is None
     assert node.sup is None
-    assert node.nucleus == (1, "a")
+    assert isinstance(node.nucleus, mmode.MathSymbol)
+    assert node.nucleus.fam == 1
+    assert node.nucleus.char == "a"
     assert node.atom_type == mmode.ATOM_TYPE.ORD
     parser.parse(f"{close}")
     top = parser.lists[-1]
@@ -104,7 +106,7 @@ def test_subformula(parser):
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, mmode.Subformula)
+    assert isinstance(node, mmode.Atom)
     assert node.sub is None
     assert node.sup is None
     assert len(node.nucleus) == 2
@@ -121,8 +123,8 @@ def test_subformula_unclosed(parser):
 @pytest.mark.parametrize("field, value, type", [
     ["sub", "b", mmode.MathSymbol],
     ["sup", "b", mmode.MathSymbol],
-    ["sub", "{ab}", mmode.Subformula],
-    ["sup", "{ab}", mmode.Subformula],
+    ["sub", "{ab}", mmode.MList],
+    ["sup", "{ab}", mmode.MList],
 ])
 def test_scripts(parser, field, value, type):
     if field == "sub":
@@ -137,15 +139,21 @@ def test_scripts(parser, field, value, type):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert node.nucleus == (1, "a")
+    assert isinstance(node.nucleus, mmode.MathSymbol)
+    assert node.nucleus.fam == 1
+    assert node.nucleus.char == "a"
     script = getattr(node, field)
     other = getattr(node, other)
     assert script is not None
     assert other is None
     assert isinstance(script, type)
-    assert script.sub is None
-    assert script.sup is None
     parser.parse("$")
+
+
+@pytest.mark.parametrize("src", ["$a^$", "$a_$", "$^$"])
+def test_scripts_missing_field_errors(parser, src):
+    with pytest.raises(ValueError, match="missing field"):
+        parser.parse(src)
 
 
 @pytest.mark.parametrize("cmd", [
@@ -158,10 +166,22 @@ def test_mathchar(parser, cmd):
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, mmode.MathSymbol)
-    assert node.nucleus == (2, chr(0x34))
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.MathSymbol)
+    assert node.nucleus.fam == 2
+    assert node.nucleus.char == chr(0x34)
     assert node.atom_type == mmode.ATOM_TYPE.OP
     parser.parse("$")
+
+
+def test_mathsymbol_saveinfo_and_typeset(math):
+    symbol = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
+    info = symbol.saveInfo()
+    assert info["init"]["mathcode"] == symbol.encode()
+    packed = []
+    symbol.typeset(math, packed, mmode.MathTypesetContext(math, True), mmode.Style(mmode.MATH_STYLE.T))
+    assert len(packed) == 1
+    assert packed[0].char == "a"
 
 
 def test_active(parser):
@@ -170,8 +190,10 @@ def test_active(parser):
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, mmode.MathSymbol)
-    assert node.nucleus == (0, "1")
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.MathSymbol)
+    assert node.nucleus.fam == 0
+    assert node.nucleus.char == "1"
     parser.parse("$")
 
 
@@ -419,10 +441,15 @@ def test_radical(math):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Rad)
-    delim, oprand = node.nucleus
-    assert delim.small.nucleus == (2, chr(0x70))
-    assert delim.large.nucleus == (3, chr(0x70))
-    assert oprand.nucleus == (1, "a")
+    assert node.delim.small.fam == 2
+    assert node.delim.small.char == chr(0x70)
+    assert node.delim.large.fam == 3
+    assert node.delim.large.char == chr(0x70)
+    assert node.oprand.fam == 1
+    assert node.oprand.char == "a"
+    info = node.saveInfo()
+    assert info["init"]["delim"] is node.delim
+    assert info["init"]["oprand"] is node.oprand
     math.parse("$")
 
 
@@ -433,9 +460,13 @@ def test_mathaccent(math):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Accent)
-    accent, base = node.nucleus
-    assert base.nucleus == (1, "a")
-    assert accent.nucleus == (3, chr(0x62))
+    assert node.base.fam == 1
+    assert node.base.char == "a"
+    assert node.accent.fam == 3
+    assert node.accent.char == chr(0x62)
+    info = node.saveInfo()
+    assert info["init"]["accent"] is node.accent
+    assert info["init"]["base"] is node.base
     try:
         math.parse("\\accent`^a$")
         assert False
@@ -449,17 +480,22 @@ def test_delimiter(math):
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, mmode.MathSymbol)
-    assert node.nucleus == (2, chr(0x70))
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.MathSymbol)
+    assert node.nucleus.fam == 2
+    assert node.nucleus.char == chr(0x70)
     assert node.atom_type == mmode.ATOM_TYPE.OP
     math.parse("$ $\\left(a+b\\right)")
     top = math.lists[-1]
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, mmode.Subformula)
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.MList)
     assert len(node.nucleus) == 3
-    assert node.left.small.nucleus == (0, chr(0x28))
-    assert node.right.small.nucleus == (0, chr(0x29))
+    assert node.left.small.fam == 0
+    assert node.left.small.char == chr(0x28)
+    assert node.right.small.fam == 0
+    assert node.right.small.char == chr(0x29)
     math.parse("$")
 
 
@@ -483,16 +519,20 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     if left is None:
         assert frac.left is None
     else:
-        assert frac.left.small.nucleus == left
+        assert frac.left.small.fam == left[0]
+        assert frac.left.small.char == left[1]
     if right is None:
         assert frac.right is None
     else:
-        assert frac.right.small.nucleus == right 
+        assert frac.right.small.fam == right[0]
+        assert frac.right.small.char == right[1]
     num, den, bar, thickness = frac.nucleus
-    assert len(num.nucleus) == 1
-    assert num.nucleus[0].nucleus == (1, "a")
-    assert len(den.nucleus) == 1
-    assert den.nucleus[0].nucleus == (1, "b")
+    assert len(num) == 1
+    assert num[0].nucleus.fam == 1
+    assert num[0].nucleus.char == "a"
+    assert len(den) == 1
+    assert den[0].nucleus.fam == 1
+    assert den[0].nucleus.char == "b"
     assert bar == bar
     assert thickness == thickness
     math.parse(f"$\\left(a{cmd} b\\right)")
@@ -500,21 +540,27 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, mmode.Subformula)
-    assert node.left.small.nucleus == (0, chr(0x28))
-    assert node.right.small.nucleus == (0, chr(0x29))
+    assert isinstance(node, mmode.Atom)
+    assert node.left.small.fam == 0
+    assert node.left.small.char == chr(0x28)
+    assert node.right.small.fam == 0
+    assert node.right.small.char == chr(0x29)
     assert len(node.nucleus) == 1
     frac = node.nucleus[0]
     assert isinstance(frac, mmode.Over)
     if left is None:
         assert frac.left is None
     else:
-        assert frac.left.small.nucleus == left
+        assert frac.left.small.fam == left[0]
+        assert frac.left.small.char == left[1]
     if right is None:
         assert frac.right is None
     else:
-        assert frac.right.small.nucleus == right 
+        assert frac.right.small.fam == right[0]
+        assert frac.right.small.char == right[1]
     math.parse("$")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
 
 
 @pytest.mark.parametrize("left", [True, False])
@@ -527,16 +573,20 @@ def test_eqno(math, left):
     assert mlist.node_type == nd.NODE_TYPE.MATH
     assert len(mlist) == 1
     atom = mlist[0]
-    assert isinstance(atom, mmode.MathSymbol)
-    assert atom.nucleus == (1, "a")
+    assert isinstance(atom, mmode.Atom)
+    assert isinstance(atom.nucleus, mmode.MathSymbol)
+    assert atom.nucleus.fam == 1
+    assert atom.nucleus.char == "a"
     assert mlist.eqno is not None
     eqno, eqno_left = mlist.eqno
     assert eqno_left == left
     assert isinstance(eqno, mmode.MList)
     assert len(eqno) == 1
     node = eqno[0]
-    assert isinstance(node, mmode.MathSymbol)
-    assert node.nucleus == (0, "1")
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.MathSymbol)
+    assert node.nucleus.fam == 0
+    assert node.nucleus.char == "1"
 
 def test_eqno_inline(math):
     try:
@@ -559,8 +609,10 @@ def test_italic_correction(math):
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 2
     node = top[0]
-    assert isinstance(node, mmode.MathSymbol)
-    assert node.nucleus == (1, "l")
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.MathSymbol)
+    assert node.nucleus.fam == 1
+    assert node.nucleus.char == "l"
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.KERN
     assert node.kern == 0

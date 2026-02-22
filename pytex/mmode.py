@@ -854,12 +854,12 @@ def muglue(context, style, glue):
     @return: the true dimension
     """
     dimen = mudimen(context, style, glue.dimen)
-    stretch = nustretchness(context, style, glue.stretch)
-    shrink = nustretchness(context, style, glue.shrink)
+    stretch = mustretchness(context, style, glue.stretch)
+    shrink = mustretchness(context, style, glue.shrink)
     return Glue(dimen, stretch, shrink)
 
 
-def nustretchness(context, style, stretch):
+def mustretchness(context, style, stretch):
     """
     calculate the actual stretchness of a mu glue
     @param parser: the parser

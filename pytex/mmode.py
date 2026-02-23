@@ -17,11 +17,12 @@ from pytex.accessor import ParameterAccessor
 from pytex.define import Define
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
-from pytex.dimen import Dimen
+from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex import box
 from pytex.hmode import HList
 from pytex.vmode import VNodeContext, init_prevdepth
 import enum
+from math import inf
 
 
 class MATH_STYLE(enum.IntEnum):
@@ -89,6 +90,21 @@ class MathTypesetContext:
         self.textfont = copy(parser.state.textfont)
         self.scriptfont = copy(parser.state.scriptfont)
         self.scriptscriptfont = copy(parser.state.scriptscriptfont)
+        # TeX requires symbols/extensible families to expose enough fontdimen values.
+        # family 2 (symbols): at least 22 params; family 3 (extension): at least 13 params.
+        for name, fonts in (
+            ("textfont", self.textfont),
+            ("scriptfont", self.scriptfont),
+            ("scriptscriptfont", self.scriptscriptfont),
+        ):
+            symbol_params = getattr(fonts[2], "param", ())
+            ext_params = getattr(fonts[3], "param", ())
+            if len(symbol_params) < 22:
+                raise ValueError(f"{name}[2] has {len(symbol_params)} fontdimen params; need at least 22 for math typesetting")
+            if len(ext_params) < 13:
+                raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
+        # inter-atom spaces
+        self.muskips = [parser.state.layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
         if not inner:
             self.prevgraf = None
             layout = parser.state.layout
@@ -518,8 +534,8 @@ class Atom(nd.Node):
         self.sup = None
         self.atom_type = atom_type
         # the left and right delimiters, assigned by \left and \right or fractions with delimiters
-        self.left = None 
-        self.right = None
+        self.left: Delim= None 
+        self.right: Delim = None
 
     def saveInfo(self):
         return {
@@ -540,13 +556,14 @@ class Atom(nd.Node):
         right = f"{self.right}" if self.right is not None else ""
         return f"{left}{self.__class__.__name__}({self.nucleus}{sub}{sup}){right}"
     
-    def typeset(self, parser, packed, context=None, style=None):
+    def typeset(self, parser, packed, context=None, style=None, atom_type=None):
+        if atom_type is None:
+            atom_type = self.atom_type
         if context is None:
             # Fallback for generic list/box expansion paths.
             packed.append(self)
             return
         prev_atom_type = context.prev_atom_type
-        atom_type = self.atom_type
         sigma = context.sigma(style)
         xi = context.xi(style)
         # TeXbook Appendix G, rule 5.
@@ -562,16 +579,92 @@ class Atom(nd.Node):
         # TeXbook Appendix G, rule 8. If the current item is a Vcent atom (from \vcenter), let its nucleus be a vbox
         # of height-plus-depth v. Change the height to 1/2 v+ a and the depth to 1/2 v−a, where
         # a is the axis height, σ22. Change this atom to type Ord 
-        elif atom_type == ATOM_TYPE.VCENT:
-            box = self.nucleus
-            v = box.height + box.depth
-            a = sigma[21]
-            box.height = Dimen(float(v)/2 + a)
-            box.depth = Dimen(float(v)/2 - a)
-            atom_type = ATOM_TYPE.ORD
+        # TeXbook Appendix G: After the entire math list has been processed by Rules 1–18, T EX looks at the last 
+        # atom (if there was one), and changes its type from Bin to Ord (if it was of type Bin). 
         context.atom_type = atom_type
-        # placeholder until full atom layout rules are implemented.
-        packed.append(self)
+        b = self.assemble(parser, context, style)
+        if context.prev_atom_type == ATOM_TYPE.BIN:
+            context.prev_atom_type = ATOM_TYPE.ORD
+        if self.left:
+            left = self.left.typeset(parser, b)
+            self.typsetSpace(packed, context, style, ATOM_TYPE.OPEN)
+            packed.append(left)
+            context.prev_atom_type = ATOM_TYPE.OPEN
+            self.typsetSpace(packed, context, style, atom_type)
+        else:
+            self.typsetSpace(packed, context, style, atom_type)
+        for n in b.list:
+            # packed needs to handle ligatures automatically. So we cannot use extend, but to add them invididually
+            packed.append(n)
+        context.prev_atom_type = atom_type
+        if self.right:
+            right = self.right.typeset(parser, b)
+            self.typsetSpace(packed, context, style, ATOM_TYPE.OPEN)
+            packed.append(right)
+            context.prev_atom_type = ATOM_TYPE.CLOSE
+
+    """
+    An array holding the spaces between the previous atom (rows) and the current item (columns)
+    0 means no space, 1 or -1 means a thinmuskip, 2 or -2 means a medmuskip, and 3 or -3 means 
+    a thickmuskip. None means the situation is impossible, and negative numbers mean that the
+    space is not put in script or scriptscript styles (like prpeceeded by a \\nonscript)
+    """
+    spaces = [
+        [0, 1, -2, -3, 0, 0, -1],
+        [1, 1, None, -3, 0, 0, 0, -1],
+        [-2, -2, None, None, -2, None, None, -2],
+        [-3, -3, None, 0, -3, 0, 0, -3],
+        [0, 0, None, 0, 0, 0, 0, 0],
+        [0, 1, -2, -3, 0, 0, 0, -1],
+        [-1, -1, None, -1, -1, -1, -1, -1],
+        [-1, 1, -2, -3, -1, 0, -1, -1]
+    ]
+
+    def typsetSpace(self, packed, context:MathTypesetContext, style, atom_type):
+        """
+        Typeset the psace between this atom and the previous one
+        """
+        prev_type = context.prev_atom_type
+        if prev_type is None:
+            # the first Atom needs no space
+            return
+        space = self.spaces[prev_type.value][atom_type.value]
+        assert space is not None, f"Impossible situation: an atom {prev_type} followed by {atom_type}"
+        if space == 0:
+            return
+        if space < 0:
+            if style.style > MATH_STYLE.T:
+                return
+            space = -space
+        packed.append(nd.Glue(muglue(context, style, context.muskips[space - 1])))
+        pass
+
+    def typesetNucleus(self, parser, packed, context, style):
+        """
+        Typeset the nucleus into a box and return it
+        """
+        if self.nucleus is None:
+            # return an emptybox
+            b = box.HBox(parser, 0, 0)
+            b.typeset(parser, [])
+            packed.append(b)
+        else:
+            self.nucleus.typeset(parser, packed, context, style)
+    
+    def typesetScripts(self, parser, packed, context, style):
+        """
+        typeset the nucleus, the superscript and the subscript
+        """
+        pass
+
+    def assemble(self, parser, context, style):
+        """
+        return a box that contains the nucleus, superscritp and subscript.
+        """
+        b = box.HBox(parser, 0, 0)
+        self.typesetNucleus(parser, b.list, context, style)
+        b.typeset(parser, [])
+        return b
     
 
 class MathSymbol(serialization.Serializable):
@@ -900,13 +993,14 @@ class MSkip(lists.ModeDependentCommand):
 
 class MathAtom(lists.ModeDependentCommand):
     """
-    specify the atom type of the field following the command
+    the general class to implement commands such as \\mathord, \\vcent etc
     """
-    def __init__(self, atom_type):
-        self.atom_type = atom_type
+    def __init__(self, atom_type=None, generator=None):
+        self.generator = generator if generator is not None else lambda: Atom(atom_type)
 
     def math(self, parser, mlist):
-        mlist.buildAtom("nucleus", Atom(self.atom_type))
+        atom = self.generator()
+        mlist.buildAtom("nucleus", atom)
 
 
 class MATH_LIMITS(enum.Enum):
@@ -1017,6 +1111,14 @@ class Delim(serialization.Serializable):
 
     def __repr__(self):
         return f"Delim({self.type}, {self.small}, {self.large})"
+    
+    def typeset(self, parser, enclosed):
+        """
+        return a box containing the delimiter that fits the box enclosed
+        """
+        b = box.HBox(parser, 0, None)
+        b.typeset(parser, [])
+        return b
 
 
 class Rad(Atom):
@@ -1231,6 +1333,17 @@ class VCent(Box):
     def saveInfo(self):
         return super().saveInfo() | {"init": {"box": self.nucleus}}
 
+    def typeset(self, parser, packed, context, style):
+        super().typeset(parser, packed, context, style, atom_type=ATOM_TYPE.ORD)
+
+    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style):
+        box = self.nucleus.copy()
+        v = box.height + box.depth
+        a = context.sigma(style)[21]
+        box.height = Dimen(float(v)/2 + a)
+        box.depth = Dimen(float(v)/2 - a)
+        packed.append(box)
+
 
 class VCenter(box.VBoxCommand):
     """
@@ -1272,6 +1385,45 @@ class Nonscript(lists.ModeDependentCommand):
         mlist.append(NonscriptGlue())
 
 
+class Line(Atom):
+    def __init__(self, over):
+        atom_type = ATOM_TYPE.OVER if over else ATOM_TYPE.UNDER
+        super().__init__(atom_type)
+
+    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
+        # Texbook Append G, rule 9: If the current item is an Over atom (from \overline), set box x to the nucleus
+        # in style C′. Then replace the nucleus by a vbox containing kern θ, hrule of height θ,
+        # kern 3θ, and box x, from top to bottom, where θ= ξ8 is the default rule thickness.
+        # (This puts a rule over the nucleus, with 3θ clearance, and with θ units of extra white
+        # space assumed to be present above the rule.)
+        # Texbook Append G, rule 10: If the current item is an Under atom (from \underline), set box x to the
+        # nucleus in style C. Then replace the nucleus by a vtop made from box x, kern 3θ, and
+        # hrule of height θ, where θ= ξ8 is the default rule thickness; and add θ to the depth of
+        # the box. (This puts a rule under the nucleus, with 3θ clearance, and with θ units of
+        # extra white space assumed to be present below the rule.)
+        x = box.HBox(parser, None, 0)
+        self.nucleus.typeset(parser, x.list, context, Style(style.style, cramped=True))
+        if len(x.list) == 1:
+            x = x.list[0]
+        else:
+            x.typeset(parser, [])
+        theta = Dimen(context.xi(style)[7])
+        vbox = box.VBox(parser, None, 0)
+        kern1 = nd.Kern(theta)
+        rule = nd.Rule(NEG_MAX_DIMEN, theta, 0)
+        kern2 = nd.Kern(3*theta)
+        if self.atom_type == ATOM_TYPE.OVER:
+            vbox.list[:] = [kern1, rule, kern2, x]
+        else:
+            vbox.list[:] = [x, kern2, rule, kern1]
+        vbox.typeset(parser, [])
+        packed.append(vbox)
+
+    
+    def typeset(self, parser, packed, context, style):
+        super().typeset(parser, packed, context, style, atom_type=ATOM_TYPE.ORD)
+
+
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
@@ -1291,8 +1443,8 @@ mod = Module("mmode",
         "mathclose": MathAtom(ATOM_TYPE.CLOSE),
         "mathpunct": MathAtom(ATOM_TYPE.PUNCT),
         "mathinner": MathAtom(ATOM_TYPE.INNER),
-        "overline": MathAtom(ATOM_TYPE.OVER),
-        "underline": MathAtom(ATOM_TYPE.UNDER),
+        "overline": MathAtom(generator = lambda: Line(True)),
+        "underline": MathAtom(generator = lambda: Line(False)),
         "displaystyle": MathStyle(MATH_STYLE.D),
         "textstyle": MathStyle(MATH_STYLE.T),
         "scriptstyle": MathStyle(MATH_STYLE.S),

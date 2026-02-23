@@ -47,7 +47,14 @@ def collector(parser):
 
 @pytest.fixture
 def cmr10(parser):
-    parser.parse('\\font\\f=cmr10 \\f')
+    parser.parse(
+        '\\font\\f=cmr10 '
+        '\\font\\sym=cmsy10 '
+        '\\font\\ext=cmex10 '
+        '\\f '
+        '\\textfont2=\\sym \\scriptfont2=\\sym \\scriptscriptfont2=\\sym '
+        '\\textfont3=\\ext \\scriptfont3=\\ext \\scriptscriptfont3=\\ext'
+    )
     parser.state.sfcode[ord(",")] = 1250
     parser.state.sfcode[ord(".")] = 3000
     parser.state.sfcode[ord(")")] = 0

@@ -32,18 +32,19 @@ def math(cmr10):
     \\font\\tenit=cmti10
     \\skewchar\\teni='177 \\skewchar\\seveni='177 \\skewchar\\fivei='177
     \\skewchar\\tensy='60 \\skewchar\\sevensy='60 \\skewchar\\fivesy='60
-    \\textfont1=\\teni \\scriptfont1=\\seveni \\scriptscriptfont2=\\fivei
+    \\textfont1=\\teni \\scriptfont1=\\seveni \\scriptscriptfont1=\\fivei
     \\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy
+    \\textfont3=\\tenex \\scriptfont3=\\tenex \\scriptscriptfont3=\\tenex
     \\delcode`(=\"028300 \\delcode`)=\"029301 \\delcode`.=0
     """
     cmr10.parse(fonts)
     return cmr10
 
 @pytest.mark.parametrize("inner", [True, False])
-def test_mlist(parser, inner):
+def test_mlist(math, inner):
     open = close = "$" if inner else "$$"
-    parser.parse(f"{open}a")
-    top = parser.lists[-1]
+    math.parse(f"{open}a")
+    top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
     assert top.inner == inner
     assert len(top) == 1
@@ -53,31 +54,36 @@ def test_mlist(parser, inner):
     assert node.sup is None
     assert isSymbol(node.nucleus, 1, "a")
     assert node.atom_type == mmode.ATOM_TYPE.ORD
-    parser.parse(f"{close}")
-    top = parser.lists[-1]
+    math.parse(f"{close}")
+    top = math.lists[-1]
     if inner:
         assert top.type == lists.LISTTYPE.HORIZONTAL
         assert len(top) == 3
         node = top[1]
     else:
         assert top.type == lists.LISTTYPE.HORIZONTAL
-        vtop = parser.lists[0]
+        vtop = math.lists[0]
         assert vtop.type == lists.LISTTYPE.VERTICAL
         node = next(n for n in vtop if isinstance(n, mmode.MList))
-        parser.parse("\\par")
+        math.parse("\\par")
         packed = []
-        parser.lists[-1].typesetNodes(parser, packed)
+        math.lists[-1].typesetNodes(math, packed)
         glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
         assert len(glues) >= 2
     assert node.node_type == nd.NODE_TYPE.MATH
 
 
-def test_mlist_mismatch(parser):
+def test_mlist_mismatch(math):
     try:
-        parser.parse("$$a$x")
+        math.parse("$$a$x")
         assert False
     except ValueError as e:
         assert "missing" in str(e)
+
+
+def test_math_typeset_context_requires_symbol_and_extension_fonts(parser):
+    with pytest.raises(ValueError, match="fontdimen params"):
+        parser.parse("$a$")
 
 
 def test_mlist_typeset_inline(math):
@@ -128,15 +134,15 @@ def test_subformula_unclosed(parser):
     ["sub", "{ab}", mmode.MList],
     ["sup", "{ab}", mmode.MList],
 ])
-def test_scripts(parser, field, value, type):
+def test_scripts(math, field, value, type):
     if field == "sub":
         cmd = "_"
         other = "sup"
     else:
         cmd = "^"
         other = "sub"
-    parser.parse(f"$a{cmd}{value}")
-    top = parser.lists[-1]
+    math.parse(f"$a{cmd}{value}")
+    top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
@@ -147,29 +153,29 @@ def test_scripts(parser, field, value, type):
     assert script is not None
     assert other is None
     assert isinstance(script, type)
-    parser.parse("$")
+    math.parse("$")
 
 
 @pytest.mark.parametrize("src", ["$a^$", "$a_$", "$^$"])
-def test_scripts_missing_field_errors(parser, src):
+def test_scripts_missing_field_errors(math, src):
     with pytest.raises(ValueError, match="missing field"):
-        parser.parse(src)
+        math.parse(src)
 
 
 @pytest.mark.parametrize("cmd", [
     "\\mathchar\"1234", 
     "\\mathchardef\\a=\"1234\\a",
 ])
-def test_mathchar(parser, cmd):
-    parser.parse(f"${cmd}")
-    top = parser.lists[-1]
+def test_mathchar(math, cmd):
+    math.parse(f"${cmd}")
+    top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
     assert isSymbol(node.nucleus, 2, chr(0x34))
     assert node.atom_type == mmode.ATOM_TYPE.OP
-    parser.parse("$")
+    math.parse("$")
 
 
 def test_mathsymbol_saveinfo_and_typeset(math):
@@ -182,15 +188,15 @@ def test_mathsymbol_saveinfo_and_typeset(math):
     assert packed[0].char == "a"
 
 
-def test_active(parser):
-    parser.parse("\\def\\a{1}\\mathcode`a=\"8000$\\a")
-    top = parser.lists[-1]
+def test_active(math):
+    math.parse("\\def\\a{1}\\mathcode`a=\"8000$\\a")
+    top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
     assert isSymbol(node.nucleus, 0, "1")
-    parser.parse("$")
+    math.parse("$")
 
 
 def test_mkern(math):
@@ -270,7 +276,7 @@ def test_nested_mathchoice_expands_without_mutating_list(math):
     assert any(isinstance(n, mmode.ChoiceNode) for n in mlist)
 
 
-def test_rule5_bin_conversion_uses_effective_previous_atom_type(parser):
+def test_rule5_bin_conversion_uses_effective_previous_atom_type(math):
     class ProbeAtom(mmode.Atom):
         def __init__(self, atom_type):
             super().__init__(atom_type)
@@ -279,18 +285,18 @@ def test_rule5_bin_conversion_uses_effective_previous_atom_type(parser):
             self.nucleus = None
 
         def typeset(self, parser, packed, context, style):
-            super().typeset(parser, [], context, style)
             self.observed_prev = context.prev_atom_type
+            super().typeset(parser, [], context, style)
             self.observed_type = context.atom_type
             packed.append(nd.Kern(0))
 
     first = ProbeAtom(mmode.ATOM_TYPE.BIN)
     second = ProbeAtom(mmode.ATOM_TYPE.BIN)
-    mlist = mmode.MList(parser)
+    mlist = mmode.MList(math)
     mlist.extend([first, second])
     packed = []
-    ctx = mmode.MathTypesetContext(parser, True)
-    mlist.typesetNodes(parser, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    ctx = mmode.MathTypesetContext(math, True)
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
 
     assert first.observed_prev is None
     assert first.observed_type == mmode.ATOM_TYPE.ORD
@@ -301,7 +307,7 @@ def test_rule5_bin_conversion_uses_effective_previous_atom_type(parser):
     assert second.atom_type == mmode.ATOM_TYPE.BIN
 
 
-def test_rule5_bin_after_rel_becomes_ord(parser):
+def test_rule5_bin_after_rel_becomes_ord(math):
     class ProbeAtom(mmode.Atom):
         def __init__(self, atom_type):
             super().__init__(atom_type)
@@ -315,11 +321,11 @@ def test_rule5_bin_after_rel_becomes_ord(parser):
 
     rel = ProbeAtom(mmode.ATOM_TYPE.REL)
     bin_atom = ProbeAtom(mmode.ATOM_TYPE.BIN)
-    mlist = mmode.MList(parser)
+    mlist = mmode.MList(math)
     mlist.extend([rel, bin_atom])
     packed = []
-    ctx = mmode.MathTypesetContext(parser, True)
-    mlist.typesetNodes(parser, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    ctx = mmode.MathTypesetContext(math, True)
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
 
     assert rel.observed_type == mmode.ATOM_TYPE.REL
     assert bin_atom.observed_type == mmode.ATOM_TYPE.ORD
@@ -383,23 +389,24 @@ def test_style_node_is_consumed_by_typeset(math):
     mlist.typeset(math, packed)
     assert len(packed) == 3
     assert isinstance(packed[0], nd.MathShift)
-    assert isinstance(packed[1], mmode.Atom)
+    assert packed[1].node_type == nd.NODE_TYPE.CHAR
+    assert packed[1].char == "a"
     assert isinstance(packed[2], nd.MathShift)
 
 
-def test_typesetnodes_rule1_passthrough_nodes(parser):
+def test_typesetnodes_rule1_passthrough_nodes(math):
     class DummyWhatsit(nd.WhatsIt):
         def typeset(self, parser, packed, context, style):
             raise AssertionError("Rule 1 nodes should not be typeset")
 
-    mlist = mmode.MList(parser)
+    mlist = mmode.MList(math)
     rule = nd.Rule(1, 1, 0)
     disc = nd.Disc([], [], [])
     penalty = nd.Penalty(50)
     whatsit = DummyWhatsit()
     mlist.extend([rule, disc, penalty, whatsit])
     packed = []
-    mlist.typesetNodes(parser, packed, mmode.MathTypesetContext(parser, True), mmode.Style(mmode.MATH_STYLE.T))
+    mlist.typesetNodes(math, packed, mmode.MathTypesetContext(math, True), mmode.Style(mmode.MATH_STYLE.T))
     assert packed == [rule, disc, penalty, whatsit]
 
 
@@ -627,19 +634,19 @@ def test_vcenter_wrongmode(parser):
         assert "math" in str(e)
 
 
-def test_vcenter_nobox(parser):
+def test_vcenter_nobox(math):
     try:
-        parser.parse("$\setbox0=\\vcenter{}")
+        math.parse("$\setbox0=\\vcenter{}")
         assert False
     except ValueError as e:
         assert "\\vcenter" in str(e)
 
 
-def test_nonscript(parser):
-    parser.parse("$\\nonscript")
-    top = parser.lists[-1]
+def test_nonscript(math):
+    math.parse("$\\nonscript")
+    top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.NonscriptGlue)
-    parser.parse("$")
+    math.parse("$")

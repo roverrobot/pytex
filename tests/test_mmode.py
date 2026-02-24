@@ -683,6 +683,8 @@ def test_delim_typeset_null_uses_nulldelimiterspace(math):
     b = d.typeset(math, Dimen(20), ctx, style)
     assert b.node_type == nd.NODE_TYPE.HLIST
     assert b.width == math.state.layout["nulldelimiterspace"]
+    axis = Dimen(ctx.sigma(style)[21])
+    assert float(b.shifted) == pytest.approx(-float(axis), abs=1e-4)
 
 
 def test_delim_typeset_order_uses_style_fonts(math):
@@ -832,8 +834,12 @@ def test_fraction_rule15c_atop_construction(math):
     frac = math.lists[-1][-1][0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
-    assert len(packed) == 1
-    out = packed[0]
+    assert len(packed) == 3
+    left, out, right = packed
+    assert left.node_type == nd.NODE_TYPE.HLIST
+    assert right.node_type == nd.NODE_TYPE.HLIST
+    assert left.width == math.state.layout["nulldelimiterspace"]
+    assert right.width == math.state.layout["nulldelimiterspace"]
     assert out.node_type == nd.NODE_TYPE.VLIST
     assert len(out.list) == 3
     x, k, z = out.list
@@ -858,8 +864,12 @@ def test_fraction_rule15d_over_construction(math):
     frac = math.lists[-1][-1][0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
-    assert len(packed) == 1
-    out = packed[0]
+    assert len(packed) == 3
+    left, out, right = packed
+    assert left.node_type == nd.NODE_TYPE.HLIST
+    assert right.node_type == nd.NODE_TYPE.HLIST
+    assert left.width == math.state.layout["nulldelimiterspace"]
+    assert right.width == math.state.layout["nulldelimiterspace"]
     assert out.node_type == nd.NODE_TYPE.VLIST
     assert len(out.list) == 5
     x, k1, rule, k2, z = out.list
@@ -888,7 +898,8 @@ def test_fraction_rule15d_over_min_clearance_script(math):
     frac = math.lists[-1][-1][0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
-    out = packed[0]
+    assert len(packed) == 3
+    out = packed[1]
     _, k1, _, k2, _ = out.list
     _, _, theta = frac.rule15(ctx, style)
     phi = 3 * theta
@@ -927,6 +938,22 @@ def test_fraction_rule15e_delims_integrated_in_inner_atom_nucleus(math):
     assert packed[2].node_type == nd.NODE_TYPE.VLIST
     assert packed[3].node_type == nd.NODE_TYPE.HLIST
     assert packed[4].node_type == nd.NODE_TYPE.MATH
+
+
+def test_fraction_rule15e_null_delims_integrated_in_inner_atom_nucleus(math):
+    math.parse("\\noindent$a\\over b$\\relax")
+    mlist = math.lists[-1][0]
+    packed = []
+    mlist.typeset(math, packed)
+    # math_on + (left null delim, fraction vbox, right null delim) + math_off
+    assert len(packed) == 5
+    assert packed[0].node_type == nd.NODE_TYPE.MATH
+    assert packed[1].node_type == nd.NODE_TYPE.HLIST
+    assert packed[2].node_type == nd.NODE_TYPE.VLIST
+    assert packed[3].node_type == nd.NODE_TYPE.HLIST
+    assert packed[4].node_type == nd.NODE_TYPE.MATH
+    assert packed[1].width == math.state.layout["nulldelimiterspace"]
+    assert packed[3].width == math.state.layout["nulldelimiterspace"]
 
 
 @pytest.mark.parametrize("left", [True, False])

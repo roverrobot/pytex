@@ -729,6 +729,17 @@ class Atom(nd.Node):
         b = self.assemble(parser, context, style)
         axis = Dimen(context.sigma(style)[21])
         total = b.height + b.depth
+        if self.left is not None and self.right is not None:
+            # TeXbook Appendix G, Rule 19: size boundary delimiters from
+            # formula extent around the axis, not simply h+d.
+            delta_up = b.height - axis
+            delta_down = b.depth + axis
+            delta = delta_up if delta_up >= delta_down else delta_down
+            f = parser.state.layout["delimiterfactor"]
+            l = parser.state.layout["delimitershortfall"]
+            rule19 = Dimen(integer=(int(delta) // 500) * f)
+            short = 2 * delta - l
+            total = rule19 if rule19 >= short else short
         if self.left:
             left = self.left.typeset(parser, total, context, style, axis)
             self.typsetSpace(packed, context, style, ATOM_TYPE.OPEN)
@@ -743,7 +754,7 @@ class Atom(nd.Node):
         context.prev_atom_type = atom_type
         if self.right:
             right = self.right.typeset(parser, total, context, style, axis)
-            self.typsetSpace(packed, context, style, ATOM_TYPE.OPEN)
+            self.typsetSpace(packed, context, style, ATOM_TYPE.CLOSE)
             packed.append(right)
             context.prev_atom_type = ATOM_TYPE.CLOSE
 
@@ -1450,16 +1461,18 @@ class Delim(serialization.Serializable):
         return a box containing the delimiter that fits a requested total
         height+depth.
         """
-        if self._isNull():
-            b = box.HBox(parser, parser.state.layout["nulldelimiterspace"], None)
-            b.typeset(parser, [])
-            return b
         if context is None:
             context = MathTypesetContext(parser, True)
         if style is None:
             style = Style(MATH_STYLE.T)
         if axis is None:
             axis = Dimen(context.sigma(style)[21])
+        if self._isNull():
+            b = box.HBox(parser, parser.state.layout["nulldelimiterspace"], None)
+            b.typeset(parser, [])
+            # Rule 15e/19 centering applies to null delimiters as well.
+            b.shifted = (b.height - b.depth) / 2 - axis
+            return b
         minimum = Dimen(total)
         best = None
         chosen, best = self._scanSymbol(self.small, context, style, minimum, best)
@@ -1705,17 +1718,21 @@ class Over(Atom):
             out.list.append(z)
             out.typeset(parser, [])
             out.depth = z.depth + v
-        # Rule 15e: optional delimiters around the fraction vbox.
+        # Rule 15e: delimiters around the fraction vbox.
+        # For plain \over/\atop/\above, TeX uses null delimiters whose width is
+        # \nulldelimiterspace.
         if self.delims is None:
-            packed.append(out)
-            return
+            left_delim = Delim(0, 0)
+            right_delim = Delim(0, 0)
+        else:
+            left_delim, right_delim = self.delims
         min_total = Dimen(context.sigma(style)[19] if style.style > MATH_STYLE.T else context.sigma(style)[20])
         total = out.height + out.depth
         if total < min_total:
             total = min_total
         axis = Dimen(context.sigma(style)[21])
-        left_box = self.delims[0].typeset(parser, total, context, style, axis)
-        right_box = self.delims[1].typeset(parser, total, context, style, axis)
+        left_box = left_delim.typeset(parser, total, context, style, axis)
+        right_box = right_delim.typeset(parser, total, context, style, axis)
         packed.append(left_box)
         packed.append(out)
         packed.append(right_box)

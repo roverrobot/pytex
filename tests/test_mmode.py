@@ -458,6 +458,28 @@ def test_rule14_applies_when_nonscript_removes_following_kern(math):
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
 
 
+def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
+    math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    mlist = mmode.MList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 0, "a"),
+        _mk_atom(mmode.ATOM_TYPE.BIN, 0, "f"),
+        _mk_atom(mmode.ATOM_TYPE.REL, 0, "i"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mlist._pass1AdjustAtoms(math, ctx, collected)
+    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    auto_kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
+    assert len(wrappers) == 3
+    assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
+    assert wrappers[1].node_type == mmode.ATOM_TYPE.ORD
+    assert wrappers[2].node_type == mmode.ATOM_TYPE.REL
+    assert wrappers[1].nucleus.char == "f"
+    assert wrappers[2].nucleus.char == "i"
+    assert len(auto_kerns) == 0
+
+
 def test_indent(math):
     math.parse("$a\\indent b")
     top = math.lists[-1]

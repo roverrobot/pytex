@@ -346,102 +346,89 @@ class MList(lists.List):
             collected.extend(expanded)
         return collected
 
-    def _pass1ApplyRule14(self, parser, context, collected):
-        """
-        Apply Appendix G Rule 14 on the normalized pass-1 stream.
-
-        This implementation currently handles:
-        - kern insertion between adjacent eligible atom wrappers
-        - the common collapsing ligature case where two symbols collapse to one
-          Ord text symbol (delete-current + delete-next, move=0)
-        """
-        allowed_next = {
-            ATOM_TYPE.ORD,
-            ATOM_TYPE.OP,
-            ATOM_TYPE.BIN,
-            ATOM_TYPE.REL,
-            ATOM_TYPE.OPEN,
-            ATOM_TYPE.CLOSE,
-            ATOM_TYPE.PUNCT,
-        }
-
-        def eligible_pair(cur, nxt):
-            if not isinstance(cur, _AtomWrapper) or not isinstance(nxt, _AtomWrapper):
-                return False
-            if cur.node_type != ATOM_TYPE.ORD:
-                return False
-            if nxt.node_type not in allowed_next:
-                return False
-            if getattr(cur, "sub", None) is not None or getattr(cur, "sup", None) is not None:
-                return False
-            n1 = getattr(cur, "nucleus", None)
-            n2 = getattr(nxt, "nucleus", None)
-            if not isinstance(n1, MathSymbol) or not isinstance(n2, MathSymbol):
-                return False
-            if n1.fam != n2.fam:
-                return False
-            return True
-
-        def ligature_wrapper(cur, nxt, insert_code):
-            sym = cur.nucleus
-            code = (ATOM_TYPE.ORD.value << 12) | (sym.fam << 8) | insert_code
-            lig = Atom(ATOM_TYPE.ORD)
-            lig.nucleus = MathSymbol(code, -1)
-            lig.source = [cur.atom, nxt.atom]
-            return _AtomWrapper(lig, ATOM_TYPE.ORD, Style(cur.style.style, cur.style.cramped))
-
-        i = 0
-        while i < len(collected) - 1:
-            cur = collected[i]
-            nxt = collected[i + 1]
-            if not eligible_pair(cur, nxt):
-                i += 1
-                continue
-            sym1 = cur.nucleus
-            sym2 = nxt.nucleus
-            font = context.font(cur.style, sym1.fam)
-            c1 = font[sym1.char]
-            c2 = font[sym2.char]
-            working = run_ligature_program(
-                [c1, c2],
-                make_ligature=lambda insert_char, replaced, step, base, after: Ligature(insert_char, replaced),
-                make_kern=lambda step, base, after: nd.Kern(step.kern * base.font.at, automatic=True),
-                source_nodes=lambda n: list(n.source) if isinstance(n, Ligature) else [n],
-            )
-            if len(working) == 1 and isinstance(working[0], Ligature):
-                lig = working[0]
-                collected[i:i + 2] = [ligature_wrapper(cur, nxt, ord(lig.char))]
-                # Allow recursive ligature checks with the preceding symbol.
-                i = max(i - 1, 0)
-                continue
-            if len(working) == 3 and isinstance(working[1], nd.Kern):
-                k = nd.Kern(working[1].kern, automatic=True)
-                k.source = [cur.atom, nxt.atom]
-                collected.insert(i + 1, k)
-                i += 2
-                continue
-            i += 1
-
     def _pass1AdjustAtoms(self, parser, context, collected):
         """
         Pass 1 atom adjustments.
 
-        This applies Rule 5/6, Rule 14 (partially, for common kern/collapse
-        paths), and final-bin normalization.
+        This applies Rule 5/6 and Rule 14 in a single forward scan:
+        - Rule 5 may convert current Bin to Ord, then current continues to Rule 14
+        - Rule 6 may retroactively convert previous Bin to Ord, but that previous
+          item is not revisited for Rule 14
+        - Rule 14 then handles kern/ligature for the current item when applicable
+        Finally, trailing Bin becomes Ord.
         """
-        prev = None
-        for item in collected:
-            if not isinstance(item, _AtomWrapper):
+        prev_types_for_rule5 = (ATOM_TYPE.BIN, ATOM_TYPE.OP, ATOM_TYPE.REL, ATOM_TYPE.OPEN, ATOM_TYPE.PUNCT)
+        rule6_types = (ATOM_TYPE.REL, ATOM_TYPE.CLOSE, ATOM_TYPE.PUNCT)
+
+        def previous_atom(index):
+            j = index - 1
+            while j >= 0:
+                item = collected[j]
+                if isinstance(item, _AtomWrapper):
+                    return item
+                j -= 1
+            return None
+
+        i = 0
+        while i < len(collected):
+            cur = collected[i]
+            if not isinstance(cur, _AtomWrapper):
+                i += 1
                 continue
-            if item.node_type == ATOM_TYPE.BIN and (
-                prev is None
-                or prev.node_type in (ATOM_TYPE.BIN, ATOM_TYPE.OP, ATOM_TYPE.REL, ATOM_TYPE.OPEN, ATOM_TYPE.PUNCT)
-            ):
-                item.node_type = ATOM_TYPE.ORD
-            elif item.node_type in (ATOM_TYPE.REL, ATOM_TYPE.CLOSE, ATOM_TYPE.PUNCT) and prev is not None and prev.node_type == ATOM_TYPE.BIN:
-                prev.node_type = ATOM_TYPE.ORD
-            prev = item
-        self._pass1ApplyRule14(parser, context, collected)
+            prev = previous_atom(i)
+            try_rule14 = False
+            if cur.node_type == ATOM_TYPE.BIN:
+                if prev is None or prev.node_type in prev_types_for_rule5:
+                    # Rule 5.
+                    cur.node_type = ATOM_TYPE.ORD
+                    try_rule14 = True
+            else:
+                if cur.node_type in rule6_types and prev is not None and prev.node_type == ATOM_TYPE.BIN:
+                    # Rule 6.
+                    prev.node_type = ATOM_TYPE.ORD
+                try_rule14 = cur.node_type == ATOM_TYPE.ORD
+            if try_rule14 and i < len(collected) - 1:
+                nxt = collected[i + 1]
+                if isinstance(nxt, _AtomWrapper) and cur.node_type == ATOM_TYPE.ORD and nxt.node_type in (
+                    ATOM_TYPE.ORD,
+                    ATOM_TYPE.OP,
+                    ATOM_TYPE.BIN,
+                    ATOM_TYPE.REL,
+                    ATOM_TYPE.OPEN,
+                    ATOM_TYPE.CLOSE,
+                    ATOM_TYPE.PUNCT,
+                ):
+                    if getattr(cur, "sub", None) is None and getattr(cur, "sup", None) is None:
+                        n1 = getattr(cur, "nucleus", None)
+                        n2 = getattr(nxt, "nucleus", None)
+                        if isinstance(n1, MathSymbol) and isinstance(n2, MathSymbol) and n1.fam == n2.fam:
+                            font = context.font(cur.style, n1.fam)
+                            c1 = font[n1.char]
+                            c2 = font[n2.char]
+                            working = run_ligature_program(
+                                [c1, c2],
+                                make_ligature=lambda insert_char, replaced, step, base, after: Ligature(insert_char, replaced),
+                                make_kern=lambda step, base, after: nd.Kern(step.kern * base.font.at, automatic=True),
+                                source_nodes=lambda n: list(n.source) if isinstance(n, Ligature) else [n],
+                            )
+                            if len(working) == 1 and isinstance(working[0], Ligature):
+                                lig = Atom(ATOM_TYPE.ORD)
+                                lig.nucleus = MathSymbol(
+                                    (ATOM_TYPE.ORD.value << 12) | (n1.fam << 8) | ord(working[0].char),
+                                    -1,
+                                )
+                                lig.source = [cur.atom, nxt.atom]
+                                collected[i:i + 2] = [_AtomWrapper(lig, ATOM_TYPE.ORD, Style(cur.style.style, cur.style.cramped))]
+                                # Reconsider with preceding symbol for recursive ligatures.
+                                i = max(i - 1, 0)
+                                continue
+                            if len(working) == 3 and isinstance(working[1], nd.Kern):
+                                k = nd.Kern(working[1].kern, automatic=True)
+                                k.source = [cur.atom, nxt.atom]
+                                collected.insert(i + 1, k)
+                                i += 2
+                                continue
+            i += 1
         prev = None
         for item in collected:
             if isinstance(item, _AtomWrapper):

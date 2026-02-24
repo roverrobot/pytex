@@ -528,6 +528,42 @@ def test_delimiter(math):
     math.parse("$")
 
 
+def test_delim_typeset_null_uses_nulldelimiterspace(math):
+    d = mmode.Delim(0, 0)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = d.typeset(math, Dimen(20), ctx, style)
+    assert b.node_type == nd.NODE_TYPE.HLIST
+    assert b.width == math.state.layout["nulldelimiterspace"]
+
+
+def test_delim_typeset_order_uses_style_fonts(math):
+    code = ((1 << 8) | ord("a")) << 12
+    d = mmode.Delim(code, 0)
+    ctx = mmode.MathTypesetContext(math, True)
+
+    b_text = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.T))
+    assert b_text.list[0].font is ctx.textfont[1]
+
+    b_script = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.S))
+    assert b_script.list[0].font is ctx.scriptfont[1]
+
+    b_scriptscript = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.SS))
+    assert b_scriptscript.list[0].font is ctx.scriptscriptfont[1]
+
+
+def test_delim_typeset_adds_italic_correction(math):
+    # family 1 is cmmi in the math fixture; many letters (e.g., l) have italic correction.
+    code = ((1 << 8) | ord("l")) << 12
+    d = mmode.Delim(code, 0)
+    ctx = mmode.MathTypesetContext(math, True)
+    b = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.T))
+    kerns = [n for n in b.list if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
+    assert len(kerns) <= 1
+    if kerns:
+        assert float(kerns[0].kern) > 0
+
+
 @pytest.mark.parametrize("cmd, bar, thickness, left, right", [
     ["\\over", True, None, None, None],
     ["\\overwithdelims()", True, None, (0, chr(0x28)), (0, chr(0x29))],

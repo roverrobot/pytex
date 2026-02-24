@@ -189,6 +189,8 @@ class CharInfoData:
 class CharInfo:
     def __init__(self, char, data: CharInfoData, tfm):
         self.char = char
+        # TeX: a character exists iff width_index > 0 in char_info.
+        self.exists = data.width_index > 0
         self.program = None
         self.chain = None
         self.extend = None

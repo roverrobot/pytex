@@ -76,7 +76,7 @@ class Dimen(serialization.Serializable):
         return Dimen(float(self) + float(other))
     
     def __radd__(self, other):
-        return Dimen(float(self.value) + float(other))
+        return Dimen(float(self) + float(other))
     
     def __mul__(self, other):
         return Dimen(float(self) * float(other))

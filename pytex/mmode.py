@@ -464,9 +464,9 @@ class MList(lists.List):
 
     def typeset(self, parser, packed, context, style):
         # typeset into an hbox
-        box = box.HBox(parser, None, None)
-        self.typesetNodes(parser, box.list, context, style)
-        box.typeset(parser, packed)
+        hbox = box.HBox(parser, None, None)
+        self.typesetNodes(parser, hbox.list, context, style)
+        hbox.typeset(parser, packed)
 
 
 class InlineMathList(MList):

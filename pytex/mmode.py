@@ -59,19 +59,21 @@ class Style(serialization.Serializable):
 
     def numerator(self):
         """
-        get the style for a numerator
+        get the style for a generalized fraction numerator (Rule 15a)
         @return: the style
         """
-        style = self.style - 1 if self.style > MATH_STYLE.SS else MATH_STYLE.SS
-        return Style(style, cramped=self.cramped)
+        if self.style == MATH_STYLE.D:
+            return Style(MATH_STYLE.T, cramped=self.cramped)
+        return self.superscript()
     
     def denominator(self):
         """
-        get the style for a denominator
+        get the style for a generalized fraction denominator (Rule 15a)
         @return: the style
         """
-        style = self.style - 1 if self.style > MATH_STYLE.SS else MATH_STYLE.SS
-        return Style(style, cramped=True)
+        if self.style == MATH_STYLE.D:
+            return Style(MATH_STYLE.T, cramped=True)
+        return self.subscript()
 
     def __repr__(self):
         cramped = '\"' if self.cramped else ''
@@ -585,8 +587,10 @@ class Atom(nd.Node):
         b = self.assemble(parser, context, style)
         if context.prev_atom_type == ATOM_TYPE.BIN:
             context.prev_atom_type = ATOM_TYPE.ORD
+        axis = Dimen(context.sigma(style)[21])
+        total = b.height + b.depth
         if self.left:
-            left = self.left.typeset(parser, b)
+            left = self.left.typeset(parser, total, context, style, axis)
             self.typsetSpace(packed, context, style, ATOM_TYPE.OPEN)
             packed.append(left)
             context.prev_atom_type = ATOM_TYPE.OPEN
@@ -598,7 +602,7 @@ class Atom(nd.Node):
             packed.append(n)
         context.prev_atom_type = atom_type
         if self.right:
-            right = self.right.typeset(parser, b)
+            right = self.right.typeset(parser, total, context, style, axis)
             self.typsetSpace(packed, context, style, ATOM_TYPE.OPEN)
             packed.append(right)
             context.prev_atom_type = ATOM_TYPE.CLOSE
@@ -665,6 +669,37 @@ class Atom(nd.Node):
         self.typesetNucleus(parser, b.list, context, style)
         b.typeset(parser, [])
         return b
+
+    @staticmethod
+    def rebox(parser, b, width):
+        """
+        Rebox an hbox to the desired width.
+
+        If width already matches, return the original box. Otherwise, center content
+        with \\hss glue at both sides. The source box is unpackaged, and a trailing
+        italic correction kern is preserved when implied by the unboxed rightmost char.
+        """
+        if b.node_type != nd.NODE_TYPE.HLIST:
+            raise ValueError("rebox expects an hbox")
+        width = Dimen(width)
+        if b.width is None:
+            b.typeset(parser, [])
+        if b.width == width:
+            return b
+        out = box.HBox(parser, width, None)
+        hss = Glue(0, Stretchness(1, 1), Stretchness(1, 1))
+        out.list.append(nd.Glue(hss))
+        italic = None
+        out.list.extend(b.list)
+        if b.list:
+            right = b.list[-1]
+            if right.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                italic = getattr(right, "italic", None)
+        if italic is not None and float(italic) != 0:
+            out.list.append(nd.Kern(italic, automatic=True))
+        out.list.append(nd.Glue(hss))
+        out.typeset(parser, [])
+        return out
     
 
 class MathSymbol(serialization.Serializable):
@@ -1112,13 +1147,45 @@ class Delim(serialization.Serializable):
     def __repr__(self):
         return f"Delim({self.type}, {self.small}, {self.large})"
     
-    def typeset(self, parser, enclosed):
+    def _isNull(self):
+        return self.small.encode() == 0 and self.large.encode() == 0
+
+    def typeset(self, parser, total, context=None, style=None, axis=None):
         """
-        return a box containing the delimiter that fits the box enclosed
+        return a box containing the delimiter that fits a requested total
+        height+depth.
         """
-        b = box.HBox(parser, 0, None)
-        b.typeset(parser, [])
-        return b
+        if self._isNull():
+            b = box.HBox(parser, 0, None)
+            b.typeset(parser, [])
+            return b
+        if context is None:
+            context = MathTypesetContext(parser, True)
+        if style is None:
+            style = Style(MATH_STYLE.T)
+        if axis is None:
+            axis = Dimen(context.sigma(style)[21])
+        total = Dimen(total)
+
+        def _build(symbol):
+            b = box.HBox(parser, None, 0)
+            symbol.typeset(parser, b.list, context, style)
+            b.typeset(parser, [])
+            return b
+
+        small = _build(self.small)
+        large = _build(self.large)
+        small_total = small.height + small.depth
+        large_total = large.height + large.depth
+        if small_total >= total:
+            out = small
+        elif large_total >= total:
+            out = large
+        else:
+            out = large if large_total >= small_total else small
+        # Center delimiter around the math axis.
+        out.shifted = (out.height - out.depth) / 2 - axis
+        return out
 
 
 class Rad(Atom):
@@ -1222,12 +1289,153 @@ class Over(Atom):
     @param thickness: the thickness of the bar
     """
     def __init__(self, num, den, bar, thickness):
-        super().__init__(ATOM_TYPE.OVER)
+        super().__init__(ATOM_TYPE.INNER)
         self.nucleus = (num, den, bar, thickness)
 
     def saveInfo(self):
         return {"init": {"num": self.nucleus[0], "den": self.nucleus[1], "bar": self.nucleus[2], "thickness": self.nucleus[3]}}
     
+    def rule15(self, context: MathTypesetContext, style: Style):
+        """
+        Appendix G, Rule 15 preamble for generalized fractions.
+
+        Returns:
+        - numerator mlist
+        - denominator mlist
+        - bar thickness theta
+        - left delimiter (or None)
+        - right delimiter (or None)
+        """
+        num, den, bar, thickness = self.nucleus
+        if thickness is None:
+            theta = Dimen(context.xi(style)[7]) if bar else Dimen()
+        else:
+            theta = Dimen(thickness)
+        left, right = getattr(self, "_rule15_delims", (self.left, self.right))
+        return num, den, theta, left, right
+
+    def rule15b(self, context: MathTypesetContext, style: Style, theta: Dimen):
+        """
+        Appendix G, Rule 15b: base numerator/denominator shifts.
+        """
+        sigma = context.sigma(style)
+        if style.style > MATH_STYLE.T:
+            # C > T
+            u = Dimen(sigma[7])   # sigma8
+            v = Dimen(sigma[10])  # sigma11
+        else:
+            # C <= T
+            u = Dimen(sigma[8] if float(theta) != 0 else sigma[9])  # sigma9/sigma10
+            v = Dimen(sigma[11])  # sigma12
+        return u, v
+
+    def rule15c(self, x, z, context: MathTypesetContext, style: Style, u: Dimen, v: Dimen):
+        """
+        Appendix G, Rule 15c: atop-style clearance adjustment (theta = 0).
+
+        Returns adjusted (u, v, clearance_kern).
+        """
+        xi8 = Dimen(context.xi(style)[7])
+        phi = (7 * xi8) if style.style > MATH_STYLE.T else (3 * xi8)
+        psi = (u - x.depth) - (z.height - v)
+        if psi < phi:
+            delta = (phi - psi) / 2
+            u = u + delta
+            v = v + delta
+            psi = (u - x.depth) - (z.height - v)
+        return u, v, psi
+
+    def rule15d(self, x, z, context: MathTypesetContext, style: Style, theta: Dimen, u: Dimen, v: Dimen):
+        """
+        Appendix G, Rule 15d: over-style bar placement/clearance adjustment.
+
+        Returns adjusted (u, v, kern_above_rule, kern_below_rule).
+        """
+        phi = (3 * theta) if style.style > MATH_STYLE.T else theta
+        a = Dimen(context.sigma(style)[21])  # axis height, sigma22
+        half_theta = theta / 2
+        k1 = (u - x.depth) - (a + half_theta)
+        if k1 < phi:
+            u = u + (phi - k1)
+            k1 = (u - x.depth) - (a + half_theta)
+        k2 = (a - half_theta) - (z.height - v)
+        if k2 < phi:
+            v = v + (phi - k2)
+            k2 = (a - half_theta) - (z.height - v)
+        return u, v, k1, k2
+
+    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
+        # TeXbook Appendix G, Rule 15(a-e)
+        num, den, theta, left, right = self.rule15(context, style)
+        x = box.HBox(parser, None, 0)
+        z = box.HBox(parser, None, 0)
+        num.typesetNodes(parser, x.list, context, style.numerator())
+        den.typesetNodes(parser, z.list, context, style.denominator())
+        x.typeset(parser, [])
+        z.typeset(parser, [])
+        target = x.width if x.width >= z.width else z.width
+        x = Atom.rebox(parser, x, target)
+        z = Atom.rebox(parser, z, target)
+        # Fraction internals are stacked explicitly by Rule 15; disable
+        # normal vertical interline glue between x and z.
+        x.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        z.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        u, v = self.rule15b(context, style, theta)
+        if float(theta) == 0:
+            # Rule 15c (\atop): enforce minimum clearance with adjusted shifts.
+            u, v, k = self.rule15c(x, z, context, style, u, v)
+            out = box.VBox(parser, x.height + u, 0)
+            out.list.clear()
+            out.list.append(x)
+            out.list.append(nd.Kern(k))
+            out.list.append(z)
+            out.typeset(parser, [])
+            out.depth = z.depth + v
+        else:
+            # Rule 15d (\over): enforce clearances from numerator/denominator to bar.
+            u, v, k1, k2 = self.rule15d(x, z, context, style, theta, u, v)
+            out = box.VBox(parser, x.height + u, 0)
+            out.list.clear()
+            out.list.append(x)
+            out.list.append(nd.Kern(k1))
+            out.list.append(nd.Rule(target, theta, 0))
+            out.list.append(nd.Kern(k2))
+            out.list.append(z)
+            out.typeset(parser, [])
+            out.depth = z.depth + v
+        # Rule 15e: optional delimiters around the fraction vbox.
+        if left is None and right is None:
+            packed.append(out)
+            return
+        min_total = Dimen(context.sigma(style)[19] if style.style > MATH_STYLE.T else context.sigma(style)[20])
+        total = out.height + out.depth
+        if total < min_total:
+            total = min_total
+        axis = Dimen(context.sigma(style)[21])
+        left_box = left.typeset(parser, total, context, style, axis) if left is not None else box.HBox(parser, 0, None)
+        if left is None:
+            left_box.typeset(parser, [])
+        right_box = right.typeset(parser, total, context, style, axis) if right is not None else box.HBox(parser, 0, None)
+        if right is None:
+            right_box.typeset(parser, [])
+        packed.append(left_box)
+        packed.append(out)
+        packed.append(right_box)
+        return
+
+    def typeset(self, parser, packed, context, style):
+        # Rule 15e integrates optional delimiters into the nucleus, so suppress
+        # Atom.typeset's generic left/right wrapper handling.
+        self._rule15_delims = (self.left, self.right)
+        self.left = None
+        self.right = None
+        try:
+            # Generalized fractions are treated as Inner atoms for spacing.
+            super().typeset(parser, packed, context, style, atom_type=ATOM_TYPE.INNER)
+        finally:
+            self.left, self.right = self._rule15_delims
+            del self._rule15_delims
+
     node_type = nd.NODE_TYPE.MATHNODE
 
 

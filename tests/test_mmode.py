@@ -3,6 +3,7 @@ from pytex import mmode
 from pytex import lists
 from pytex import node as nd
 from pytex import texlive
+from pytex import box
 from pytex.dimen import Dimen
 
 
@@ -382,6 +383,40 @@ def test_mathstyle(math, cmd, style):
     math.parse("$")
 
 
+@pytest.mark.parametrize("src, up_style, up_cramped, down_style, down_cramped", [
+    [mmode.Style(mmode.MATH_STYLE.D, False), mmode.MATH_STYLE.S, False, mmode.MATH_STYLE.S, True],
+    [mmode.Style(mmode.MATH_STYLE.D, True), mmode.MATH_STYLE.S, True, mmode.MATH_STYLE.S, True],
+    [mmode.Style(mmode.MATH_STYLE.T, False), mmode.MATH_STYLE.S, False, mmode.MATH_STYLE.S, True],
+    [mmode.Style(mmode.MATH_STYLE.T, True), mmode.MATH_STYLE.S, True, mmode.MATH_STYLE.S, True],
+    [mmode.Style(mmode.MATH_STYLE.S, False), mmode.MATH_STYLE.SS, False, mmode.MATH_STYLE.SS, True],
+    [mmode.Style(mmode.MATH_STYLE.SS, False), mmode.MATH_STYLE.SS, False, mmode.MATH_STYLE.SS, True],
+])
+def test_style_superscript_subscript_transitions(src, up_style, up_cramped, down_style, down_cramped):
+    up = src.superscript()
+    down = src.subscript()
+    assert up.style == up_style
+    assert up.cramped == up_cramped
+    assert down.style == down_style
+    assert down.cramped == down_cramped
+
+
+@pytest.mark.parametrize("src, num_style, num_cramped, den_style, den_cramped", [
+    [mmode.Style(mmode.MATH_STYLE.D, False), mmode.MATH_STYLE.T, False, mmode.MATH_STYLE.T, True],
+    [mmode.Style(mmode.MATH_STYLE.D, True), mmode.MATH_STYLE.T, True, mmode.MATH_STYLE.T, True],
+    [mmode.Style(mmode.MATH_STYLE.T, False), mmode.MATH_STYLE.S, False, mmode.MATH_STYLE.S, True],
+    [mmode.Style(mmode.MATH_STYLE.T, True), mmode.MATH_STYLE.S, True, mmode.MATH_STYLE.S, True],
+    [mmode.Style(mmode.MATH_STYLE.S, False), mmode.MATH_STYLE.SS, False, mmode.MATH_STYLE.SS, True],
+    [mmode.Style(mmode.MATH_STYLE.SS, True), mmode.MATH_STYLE.SS, True, mmode.MATH_STYLE.SS, True],
+])
+def test_style_fraction_numerator_denominator(src, num_style, num_cramped, den_style, den_cramped):
+    num = src.numerator()
+    den = src.denominator()
+    assert num.style == num_style
+    assert num.cramped == num_cramped
+    assert den.style == den_style
+    assert den.cramped == den_cramped
+
+
 def test_style_node_is_consumed_by_typeset(math):
     math.parse("$\\scriptstyle a$")
     mlist = math.lists[-1][1]
@@ -549,6 +584,172 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     assert top.type == lists.LISTTYPE.HORIZONTAL
 
 
+@pytest.mark.parametrize("cmd, expected_theta", [
+    ["\\over", "default"],
+    ["\\atop", 0],
+    ["\\above10pt", 10],
+])
+def test_fraction_rule15_theta(math, cmd, expected_theta):
+    math.parse(f"\\noindent$a{cmd} b$\\relax")
+    frac = math.lists[-1][0][0]
+    assert isinstance(frac, mmode.Over)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    _, _, theta, _, _ = frac.rule15(ctx, style)
+    if expected_theta == "default":
+        assert float(theta) == pytest.approx(ctx.xi(style)[7], abs=1e-4)
+    else:
+        assert theta == expected_theta
+
+
+def test_fraction_rule15_delimiters(math):
+    math.parse("\\noindent$a\\overwithdelims() b$\\relax")
+    frac = math.lists[-1][0][0]
+    assert isinstance(frac, mmode.Over)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    _, _, _, left, right = frac.rule15(ctx, style)
+    assert left is frac.left
+    assert right is frac.right
+
+
+def test_fraction_rule15b_uv_text_over_vs_atop(math):
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    ctx = mmode.MathTypesetContext(math, True)
+    sigma = ctx.sigma(style)
+
+    math.parse("\\noindent$a\\over b$\\relax")
+    over = math.lists[-1][-1][0]
+    _, _, theta_over, _, _ = over.rule15(ctx, style)
+    u_over, v_over = over.rule15b(ctx, style, theta_over)
+    assert float(u_over) == pytest.approx(sigma[8], abs=1e-4)   # sigma9
+    assert float(v_over) == pytest.approx(sigma[11], abs=1e-4)  # sigma12
+
+    math.parse("\\noindent$a\\atop b$\\relax")
+    atop = math.lists[-1][-1][0]
+    _, _, theta_atop, _, _ = atop.rule15(ctx, style)
+    u_atop, v_atop = atop.rule15b(ctx, style, theta_atop)
+    assert float(theta_atop) == pytest.approx(0, abs=1e-8)
+    assert float(u_atop) == pytest.approx(sigma[9], abs=1e-4)   # sigma10
+    assert float(v_atop) == pytest.approx(sigma[11], abs=1e-4)  # sigma12
+
+
+def test_fraction_rule15b_uv_script(math):
+    style = mmode.Style(mmode.MATH_STYLE.S)
+    ctx = mmode.MathTypesetContext(math, True)
+    sigma = ctx.sigma(style)
+    math.parse("\\noindent$a\\over b$\\relax")
+    frac = math.lists[-1][-1][0]
+    _, _, theta, _, _ = frac.rule15(ctx, style)
+    u, v = frac.rule15b(ctx, style, theta)
+    assert float(u) == pytest.approx(sigma[7], abs=1e-4)   # sigma8
+    assert float(v) == pytest.approx(sigma[10], abs=1e-4)  # sigma11
+
+
+def test_fraction_rule15c_atop_construction(math):
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    ctx = mmode.MathTypesetContext(math, True)
+    math.parse("\\noindent$a\\atop b$\\relax")
+    frac = math.lists[-1][-1][0]
+    packed = []
+    frac.typesetNucleus(math, packed, ctx, style)
+    assert len(packed) == 1
+    out = packed[0]
+    assert out.node_type == nd.NODE_TYPE.VLIST
+    assert len(out.list) == 3
+    x, k, z = out.list
+    assert x.node_type == nd.NODE_TYPE.HLIST
+    assert k.node_type == nd.NODE_TYPE.KERN
+    assert z.node_type == nd.NODE_TYPE.HLIST
+
+    _, _, theta, _, _ = frac.rule15(ctx, style)
+    u, v = frac.rule15b(ctx, style, theta)
+    u, v, psi = frac.rule15c(x, z, ctx, style, u, v)
+    phi = 3 * Dimen(ctx.xi(style)[7])
+    assert float(k.kern) == pytest.approx(float(psi), abs=1e-4)
+    assert float(k.kern) >= float(phi)
+    assert float(out.height) == pytest.approx(float(x.height + u), abs=1e-4)
+    assert float(out.depth) == pytest.approx(float(z.depth + v), abs=1e-4)
+
+
+def test_fraction_rule15d_over_construction(math):
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    ctx = mmode.MathTypesetContext(math, True)
+    math.parse("\\noindent$a\\over b$\\relax")
+    frac = math.lists[-1][-1][0]
+    packed = []
+    frac.typesetNucleus(math, packed, ctx, style)
+    assert len(packed) == 1
+    out = packed[0]
+    assert out.node_type == nd.NODE_TYPE.VLIST
+    assert len(out.list) == 5
+    x, k1, rule, k2, z = out.list
+    assert x.node_type == nd.NODE_TYPE.HLIST
+    assert k1.node_type == nd.NODE_TYPE.KERN
+    assert rule.node_type == nd.NODE_TYPE.RULE
+    assert k2.node_type == nd.NODE_TYPE.KERN
+    assert z.node_type == nd.NODE_TYPE.HLIST
+
+    _, _, theta, _, _ = frac.rule15(ctx, style)
+    u, v = frac.rule15b(ctx, style, theta)
+    u, v, expect_k1, expect_k2 = frac.rule15d(x, z, ctx, style, theta, u, v)
+    assert float(rule.height) == pytest.approx(float(theta), abs=1e-4)
+    assert float(k1.kern) == pytest.approx(float(expect_k1), abs=1e-4)
+    assert float(k2.kern) == pytest.approx(float(expect_k2), abs=1e-4)
+    assert float(k1.kern) >= float(theta)
+    assert float(k2.kern) >= float(theta)
+    assert float(out.height) == pytest.approx(float(x.height + u), abs=1e-4)
+    assert float(out.depth) == pytest.approx(float(z.depth + v), abs=1e-4)
+
+
+def test_fraction_rule15d_over_min_clearance_script(math):
+    style = mmode.Style(mmode.MATH_STYLE.S)
+    ctx = mmode.MathTypesetContext(math, True)
+    math.parse("\\noindent$a\\over b$\\relax")
+    frac = math.lists[-1][-1][0]
+    packed = []
+    frac.typesetNucleus(math, packed, ctx, style)
+    out = packed[0]
+    _, k1, _, k2, _ = out.list
+    _, _, theta, _, _ = frac.rule15(ctx, style)
+    phi = 3 * theta
+    assert float(k1.kern) >= float(phi)
+    assert float(k2.kern) >= float(phi)
+
+
+def test_fraction_rule15e_with_delims_builds_three_boxes(math):
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    ctx = mmode.MathTypesetContext(math, True)
+    math.parse("\\noindent$a\\overwithdelims() b$\\relax")
+    frac = math.lists[-1][-1][0]
+    packed = []
+    frac.typesetNucleus(math, packed, ctx, style)
+    assert len(packed) == 3
+    left, middle, right = packed
+    assert left.node_type == nd.NODE_TYPE.HLIST
+    assert middle.node_type == nd.NODE_TYPE.VLIST
+    assert right.node_type == nd.NODE_TYPE.HLIST
+    axis = Dimen(ctx.sigma(style)[21])
+    left_center = (left.height - left.depth) / 2 - left.shifted
+    right_center = (right.height - right.depth) / 2 - right.shifted
+    assert float(left_center) == pytest.approx(float(axis), abs=1e-4)
+    assert float(right_center) == pytest.approx(float(axis), abs=1e-4)
+
+
+def test_fraction_rule15e_delims_integrated_in_inner_atom_nucleus(math):
+    math.parse("\\noindent$a\\overwithdelims() b$\\relax")
+    mlist = math.lists[-1][0]
+    packed = []
+    mlist.typeset(math, packed)
+    # math_on + (left delim, fraction vbox, right delim) + math_off
+    assert len(packed) == 5
+    assert packed[0].node_type == nd.NODE_TYPE.MATH
+    assert packed[1].node_type == nd.NODE_TYPE.HLIST
+    assert packed[2].node_type == nd.NODE_TYPE.VLIST
+    assert packed[3].node_type == nd.NODE_TYPE.HLIST
+    assert packed[4].node_type == nd.NODE_TYPE.MATH
+
+
 @pytest.mark.parametrize("left", [True, False])
 def test_eqno(math, left):
     cmd = "\\leqno" if left else "\\eqno"
@@ -596,6 +797,47 @@ def test_italic_correction(math):
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.KERN
     assert node.kern == 0
+
+
+def test_atom_rebox_returns_same_box_when_width_matches(math):
+    b = box.HBox(math, None, None)
+    b.list.append(nd.Kern(5))
+    b.typeset(math, [])
+    out = mmode.Atom.rebox(math, b, b.width)
+    assert out is b
+
+
+def test_atom_rebox_unpackages_hbox_and_centers(math):
+    class FakeChar(nd.Box):
+        node_type = nd.NODE_TYPE.CHAR
+
+        def __init__(self, width, italic=0):
+            super().__init__(width, 1, 0)
+            self.italic = Dimen(italic)
+            self.char = "x"
+
+    b = box.HBox(math, None, None)
+    b.list.append(FakeChar(5, italic=2))
+    b.typeset(math, [])
+    target = b.width + Dimen(10)
+    out = mmode.Atom.rebox(math, b, target)
+    assert out.width == target
+    assert any(n.node_type == nd.NODE_TYPE.CHAR for n in out.list)
+    # \hss glue added at both sides.
+    assert out.list[0].node_type == nd.NODE_TYPE.GLUE
+    assert out.list[-1].node_type == nd.NODE_TYPE.GLUE
+    # implied italic correction should be preserved as an automatic kern.
+    kerns = [n for n in out.list if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
+    assert len(kerns) == 1
+    assert kerns[0].kern == 2
+
+
+def test_atom_rebox_rejects_non_hbox(math):
+    vb = box.VBox(math, None, None)
+    vb.list.append(nd.Rule(3, 1, 0))
+    vb.typeset(math, [])
+    with pytest.raises(ValueError, match="expects an hbox"):
+        mmode.Atom.rebox(math, vb, vb.width + Dimen(5))
 
 
 def test_box(math):

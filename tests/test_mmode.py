@@ -550,6 +550,243 @@ def test_rule17_math_list_nucleus_is_typeset_as_box(math):
     assert any(n.node_type == nd.NODE_TYPE.HLIST for n in packed)
 
 
+def test_rule18a_char_translation_sets_u_v_zero(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    translated = []
+    atom.typesetNucleus(math, translated, ctx, style)
+    u, v = atom.rule18a(math, translated, ctx, style)
+    assert u == 0
+    assert v == 0
+
+
+def test_rule18a_char_plus_kern_translation_sets_u_v_zero(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "f")
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("i"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    translated = []
+    atom.typesetNucleus(math, translated, ctx, style)
+    assert len(translated) == 2
+    assert translated[1].node_type == nd.NODE_TYPE.KERN
+    u, v = atom.rule18a(math, translated, ctx, style)
+    assert u == 0
+    assert v == 0
+
+
+def test_rule18a_box_translation_uses_sigma18_sigma19(math):
+    inner = mmode.MList(math)
+    inner.append(_mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"))
+    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom.nucleus = inner
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    translated = []
+    atom.typesetNucleus(math, translated, ctx, style)
+    assert len(translated) == 1
+    assert translated[0].node_type == nd.NODE_TYPE.HLIST
+    h = translated[0].height
+    d = translated[0].depth
+    q = Dimen(ctx.sigma(style.superscript())[17])
+    r = Dimen(ctx.sigma(style.subscript())[18])
+    u, v = atom.rule18a(math, translated, ctx, style)
+    assert float(u) == pytest.approx(float(h - q), abs=1e-4)
+    assert float(v) == pytest.approx(float(d + r), abs=1e-4)
+
+
+def test_rule18b_subscript_only_appends_shifted_script_box(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 2
+    sub_box = b.list[1]
+    assert sub_box.node_type == nd.NODE_TYPE.HLIST
+    assert float(sub_box.shifted) >= 0
+
+
+def test_rule18b_subscript_only_uses_scriptspace_and_shift_formula(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    sub_box = b.list[1]
+
+    raw = box.HBox(math, None, 0)
+    atom.sub.typeset(math, raw.list, ctx, style.subscript())
+    raw.typeset(math, [])
+    assert float(sub_box.width) == pytest.approx(float(raw.width + ctx.scriptspace), abs=1e-4)
+
+    translated = []
+    atom.typesetNucleus(math, translated, ctx, style)
+    _, v = atom.rule18a(math, translated, ctx, style)
+    sigma = ctx.sigma(style)
+    sigma16 = Dimen(sigma[15])
+    sigma5 = Dimen(sigma[4])
+    lift_limit = sub_box.height - Dimen(abs(float(sigma5)) * 4 / 5)
+    expected = v
+    if sigma16 > expected:
+        expected = sigma16
+    if lift_limit > expected:
+        expected = lift_limit
+    assert float(sub_box.shifted) == pytest.approx(float(expected), abs=1e-4)
+
+
+def test_rule18c_superscript_only_appends_shifted_script_box(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 2
+    sup_box = b.list[1]
+    assert sup_box.node_type == nd.NODE_TYPE.HLIST
+    assert float(sup_box.shifted) <= 0
+
+
+def test_rule18c_superscript_only_uses_scriptspace_and_shift_formula(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    sup_box = b.list[1]
+
+    raw = box.HBox(math, None, 0)
+    atom.sup.typeset(math, raw.list, ctx, style.superscript())
+    raw.typeset(math, [])
+    assert float(sup_box.width) == pytest.approx(float(raw.width + ctx.scriptspace), abs=1e-4)
+
+    translated = []
+    atom.typesetNucleus(math, translated, ctx, style)
+    u, _ = atom.rule18a(math, translated, ctx, style)
+    sigma = ctx.sigma(style)
+    sigma5 = Dimen(sigma[4])
+    p = Dimen(sigma[13])  # sigma14 in text style
+    lift_limit = sup_box.depth + Dimen(abs(float(sigma5)) / 4)
+    expected = u
+    if p > expected:
+        expected = p
+    if lift_limit > expected:
+        expected = lift_limit
+    assert float(sup_box.shifted) == pytest.approx(-float(expected), abs=1e-4)
+
+
+def test_rule18c_p_selection_display_text_and_cramped(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    x = box.HBox(math, 0, 0)
+    x.typeset(math, [])
+    context = mmode.MathTypesetContext(math, True)
+
+    u0 = Dimen()
+    u_disp = atom.rule18c(x, context, mmode.Style(mmode.MATH_STYLE.D, cramped=False), u0)
+    u_text = atom.rule18c(x, context, mmode.Style(mmode.MATH_STYLE.T, cramped=False), u0)
+    u_crmp = atom.rule18c(x, context, mmode.Style(mmode.MATH_STYLE.T, cramped=True), u0)
+    sigma_disp = context.sigma(mmode.Style(mmode.MATH_STYLE.D, cramped=False))
+    sigma_text = context.sigma(mmode.Style(mmode.MATH_STYLE.T, cramped=False))
+    sigma_crmp = context.sigma(mmode.Style(mmode.MATH_STYLE.T, cramped=True))
+    assert float(u_disp) >= float(Dimen(sigma_disp[12]))  # sigma13
+    assert float(u_text) >= float(Dimen(sigma_text[13]))  # sigma14
+    assert float(u_crmp) >= float(Dimen(sigma_crmp[14]))  # sigma15
+
+
+def test_rule18d_both_scripts_sub_box_and_v_floor(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+
+    translated = []
+    atom.typesetNucleus(math, translated, ctx, style)
+    u, v = atom.rule18a(math, translated, ctx, style)
+    x = atom._typesetScriptField(math, atom.sup, ctx, style.superscript())
+    u = atom.rule18c(x, ctx, style, u)
+    y, v2 = atom.rule18d(math, ctx, style, v)
+
+    raw = box.HBox(math, None, 0)
+    atom.sub.typeset(math, raw.list, ctx, style.subscript())
+    raw.typeset(math, [])
+    assert float(y.width) == pytest.approx(float(raw.width + ctx.scriptspace), abs=1e-4)
+    assert v2 >= v
+    assert v2 >= Dimen(ctx.sigma(style)[16])  # sigma17
+
+
+def test_rule18e_enforces_minimum_sup_sub_clearance(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    x = nd.Box(0, 0, 10)
+    y = nd.Box(0, 10, 0)
+    u = Dimen()
+    v = Dimen()
+    u2, v2 = atom.rule18e(x, y, ctx, style, u, v)
+    theta = Dimen(ctx.xi(style)[7])
+    clearance = (u2 - x.depth) - (y.height - v2)
+    assert float(clearance) == pytest.approx(float(4 * theta), abs=1e-4)
+
+
+def test_rule18e_enforces_superscript_bottom_floor(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    x = nd.Box(0, 0, 1)
+    y = nd.Box(0, 0, 0)
+    u = Dimen()
+    v = Dimen(100)
+    u2, v2 = atom.rule18e(x, y, ctx, style, u, v)
+    floor = Dimen(abs(float(ctx.sigma(style)[4])) * 4 / 5)
+    assert float(u2 - x.depth) == pytest.approx(float(floor), abs=1e-4)
+    assert float(v2) == pytest.approx(float(v - (u2 - u)), abs=1e-4)
+
+
+def test_rule18f_both_scripts_appends_joint_vbox(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 2
+    joint = b.list[1]
+    assert joint.node_type == nd.NODE_TYPE.VLIST
+    assert len(joint.list) == 3
+    assert joint.list[1].node_type == nd.NODE_TYPE.KERN
+
+
+def test_rule18f_uses_delta_and_expected_vertical_geometry(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "f")
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
+    ctx = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+
+    translated = []
+    delta = atom.typesetNucleus(math, translated, ctx, style)
+    u, v = atom.rule18a(math, translated, ctx, style)
+    x = atom._typesetScriptField(math, atom.sup, ctx, style.superscript())
+    u = atom.rule18c(x, ctx, style, u)
+    y, v = atom.rule18d(math, ctx, style, v)
+    u, v = atom.rule18e(x, y, ctx, style, u, v)
+    expected_k = u + v - x.depth - y.height
+
+    b = atom.assemble(math, ctx, style)
+    joint = b.list[1]
+    top = joint.list[0]
+    if float(delta) != 0:
+        assert top.node_type == nd.NODE_TYPE.HLIST
+        assert top.list[0].node_type == nd.NODE_TYPE.KERN
+        assert float(top.list[0].kern) == pytest.approx(float(delta), abs=1e-4)
+    assert float(joint.list[1].kern) == pytest.approx(float(expected_k), abs=1e-4)
+    assert float(joint.depth) == pytest.approx(float(y.depth + v), abs=1e-4)
+    assert float(joint.height) == pytest.approx(float(top.height + u), abs=1e-4)
+
+
 def test_indent(math):
     math.parse("$a\\indent b")
     top = math.lists[-1]

@@ -109,6 +109,7 @@ class MathTypesetContext:
                 raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
         # inter-atom spaces
         self.muskips = [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
+        self.scriptspace = layout["scriptspace"]
         # delimiter sizing parameters used by Rule 19.
         self.delimiterfactor = layout["delimiterfactor"]
         self.delimitershortfall = layout["delimitershortfall"]
@@ -849,12 +850,167 @@ class Atom(nd.Node):
 
         self.nucleus.typeset(parser, packed, context, style)
         return delta
+
+    def _rule18aIsCharTranslation(self, translated):
+        """
+        Rule 18a character-nucleus test:
+        translated nucleus is a character box, optionally followed by one kern.
+        """
+        if not translated:
+            return False
+        first = translated[0]
+        if first.node_type not in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            return False
+        if len(translated) == 1:
+            return True
+        return len(translated) == 2 and translated[1].node_type == nd.NODE_TYPE.KERN
+
+    def _translatedHeightDepth(self, parser, translated):
+        """
+        Measure height/depth of translated nucleus material as one horizontal box.
+        """
+        if len(translated) == 1 and isinstance(translated[0], nd.Box):
+            n = translated[0]
+            return n.height, n.depth
+        b = box.HBox(parser, None, 0)
+        b.list.extend(translated)
+        b.typeset(parser, [])
+        return b.height, b.depth
+
+    def rule18a(self, parser, translated, context, style):
+        """
+        Appendix G Rule 18a: preliminary superscript/subscript shifts u,v.
+        """
+        if self._rule18aIsCharTranslation(translated):
+            return Dimen(), Dimen()
+        h, d = self._translatedHeightDepth(parser, translated)
+        q = Dimen(context.sigma(style.superscript())[17])  # sigma18 at C^
+        r = Dimen(context.sigma(style.subscript())[18])    # sigma19 at C_
+        return h - q, d + r
+
+    def _typesetScriptField(self, parser, field, context, style):
+        """
+        Typeset a script field in style and return it as an hbox.
+        """
+        x = box.HBox(parser, None, 0)
+        if field is not None:
+            typeset = field.typeset
+            if typeset is None:
+                x.list.append(field)
+            else:
+                typeset(parser, x.list, context, style)
+        x.typeset(parser, [])
+        x.width += context.scriptspace
+        return x
+
+    def rule18c(self, x, context, style, u):
+        """
+        Appendix G Rule 18c: tentative superscript shift-up.
+        """
+        sigma = context.sigma(style)
+        sigma5 = Dimen(sigma[4])  # sigma5, x-height
+        if style.style == MATH_STYLE.D and not style.cramped:
+            p = Dimen(sigma[12])   # sigma13
+        elif style.cramped:
+            p = Dimen(sigma[14])   # sigma15
+        else:
+            p = Dimen(sigma[13])   # sigma14
+        lift_limit = x.depth + Dimen(abs(float(sigma5)) / 4)
+        if p > u:
+            u = p
+        if lift_limit > u:
+            u = lift_limit
+        return u
+
+    def rule18d(self, parser, context, style, v):
+        """
+        Appendix G Rule 18d (both scripts case):
+        build subscript box y in C_ and enforce v >= sigma17.
+        """
+        y = self._typesetScriptField(parser, self.sub, context, style.subscript())
+        sigma17 = Dimen(context.sigma(style)[16])  # sigma17
+        if sigma17 > v:
+            v = sigma17
+        return y, v
+
+    def rule18e(self, x, y, context, style, u, v):
+        """
+        Appendix G Rule 18e: joint superscript/subscript clearance adjustment.
+        """
+        theta = Dimen(context.xi(style)[7])  # xi8
+        min_clear = 4 * theta
+        clearance = (u - x.depth) - (y.height - v)
+        if clearance < min_clear:
+            v += (min_clear - clearance)
+        sigma5 = Dimen(context.sigma(style)[4])  # sigma5 x-height
+        psi = Dimen(abs(float(sigma5)) * 4 / 5) - (u - x.depth)
+        if psi > 0:
+            u += psi
+            v -= psi
+        return u, v
+
+    def rule18f(self, parser, packed, x, y, u, v, delta):
+        """
+        Appendix G Rule 18f: build and append joint sup/sub vbox.
+        """
+        delta = Dimen() if delta is None else Dimen(delta)
+        top = x
+        if float(delta) != 0:
+            shifted = box.HBox(parser, None, 0)
+            shifted.list.append(nd.Kern(delta))
+            shifted.list.append(x)
+            shifted.typeset(parser, [])
+            top = shifted
+        # Fraction/script internals are stacked explicitly; suppress interline glue.
+        top.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        y.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        k = u + v - x.depth - y.height
+        out = box.VBox(parser, top.height + u, 0)
+        # Build the stack explicitly; avoid VList.append interline glue injection.
+        out.list[:] = [top, nd.Kern(k), y]
+        out.typeset(parser, [])
+        out.depth = y.depth + v
+        packed.append(out)
+        return out
     
     def typesetScripts(self, parser, packed, context, style, delta):
         """
         typeset the nucleus, the superscript and the subscript
         """
-        pass
+        if self.sub is None and self.sup is None:
+            return
+        # Rule 18a: compute preliminary shifts; later subrules 18b-f will use
+        # these values together with delta from Rule 17.
+        u, v = self.rule18a(parser, packed, context, style)
+        if self.sup is None:
+            # Rule 18b: subscript only.
+            x = self._typesetScriptField(parser, self.sub, context, style.subscript())
+            sigma = context.sigma(style)
+            sigma16 = Dimen(sigma[15])  # sigma16
+            sigma5 = Dimen(sigma[4])    # sigma5 (x-height)
+            lift_limit = x.height - Dimen(abs(float(sigma5)) * 4 / 5)
+            shift = v
+            if sigma16 > shift:
+                shift = sigma16
+            if lift_limit > shift:
+                shift = lift_limit
+            x.shifted = shift
+            packed.append(x)
+            return
+        # Rule 18c: superscript exists.
+        x = self._typesetScriptField(parser, self.sup, context, style.superscript())
+        u = self.rule18c(x, context, style, u)
+        if self.sub is None:
+            # Rule 18d.
+            x.shifted = Dimen(-float(u))
+            packed.append(x)
+            return
+        # Rule 18d (both scripts): build subscript and apply v floor.
+        y, v = self.rule18d(parser, context, style, v)
+        # Rule 18e.
+        u, v = self.rule18e(x, y, context, style, u, v)
+        # Rule 18f.
+        self.rule18f(parser, packed, x, y, u, v, delta)
 
     def assemble(self, parser, context, style):
         """

@@ -370,12 +370,12 @@ class MList(lists.List):
             return None
 
         i = 0
+        prev = None
         while i < len(collected):
             cur = collected[i]
             if not isinstance(cur, _AtomWrapper):
                 i += 1
                 continue
-            prev = previous_atom(i)
             try_rule14 = False
             if cur.node_type == ATOM_TYPE.BIN:
                 if prev is None or prev.node_type in prev_types_for_rule5:
@@ -421,18 +421,17 @@ class MList(lists.List):
                                 collected[i:i + 2] = [_AtomWrapper(lig, ATOM_TYPE.ORD, Style(cur.style.style, cur.style.cramped))]
                                 # Reconsider with preceding symbol for recursive ligatures.
                                 i = max(i - 1, 0)
+                                prev = previous_atom(i)
                                 continue
                             if len(working) == 3 and isinstance(working[1], nd.Kern):
                                 k = nd.Kern(working[1].kern, automatic=True)
                                 k.source = [cur.atom, nxt.atom]
                                 collected.insert(i + 1, k)
+                                prev = cur
                                 i += 2
                                 continue
+            prev = cur
             i += 1
-        prev = None
-        for item in collected:
-            if isinstance(item, _AtomWrapper):
-                prev = item
         # Appendix G: trailing Bin becomes Ord.
         if prev is not None and prev.node_type == ATOM_TYPE.BIN:
             prev.node_type = ATOM_TYPE.ORD
@@ -450,14 +449,7 @@ class MList(lists.List):
         for item in collected:
             if isinstance(item, _AtomWrapper):
                 atom_context.atom_type = item.node_type
-                typeset = item.typeset
-                # Backward-compatible path for probe/test subclasses that still
-                # override the old 4-argument Atom.typeset signature.
-                code = getattr(getattr(typeset, "__func__", None), "__code__", None)
-                if code is not None and code.co_argcount <= 5:
-                    typeset(parser, packed, atom_context, item.style)
-                else:
-                    typeset(parser, packed, atom_context, item.style, item.node_type)
+                item.typeset(parser, packed, atom_context, item.style)
             else:
                 packed.append(item)
         return packed

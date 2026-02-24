@@ -582,13 +582,11 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     frac = top[0][0]
     assert isinstance(frac, mmode.Over)
     if left is None:
-        assert frac.left is None
+        assert frac.delims is None
     else:
-        assert isSymbol(frac.left.small, left[0], left[1])
-    if right is None:
-        assert frac.right is None
-    else:
-        assert isSymbol(frac.right.small, right[0], right[1])
+        assert frac.delims is not None
+        assert isSymbol(frac.delims[0].small, left[0], left[1])
+        assert isSymbol(frac.delims[1].small, right[0], right[1])
     num, den, bar, thickness = frac.nucleus
     assert len(num) == 1
     assert isSymbol(num[0].nucleus, 1, "a")
@@ -608,13 +606,11 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     frac = node.nucleus[0]
     assert isinstance(frac, mmode.Over)
     if left is None:
-        assert frac.left is None
+        assert frac.delims is None
     else:
-        assert isSymbol(frac.left.small, left[0], left[1])
-    if right is None:
-        assert frac.right is None
-    else:
-        assert isSymbol(frac.right.small, right[0], right[1])
+        assert frac.delims is not None
+        assert isSymbol(frac.delims[0].small, left[0], left[1])
+        assert isSymbol(frac.delims[1].small, right[0], right[1])
     math.parse("$")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
@@ -631,7 +627,7 @@ def test_fraction_rule15_theta(math, cmd, expected_theta):
     assert isinstance(frac, mmode.Over)
     ctx = mmode.MathTypesetContext(math, True)
     style = mmode.Style(mmode.MATH_STYLE.T)
-    _, _, theta, _, _ = frac.rule15(ctx, style)
+    _, _, theta = frac.rule15(ctx, style)
     if expected_theta == "default":
         assert float(theta) == pytest.approx(ctx.xi(style)[7], abs=1e-4)
     else:
@@ -642,11 +638,10 @@ def test_fraction_rule15_delimiters(math):
     math.parse("\\noindent$a\\overwithdelims() b$\\relax")
     frac = math.lists[-1][0][0]
     assert isinstance(frac, mmode.Over)
-    ctx = mmode.MathTypesetContext(math, True)
-    style = mmode.Style(mmode.MATH_STYLE.T)
-    _, _, _, left, right = frac.rule15(ctx, style)
-    assert left is frac.left
-    assert right is frac.right
+    assert frac.delims is not None
+    left, right = frac.delims
+    assert isSymbol(left.small, 0, chr(0x28))
+    assert isSymbol(right.small, 0, chr(0x29))
 
 
 def test_fraction_rule15b_uv_text_over_vs_atop(math):
@@ -656,14 +651,14 @@ def test_fraction_rule15b_uv_text_over_vs_atop(math):
 
     math.parse("\\noindent$a\\over b$\\relax")
     over = math.lists[-1][-1][0]
-    _, _, theta_over, _, _ = over.rule15(ctx, style)
+    _, _, theta_over = over.rule15(ctx, style)
     u_over, v_over = over.rule15b(ctx, style, theta_over)
     assert float(u_over) == pytest.approx(sigma[8], abs=1e-4)   # sigma9
     assert float(v_over) == pytest.approx(sigma[11], abs=1e-4)  # sigma12
 
     math.parse("\\noindent$a\\atop b$\\relax")
     atop = math.lists[-1][-1][0]
-    _, _, theta_atop, _, _ = atop.rule15(ctx, style)
+    _, _, theta_atop = atop.rule15(ctx, style)
     u_atop, v_atop = atop.rule15b(ctx, style, theta_atop)
     assert float(theta_atop) == pytest.approx(0, abs=1e-8)
     assert float(u_atop) == pytest.approx(sigma[9], abs=1e-4)   # sigma10
@@ -676,7 +671,7 @@ def test_fraction_rule15b_uv_script(math):
     sigma = ctx.sigma(style)
     math.parse("\\noindent$a\\over b$\\relax")
     frac = math.lists[-1][-1][0]
-    _, _, theta, _, _ = frac.rule15(ctx, style)
+    _, _, theta = frac.rule15(ctx, style)
     u, v = frac.rule15b(ctx, style, theta)
     assert float(u) == pytest.approx(sigma[7], abs=1e-4)   # sigma8
     assert float(v) == pytest.approx(sigma[10], abs=1e-4)  # sigma11
@@ -698,7 +693,7 @@ def test_fraction_rule15c_atop_construction(math):
     assert k.node_type == nd.NODE_TYPE.KERN
     assert z.node_type == nd.NODE_TYPE.HLIST
 
-    _, _, theta, _, _ = frac.rule15(ctx, style)
+    _, _, theta = frac.rule15(ctx, style)
     u, v = frac.rule15b(ctx, style, theta)
     u, v, psi = frac.rule15c(x, z, ctx, style, u, v)
     phi = 3 * Dimen(ctx.xi(style)[7])
@@ -726,7 +721,7 @@ def test_fraction_rule15d_over_construction(math):
     assert k2.node_type == nd.NODE_TYPE.KERN
     assert z.node_type == nd.NODE_TYPE.HLIST
 
-    _, _, theta, _, _ = frac.rule15(ctx, style)
+    _, _, theta = frac.rule15(ctx, style)
     u, v = frac.rule15b(ctx, style, theta)
     u, v, expect_k1, expect_k2 = frac.rule15d(x, z, ctx, style, theta, u, v)
     assert float(rule.height) == pytest.approx(float(theta), abs=1e-4)
@@ -747,7 +742,7 @@ def test_fraction_rule15d_over_min_clearance_script(math):
     frac.typesetNucleus(math, packed, ctx, style)
     out = packed[0]
     _, k1, _, k2, _ = out.list
-    _, _, theta, _, _ = frac.rule15(ctx, style)
+    _, _, theta = frac.rule15(ctx, style)
     phi = 3 * theta
     assert float(k1.kern) >= float(phi)
     assert float(k2.kern) >= float(phi)

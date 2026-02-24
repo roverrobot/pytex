@@ -1443,9 +1443,20 @@ class Over(Atom):
     def __init__(self, num, den, bar, thickness):
         super().__init__(ATOM_TYPE.INNER)
         self.nucleus = (num, den, bar, thickness)
+        self.delims = None
 
     def saveInfo(self):
-        return {"init": {"num": self.nucleus[0], "den": self.nucleus[1], "bar": self.nucleus[2], "thickness": self.nucleus[3]}}
+        return {
+            "init": {
+                "num": self.nucleus[0],
+                "den": self.nucleus[1],
+                "bar": self.nucleus[2],
+                "thickness": self.nucleus[3],
+            },
+            "extra": {
+                "delims": self.delims,
+            },
+        }
     
     def rule15(self, context: MathTypesetContext, style: Style):
         """
@@ -1463,8 +1474,7 @@ class Over(Atom):
             theta = Dimen(context.xi(style)[7]) if bar else Dimen()
         else:
             theta = Dimen(thickness)
-        left, right = getattr(self, "_rule15_delims", (self.left, self.right))
-        return num, den, theta, left, right
+        return num, den, theta
 
     def rule15b(self, context: MathTypesetContext, style: Style, theta: Dimen):
         """
@@ -1518,7 +1528,7 @@ class Over(Atom):
 
     def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
         # TeXbook Appendix G, Rule 15(a-e)
-        num, den, theta, left, right = self.rule15(context, style)
+        num, den, theta = self.rule15(context, style)
         x = box.HBox(parser, None, 0)
         z = box.HBox(parser, None, 0)
         num.typesetNodes(parser, x.list, context, style.numerator())
@@ -1556,7 +1566,7 @@ class Over(Atom):
             out.typeset(parser, [])
             out.depth = z.depth + v
         # Rule 15e: optional delimiters around the fraction vbox.
-        if left is None and right is None:
+        if self.delims is None:
             packed.append(out)
             return
         min_total = Dimen(context.sigma(style)[19] if style.style > MATH_STYLE.T else context.sigma(style)[20])
@@ -1564,12 +1574,8 @@ class Over(Atom):
         if total < min_total:
             total = min_total
         axis = Dimen(context.sigma(style)[21])
-        left_box = left.typeset(parser, total, context, style, axis) if left is not None else box.HBox(parser, 0, None)
-        if left is None:
-            left_box.typeset(parser, [])
-        right_box = right.typeset(parser, total, context, style, axis) if right is not None else box.HBox(parser, 0, None)
-        if right is None:
-            right_box.typeset(parser, [])
+        left_box = self.delims[0].typeset(parser, total, context, style, axis)
+        right_box = self.delims[1].typeset(parser, total, context, style, axis)
         packed.append(left_box)
         packed.append(out)
         packed.append(right_box)
@@ -1578,15 +1584,8 @@ class Over(Atom):
     def typeset(self, parser, packed, context, style):
         # Rule 15e integrates optional delimiters into the nucleus, so suppress
         # Atom.typeset's generic left/right wrapper handling.
-        self._rule15_delims = (self.left, self.right)
-        self.left = None
-        self.right = None
-        try:
-            # Generalized fractions are treated as Inner atoms for spacing.
-            super().typeset(parser, packed, context, style, atom_type=ATOM_TYPE.INNER)
-        finally:
-            self.left, self.right = self._rule15_delims
-            del self._rule15_delims
+        # Generalized fractions are treated as Inner atoms for spacing.
+        super().typeset(parser, packed, context, style, atom_type=ATOM_TYPE.INNER)
 
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -1621,8 +1620,7 @@ class GeneralFraction(lists.ModeDependentCommand):
         denominator = MList(mlist.parser, mlist.inner)
         fraction = Over(numerator, denominator, self.bar, thickness)
         if self.delim:
-            fraction.left = left
-            fraction.right = right
+            fraction.delims = (left, right)
         if self.thickness:
             fraction.thickness = thickness
         mlist.append(fraction)

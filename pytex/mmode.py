@@ -614,8 +614,8 @@ class Atom(nd.Node):
     space is not put in script or scriptscript styles (like prpeceeded by a \\nonscript)
     """
     spaces = [
-        [0, 1, -2, -3, 0, 0, -1],
-        [1, 1, None, -3, 0, 0, 0, -1],
+        [0, 1, -2, -3, 0, 0, 0, -1],
+        [1, 1, None, -3, 0, 0, 0, 0, -1],
         [-2, -2, None, None, -2, None, None, -2],
         [-3, -3, None, 0, -3, 0, 0, -3],
         [0, 0, None, 0, 0, 0, 0, 0],

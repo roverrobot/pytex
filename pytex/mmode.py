@@ -376,6 +376,9 @@ class MList(lists.List):
             if not isinstance(cur, _AtomWrapper):
                 i += 1
                 continue
+            # Appendix G rules 8-13 classes are emitted as Ord for spacing.
+            if cur.node_type in (ATOM_TYPE.VCENT, ATOM_TYPE.OVER, ATOM_TYPE.UNDER, ATOM_TYPE.ACC, ATOM_TYPE.RAD):
+                cur.node_type = ATOM_TYPE.ORD
             try_rule14 = False
             if cur.node_type == ATOM_TYPE.BIN:
                 if prev is None or prev.node_type in prev_types_for_rule5:
@@ -714,9 +717,8 @@ class Atom(nd.Node):
         right = f"{self.right}" if self.right is not None else ""
         return f"{left}{self.__class__.__name__}({self.nucleus}{sub}{sup}){right}"
     
-    def typeset(self, parser, packed, context=None, style=None, atom_type=None):
-        if atom_type is None:
-            atom_type = self.atom_type if context is None else getattr(context, "atom_type", self.atom_type)
+    def typeset(self, parser, packed, context=None, style=None):
+        atom_type = self.atom_type if context is None else getattr(context, "atom_type", self.atom_type)
         if context is None:
             # Fallback for generic list/box expansion paths.
             packed.append(self)
@@ -1719,12 +1721,6 @@ class Over(Atom):
         packed.append(right_box)
         return
 
-    def typeset(self, parser, packed, context, style):
-        # Rule 15e integrates optional delimiters into the nucleus, so suppress
-        # Atom.typeset's generic left/right wrapper handling.
-        # Generalized fractions are treated as Inner atoms for spacing.
-        super().typeset(parser, packed, context, style, atom_type=ATOM_TYPE.INNER)
-
     node_type = nd.NODE_TYPE.MATHNODE
 
 
@@ -1829,9 +1825,6 @@ class VCent(Box):
     def saveInfo(self):
         return super().saveInfo() | {"init": {"box": self.nucleus}}
 
-    def typeset(self, parser, packed, context, style):
-        super().typeset(parser, packed, context, style, atom_type=ATOM_TYPE.ORD)
-
     def typesetNucleus(self, parser, packed, context: MathTypesetContext, style):
         box = self.nucleus.copy()
         v = box.height + box.depth
@@ -1914,11 +1907,6 @@ class Line(Atom):
             vbox.list[:] = [x, kern2, rule, kern1]
         vbox.typeset(parser, [])
         packed.append(vbox)
-
-    
-    def typeset(self, parser, packed, context, style):
-        super().typeset(parser, packed, context, style, atom_type=ATOM_TYPE.ORD)
-
 
 mod = Module("mmode",
     attributes= {

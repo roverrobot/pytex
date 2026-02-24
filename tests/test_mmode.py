@@ -302,7 +302,8 @@ def test_rule5_bin_conversion_uses_effective_previous_atom_type(math):
     assert first.observed_prev is None
     assert first.observed_type == mmode.ATOM_TYPE.ORD
     assert second.observed_prev == mmode.ATOM_TYPE.ORD
-    assert second.observed_type == mmode.ATOM_TYPE.BIN
+    # trailing Bin is normalized to Ord (Appendix G end-of-list rule).
+    assert second.observed_type == mmode.ATOM_TYPE.ORD
     # Rule 5 must not mutate the source atoms.
     assert first.atom_type == mmode.ATOM_TYPE.BIN
     assert second.atom_type == mmode.ATOM_TYPE.BIN
@@ -330,6 +331,131 @@ def test_rule5_bin_after_rel_becomes_ord(math):
 
     assert rel.observed_type == mmode.ATOM_TYPE.REL
     assert bin_atom.observed_type == mmode.ATOM_TYPE.ORD
+
+
+def _mk_atom(atom_type, fam, ch):
+    atom = mmode.Atom(atom_type)
+    code = (atom_type.value << 12) | (fam << 8) | ord(ch)
+    atom.nucleus = mmode.MathSymbol(code, -1)
+    return atom
+
+
+def test_atom_wrapper_proxies_wrapped_atom_fields_and_methods(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 0, "a")
+    wrapped = mmode._AtomWrapper(atom, mmode.ATOM_TYPE.BIN, mmode.Style(mmode.MATH_STYLE.T))
+    assert wrapped.nucleus is atom.nucleus
+    wrapped.nucleus = None
+    assert atom.nucleus is None
+    assert callable(wrapped.typeset)
+
+
+def test_rule14_ord_op_ligature_collapses_pair(math):
+    # Put text fonts in family 0 so CMR ligatures/kerns are available.
+    math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    mlist = mmode.MList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
+        _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mlist._pass1AdjustAtoms(math, ctx, collected)
+    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    assert len(wrappers) == 1
+    w = wrappers[0]
+    assert w.node_type == mmode.ATOM_TYPE.ORD
+    assert isinstance(w.atom.nucleus, mmode.MathSymbol)
+    assert w.atom.nucleus.fam == 0
+    assert w.atom.nucleus.char not in ("f", "i")
+
+
+def test_rule14_ord_op_kern_inserts_kern_and_keeps_op(math):
+    math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    mlist = mmode.MList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 0, "T"),
+        _mk_atom(mmode.ATOM_TYPE.OP, 0, "o"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mlist._pass1AdjustAtoms(math, ctx, collected)
+    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
+    assert len(wrappers) == 2
+    assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
+    assert wrappers[1].node_type == mmode.ATOM_TYPE.OP
+    assert len(kerns) == 1
+
+
+def test_rule14_not_applied_across_explicit_kern(math):
+    math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    mlist = mmode.MList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
+        nd.Kern(0),
+        _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mlist._pass1AdjustAtoms(math, ctx, collected)
+    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    auto_kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
+    assert len(wrappers) == 2
+    assert wrappers[0].atom.nucleus.char == "f"
+    assert wrappers[1].atom.nucleus.char == "i"
+    assert wrappers[1].node_type == mmode.ATOM_TYPE.OP
+    assert len(auto_kerns) == 0
+
+
+def test_rule14_applies_across_removed_style_node(math):
+    math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    mlist = mmode.MList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
+        mmode.StyleNode(mmode.MATH_STYLE.T),
+        _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mlist._pass1AdjustAtoms(math, ctx, collected)
+    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    assert len(wrappers) == 1
+    assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
+
+
+def test_rule14_applies_across_removed_choice_node(math):
+    math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    mlist = mmode.MList(math)
+    empty = mmode.MList(math)
+    choice = mmode.ChoiceNode(empty, empty, empty, empty)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
+        choice,
+        _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mlist._pass1AdjustAtoms(math, ctx, collected)
+    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    assert len(wrappers) == 1
+    assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
+
+
+def test_rule14_applies_when_nonscript_removes_following_kern(math):
+    math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    mlist = mmode.MList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
+        mmode.NonscriptGlue(),
+        mmode.MuKern(18),
+        _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mlist._pass1AdjustAtoms(math, ctx, collected)
+    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    assert len(wrappers) == 1
+    assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
 
 
 def test_indent(math):

@@ -19,7 +19,8 @@ from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex import box
-from pytex.hmode import HList
+from pytex.hmode import HList, Ligature
+from pytex.ligature import run_ligature_program
 from pytex.vmode import VNodeContext, init_prevdepth
 import enum
 from math import inf, ceil
@@ -151,10 +152,12 @@ class MathTypesetContext:
 
 class AtomTypesetContext:
     """
-    Transient context for typesetting one atom.
+    Transient atom-emission context used by MList.typesetNodes pass 2.
 
-    Carries list-level context plus the previous/effective atom type used by
-    Appendix G rule 5.
+    Pass 1 normalizes atom classes (Rule 5/6, and later Rule 14) into temporary
+    wrappers. Pass 2 emits those wrappers and only needs:
+    - prev_atom_type: the effective class of the last emitted atom-like item
+    - atom_type: the effective class of the current emitted wrapper
     """
     def __init__(self, context, prev_atom_type):
         self.context = context
@@ -166,6 +169,34 @@ class AtomTypesetContext:
 
     def __getattr__(self, name):
         return getattr(self.context, name)
+
+
+class _AtomWrapper:
+    """
+    Temporary math-atom record produced in MList.typesetNodes pass 1.
+
+    It proxies to the wrapped atom for regular atom fields/methods while
+    carrying pass-1 metadata:
+    - node_type: normalized effective atom class for spacing
+    - style: style snapshot for pass-2 emission
+    """
+    def __init__(self, atom, node_type, style):
+        self._atom = atom
+        self.node_type = node_type
+        self.style = style
+
+    @property
+    def atom(self):
+        return self._atom
+
+    def __getattr__(self, name):
+        return getattr(self._atom, name)
+
+    def __setattr__(self, name, value):
+        if name in {"_atom", "node_type", "style"}:
+            object.__setattr__(self, name, value)
+            return
+        setattr(self._atom, name, value)
 
 
 class MList(lists.List):
@@ -218,8 +249,14 @@ class MList(lists.List):
             node = n
         super().append(node)
 
-    def typesetNodes(self, parser, packed, context, style):
-        # typeset the nodes n the list into an hlist
+    def _pass1Collect(self, parser, context, style):
+        """
+        Pass 1 of math typesetting.
+
+        This pass follows Appendix G Rules 1-4 and builds a normalized temporary
+        stream. Atom wrappers are emitted with an effective node_type field that
+        can be adjusted without mutating original parse nodes.
+        """
         if not isinstance(style, Style):
             style = Style(style)
         pass_through = {
@@ -228,80 +265,220 @@ class MList(lists.List):
             nd.NODE_TYPE.PENALTY,
             nd.NODE_TYPE.WHATSIT,
         }
-        if packed is None:
-            packed = HList(parser)
-        current = self
-        i = 0
+        collected = []
+        current = iter(self)
         stack = []
-        prev_atom_type = None
         while current is not None:
-            if i >= len(current):
+            node = next(current, None)
+            if node is None:
                 if not stack:
                     break
-                current, i = stack.pop()
+                current, style = stack.pop()
                 continue
-            node = current[i]
-            i += 1
-            # TeXBook Appdex G, Rule 3: If the current item is a style change, set C to the specified style. Delete the
-            # current item from the list and move on to the next.
+            if node.node_type in pass_through:
+                # Rule 1 pass-through nodes.
+                collected.append(node)
+                continue
+            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                # Rule 2.
+                if getattr(node, "nonscript", False):
+                    # \nonscript marker itself disappears after processing.
+                    if style.style <= MATH_STYLE.S:
+                        nxt = next(current, None)
+                        while nxt is None and stack:
+                            current, style = stack.pop()
+                            nxt = next(current, None)
+                        if nxt is None:
+                            # we are at the end of the list
+                            break
+                        if nxt.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                            # skip the next glue or kern
+                            continue
+                        # no, the next node is not a glue or kern, handle that node next
+                        node = nxt
+                    else:
+                        # if we are in text or display mode, do nothing
+                        continue
+                elif getattr(node, "mu", False):
+                    expanded = []
+                    node.typeset(parser, expanded, context, style)
+                    for n in expanded:
+                        if n is node:
+                            continue
+                        if getattr(n, "source", None) is None:
+                            n.source = node
+                    collected.extend(expanded)
+                    continue
+                else:
+                    collected.append(node)
+                    continue
+            # Rule 3: style changes update C and disappear.
             if isinstance(node, StyleNode):
                 style = node.style
                 continue
-            # TeXbook Appendix G, rule 4.
+            # Rule 4: choose branch, then continue from first node of that branch.
             if isinstance(node, ChoiceNode):
                 branch = node.branch(style)
                 if isinstance(branch, Subformula):
                     branch = branch.nucleus
                 if branch is not None:
-                    stack.append((current, i))
-                    current = branch
-                    i = 0
-                continue
-            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                # TeXbook Appendix G, rule 2.
-                if getattr(node, "nonscript", False):
-                    packed.append(node)
-                    if style.style <= MATH_STYLE.S and i < len(current):
-                        # remove the immediately following glue/kern item.
-                        nxt = current[i]
-                        if nxt.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                            i += 1
-                    continue
-                if getattr(node, "mu", False):
-                    start = len(packed)
-                    node.typeset(parser, packed, context, style)
-                    for n in packed[start:]:
-                        if n is node:
-                            continue
-                        if getattr(n, "source", None) is None:
-                            n.source = node
-                    continue
-                packed.append(node)
-                continue
-            # TeXbook Appendix G, rule 1: these nodes stay unchanged.
-            if node.node_type in pass_through:
-                packed.append(node)
+                    stack.append((current, style))
+                    current = iter(branch)
                 continue
             if isinstance(node, Atom):
-                atom_context = AtomTypesetContext(context, prev_atom_type)
-                node.typeset(parser, packed, atom_context, style)
-                prev_atom_type = node.atom_type if atom_context.atom_type is None else atom_context.atom_type
+                s = Style(style.style, style.cramped)
+                collected.append(_AtomWrapper(node, node.atom_type, s))
                 continue
             typeset = node.typeset
             if typeset is None:
-                packed.append(node)
+                collected.append(node)
                 continue
-            start = len(packed)
-            typeset(parser, packed, context, style)
-            if len(packed) == start:
-                packed.append(node)
+            expanded = []
+            typeset(parser, expanded, context, style)
+            if not expanded:
+                collected.append(node)
                 continue
-            for n in packed[start:]:
+            for n in expanded:
                 if n is node:
                     continue
                 if getattr(n, "source", None) is None:
                     n.source = node
+            collected.extend(expanded)
+        return collected
+
+    def _pass1ApplyRule14(self, parser, context, collected):
+        """
+        Apply Appendix G Rule 14 on the normalized pass-1 stream.
+
+        This implementation currently handles:
+        - kern insertion between adjacent eligible atom wrappers
+        - the common collapsing ligature case where two symbols collapse to one
+          Ord text symbol (delete-current + delete-next, move=0)
+        """
+        allowed_next = {
+            ATOM_TYPE.ORD,
+            ATOM_TYPE.OP,
+            ATOM_TYPE.BIN,
+            ATOM_TYPE.REL,
+            ATOM_TYPE.OPEN,
+            ATOM_TYPE.CLOSE,
+            ATOM_TYPE.PUNCT,
+        }
+
+        def eligible_pair(cur, nxt):
+            if not isinstance(cur, _AtomWrapper) or not isinstance(nxt, _AtomWrapper):
+                return False
+            if cur.node_type != ATOM_TYPE.ORD:
+                return False
+            if nxt.node_type not in allowed_next:
+                return False
+            if getattr(cur, "sub", None) is not None or getattr(cur, "sup", None) is not None:
+                return False
+            n1 = getattr(cur, "nucleus", None)
+            n2 = getattr(nxt, "nucleus", None)
+            if not isinstance(n1, MathSymbol) or not isinstance(n2, MathSymbol):
+                return False
+            if n1.fam != n2.fam:
+                return False
+            return True
+
+        def ligature_wrapper(cur, nxt, insert_code):
+            sym = cur.nucleus
+            code = (ATOM_TYPE.ORD.value << 12) | (sym.fam << 8) | insert_code
+            lig = Atom(ATOM_TYPE.ORD)
+            lig.nucleus = MathSymbol(code, -1)
+            lig.source = [cur.atom, nxt.atom]
+            return _AtomWrapper(lig, ATOM_TYPE.ORD, Style(cur.style.style, cur.style.cramped))
+
+        i = 0
+        while i < len(collected) - 1:
+            cur = collected[i]
+            nxt = collected[i + 1]
+            if not eligible_pair(cur, nxt):
+                i += 1
+                continue
+            sym1 = cur.nucleus
+            sym2 = nxt.nucleus
+            font = context.font(cur.style, sym1.fam)
+            c1 = font[sym1.char]
+            c2 = font[sym2.char]
+            working = run_ligature_program(
+                [c1, c2],
+                make_ligature=lambda insert_char, replaced, step, base, after: Ligature(insert_char, replaced),
+                make_kern=lambda step, base, after: nd.Kern(step.kern * base.font.at, automatic=True),
+                source_nodes=lambda n: list(n.source) if isinstance(n, Ligature) else [n],
+            )
+            if len(working) == 1 and isinstance(working[0], Ligature):
+                lig = working[0]
+                collected[i:i + 2] = [ligature_wrapper(cur, nxt, ord(lig.char))]
+                # Allow recursive ligature checks with the preceding symbol.
+                i = max(i - 1, 0)
+                continue
+            if len(working) == 3 and isinstance(working[1], nd.Kern):
+                k = nd.Kern(working[1].kern, automatic=True)
+                k.source = [cur.atom, nxt.atom]
+                collected.insert(i + 1, k)
+                i += 2
+                continue
+            i += 1
+
+    def _pass1AdjustAtoms(self, parser, context, collected):
+        """
+        Pass 1 atom adjustments.
+
+        This applies Rule 5/6, Rule 14 (partially, for common kern/collapse
+        paths), and final-bin normalization.
+        """
+        prev = None
+        for item in collected:
+            if not isinstance(item, _AtomWrapper):
+                continue
+            if item.node_type == ATOM_TYPE.BIN and (
+                prev is None
+                or prev.node_type in (ATOM_TYPE.BIN, ATOM_TYPE.OP, ATOM_TYPE.REL, ATOM_TYPE.OPEN, ATOM_TYPE.PUNCT)
+            ):
+                item.node_type = ATOM_TYPE.ORD
+            elif item.node_type in (ATOM_TYPE.REL, ATOM_TYPE.CLOSE, ATOM_TYPE.PUNCT) and prev is not None and prev.node_type == ATOM_TYPE.BIN:
+                prev.node_type = ATOM_TYPE.ORD
+            prev = item
+        self._pass1ApplyRule14(parser, context, collected)
+        prev = None
+        for item in collected:
+            if isinstance(item, _AtomWrapper):
+                prev = item
+        # Appendix G: trailing Bin becomes Ord.
+        if prev is not None and prev.node_type == ATOM_TYPE.BIN:
+            prev.node_type = ATOM_TYPE.ORD
+
+    def _pass2Emit(self, parser, packed, context, collected):
+        """
+        Pass 2 of math typesetting.
+
+        Emit normalized wrappers/nodes into packed output. Spacing decisions use
+        wrapper.node_type, i.e., the effective class computed in pass 1.
+        """
+        if packed is None:
+            packed = HList(parser)
+        atom_context = AtomTypesetContext(context, None)
+        for item in collected:
+            if isinstance(item, _AtomWrapper):
+                atom_context.atom_type = item.node_type
+                typeset = item.typeset
+                # Backward-compatible path for probe/test subclasses that still
+                # override the old 4-argument Atom.typeset signature.
+                code = getattr(getattr(typeset, "__func__", None), "__code__", None)
+                if code is not None and code.co_argcount <= 5:
+                    typeset(parser, packed, atom_context, item.style)
+                else:
+                    typeset(parser, packed, atom_context, item.style, item.node_type)
+            else:
+                packed.append(item)
         return packed
+
+    def typesetNodes(self, parser, packed, context, style):
+        collected = self._pass1Collect(parser, context, style)
+        self._pass1AdjustAtoms(parser, context, collected)
+        return self._pass2Emit(parser, packed, context, collected)
 
     def typeset(self, parser, packed, context, style):
         # typeset into an hbox
@@ -560,33 +737,15 @@ class Atom(nd.Node):
     
     def typeset(self, parser, packed, context=None, style=None, atom_type=None):
         if atom_type is None:
-            atom_type = self.atom_type
+            atom_type = self.atom_type if context is None else getattr(context, "atom_type", self.atom_type)
         if context is None:
             # Fallback for generic list/box expansion paths.
             packed.append(self)
             return
-        prev_atom_type = context.prev_atom_type
-        sigma = context.sigma(style)
-        xi = context.xi(style)
-        # TeXbook Appendix G, rule 5.
-        if atom_type == ATOM_TYPE.BIN and (
-            prev_atom_type is None
-            or prev_atom_type in (ATOM_TYPE.BIN, ATOM_TYPE.OP, ATOM_TYPE.REL, ATOM_TYPE.OPEN, ATOM_TYPE.PUNCT)
-        ):
-            atom_type = ATOM_TYPE.ORD
-        # TeXbook Appendix G, rule 6. If the current item is a Rel or Close or Punct atom, and if the most recent 
-        # previous atom was Bin, change that previous Bin to Ord.
-        elif atom_type in (ATOM_TYPE.REL, ATOM_TYPE.CLOSE, ATOM_TYPE.PUNCT) and prev_atom_type == ATOM_TYPE.BIN:
-            prev_atom_type = ATOM_TYPE.ORD
-        # TeXbook Appendix G, rule 8. If the current item is a Vcent atom (from \vcenter), let its nucleus be a vbox
-        # of height-plus-depth v. Change the height to 1/2 v+ a and the depth to 1/2 v−a, where
-        # a is the axis height, σ22. Change this atom to type Ord 
-        # TeXbook Appendix G: After the entire math list has been processed by Rules 1–18, T EX looks at the last 
-        # atom (if there was one), and changes its type from Bin to Ord (if it was of type Bin). 
+        # Rule 5/6/14 class normalization is handled in MList.typesetNodes pass 1.
+        # At this stage we only emit with the supplied effective atom_type.
         context.atom_type = atom_type
         b = self.assemble(parser, context, style)
-        if context.prev_atom_type == ATOM_TYPE.BIN:
-            context.prev_atom_type = ATOM_TYPE.ORD
         axis = Dimen(context.sigma(style)[21])
         total = b.height + b.depth
         if self.left:

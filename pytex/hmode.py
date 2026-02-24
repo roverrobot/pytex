@@ -11,6 +11,7 @@ from pytex.token import Command, CATCODE, relax
 from pytex.state import GROUP_TYPE
 from pytex.box import SetBox, AccentNode, IndentBox
 from pytex.accessor import Accessor
+from pytex.ligature import ligature_step, run_ligature_program
 
 
 class Ligature(nd.CharNode):
@@ -76,56 +77,20 @@ class HList(lists.List):
             return
         # now we are building a ligature, we need to check if the current node can be combined with the ligature base
         base = self.lig_base
-        font = base.font
-        if font != node.font:
-            # different fonts, cannot be combined
-            list.append(self, node)
-            self.lig_base = node
-            return
         assert self[-1] is base, "the ligature base should always be the last character in the list"
-        program = base.char_info.program
-        if program is None or nextchar not in program:
+        if ligature_step(base, node) is None:
             # no ligature program, cannot be combined
             list.append(self, node)
             self.lig_base = node
             return
         self.pop()
         # The ligature program may recurse; run it on a temporary working list.
-        working = [base, node]
-        cursor = 0
-        def replaced_nodes(n):
-            return list(n.source) if isinstance(n, Ligature) else [n]
-        while cursor < len(working) - 1:
-            base, next = working[cursor:cursor+2]
-            if not isinstance(base, nd.CharNode) or not isinstance(next, nd.CharNode):
-                break
-            if base.font != next.font:
-                break
-            program = base.char_info.program
-            nextchar = ord(next.char)
-            if program is None or nextchar not in program:
-                break
-            step = program[nextchar]
-            if step.isKern:
-                # this is a kerning step, we should insert a kern and stop
-                working.insert(cursor+1, nd.Kern(step.kern * base.font.at, True))
-                cursor += 2
-            else:
-                # this is a ligature step
-                insert_char = base.font[chr(step.insert)]
-                if step.delete_current:
-                    replaced = replaced_nodes(base)
-                    if not step.keep_next:
-                        replaced.extend(replaced_nodes(next))
-                        working[cursor:cursor+2] = [Ligature(insert_char, replaced)]
-                    else:
-                        working[cursor] = Ligature(insert_char, replaced)
-                elif not step.keep_next:
-                    replaced = replaced_nodes(next)
-                    working[cursor+1] = Ligature(insert_char, replaced)
-                else:
-                    working.insert(cursor+1, insert_char)
-                cursor += step.move
+        working = run_ligature_program(
+            [base, node],
+            make_ligature=lambda insert_char, replaced, step, current, nxt: Ligature(insert_char, replaced),
+            make_kern=lambda step, current, nxt: nd.Kern(step.kern * current.font.at, True),
+            source_nodes=lambda n: list(n.source) if isinstance(n, Ligature) else [n],
+        )
         self.extend(working)
         self.lig_base = working[-1]
 

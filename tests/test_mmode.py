@@ -458,6 +458,61 @@ def test_rule14_applies_when_nonscript_removes_following_kern(math):
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
 
 
+def test_rule14_marks_text_symbol_for_rule17(math):
+    math.parse("\\textfont0=\\tenit \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    mlist = mmode.MList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
+        _mk_atom(mmode.ATOM_TYPE.REL, 0, "x"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mlist._pass1AdjustAtoms(math, ctx, collected)
+    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    assert len(wrappers) == 2
+    assert wrappers[0].text_symbol
+    assert not wrappers[1].text_symbol
+
+
+def test_rule17_italic_kern_suppressed_for_text_symbol_with_nonzero_fontdimen2(math):
+    math.parse("\\textfont0=\\tenit \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f")
+    base = mmode.MathTypesetContext(math, True)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    font = base.font(style, 0)
+    assert float(font.param[1]) != 0
+    assert float(font["f"].italic) != 0
+
+    plain_ctx = mmode.AtomTypesetContext(base, None)
+    plain_ctx.atom_type = mmode.ATOM_TYPE.ORD
+    plain_ctx.text_symbol = False
+    plain = []
+    atom.typeset(math, plain, plain_ctx, style)
+    plain_kerns = [n for n in plain if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
+    assert len(plain_kerns) == 1
+
+    text_ctx = mmode.AtomTypesetContext(base, None)
+    text_ctx.atom_type = mmode.ATOM_TYPE.ORD
+    text_ctx.text_symbol = True
+    text = []
+    atom.typeset(math, text, text_ctx, style)
+    text_kerns = [n for n in text if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
+    assert len(text_kerns) == 0
+
+
+def test_rule17_does_not_insert_italic_kern_when_subscript_exists(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "f")
+    atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("i"), -1)
+    base = mmode.MathTypesetContext(math, True)
+    ctx = mmode.AtomTypesetContext(base, None)
+    ctx.atom_type = mmode.ATOM_TYPE.ORD
+    ctx.text_symbol = False
+    packed = []
+    atom.typeset(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
+    assert len(kerns) == 0
+
+
 def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
     mlist = mmode.MList(math)
@@ -478,6 +533,21 @@ def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
     assert wrappers[1].nucleus.char == "f"
     assert wrappers[2].nucleus.char == "i"
     assert len(auto_kerns) == 0
+
+
+def test_rule17_math_list_nucleus_is_typeset_as_box(math):
+    inner = mmode.MList(math)
+    inner.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "b"),
+    ])
+    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom.nucleus = inner
+    mlist = mmode.MList(math)
+    mlist.append(atom)
+    packed = []
+    mlist.typesetNodes(math, packed, mmode.MathTypesetContext(math, True), mmode.Style(mmode.MATH_STYLE.T))
+    assert any(n.node_type == nd.NODE_TYPE.HLIST for n in packed)
 
 
 def test_indent(math):
@@ -712,6 +782,40 @@ def test_delim_typeset_adds_italic_correction(math):
     assert len(kerns) <= 1
     if kerns:
         assert float(kerns[0].kern) > 0
+
+
+def test_rule19_uses_context_delimiter_parameters(math):
+    class SpyDelim:
+        def __init__(self):
+            self.total = None
+
+        def typeset(self, parser, total, context, style, axis):
+            self.total = Dimen(total)
+            b = box.HBox(parser, 0, 0)
+            b.typeset(parser, [])
+            return b
+
+    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
+    left = SpyDelim()
+    right = SpyDelim()
+    atom.left = left
+    atom.right = right
+
+    ctx = mmode.MathTypesetContext(math, True)
+    # Force a distinguishable Rule 19 total from the context snapshot.
+    ctx.delimiterfactor = 0
+    ctx.delimitershortfall = Dimen(10000)
+    # Different parser values should not affect this atom's sizing.
+    math.state.layout["delimiterfactor"] = 1000
+    math.state.layout["delimitershortfall"] = Dimen(0)
+
+    packed = []
+    atom_ctx = mmode.AtomTypesetContext(ctx, None)
+    atom_ctx.atom_type = atom.atom_type
+    atom.typeset(math, packed, atom_ctx, mmode.Style(mmode.MATH_STYLE.T))
+    assert left.total == 0
+    assert right.total == 0
 
 
 @pytest.mark.parametrize("cmd, bar, thickness, left, right", [

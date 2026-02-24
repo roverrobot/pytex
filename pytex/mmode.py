@@ -86,6 +86,7 @@ class MathTypesetContext:
     the typesetting context for math mode, which is used to determine the interline penalty and baselineskip for display math
     """
     def __init__(self, parser, inner):
+        layout = parser.state.layout
         # the interline settings
         # fonts
         def copy(array):
@@ -107,10 +108,12 @@ class MathTypesetContext:
             if len(ext_params) < 13:
                 raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
         # inter-atom spaces
-        self.muskips = [parser.state.layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
+        self.muskips = [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
+        # delimiter sizing parameters used by Rule 19.
+        self.delimiterfactor = layout["delimiterfactor"]
+        self.delimitershortfall = layout["delimitershortfall"]
         if not inner:
             self.prevgraf = None
-            layout = parser.state.layout
             # display math parameters
             self.displaywidth = layout["displaywidth"]
             self.displayindent = layout["displayindent"]
@@ -158,11 +161,13 @@ class AtomTypesetContext:
     wrappers. Pass 2 emits those wrappers and only needs:
     - prev_atom_type: the effective class of the last emitted atom-like item
     - atom_type: the effective class of the current emitted wrapper
+    - text_symbol: whether Rule 14 marked current atom nucleus as text symbol
     """
     def __init__(self, context, prev_atom_type):
         self.context = context
         self.prev_atom_type = prev_atom_type
         self.atom_type = None
+        self.text_symbol = False
 
     def __getitem__(self, index):
         return getattr(self.context, index, None)
@@ -179,11 +184,13 @@ class _AtomWrapper:
     carrying pass-1 metadata:
     - node_type: normalized effective atom class for spacing
     - style: style snapshot for pass-2 emission
+    - text_symbol: Rule 14 text-symbol mark for Rule 17 italic handling
     """
-    def __init__(self, atom, node_type, style):
+    def __init__(self, atom, node_type, style, text_symbol=False):
         self._atom = atom
         self.node_type = node_type
         self.style = style
+        self.text_symbol = text_symbol
 
     @property
     def atom(self):
@@ -193,7 +200,7 @@ class _AtomWrapper:
         return getattr(self._atom, name)
 
     def __setattr__(self, name, value):
-        if name in {"_atom", "node_type", "style"}:
+        if name in {"_atom", "node_type", "style", "text_symbol"}:
             object.__setattr__(self, name, value)
             return
         setattr(self._atom, name, value)
@@ -405,6 +412,8 @@ class MList(lists.List):
                         n1 = getattr(cur, "nucleus", None)
                         n2 = getattr(nxt, "nucleus", None)
                         if isinstance(n1, MathSymbol) and isinstance(n2, MathSymbol) and n1.fam == n2.fam:
+                            # Rule 14: current symbol is marked as a text symbol.
+                            cur.text_symbol = True
                             font = context.font(cur.style, n1.fam)
                             c1 = font[n1.char]
                             c2 = font[n2.char]
@@ -421,7 +430,14 @@ class MList(lists.List):
                                     -1,
                                 )
                                 lig.source = [cur.atom, nxt.atom]
-                                collected[i:i + 2] = [_AtomWrapper(lig, ATOM_TYPE.ORD, Style(cur.style.style, cur.style.cramped))]
+                                collected[i:i + 2] = [
+                                    _AtomWrapper(
+                                        lig,
+                                        ATOM_TYPE.ORD,
+                                        Style(cur.style.style, cur.style.cramped),
+                                        text_symbol=True,
+                                    )
+                                ]
                                 # Reconsider with preceding symbol for recursive ligatures.
                                 i = max(i - 1, 0)
                                 prev = previous_atom(i)
@@ -452,6 +468,7 @@ class MList(lists.List):
         for item in collected:
             if isinstance(item, _AtomWrapper):
                 atom_context.atom_type = item.node_type
+                atom_context.text_symbol = item.text_symbol
                 item.typeset(parser, packed, atom_context, item.style)
             else:
                 packed.append(item)
@@ -735,8 +752,8 @@ class Atom(nd.Node):
             delta_up = b.height - axis
             delta_down = b.depth + axis
             delta = delta_up if delta_up >= delta_down else delta_down
-            f = parser.state.layout["delimiterfactor"]
-            l = parser.state.layout["delimitershortfall"]
+            f = context.delimiterfactor
+            l = context.delimitershortfall
             rule19 = Dimen(integer=(int(delta) // 500) * f)
             short = 2 * delta - l
             total = rule19 if rule19 >= short else short
@@ -796,17 +813,44 @@ class Atom(nd.Node):
 
     def typesetNucleus(self, parser, packed, context, style):
         """
-        Typeset the nucleus into a box and return it
+        Typeset the nucleus (Appendix G Rule 17) and return delta.
+
+        Delta is the italic correction reserved for script positioning. When no
+        subscript is present, Rule 17 may realize it immediately as a kern and
+        return zero.
         """
+        delta = Dimen()
         if self.nucleus is None:
             # return an emptybox
             b = box.HBox(parser, 0, 0)
             b.typeset(parser, [])
             packed.append(b)
-        else:
+            return delta
+
+        if isinstance(self.nucleus, MList):
+            # Rule 17 (first sentence): a math-list nucleus is translated in
+            # current style and replaced by the resulting box.
             self.nucleus.typeset(parser, packed, context, style)
+            return delta
+
+        if isinstance(self.nucleus, MathSymbol):
+            # Rule 17 (common symbol case).
+            font = context.font(style, self.nucleus.fam)
+            node = font[self.nucleus.char]
+            packed.append(node)
+            fontdimen2 = font.param[1] if len(font.param) > 1 else 0
+            text_symbol = getattr(context, "text_symbol", False)
+            if (not text_symbol) or float(fontdimen2) == 0:
+                delta = Dimen(node.italic)
+            if float(delta) != 0 and self.sub is None:
+                packed.append(nd.Kern(delta, automatic=True))
+                delta = Dimen()
+            return delta
+
+        self.nucleus.typeset(parser, packed, context, style)
+        return delta
     
-    def typesetScripts(self, parser, packed, context, style):
+    def typesetScripts(self, parser, packed, context, style, delta):
         """
         typeset the nucleus, the superscript and the subscript
         """
@@ -817,7 +861,8 @@ class Atom(nd.Node):
         return a box that contains the nucleus, superscritp and subscript.
         """
         b = box.HBox(parser, 0, 0)
-        self.typesetNucleus(parser, b.list, context, style)
+        delta = self.typesetNucleus(parser, b.list, context, style)
+        self.typesetScripts(parser, b.list, context, style, delta)
         b.typeset(parser, [])
         return b
 
@@ -1736,7 +1781,7 @@ class Over(Atom):
         packed.append(left_box)
         packed.append(out)
         packed.append(right_box)
-        return
+        return Dimen()
 
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -1849,6 +1894,7 @@ class VCent(Box):
         box.height = Dimen(float(v)/2 + a)
         box.depth = Dimen(float(v)/2 - a)
         packed.append(box)
+        return Dimen()
 
 
 class VCenter(box.VBoxCommand):
@@ -1924,6 +1970,7 @@ class Line(Atom):
             vbox.list[:] = [x, kern2, rule, kern1]
         vbox.typeset(parser, [])
         packed.append(vbox)
+        return Dimen()
 
 mod = Module("mmode",
     attributes= {

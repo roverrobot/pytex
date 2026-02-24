@@ -994,6 +994,15 @@ def test_delim_typeset_null_uses_nulldelimiterspace(math):
     assert float(b.shifted) == pytest.approx(-float(axis), abs=1e-4)
 
 
+def test_delim_typeset_null_uses_context_snapshot_not_parser_layout(math):
+    d = mmode.Delim(0, 0)
+    ctx = mmode.MathTypesetContext(math, True)
+    ctx.nulldelimiterspace = Dimen(7.5)
+    math.state.layout["nulldelimiterspace"] = Dimen(0)
+    b = d.typeset(math, Dimen(20), ctx, mmode.Style(mmode.MATH_STYLE.T))
+    assert b.width == 7.5
+
+
 def test_delim_typeset_order_uses_style_fonts(math):
     code = ((1 << 8) | ord("a")) << 12
     d = mmode.Delim(code, 0)

@@ -110,6 +110,7 @@ class MathTypesetContext:
         # inter-atom spaces
         self.muskips = [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
         self.scriptspace = layout["scriptspace"]
+        self.nulldelimiterspace = layout["nulldelimiterspace"]
         # delimiter sizing parameters used by Rule 19.
         self.delimiterfactor = layout["delimiterfactor"]
         self.delimitershortfall = layout["delimitershortfall"]
@@ -1669,7 +1670,7 @@ class Delim(serialization.Serializable):
         if axis is None:
             axis = Dimen(context.sigma(style)[21])
         if self._isNull():
-            b = box.HBox(parser, parser.state.layout["nulldelimiterspace"], None)
+            b = box.HBox(parser, context.nulldelimiterspace, None)
             b.typeset(parser, [])
             # Rule 15e/19 centering applies to null delimiters as well.
             b.shifted = (b.height - b.depth) / 2 - axis
@@ -1682,7 +1683,7 @@ class Delim(serialization.Serializable):
         if chosen is None:
             chosen = best
         if chosen is None:
-            b = box.HBox(parser, parser.state.layout["nulldelimiterspace"], None)
+            b = box.HBox(parser, context.nulldelimiterspace, None)
             b.typeset(parser, [])
             return b
         if chosen["extensible"]:

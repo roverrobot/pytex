@@ -916,7 +916,8 @@ class Atom(nd.Node):
         """
         if len(translated) == 1 and isinstance(translated[0], nd.Box):
             n = translated[0]
-            return n.height, n.depth
+            shifted = getattr(n, "shifted", 0)
+            return n.height - shifted, n.depth + shifted
         b = box.HBox(parser, None, 0)
         b.list.extend(translated)
         b.typeset(parser, [])
@@ -1006,13 +1007,10 @@ class Atom(nd.Node):
             shifted.list.append(x)
             shifted.typeset(parser, [])
             top = shifted
-        # Fraction/script internals are stacked explicitly; suppress interline glue.
-        top.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
-        y.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
         k = u + v - x.depth - y.height
         out = box.VBox(parser, top.height + u, 0)
-        # Build the stack explicitly; avoid VList.append interline glue injection.
-        out.list[:] = [top, nd.Kern(k), y]
+        # Math-internal vertical stacks should not run VList interline glue logic.
+        out.list = [top, nd.Kern(k), y]
         out.typeset(parser, [])
         out.depth = y.depth + v
         packed.append(out)
@@ -1076,10 +1074,8 @@ class Atom(nd.Node):
         """
         Build TeX's overbar box: kern(t), rule(t), kern(k), then box b.
         """
-        if b.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) and getattr(b, "typeset_context", None) is None:
-            b.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
         out = box.VBox(parser, None, 0)
-        out.list[:] = [
+        out.list = [
             nd.Kern(t),
             nd.Rule(NEG_MAX_DIMEN, t, 0),
             nd.Kern(k),
@@ -1186,9 +1182,6 @@ class Op(Atom):
         x = Atom.rebox(parser, x, target)
         y = Atom.rebox(parser, y, target)
         z = Atom.rebox(parser, z, target)
-        x.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
-        y.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
-        z.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
 
         xi = context.xi(style)
         xi9 = Dimen(xi[8])
@@ -1207,6 +1200,7 @@ class Op(Atom):
             if xi9 > k:
                 k = xi9
             pieces.append(nd.Kern(k))
+        y_index = len(pieces)
         pieces.append(y)
         if z_nonempty:
             k = xi12 - z.height
@@ -1217,9 +1211,47 @@ class Op(Atom):
             pieces.append(z)
             pieces.append(nd.Kern(xi13))
         out = box.VBox(parser, None, 0)
-        out.list[:] = pieces
+        out.list = pieces
         out.typeset(parser, [])
+        # Rule 13a baseline: the resulting vbox baseline aligns with the centered
+        # operator nucleus baseline (box y), not with the bottom of the stack.
+        below = self._rule13aDepthFromY(out, pieces, y_index)
+        total = out.height + out.depth
+        out.depth = below
+        out.height = total - below
         return out
+
+    def _rule13aDepthFromY(self, out, pieces, y_index):
+        def _effective_box_dims(item):
+            shifted = item.shifted if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) else 0
+            return item.height - shifted, item.depth + shifted
+
+        y = pieces[y_index]
+        _, prevdepth = _effective_box_dims(y)
+        below = Dimen()
+        for item in pieces[y_index + 1:]:
+            node_type = item.node_type
+            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                h, d = _effective_box_dims(item)
+                below += prevdepth + h
+                prevdepth = d
+            elif node_type == nd.NODE_TYPE.KERN:
+                below += prevdepth + item.kern
+                prevdepth = Dimen()
+            elif node_type == nd.NODE_TYPE.GLUE:
+                below += prevdepth + item.glue.dimen
+                prevdepth = Dimen()
+            else:
+                below += prevdepth
+                prevdepth = Dimen()
+        below += prevdepth
+        # Keep split sane if future node kinds alter packing assumptions.
+        if below < 0:
+            return Dimen()
+        total = out.height + out.depth
+        if below > total:
+            return total
+        return below
 
     def assemble(self, parser, context, style):
         b = box.HBox(parser, 0, 0)
@@ -2096,31 +2128,25 @@ class Over(Atom):
         target = x.width if x.width >= z.width else z.width
         x = Atom.rebox(parser, x, target)
         z = Atom.rebox(parser, z, target)
-        # Fraction internals are stacked explicitly by Rule 15; disable
-        # normal vertical interline glue between x and z.
-        x.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
-        z.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
         u, v = self.rule15b(context, style, theta)
         if float(theta) == 0:
             # Rule 15c (\atop): enforce minimum clearance with adjusted shifts.
             u, v, k = self.rule15c(x, z, context, style, u, v)
             out = box.VBox(parser, x.height + u, 0)
-            out.list.clear()
-            out.list.append(x)
-            out.list.append(nd.Kern(k))
-            out.list.append(z)
+            out.list = [x, nd.Kern(k), z]
             out.typeset(parser, [])
             out.depth = z.depth + v
         else:
             # Rule 15d (\over): enforce clearances from numerator/denominator to bar.
             u, v, k1, k2 = self.rule15d(x, z, context, style, theta, u, v)
             out = box.VBox(parser, x.height + u, 0)
-            out.list.clear()
-            out.list.append(x)
-            out.list.append(nd.Kern(k1))
-            out.list.append(nd.Rule(target, theta, 0))
-            out.list.append(nd.Kern(k2))
-            out.list.append(z)
+            out.list = [
+                x,
+                nd.Kern(k1),
+                nd.Rule(target, theta, 0),
+                nd.Kern(k2),
+                z,
+            ]
             out.typeset(parser, [])
             out.depth = z.depth + v
         # Rule 15e: delimiters around the fraction vbox.
@@ -2295,10 +2321,8 @@ class Accent(Atom):
         y.typeset(parser, [])
         y.shifted = s + (u - y.width) / 2
         # z stacks y, kern(-delta), x.
-        y.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
-        x.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
         z = box.VBox(parser, None, 0)
-        z.list[:] = [y, nd.Kern(Dimen(-float(delta))), x]
+        z.list = [y, nd.Kern(Dimen(-float(delta))), x]
         z.typeset(parser, [])
         if z.height < x.height:
             z.list.insert(0, nd.Kern(x.height - z.height))
@@ -2436,7 +2460,7 @@ class Line(Atom):
             kern1 = nd.Kern(theta)
             rule = nd.Rule(NEG_MAX_DIMEN, theta, 0)
             kern2 = nd.Kern(3*theta)
-            vbox.list[:] = [x, kern2, rule, kern1]
+            vbox.list = [x, kern2, rule, kern1]
             vbox.typeset(parser, [])
         packed.append(vbox)
         return Dimen()

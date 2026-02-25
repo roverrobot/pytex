@@ -904,6 +904,19 @@ def test_rule18f_uses_delta_and_expected_vertical_geometry(math):
     assert float(joint.height) == pytest.approx(float(top.height + u), abs=1e-4)
 
 
+def test_rule18_integral_sub_sup_matches_tex_metrics(parser):
+    parser.parse("\\input plain")
+    parser.parse("\\setbox0=\\hbox{$\\displaystyle \\int_0^1$}")
+    b = parser.state.box[0]
+    # Reference metrics from pdfTeX:
+    # \\hbox(15.65013+9.11122)x14.48615
+    assert float(b.width) == pytest.approx(14.48615, abs=1e-4)
+    assert float(b.height) == pytest.approx(15.65013, abs=1e-4)
+    assert float(b.depth) == pytest.approx(9.11122, abs=1e-4)
+    assert b.list[1].node_type == nd.NODE_TYPE.HLIST
+    assert b.list[2].node_type == nd.NODE_TYPE.VLIST
+
+
 def test_rule13a_op_limits_stack_and_rebox(math):
     atom = _mk_atom(mmode.ATOM_TYPE.OP, 1, "f")
     atom.limits = mmode.MATH_LIMITS.NORMAL
@@ -932,6 +945,9 @@ def test_rule13a_op_limits_stack_and_rebox(math):
     delta = Dimen(ctx.font(style, 1)["f"].italic)
     assert float(x.shifted) == pytest.approx(float(delta / 2), abs=1e-4)
     assert float(z.shifted) == pytest.approx(float(Dimen() - (delta / 2)), abs=1e-4)
+    # Rule 13a baseline should run through the centered nucleus y, not the
+    # bottom of the entire limits stack.
+    assert limits_box.depth > 0
 
 
 def test_rule13_displaylimits_only_attach_in_display_style(math):

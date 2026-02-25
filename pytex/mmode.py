@@ -109,6 +109,8 @@ class MathTypesetContext:
                 raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
         # inter-atom spaces
         self.muskips = [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
+        self.binoppenalty = layout["binoppenalty"]
+        self.relpenalty = layout["relpenalty"]
         self.scriptspace = layout["scriptspace"]
         self.nulldelimiterspace = layout["nulldelimiterspace"]
         # delimiter sizing parameters used by Rule 19.
@@ -164,12 +166,15 @@ class AtomTypesetContext:
     - prev_atom_type: the effective class of the last emitted atom-like item
     - atom_type: the effective class of the current emitted wrapper
     - text_symbol: whether Rule 14 marked current atom nucleus as text symbol
+    - paragraph_math: whether Rule 22 inter-atom penalties are enabled
+      (true only for InlineMathList / paragraph math)
     """
     def __init__(self, context, prev_atom_type):
         self.context = context
         self.prev_atom_type = prev_atom_type
         self.atom_type = None
         self.text_symbol = False
+        self.paragraph_math = False
 
     def __getitem__(self, index):
         return getattr(self.context, index, None)
@@ -457,6 +462,30 @@ class MList(lists.List):
         if prev is not None and prev.node_type == ATOM_TYPE.BIN:
             prev.node_type = ATOM_TYPE.ORD
 
+    def _rule22Penalty(self, context, current_item, next_item):
+        """
+        Appendix G Rule 22 inter-atom penalties.
+        """
+        if not context.paragraph_math:
+            return None
+        if next_item is None:
+            return None
+        if not isinstance(current_item, _AtomWrapper):
+            return None
+        atom_type = current_item.node_type
+        if atom_type not in (ATOM_TYPE.BIN, ATOM_TYPE.REL):
+            return None
+        if isinstance(next_item, nd.Penalty):
+            return None
+        if atom_type == ATOM_TYPE.REL and isinstance(next_item, _AtomWrapper) and next_item.node_type == ATOM_TYPE.REL:
+            return None
+        penalty = context.binoppenalty if atom_type == ATOM_TYPE.BIN else context.relpenalty
+        if penalty >= 10000:
+            return None
+        p = nd.Penalty(penalty)
+        p.source = current_item.atom
+        return p
+
     def _pass2Emit(self, parser, packed, context, collected):
         """
         Pass 2 of math typesetting.
@@ -467,13 +496,21 @@ class MList(lists.List):
         if packed is None:
             packed = HList(parser)
         atom_context = AtomTypesetContext(context, None)
-        for item in collected:
+        atom_context.paragraph_math = isinstance(self, InlineMathList)
+        items = iter(collected)
+        item = next(items, None)
+        while item is not None:
+            nxt = next(items, None)
             if isinstance(item, _AtomWrapper):
                 atom_context.atom_type = item.node_type
                 atom_context.text_symbol = item.text_symbol
                 item.typeset(parser, packed, atom_context, item.style)
             else:
                 packed.append(item)
+            p = self._rule22Penalty(atom_context, item, nxt)
+            if p is not None:
+                packed.append(p)
+            item = nxt
         return packed
 
     def typesetNodes(self, parser, packed, context, style):

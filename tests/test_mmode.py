@@ -534,6 +534,100 @@ def test_rule20_op_to_inner_space_is_nonscript(math):
     math.parse("$")
 
 
+def test_rule22_bin_penalty_inserted_in_paragraph_math(math):
+    mlist = mmode.InlineMathList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    ctx.binoppenalty = 123
+    packed = []
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert len(penalties) == 1
+    assert penalties[0].penalty == 123
+
+
+def test_rule22_rel_penalty_not_after_rel_followed_by_rel(math):
+    mlist = mmode.InlineMathList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+        _mk_atom(mmode.ATOM_TYPE.REL, 1, "c"),
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "d"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    ctx.relpenalty = 234
+    packed = []
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert len(penalties) == 1
+    assert penalties[0].penalty == 234
+
+
+def test_rule22_skips_if_next_item_is_penalty(math):
+    mlist = mmode.InlineMathList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+        nd.Penalty(50),
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    ctx.relpenalty = 345
+    packed = []
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert len(penalties) == 1
+    assert penalties[0].penalty == 50
+
+
+def test_rule22_skips_if_penalty_value_is_ge_10000(math):
+    mlist = mmode.InlineMathList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    ctx.binoppenalty = 10000
+    packed = []
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert len(penalties) == 0
+
+
+def test_rule22_disabled_outside_paragraph_math(math):
+    mlist = mmode.MList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    ctx.binoppenalty = 123
+    packed = []
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert len(penalties) == 0
+
+
+def test_rule22_skips_after_final_item(math):
+    mlist = mmode.InlineMathList(math)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+    ])
+    ctx = mmode.MathTypesetContext(math, True)
+    ctx.relpenalty = 123
+    packed = []
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert len(penalties) == 0
+
+
 def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
     mlist = mmode.MList(math)

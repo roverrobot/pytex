@@ -30,9 +30,8 @@ class ParagraphTypesetContext:
     def __init__(self, parser, paragraph):
         self.paragraph = paragraph
         self.line_count = None
-        # In TeX, \prevgraf is reset to 0 at paragraph start unless display-math
-        # machinery sets it; display math integration is handled separately.
-        self.prevgraf = 0
+        # In TeX, \prevgraf is usually 0, except after a display.
+        self.prevgraf = paragraph.prevgraf
         self.hsize = parser.state.layout["hsize"]
         self.leftskip = parser.state.layout["leftskip"]
         self.rightskip = parser.state.layout["rightskip"]
@@ -53,6 +52,8 @@ class ParagraphTypesetContext:
         self.hangindent = parser.state.layout["hangindent"]
         self.hangafter = parser.state.layout["hangafter"]
         self.parshape = parser.state.globals["parshape"]
+        # Current em (fontdimen6) at paragraph typeset snapshot time.
+        self.em = parser.state.parameters["currentfont"].param[5]
         self.lefthyphenmin = parser.state.layout["lefthyphenmin"]
         self.righthyphenmin = parser.state.layout["righthyphenmin"]
         self.words = self.buildWords(parser, paragraph)
@@ -175,6 +176,8 @@ class Paragraph(hmode.HList):
     """
     def __init__(self, parser, indent: bool):
         super().__init__(parser, inner=False)
+        # \prevgraf for this paragraph (set by display-math machinery when needed).
+        self.prevgraf = 0
         self.typeset_context = None
         if indent:
             self.append(bx.IndentBox(parser))
@@ -242,6 +245,7 @@ class Paragraph(hmode.HList):
                 hbox.typeset_context = LineContext(parser, context, line)
                 vlist.append(hbox)
         if self.next_paragraph is not None:
+            self.next_paragraph.prevgraf = line_count
             self.next_paragraph.typeset_context.prevgraf = line_count
             # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
             # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
@@ -253,7 +257,7 @@ class Paragraph(hmode.HList):
             if hbox is None:
                 p = Dimen(-16383.99999)
             else:
-                p = hbox.rightmost()
+                p = hbox.rightmost() + 2 * context.em
             parser.state.layout.predisplaysize = p
             self.next_paragraph.typeset_context.predisplaysize = p
             self.next_paragraph.typeset_context.prevdepth = hbox.depth

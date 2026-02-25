@@ -2,6 +2,7 @@ import pytest
 from pytex import mmode
 from pytex import lists
 from pytex import node as nd
+from pytex import paragraph
 from pytex import texlive
 from pytex import box
 from pytex.dimen import Dimen
@@ -107,6 +108,86 @@ def test_mlist_typeset_display(math):
     assert len(top) == 3
     packed = []
     top.typesetNodes(math, packed)
+
+
+def test_display_noindent_has_no_synthetic_previous_paragraph(math):
+    math.parse("\\noindent$$a$$\\par")
+    top = math.lists[0]
+    assert isinstance(top[0], mmode.DisplayMathList)
+    assert isinstance(top[1], paragraph.Paragraph)
+    packed = []
+    top.typesetNodes(math, packed)
+    assert top[1].typeset_context.prevgraf == 3
+
+
+def test_mlist_typeset_display_without_closing_paragraph(math):
+    math.parse("$$a$$")
+    top = math.lists[0]
+    packed = []
+    top.typesetNodes(math, packed)
+    assert len(packed) > 0
+
+
+def _display_box_for_mlist(packed, mlist):
+    return next(
+        node
+        for node in packed
+        if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is mlist
+    )
+
+
+def test_display_centering_uses_half_remaining_width(math):
+    math.parse("$$a$$\\par")
+    top = math.lists[0]
+    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathList))
+    packed = []
+    top.typesetNodes(math, packed)
+    b = _display_box_for_mlist(packed, mlist)
+    z = mlist.typeset_context.displaywidth
+    s = mlist.typeset_context.displayindent
+    expected = s + (z - b.width) / 2
+    assert float(b.shifted) == pytest.approx(float(expected), abs=1e-4)
+
+
+def test_display_predisplaysize_adds_two_ems(math):
+    math.parse("\\noindent abc$$a$$\\par")
+    top = math.lists[0]
+    prev_par = next(node for node in top if isinstance(node, paragraph.Paragraph))
+    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathList))
+    packed = []
+    top.typesetNodes(math, packed)
+    last_prev_line = [n for n in packed if n.node_type == nd.NODE_TYPE.HLIST and getattr(n, "source", None) is prev_par][-1]
+    expected = last_prev_line.rightmost() + 2 * prev_par.typeset_context.em
+    assert float(mlist.typeset_context.predisplaysize) == pytest.approx(float(expected), abs=1e-4)
+
+
+def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
+    # Make display width narrow enough that q must include one quad (fontdimen6).
+    text_sym = math.state.textfont[2]
+    text_rm = math.state.textfont[0]
+    text_it = math.state.textfont[1]
+    quad = Dimen(text_sym.param[5])
+    # Guard the fixture assumption behind this regression.
+    assert float(quad) > float(text_sym.param[1])
+    wa = text_it["a"].width
+    e = text_rm["1"].width
+    z = wa + e + (quad / 2)
+    math.parse(f"\\displaywidth={float(z):.5f}pt $$a\\eqno1$$\\par")
+    top = math.lists[0]
+    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathList))
+    packed = []
+    top.typesetNodes(math, packed)
+    display_index = next(
+        i
+        for i, node in enumerate(packed)
+        if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is mlist
+    )
+    # Right-eqno branch with e=0 appends infinite penalty, then eqno box, then postdisplaypenalty.
+    assert packed[display_index + 1].node_type == nd.NODE_TYPE.PENALTY
+    assert packed[display_index + 1].penalty == 10000
+    assert packed[display_index + 2].node_type == nd.NODE_TYPE.HLIST
+    assert packed[display_index + 3].node_type == nd.NODE_TYPE.PENALTY
+    assert packed[display_index + 3].penalty == mlist.typeset_context.postdisplaypenalty
 
 
 def test_subformula(parser):

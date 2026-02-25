@@ -594,7 +594,7 @@ class DisplayMathList(MList):
             eqno.typesetNodes(parser, a.list, self.typeset_context, Style(MATH_STYLE.T))
             a.typeset(parser, [])
             e = float(a.width)
-            q = e + self.typeset_context.textfont[2].param[1] # quad
+            q = e + self.typeset_context.textfont[2].param[5] # quad (fontdimen6)
         else:
             q = 0
             e = 0
@@ -614,7 +614,14 @@ class DisplayMathList(MList):
                 b = box.HBox(parser, to=z-q, spread=None)
                 b.list = h
                 b.typeset(parser, [])
-                if b.glue_ratio > 1:
+                not_enough_shrink = (
+                    b.spread < 0
+                    and (
+                        float(b.natural.shrink.factor) == 0
+                        or b.glue_ratio < -1
+                    )
+                )
+                if not_enough_shrink:
                     e = 0
             if e == 0:
                 b = box.HBox(parser, to=min(w0, z), spread=None)
@@ -628,12 +635,13 @@ class DisplayMathList(MList):
         # glue, since T EX assumes that such glue was placed there in order to control the spacing
         # precisely. But let’s state the rules more formally: Let w be the width of box b. TEX
         # computes a displacement d, to be used later when positioning box b, by first setting
-        # d=(z−w). If e>0 and if d<2e, then d is reset to (z−w−e) or to zero, where
+        # d=1/2 (z−w). If e>0 and if d<2e, then d is reset to 1/2 (z−w−e) or to zero, where
         # zero is chosen if list h begins with a glue item
         w = b.width
-        d = z - w
+        d = (z - w) / 2
         if e > 0 and d < 2*e:
-            d = 0 if h[0].node_type == nd.NODE_TYPE.GLUE else z - w - e
+            begins_with_glue = len(h) > 0 and h[0].node_type == nd.NODE_TYPE.GLUE
+            d = 0 if begins_with_glue else (z - w - e) / 2
         # TEX is now ready to put things onto the current vertical list,
         # just after the material previously constructed for the paragraph-so-far. First
         # comes a penalty item, whose cost is an integer parameter called \predisplaypenalty.
@@ -702,8 +710,13 @@ class DisplayMathList(MList):
         else:
             packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
             packed.append(nd.Glue(gb))
-        # TEX now adds 3 to \prevgraf and returns to horizontal mode, ready to resume the paragraph.
-        self.next_paragraph.typeset_context.prevgraf = self.typeset_context.prevgraf + 3
+        # TEX now adds 3 to \prevgraf and returns to horizontal mode.
+        next_prevgraf = self.typeset_context.prevgraf + 3
+        if self.next_paragraph is not None:
+            self.next_paragraph.prevgraf = next_prevgraf
+            next_context = getattr(self.next_paragraph, "typeset_context", None)
+            if next_context is not None:
+                next_context.prevgraf = next_prevgraf
 
 
 class StyleNode(nd.Node):
@@ -1346,14 +1359,24 @@ class MathShitfEndGroupCallback(MathEndGroupCallback):
         if mlist.inner:
             top.append(mlist)
             return
-        # top is a paragraph. We need to end first
-        parser.endParagraph()
+        # top is the paragraph around $$...$$. TeX only ends it if nonempty.
+        prev_par = None
+        if len(top) > 0:
+            prev_par = top
+            parser.endParagraph()
+        else:
+            # Drop empty paragraph and keep default display metrics for no previous line.
+            parser.lists.pop()
+            parser.clearParagraphSettings()
+            mlist.typeset_context.prevgraf = 0
+            mlist.typeset_context.predisplaysize = NEG_MAX_DIMEN
         vlist = parser.lists[-1] # the enclosing vertical list
         vlist.append(mlist)
         parser.newParagraph(indent=False, parskip=False)
         new_par = parser.lists[-1] # the new paragraph after the display math
-        top.next_paragraph = mlist
-        mlist.prev_paragraph = top
+        if prev_par is not None:
+            prev_par.next_paragraph = mlist
+        mlist.prev_paragraph = prev_par
         mlist.next_paragraph = new_par
         new_par.prev_paragraph = mlist
 

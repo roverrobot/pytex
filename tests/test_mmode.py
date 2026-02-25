@@ -340,12 +340,14 @@ def _mk_atom(atom_type, fam, ch):
     return atom
 
 
-def test_atom_wrapper_proxies_wrapped_atom_fields_and_methods(math):
+def test_atom_wrapper_shadows_wrapped_atom_fields_and_methods(math):
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 0, "a")
     wrapped = mmode._AtomWrapper(atom, mmode.ATOM_TYPE.BIN, mmode.Style(mmode.MATH_STYLE.T))
     assert wrapped.nucleus is atom.nucleus
+    original = atom.nucleus
     wrapped.nucleus = None
-    assert atom.nucleus is None
+    assert wrapped.nucleus is None
+    assert atom.nucleus is original
     assert callable(wrapped.typeset)
 
 

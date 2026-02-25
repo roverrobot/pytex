@@ -206,12 +206,6 @@ class _AtomWrapper:
     def __getattr__(self, name):
         return getattr(self._atom, name)
 
-    def __setattr__(self, name, value):
-        if name in {"_atom", "node_type", "style", "text_symbol"}:
-            object.__setattr__(self, name, value)
-            return
-        setattr(self._atom, name, value)
-
 
 class MList(lists.List):
     """

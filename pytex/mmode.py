@@ -1927,8 +1927,8 @@ class Rad(Atom):
         """
         x = self._typesetField(parser, self.oprand, context, Style(style.style, cramped=True))
         theta = Dimen(context.xi(style)[7])  # xi8 default rule thickness
-        # Rule 11: phi = sigma5 only for C > T (script/scriptscript), else phi = theta.
-        if style.style > MATH_STYLE.T:
+        # Rule 11: in display style, use sigma5; otherwise use theta.
+        if style.style < MATH_STYLE.T:
             phi = Dimen(context.sigma(style)[4])  # sigma5
         else:
             phi = theta

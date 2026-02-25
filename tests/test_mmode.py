@@ -1187,6 +1187,22 @@ def test_rule11_radical_scripts_attached_by_rule18(math):
     assert b.list[2].node_type == nd.NODE_TYPE.HLIST
 
 
+def test_rule11_radical_display_vs_text_style_metrics(parser):
+    parser.parse("\\input plain")
+
+    parser.parse("\\setbox0=\\hbox{$\\displaystyle \\sqrt{a}$}")
+    disp = parser.state.box[0]
+    assert float(disp.width) == pytest.approx(13.61925, abs=1e-4)
+    assert float(disp.height) == pytest.approx(8.49092, abs=1e-4)
+    assert float(disp.depth) == pytest.approx(1.90904, abs=1e-4)
+
+    parser.parse("\\setbox1=\\hbox{$\\sqrt{a}$}")
+    text = parser.state.box[1]
+    assert float(text.width) == pytest.approx(13.61925, abs=1e-4)
+    assert float(text.height) == pytest.approx(8.00272, abs=1e-4)
+    assert float(text.depth) == pytest.approx(2.39725, abs=1e-4)
+
+
 def test_mathaccent(math):
     math.parse("$\\mathaccent\"362 a")
     top = math.lists[-1]

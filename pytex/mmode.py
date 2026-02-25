@@ -221,6 +221,25 @@ class _AtomWrapper:
         return getattr(self._atom, name)
 
 
+def _drop_redundant_wrapper(box_node, allow_char):
+    """
+    Drop one outer hbox/vbox layer if it only wraps a single box child.
+
+    This mirrors TeX's "don't keep useless wrappers" behavior while allowing
+    callers to retain wrappers around char/ligature nodes when needed.
+    """
+    if box_node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+        return box_node
+    if len(box_node.list) != 1:
+        return box_node
+    child = box_node.list[0]
+    if not isinstance(child, nd.Box):
+        return box_node
+    if (not allow_char) and child.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+        return box_node
+    return child
+
+
 class MList(lists.List):
     """
     a math list
@@ -526,10 +545,12 @@ class MList(lists.List):
         return self._pass2Emit(parser, packed, context, collected)
 
     def typeset(self, parser, packed, context, style):
-        # typeset into an hbox
+        # Typeset into an hbox first; if it only wraps one box-like node,
+        # drop that outer wrapper (TeX optimization for translated sub-mlists).
         hbox = box.HBox(parser, None, None)
         self.typesetNodes(parser, hbox.list, context, style)
-        hbox.typeset(parser, packed)
+        hbox.typeset(parser, [])
+        packed.append(_drop_redundant_wrapper(hbox, allow_char=True))
 
 
 class InlineMathList(MList):
@@ -949,7 +970,7 @@ class Atom(nd.Node):
 
     def _typesetScriptField(self, parser, field, context, style):
         """
-        Typeset a script field in style and return it as an hbox.
+        Typeset a script field in style and return it as a box.
         """
         x = box.HBox(parser, None, 0)
         if field is not None:
@@ -959,6 +980,7 @@ class Atom(nd.Node):
             else:
                 typeset(parser, x.list, context, style)
         x.typeset(parser, [])
+        x = _drop_redundant_wrapper(x, allow_char=False)
         x.width += context.scriptspace
         return x
 
@@ -1072,7 +1094,8 @@ class Atom(nd.Node):
         """
         return a box that contains the nucleus, superscritp and subscript.
         """
-        b = box.HBox(parser, 0, 0)
+        # Use natural-width packing: rule-12/13 constructions read this width.
+        b = box.HBox(parser, None, 0)
         # typesetNucleus may disable Rule 18 script attachment (Rule 12 single-char accent case).
         self._attach_scripts = True
         delta = self.typesetNucleus(parser, b.list, context, style)
@@ -1942,7 +1965,7 @@ class Rad(Atom):
             else:
                 typeset(parser, out.list, context, style)
         out.typeset(parser, [])
-        return out
+        return _drop_redundant_wrapper(out, allow_char=False)
 
     def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
         """
@@ -1963,8 +1986,10 @@ class Rad(Atom):
         if delta > 0:
             clr += delta / 2
         y.shifted = Dimen(-float(x.height + clr))
-        packed.append(y)
-        packed.append(Atom.overbar(parser, x, clr, y.height))
+        out = box.HBox(parser, None, 0)
+        out.list = [y, Atom.overbar(parser, x, clr, y.height)]
+        out.typeset(parser, [])
+        packed.append(out)
         return Dimen()
 
     node_type = nd.NODE_TYPE.MATHNODE
@@ -2187,9 +2212,10 @@ class Over(Atom):
         axis = Dimen(context.sigma(style)[21])
         left_box = left_delim.typeset(parser, total, context, style, axis)
         right_box = right_delim.typeset(parser, total, context, style, axis)
-        packed.append(left_box)
-        packed.append(out)
-        packed.append(right_box)
+        wrapped = box.HBox(parser, None, 0)
+        wrapped.list = [left_box, out, right_box]
+        wrapped.typeset(parser, [])
+        packed.append(wrapped)
         return Dimen()
 
     node_type = nd.NODE_TYPE.MATHNODE
@@ -2264,7 +2290,7 @@ class Accent(Atom):
             else:
                 typeset(parser, out.list, context, style)
         out.typeset(parser, [])
-        return out
+        return _drop_redundant_wrapper(out, allow_char=False)
 
     def _fontCharIfExists(self, font, char):
         code = ord(char)

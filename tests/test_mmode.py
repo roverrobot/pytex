@@ -110,6 +110,31 @@ def test_mlist_typeset_display(math):
     top.typesetNodes(math, packed)
 
 
+def test_subformula_single_char_drops_outer_hbox(math):
+    math.parse("${a}$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    assert len(packed) == 3
+    assert packed[0].node_type == nd.NODE_TYPE.MATH
+    assert packed[1].node_type == nd.NODE_TYPE.CHAR
+    assert packed[2].node_type == nd.NODE_TYPE.MATH
+
+
+def test_mlist_typeset_single_box_drops_outer_hbox(math):
+    # Build a sub-mlist that translates to exactly one box node.
+    math.parse("$a$")
+    context = math.lists[-1][1].typeset_context
+    vb = box.VBox(math, None, 0)
+    vb.list.append(nd.Rule(1, 1, 0))
+    vb.typeset(math, [])
+    sub = mmode.MList(math, inner=True, nodes=[mmode.VCent(vb)])
+    packed = []
+    sub.typeset(math, packed, context, mmode.Style(mmode.MATH_STYLE.T))
+    assert len(packed) == 1
+    assert packed[0].node_type == nd.NODE_TYPE.VLIST
+
+
 def test_display_noindent_has_no_synthetic_previous_paragraph(math):
     math.parse("\\noindent$$a$$\\par")
     top = math.lists[0]
@@ -777,6 +802,7 @@ def test_rule18a_char_plus_kern_translation_sets_u_v_zero(math):
 def test_rule18a_box_translation_uses_sigma18_sigma19(math):
     inner = mmode.MList(math)
     inner.append(_mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"))
+    inner.append(_mk_atom(mmode.ATOM_TYPE.ORD, 1, "b"))
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
     atom.nucleus = inner
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
@@ -1243,8 +1269,11 @@ def test_rule11_radical_typesetnucleus_builds_delim_and_overbar(math):
     translated = []
     delta = atom.typesetNucleus(math, translated, ctx, style)
     assert delta == 0
-    assert len(translated) == 2
-    delim_box, overbar = translated
+    assert len(translated) == 1
+    wrapped = translated[0]
+    assert wrapped.node_type == nd.NODE_TYPE.HLIST
+    assert len(wrapped.list) == 2
+    delim_box, overbar = wrapped.list
     assert delim_box.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
     assert overbar.node_type == nd.NODE_TYPE.VLIST
     assert [n.node_type for n in overbar.list[:3]] == [
@@ -1262,10 +1291,13 @@ def test_rule11_radical_scripts_attached_by_rule18(math):
     ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
     style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 3
-    assert b.list[0].node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
-    assert b.list[1].node_type == nd.NODE_TYPE.VLIST
-    assert b.list[2].node_type == nd.NODE_TYPE.HLIST
+    assert len(b.list) == 2
+    wrapped = b.list[0]
+    assert wrapped.node_type == nd.NODE_TYPE.HLIST
+    assert len(wrapped.list) == 2
+    assert wrapped.list[0].node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+    assert wrapped.list[1].node_type == nd.NODE_TYPE.VLIST
+    assert b.list[1].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_rule11_radical_display_vs_text_style_metrics(parser):
@@ -1563,8 +1595,11 @@ def test_fraction_rule15c_atop_construction(math):
     frac = math.lists[-1][-1][0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
-    assert len(packed) == 3
-    left, out, right = packed
+    assert len(packed) == 1
+    wrapped = packed[0]
+    assert wrapped.node_type == nd.NODE_TYPE.HLIST
+    assert len(wrapped.list) == 3
+    left, out, right = wrapped.list
     assert left.node_type == nd.NODE_TYPE.HLIST
     assert right.node_type == nd.NODE_TYPE.HLIST
     assert left.width == math.state.layout["nulldelimiterspace"]
@@ -1593,8 +1628,11 @@ def test_fraction_rule15d_over_construction(math):
     frac = math.lists[-1][-1][0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
-    assert len(packed) == 3
-    left, out, right = packed
+    assert len(packed) == 1
+    wrapped = packed[0]
+    assert wrapped.node_type == nd.NODE_TYPE.HLIST
+    assert len(wrapped.list) == 3
+    left, out, right = wrapped.list
     assert left.node_type == nd.NODE_TYPE.HLIST
     assert right.node_type == nd.NODE_TYPE.HLIST
     assert left.width == math.state.layout["nulldelimiterspace"]
@@ -1638,8 +1676,10 @@ def test_fraction_rule15d_over_min_clearance_script(math):
     frac = math.lists[-1][-1][0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
-    assert len(packed) == 3
-    out = packed[1]
+    assert len(packed) == 1
+    wrapped = packed[0]
+    assert wrapped.node_type == nd.NODE_TYPE.HLIST
+    out = wrapped.list[1]
     _, k1, _, k2, _ = out.list
     _, _, theta = frac.rule15(ctx, style)
     phi = theta
@@ -1654,8 +1694,11 @@ def test_fraction_rule15e_with_delims_builds_three_boxes(math):
     frac = math.lists[-1][-1][0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
-    assert len(packed) == 3
-    left, middle, right = packed
+    assert len(packed) == 1
+    wrapped = packed[0]
+    assert wrapped.node_type == nd.NODE_TYPE.HLIST
+    assert len(wrapped.list) == 3
+    left, middle, right = wrapped.list
     assert left.node_type == nd.NODE_TYPE.HLIST
     assert middle.node_type == nd.NODE_TYPE.VLIST
     assert right.node_type == nd.NODE_TYPE.HLIST
@@ -1671,13 +1714,16 @@ def test_fraction_rule15e_delims_integrated_in_inner_atom_nucleus(math):
     mlist = math.lists[-1][0]
     packed = []
     mlist.typeset(math, packed)
-    # math_on + (left delim, fraction vbox, right delim) + math_off
-    assert len(packed) == 5
+    # math_on + wrapper hbox + math_off
+    assert len(packed) == 3
     assert packed[0].node_type == nd.NODE_TYPE.MATH
     assert packed[1].node_type == nd.NODE_TYPE.HLIST
-    assert packed[2].node_type == nd.NODE_TYPE.VLIST
-    assert packed[3].node_type == nd.NODE_TYPE.HLIST
-    assert packed[4].node_type == nd.NODE_TYPE.MATH
+    assert packed[2].node_type == nd.NODE_TYPE.MATH
+    inner = packed[1]
+    assert len(inner.list) == 3
+    assert inner.list[0].node_type == nd.NODE_TYPE.HLIST
+    assert inner.list[1].node_type == nd.NODE_TYPE.VLIST
+    assert inner.list[2].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_fraction_rule15e_null_delims_integrated_in_inner_atom_nucleus(math):
@@ -1685,15 +1731,18 @@ def test_fraction_rule15e_null_delims_integrated_in_inner_atom_nucleus(math):
     mlist = math.lists[-1][0]
     packed = []
     mlist.typeset(math, packed)
-    # math_on + (left null delim, fraction vbox, right null delim) + math_off
-    assert len(packed) == 5
+    # math_on + wrapper hbox + math_off
+    assert len(packed) == 3
     assert packed[0].node_type == nd.NODE_TYPE.MATH
     assert packed[1].node_type == nd.NODE_TYPE.HLIST
-    assert packed[2].node_type == nd.NODE_TYPE.VLIST
-    assert packed[3].node_type == nd.NODE_TYPE.HLIST
-    assert packed[4].node_type == nd.NODE_TYPE.MATH
-    assert packed[1].width == math.state.layout["nulldelimiterspace"]
-    assert packed[3].width == math.state.layout["nulldelimiterspace"]
+    assert packed[2].node_type == nd.NODE_TYPE.MATH
+    inner = packed[1]
+    assert len(inner.list) == 3
+    assert inner.list[0].node_type == nd.NODE_TYPE.HLIST
+    assert inner.list[1].node_type == nd.NODE_TYPE.VLIST
+    assert inner.list[2].node_type == nd.NODE_TYPE.HLIST
+    assert inner.list[0].width == math.state.layout["nulldelimiterspace"]
+    assert inner.list[2].width == math.state.layout["nulldelimiterspace"]
 
 
 @pytest.mark.parametrize("left", [True, False])

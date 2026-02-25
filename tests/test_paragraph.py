@@ -191,7 +191,13 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
     assert endings[:3] == ["technique", "than", "less"]
 
 
-def test_linebreak_matches_tex_reference_paragraph_looseness(parser):
+def _reset_outer_vlist(parser):
+    parser.lists = [vmode.VList(parser, inner=False)]
+
+
+def test_linebreak_plain_paragraph_cases(parser):
+    parser.parse("\\input plain")
+
     text = (
         "TEX attempts to choose desirable places to divide your document into individual "
         "pages, and its technique for doing this usually works pretty well. But the problem "
@@ -199,7 +205,6 @@ def test_linebreak_matches_tex_reference_paragraph_looseness(parser):
         "that we considered in the previous chapter, because pages often have much less "
         "flexibility than lines do."
     )
-    parser.parse("\\input plain")
     parser.parse("\\looseness=-1 ")
     parser.parse(text + "\\par")
     para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
@@ -210,9 +215,7 @@ def test_linebreak_matches_tex_reference_paragraph_looseness(parser):
     endings = [_lineEndingWord(line) for line in lines]
     assert endings[:3] == ["tech-", "difficult", "much"]
 
-
-def test_linebreak_plain_hyphenate_ends_line_one_with_hyphen(parser):
-    parser.parse("\\input plain")
+    _reset_outer_vlist(parser)
     parser.parse(
         "\\noindent TEX will henceforth insert discretionary hyphens in the specified positions,"
         " whenever it attempts to hyphenate a word that matches an entry in the exception dictionary,"

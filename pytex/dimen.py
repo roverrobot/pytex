@@ -26,8 +26,9 @@ class Dimen(serialization.Serializable):
         return self
 
     def __repr__(self):
-        f = float(self)
-        s = str(int(f)) + "."
+        s = "" if self.value >=0 else "-"
+        f = abs(float(self))
+        s += str(int(f)) + "."
         f -= int(f)
         if f == 0:
             return s + "0"
@@ -48,6 +49,8 @@ class Dimen(serialization.Serializable):
     def __int__(self):
         return self.value
     
+    def __neg__(self):
+        return Dimen(integer=-self.value)
     def __sub__(self, other):
         return Dimen(float(self) - float(other))
     

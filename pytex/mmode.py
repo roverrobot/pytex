@@ -133,8 +133,10 @@ class MathTypesetContext:
         elif self.mode == MATH_CONTEXT_MODE.DISPLAY:
             self.prevgraf = None
             # display math parameters
-            self.displaywidth = layout["displaywidth"]
-            self.displayindent = layout["displayindent"]
+            volatile = parser.state.volatile
+            self.predisplaypenalty = layout["predisplaypenalty"]
+            self.displaywidth = volatile["displaywidth"]
+            self.displayindent = volatile["displayindent"]
             self.predisplaysize = None
             self.prevdepth = None
             self.postdisplaypenalty = layout["postdisplaypenalty"]
@@ -146,7 +148,6 @@ class MathTypesetContext:
             self.baselineskip = layout["baselineskip"]
             self.lineskip = layout["lineskip"]
             self.lineskiplimit = layout["lineskiplimit"]
-            self.predisplaypenalty = layout["predisplaypenalty"]
             self.interlinepenalty = 0 # do not emit interline penalty
 
     def __getitem__(self, index):

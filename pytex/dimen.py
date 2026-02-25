@@ -336,13 +336,16 @@ mod = Module("dimen",
         "nulldelimiterspace": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
         "scriptspace": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
         "mathsurround": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "predisplaysize": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "displaywidth": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "displayindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "parindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "parameters"},
-        "hangindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
         "hoffset": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
         "voffset": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        # this value is nit in layout, because it is not used in a snapshot for typesetting
+        "parindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "parameters"},
+        # these values are automatically set by the parser, and are volatile. But they are subject to
+        # grouping. So they are in the volatile domain, and will not be dumped in a format.
+        "predisplaysize": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "volatile"},
+        "displaywidth": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "volatile"},
+        "displayindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "volatile"},
+        "hangindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "volatile"},
     },
     commands={
         "dimendef": registerdef("dimen", DimenArrayItemAccessor),

@@ -360,7 +360,7 @@ class ParShapeDimen(tk.Command, DimenCommand):
         row = parser.readInteger()
         if row < 0:
             return Dimen()
-        parshape = parser.state.layout["parshape"]
+        parshape = parser.state.globals["parshape"]
         if self.index < 0:
             # \\parshapedimen
             index = row % 2

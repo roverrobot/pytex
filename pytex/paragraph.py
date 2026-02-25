@@ -48,9 +48,9 @@ class ParagraphTypesetContext:
         self.adjdemerits = parser.state.layout["adjdemerits"]
         self.doublehyphendemerits = parser.state.layout["doublehyphendemerits"]
         self.finalhyphendemerits = parser.state.layout["finalhyphendemerits"]
-        self.looseness = parser.state.layout["looseness"]
-        self.hangindent = parser.state.layout["hangindent"]
-        self.hangafter = parser.state.layout["hangafter"]
+        self.looseness = parser.state.volatile["looseness"]
+        self.hangindent = parser.state.volatile["hangindent"]
+        self.hangafter = parser.state.volatile["hangafter"]
         self.parshape = parser.state.globals["parshape"]
         # Current em (fontdimen6) at paragraph typeset snapshot time.
         self.em = parser.state.parameters["currentfont"].param[5]
@@ -284,8 +284,8 @@ class Paragraph(hmode.HList):
             if hasattr(next_context, "displayindent"):
                 next_context.displayindent = displayindent
                 next_context.displaywidth = displaywidth
-                parser.state.layout["displayindent"] = displayindent
-                parser.state.layout["displaywidth"] = displaywidth
+                parser.state.volatile["displayindent"] = displayindent
+                parser.state.volatile["displaywidth"] = displaywidth
             # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
             # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
             # the closing $$ of another display), p is set to -16383.99999 pt (i.e., to the smallest legal
@@ -297,7 +297,7 @@ class Paragraph(hmode.HList):
                 p = Dimen(-16383.99999)
             else:
                 p = hbox.rightmost() + 2 * context.em
-            parser.state.layout["predisplaysize"] = p
+            parser.state.volatile["predisplaysize"] = p
             next_context.predisplaysize = p
             next_context.prevdepth = hbox.depth
 

@@ -370,10 +370,11 @@ class Parser:
         self.clearParagraphSettings()
 
     def clearParagraphSettings(self):
-        self.state.layout["looseness"] = 0
-        self.state.layout["hangindent"] = 0
-        self.state.layout["hangafter"] = 0
-        self.state.layout["parshape"] = []
+        volatile = self.state.volatile
+        volatile["looseness"] = 0
+        volatile["hangindent"] = dimen.Dimen()
+        volatile["hangafter"] = 0
+        self.state.globals["parshape"] = []
 
     def hyphenChar(self):
         """

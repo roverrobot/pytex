@@ -1078,7 +1078,8 @@ def test_rule13_displaylimits_only_attach_in_display_style(math):
 def test_rule13_display_style_uses_successor_for_op_symbol(math):
     ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
     style = mmode.Style(mmode.MATH_STYLE.D)
-    font = ctx.font(style, 2)
+    # The fixture's symbols family (2) has no successor chains; extension family (3) does.
+    font = ctx.font(style, 3)
     source_char = None
     target_char = None
     for info in font.tfm.char_info:
@@ -1089,12 +1090,14 @@ def test_rule13_display_style_uses_successor_for_op_symbol(math):
             continue
         if not (font.bc <= ord(chain) <= font.ec):
             continue
+        target_info = font.tfm.char_info[ord(chain) - font.bc]
+        if not target_info.exists:
+            continue
         source_char = info.char
         target_char = chain
         break
-    if source_char is None:
-        pytest.skip("no symbol successor found in font family 2")
-    atom = _mk_atom(mmode.ATOM_TYPE.OP, 2, source_char)
+    assert source_char is not None, "expected successor chain in extension family"
+    atom = _mk_atom(mmode.ATOM_TYPE.OP, 3, source_char)
     atom.limits = mmode.MATH_LIMITS.NONE
     b = atom.assemble(math, ctx, style)
     assert len(b.list) == 1
@@ -1775,7 +1778,7 @@ def test_eqno_inline(math):
 
 def test_eqno_subformula(math):
     try:
-        math.parse("$\left(a\\eqno1$")
+        math.parse("$\\left(a\\eqno1$")
         assert False
     except ValueError as e:
         assert "equation" in str(e)
@@ -1873,7 +1876,7 @@ def test_vcenter_wrongmode(parser):
 
 def test_vcenter_nobox(math):
     try:
-        math.parse("$\setbox0=\\vcenter{}")
+        math.parse("$\\setbox0=\\vcenter{}")
         assert False
     except ValueError as e:
         assert "\\vcenter" in str(e)

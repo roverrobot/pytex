@@ -330,7 +330,7 @@ class Parser:
     def newParagraph(self, indent: bool = True, parskip: bool = True):
         """
         start a new paragraph: starting the horizontal list with an empty 
-        # hbox whose width is \parindent. The \everypar tokens are inserted into 
+        # hbox whose width is \\parindent. The \\everypar tokens are inserted into 
         # TeX’s input. The page builder is exercised. When the paragraph is 
         # eventually completed, horizontal mode will come to an end as described 
         # in Chapter 25. (The TeX Book pp.282)        """

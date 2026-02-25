@@ -1372,34 +1372,26 @@ class MathEndGroupCallback:
 
 
 class MathShitfEndGroupCallback(MathEndGroupCallback):
+    def __init__(self, parser, prev_par):
+        super().__init__(parser)
+        self.prev_par = prev_par
+
     def endgroup(self, parser, top, mlist):
-        if mlist.inner:
-            mlist.typeset_context = MathTypesetContext(parser, MATH_CONTEXT_MODE.INLINE)
-        else:
-            mlist.typeset_context = MathTypesetContext(parser, MATH_CONTEXT_MODE.DISPLAY)
+        mode = MATH_CONTEXT_MODE.INLINE if mlist.inner else MATH_CONTEXT_MODE.DISPLAY
+        mlist.typeset_context = MathTypesetContext(parser, mode)
         # here top points to the enclosing horizontal list
         # if mlist is inline math, then we simply add it to the enclosing list
         if mlist.inner:
             top.append(mlist)
             return
-        # top is the paragraph around $$...$$. TeX only ends it if nonempty.
-        prev_par = None
-        if len(top) > 0:
-            prev_par = top
-            parser.endParagraph()
-        else:
-            # Drop empty paragraph and keep default display metrics for no previous line.
-            parser.lists.pop()
-            parser.clearParagraphSettings()
-            mlist.typeset_context.prevgraf = 0
-            mlist.typeset_context.predisplaysize = NEG_MAX_DIMEN
-        vlist = parser.lists[-1] # the enclosing vertical list
-        vlist.append(mlist)
-        parser.newParagraph(indent=False, parskip=False)
-        new_par = parser.lists[-1] # the new paragraph after the display math
-        if prev_par is not None:
-            prev_par.next_paragraph = mlist
-        mlist.prev_paragraph = prev_par
+        # top is the enclosing vlist
+        mlist.typeset_context.prevgraf = 0
+        mlist.typeset_context.predisplaysize = NEG_MAX_DIMEN
+        top.append(mlist)
+        new_par = parser.newParagraph(indent=False, parskip=False) # the new paragraph after the display math
+        if self.prev_par is not None:
+            self.prev_par.next_paragraph = mlist
+        mlist.prev_paragraph = self.prev_par
         mlist.next_paragraph = new_par
         new_par.prev_paragraph = mlist
 
@@ -1440,8 +1432,9 @@ def mathShift(parser):
         parser.input.unread(parser.current_token)
         parser.newParagraph()
         return
-    # if we are in restricted horizontal mode, only inlien math is allowed. So we do not 
+    # if we are in restricted horizontal mode, only inline math is allowed. So we do not 
     # need to check for a second $ token
+    prev_par = None
     if top.inner:
         inner = True
     else:
@@ -1454,9 +1447,17 @@ def mathShift(parser):
         else:
             inner = True
             parser.input.unread(t)
+    if not inner:
+        if len(top) > 0:
+            prev_par = top
+            parser.endParagraph()
+        else:
+            # Drop empty paragraph and keep default display metrics for no previous line.
+            parser.lists.pop()
+            parser.clearParagraphSettings()
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
-    parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT, MathShitfEndGroupCallback(parser))
+    parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT, MathShitfEndGroupCallback(parser, prev_par))
     mlist = InlineMathList(parser) if inner else DisplayMathList(parser)
     parser.lists.append(mlist)
     every = parser.everymath.value if inner else parser.everydisplay.value

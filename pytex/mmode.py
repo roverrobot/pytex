@@ -241,7 +241,8 @@ class MList(lists.List):
         if atom is None:
             atom = self[-1] if len(self) > 0 else None
             if not isinstance(atom, Atom):
-                atom = Subformula(MList(self.parser))
+                atom = Atom(ATOM_TYPE.ORD)
+                atom.nucleus = MList(self.parser)
                 self.append(atom)
         else:
             self.append(atom)
@@ -266,7 +267,7 @@ class MList(lists.List):
             n.nucleus = node
             node = n
         elif isinstance(node, MathSymbol):
-            n = Atom(node.type)
+            n = Op() if node.type == ATOM_TYPE.OP else Atom(node.type)
             n.nucleus = node
             node = n
         super().append(node)
@@ -341,8 +342,6 @@ class MList(lists.List):
             # Rule 4: choose branch, then continue from first node of that branch.
             if isinstance(node, ChoiceNode):
                 branch = node.branch(style)
-                if isinstance(branch, Subformula):
-                    branch = branch.nucleus
                 if branch is not None:
                     stack.append((current, style))
                     current = iter(branch)
@@ -1100,6 +1099,120 @@ class Atom(nd.Node):
         return out
     
 
+class Op(Atom):
+    """
+    Operator atom (Appendix G Rule 13/13a).
+    """
+    def __init__(self):
+        super().__init__(ATOM_TYPE.OP)
+        self.limits = MATH_LIMITS.DISPLAY
+
+    def _rule13UseLimits(self, style):
+        # \\limits => always, \\nolimits => never, \\displaylimits => display only.
+        if self.limits == MATH_LIMITS.NONE:
+            return False
+        if self.limits == MATH_LIMITS.NORMAL:
+            return True
+        return style.style == MATH_STYLE.D
+
+    def _typesetLimitField(self, parser, field, context, style):
+        out = box.HBox(parser, None, 0)
+        if field is not None:
+            typeset = getattr(field, "typeset", None)
+            if typeset is None:
+                out.list.append(field)
+            else:
+                typeset(parser, out.list, context, style)
+        out.typeset(parser, [])
+        return out
+
+    def _rule13Nucleus(self, parser, context, style, use_limits):
+        y = box.HBox(parser, None, 0)
+        delta = Dimen()
+        symbol = self.nucleus if isinstance(self.nucleus, MathSymbol) else None
+        if symbol is None:
+            typeset = getattr(self.nucleus, "typeset", None)
+            if typeset is None:
+                if self.nucleus is not None:
+                    y.list.append(self.nucleus)
+            else:
+                typeset(parser, y.list, context, style)
+            y.typeset(parser, [])
+            return y, delta
+        # C > T means display style in this implementation.
+        font = context.font(style, symbol.fam)
+        node = font[symbol.char]
+        if style.style == MATH_STYLE.D and getattr(node.char_info, "chain", None):
+            node = font[node.char_info.chain]
+        delta = Dimen(node.italic)
+        y.list.append(node)
+        # Include italic correction in width iff limits are used or there is no subscript.
+        if float(delta) != 0 and (use_limits or self.sub is None):
+            y.list.append(nd.Kern(delta, automatic=True))
+        y.typeset(parser, [])
+        axis = Dimen(context.sigma(style)[21])  # sigma22
+        y.shifted = (y.height - y.depth) / 2 - axis
+        return y, delta
+
+    def _rule13aAttachLimits(self, parser, context, style, y, delta):
+        x_nonempty = self.sup is not None
+        z_nonempty = self.sub is not None
+        x = self._typesetLimitField(parser, self.sup, context, style.superscript())
+        z = self._typesetLimitField(parser, self.sub, context, style.subscript())
+        target = x.width if x.width >= y.width else y.width
+        if z.width > target:
+            target = z.width
+        x = Atom.rebox(parser, x, target)
+        y = Atom.rebox(parser, y, target)
+        z = Atom.rebox(parser, z, target)
+        x.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        y.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        z.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+
+        xi = context.xi(style)
+        xi9 = Dimen(xi[8])
+        xi10 = Dimen(xi[9])
+        xi11 = Dimen(xi[10])
+        xi12 = Dimen(xi[11])
+        xi13 = Dimen(xi[12])
+        half_delta = delta / 2
+
+        pieces = []
+        if x_nonempty:
+            pieces.append(nd.Kern(xi13))
+            x.shifted = half_delta
+            pieces.append(x)
+            k = xi11 - x.depth
+            if xi9 > k:
+                k = xi9
+            pieces.append(nd.Kern(k))
+        pieces.append(y)
+        if z_nonempty:
+            k = xi12 - z.height
+            if xi10 > k:
+                k = xi10
+            pieces.append(nd.Kern(k))
+            z.shifted = Dimen(-float(half_delta))
+            pieces.append(z)
+            pieces.append(nd.Kern(xi13))
+        out = box.VBox(parser, None, 0)
+        out.list[:] = pieces
+        out.typeset(parser, [])
+        return out
+
+    def assemble(self, parser, context, style):
+        b = box.HBox(parser, 0, 0)
+        use_limits = self._rule13UseLimits(style)
+        y, delta = self._rule13Nucleus(parser, context, style, use_limits)
+        if use_limits:
+            b.list.append(self._rule13aAttachLimits(parser, context, style, y, delta))
+        else:
+            b.list.append(y)
+            self.typesetScripts(parser, b.list, context, style, delta)
+        b.typeset(parser, [])
+        return b
+
+
 class MathSymbol(serialization.Serializable):
     """
     A math symbol
@@ -1129,19 +1242,6 @@ class MathSymbol(serialization.Serializable):
     def typeset(self, parser, packed, context, style):
         font = context.font(style, self.fam)
         packed.append(font[self.char])
-
-
-class Subformula(Atom):
-    """
-    a subformula
-    @param mlist: the list
-    """
-    def __init__(self, mlist):
-        super().__init__(ATOM_TYPE.ORD)
-        self.nucleus = mlist
-
-    def saveInfo(self):
-        return super().saveInfo() | {"init": {"mlist": self.nucleus}}
 
 
 class Box(Atom):
@@ -2189,7 +2289,7 @@ mod = Module("mmode",
         "mkern": MKern(),
         "mskip": MSkip(),
         "mathord": MathAtom(ATOM_TYPE.ORD),
-        "mathop": MathAtom(ATOM_TYPE.OP),
+        "mathop": MathAtom(generator=Op),
         "mathbin": MathAtom(ATOM_TYPE.BIN),
         "mathrel": MathAtom(ATOM_TYPE.REL),
         "mathopen": MathAtom(ATOM_TYPE.OPEN),

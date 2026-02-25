@@ -334,7 +334,7 @@ def test_rule5_bin_after_rel_becomes_ord(math):
 
 
 def _mk_atom(atom_type, fam, ch):
-    atom = mmode.Atom(atom_type)
+    atom = mmode.Op() if atom_type == mmode.ATOM_TYPE.OP else mmode.Atom(atom_type)
     code = (atom_type.value << 12) | (fam << 8) | ord(ch)
     atom.nucleus = mmode.MathSymbol(code, -1)
     return atom
@@ -902,6 +902,83 @@ def test_rule18f_uses_delta_and_expected_vertical_geometry(math):
     assert float(joint.list[1].kern) == pytest.approx(float(expected_k), abs=1e-4)
     assert float(joint.depth) == pytest.approx(float(y.depth + v), abs=1e-4)
     assert float(joint.height) == pytest.approx(float(top.height + u), abs=1e-4)
+
+
+def test_rule13a_op_limits_stack_and_rebox(math):
+    atom = _mk_atom(mmode.ATOM_TYPE.OP, 1, "f")
+    atom.limits = mmode.MATH_LIMITS.NORMAL
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
+    ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 1
+    limits_box = b.list[0]
+    assert limits_box.node_type == nd.NODE_TYPE.VLIST
+    assert len(limits_box.list) == 7
+    assert [n.node_type for n in limits_box.list] == [
+        nd.NODE_TYPE.KERN,
+        nd.NODE_TYPE.HLIST,
+        nd.NODE_TYPE.KERN,
+        nd.NODE_TYPE.HLIST,
+        nd.NODE_TYPE.KERN,
+        nd.NODE_TYPE.HLIST,
+        nd.NODE_TYPE.KERN,
+    ]
+    x = limits_box.list[1]
+    y = limits_box.list[3]
+    z = limits_box.list[5]
+    assert x.width == y.width == z.width
+    delta = Dimen(ctx.font(style, 1)["f"].italic)
+    assert float(x.shifted) == pytest.approx(float(delta / 2), abs=1e-4)
+    assert float(z.shifted) == pytest.approx(float(Dimen() - (delta / 2)), abs=1e-4)
+
+
+def test_rule13_displaylimits_only_attach_in_display_style(math):
+    disp = _mk_atom(mmode.ATOM_TYPE.OP, 1, "f")
+    disp.limits = mmode.MATH_LIMITS.DISPLAY
+    disp.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
+    b_disp = disp.assemble(math, ctx, mmode.Style(mmode.MATH_STYLE.D))
+    assert len(b_disp.list) == 1
+    assert b_disp.list[0].node_type == nd.NODE_TYPE.VLIST
+
+    text = _mk_atom(mmode.ATOM_TYPE.OP, 1, "f")
+    text.limits = mmode.MATH_LIMITS.DISPLAY
+    text.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    b_text = text.assemble(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    assert len(b_text.list) == 2
+    assert b_text.list[0].node_type == nd.NODE_TYPE.HLIST
+    assert b_text.list[1].node_type == nd.NODE_TYPE.HLIST
+
+
+def test_rule13_display_style_uses_successor_for_op_symbol(math):
+    ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
+    style = mmode.Style(mmode.MATH_STYLE.D)
+    font = ctx.font(style, 2)
+    source_char = None
+    target_char = None
+    for info in font.tfm.char_info:
+        chain = getattr(info, "chain", None)
+        if not info.exists or chain is None:
+            continue
+        if not (font.bc <= ord(info.char) <= font.ec):
+            continue
+        if not (font.bc <= ord(chain) <= font.ec):
+            continue
+        source_char = info.char
+        target_char = chain
+        break
+    if source_char is None:
+        pytest.skip("no symbol successor found in font family 2")
+    atom = _mk_atom(mmode.ATOM_TYPE.OP, 2, source_char)
+    atom.limits = mmode.MATH_LIMITS.NONE
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 1
+    nucleus = b.list[0]
+    assert nucleus.node_type == nd.NODE_TYPE.HLIST
+    assert nucleus.list[0].node_type == nd.NODE_TYPE.CHAR
+    assert nucleus.list[0].char == target_char
 
 
 def test_indent(math):

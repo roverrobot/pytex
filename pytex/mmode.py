@@ -33,6 +33,12 @@ class MATH_STYLE(enum.IntEnum):
     SS = 3 # script script style
 
 
+class MATH_CONTEXT_MODE(enum.IntEnum):
+    INLINE = 0
+    DISPLAY = 1
+    SUBFORMULA = 2
+
+
 class Style(serialization.Serializable):
     def __init__(self, style: MATH_STYLE, cramped: bool = False):
         self.style = style
@@ -83,11 +89,16 @@ class Style(serialization.Serializable):
 
 class MathTypesetContext:
     """
-    the typesetting context for math mode, which is used to determine the interline penalty and baselineskip for display math
+    Typesetting snapshot for math mode.
+
+    mode controls which non-font parameters are captured:
+    - INLINE: inline paragraph math ($...$)
+    - DISPLAY: display math ($$...$$)
+    - SUBFORMULA: nested math fields/typeset helpers
     """
-    def __init__(self, parser, inner):
+    def __init__(self, parser, mode):
+        self.mode = MATH_CONTEXT_MODE(mode)
         layout = parser.state.layout
-        # the interline settings
         # fonts
         def copy(array):
             return [array[i] for i in range(16)]
@@ -109,14 +120,17 @@ class MathTypesetContext:
                 raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
         # inter-atom spaces
         self.muskips = [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
-        self.binoppenalty = layout["binoppenalty"]
-        self.relpenalty = layout["relpenalty"]
         self.scriptspace = layout["scriptspace"]
         self.nulldelimiterspace = layout["nulldelimiterspace"]
         # delimiter sizing parameters used by Rule 19.
         self.delimiterfactor = layout["delimiterfactor"]
         self.delimitershortfall = layout["delimitershortfall"]
-        if not inner:
+        if self.mode == MATH_CONTEXT_MODE.INLINE:
+            self.mathsurround = layout["mathsurround"]
+            # Rule 22 inter-atom penalties (paragraph math only).
+            self.binoppenalty = layout["binoppenalty"]
+            self.relpenalty = layout["relpenalty"]
+        elif self.mode == MATH_CONTEXT_MODE.DISPLAY:
             self.prevgraf = None
             # display math parameters
             self.displaywidth = layout["displaywidth"]
@@ -529,11 +543,11 @@ class InlineMathList(MList):
     def typeset(self, parser, packed):
         math_shift = nd.MathShift(True)
         math_shift.source = self
-        math_shift.kern = Dimen(parser.state.layout["mathsurround"])
+        math_shift.kern = Dimen(self.typeset_context.mathsurround)
         packed.append(math_shift)
         self.typesetNodes(parser, packed, self.typeset_context, Style(MATH_STYLE.T))
         math_shift = nd.MathShift(False)
-        math_shift.kern = Dimen(parser.state.layout["mathsurround"])
+        math_shift.kern = Dimen(self.typeset_context.mathsurround)
         packed.append(math_shift)
 
 
@@ -1170,7 +1184,10 @@ class MathEndGroupCallback:
 
 class MathShitfEndGroupCallback(MathEndGroupCallback):
     def endgroup(self, parser, top, mlist):
-        mlist.typeset_context = MathTypesetContext(parser, mlist.inner)
+        if mlist.inner:
+            mlist.typeset_context = MathTypesetContext(parser, MATH_CONTEXT_MODE.INLINE)
+        else:
+            mlist.typeset_context = MathTypesetContext(parser, MATH_CONTEXT_MODE.DISPLAY)
         # here top points to the enclosing horizontal list
         # if mlist is inline math, then we simply add it to the enclosing list
         if mlist.inner:
@@ -1695,7 +1712,7 @@ class Delim(serialization.Serializable):
         height+depth.
         """
         if context is None:
-            context = MathTypesetContext(parser, True)
+            context = MathTypesetContext(parser, MATH_CONTEXT_MODE.SUBFORMULA)
         if style is None:
             style = Style(MATH_STYLE.T)
         if axis is None:

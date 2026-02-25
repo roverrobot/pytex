@@ -1137,6 +1137,40 @@ def test_radical(math):
     math.parse("$")
 
 
+def test_rule11_radical_typesetnucleus_builds_delim_and_overbar(math):
+    delim = mmode.Delim(0x270370, 0)
+    oprand = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
+    atom = mmode.Rad(delim, oprand)
+    ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    translated = []
+    delta = atom.typesetNucleus(math, translated, ctx, style)
+    assert delta == 0
+    assert len(translated) == 2
+    delim_box, overbar = translated
+    assert delim_box.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+    assert overbar.node_type == nd.NODE_TYPE.VLIST
+    assert [n.node_type for n in overbar.list[:3]] == [
+        nd.NODE_TYPE.KERN,
+        nd.NODE_TYPE.RULE,
+        nd.NODE_TYPE.KERN,
+    ]
+
+
+def test_rule11_radical_scripts_attached_by_rule18(math):
+    delim = mmode.Delim(0x270370, 0)
+    oprand = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
+    atom = mmode.Rad(delim, oprand)
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
+    ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 3
+    assert b.list[0].node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+    assert b.list[1].node_type == nd.NODE_TYPE.VLIST
+    assert b.list[2].node_type == nd.NODE_TYPE.HLIST
+
+
 def test_mathaccent(math):
     math.parse("$\\mathaccent\"362 a")
     top = math.lists[-1]
@@ -1154,6 +1188,44 @@ def test_mathaccent(math):
         assert False
     except ValueError as e:
         assert "accent" in str(e)
+
+
+def test_rule12_single_char_base_absorbs_scripts_inside_accent_box(math):
+    accent = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | ord("b"), -1)
+    atom = mmode.Accent(accent, mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
+    ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 1
+    z = b.list[0]
+    assert z.node_type == nd.NODE_TYPE.VLIST
+    assert z.list[-1].node_type == nd.NODE_TYPE.HLIST
+    assert len(z.list[-1].list) >= 2
+
+
+def test_rule12_non_single_base_keeps_rule16_script_attachment(math):
+    accent = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | ord("b"), -1)
+    base = mmode.MList(math)
+    base.append(mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
+    atom = mmode.Accent(accent, base)
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
+    ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 2
+    assert b.list[0].node_type == nd.NODE_TYPE.VLIST
+    assert b.list[1].node_type == nd.NODE_TYPE.HLIST
+
+
+def test_rule12_missing_accent_char_falls_back_to_rule16(math):
+    missing = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | 0xFF, -1)
+    atom = mmode.Accent(missing, mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
+    ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
+    style = mmode.Style(mmode.MATH_STYLE.T)
+    b = atom.assemble(math, ctx, style)
+    assert any(getattr(n, "char", None) == "a" for n in b.list)
+    assert not any(n.node_type == nd.NODE_TYPE.VLIST for n in b.list)
 
 
 def test_delimiter(math):

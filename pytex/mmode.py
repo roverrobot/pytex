@@ -20,7 +20,7 @@ from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex import box
 from pytex.hmode import HList, Ligature
-from pytex.ligature import run_ligature_program
+from pytex.ligature import ligature_step, run_ligature_program
 from pytex.vmode import VNodeContext, init_prevdepth
 import enum
 from math import inf, ceil
@@ -1062,10 +1062,31 @@ class Atom(nd.Node):
         return a box that contains the nucleus, superscritp and subscript.
         """
         b = box.HBox(parser, 0, 0)
+        # typesetNucleus may disable Rule 18 script attachment (Rule 12 single-char accent case).
+        self._attach_scripts = True
         delta = self.typesetNucleus(parser, b.list, context, style)
-        self.typesetScripts(parser, b.list, context, style, delta)
+        if self._attach_scripts:
+            self.typesetScripts(parser, b.list, context, style, delta)
+        self._attach_scripts = True
         b.typeset(parser, [])
         return b
+
+    @staticmethod
+    def overbar(parser, b, k, t):
+        """
+        Build TeX's overbar box: kern(t), rule(t), kern(k), then box b.
+        """
+        if b.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) and getattr(b, "typeset_context", None) is None:
+            b.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        out = box.VBox(parser, None, 0)
+        out.list[:] = [
+            nd.Kern(t),
+            nd.Rule(NEG_MAX_DIMEN, t, 0),
+            nd.Kern(k),
+            b,
+        ]
+        out.typeset(parser, [])
+        return out
 
     @staticmethod
     def rebox(parser, b, width):
@@ -1857,6 +1878,40 @@ class Rad(Atom):
     def saveInfo(self):
         return {"init": {"delim": self.delim, "oprand": self.oprand}}
 
+    def _typesetField(self, parser, field, context, style):
+        out = box.HBox(parser, None, 0)
+        if field is not None:
+            typeset = getattr(field, "typeset", None)
+            if typeset is None:
+                out.list.append(field)
+            else:
+                typeset(parser, out.list, context, style)
+        out.typeset(parser, [])
+        return out
+
+    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
+        """
+        Appendix G, Rule 11: typeset radical nucleus and delimiter.
+        """
+        x = self._typesetField(parser, self.oprand, context, Style(style.style, cramped=True))
+        theta = Dimen(context.xi(style)[7])  # xi8 default rule thickness
+        # Rule 11: phi = sigma5 only for C > T (script/scriptscript), else phi = theta.
+        if style.style > MATH_STYLE.T:
+            phi = Dimen(context.sigma(style)[4])  # sigma5
+        else:
+            phi = theta
+        clr = theta + Dimen(abs(float(phi)) / 4)
+        y = self.delim.typeset(parser, x.height + x.depth + clr + theta, context, style)
+        if y.height <= 0:
+            y.height = theta
+        delta = y.depth - (x.height + x.depth + clr)
+        if delta > 0:
+            clr += delta / 2
+        y.shifted = Dimen(-float(x.height + clr))
+        packed.append(y)
+        packed.append(Atom.overbar(parser, x, clr, y.height))
+        return Dimen()
+
     node_type = nd.NODE_TYPE.MATHNODE
 
 
@@ -2138,10 +2193,119 @@ class Accent(Atom):
     def __init__(self, accent, base):
         super().__init__(ATOM_TYPE.ACC)
         self.accent = accent
-        self.base = base
+        self.nucleus = base
+
+    @property
+    def base(self):
+        return self.nucleus
+
+    @base.setter
+    def base(self, value):
+        self.nucleus = value
 
     def saveInfo(self):
         return {"init": {"accent": self.accent, "base": self.base}}
+
+    def _typesetField(self, parser, field, context, style):
+        out = box.HBox(parser, None, 0)
+        if field is not None:
+            typeset = getattr(field, "typeset", None)
+            if typeset is None:
+                out.list.append(field)
+            else:
+                typeset(parser, out.list, context, style)
+        out.typeset(parser, [])
+        return out
+
+    def _fontCharIfExists(self, font, char):
+        code = ord(char)
+        if code < font.bc or code > font.ec:
+            return None
+        info = font.tfm.char_info[code - font.bc]
+        if not getattr(info, "exists", False):
+            return None
+        return font[char]
+
+    def _rule12Skew(self, nucleus_symbol, context, style):
+        # Kern amount for nucleus followed by skewchar in its font.
+        if not isinstance(nucleus_symbol, MathSymbol):
+            return Dimen()
+        base_style = Style(style.style, cramped=True)
+        font = context.font(base_style, nucleus_symbol.fam)
+        base = self._fontCharIfExists(font, nucleus_symbol.char)
+        if base is None:
+            return Dimen()
+        skew = font.fontchar.get("skewchar", 0)
+        if skew < font.bc or skew > font.ec:
+            return Dimen()
+        nxt = self._fontCharIfExists(font, chr(skew))
+        if nxt is None:
+            return Dimen()
+        step = ligature_step(base, nxt)
+        if step is None or not step.isKern:
+            return Dimen()
+        return Dimen(step.kern * font.at)
+
+    def _rule12AccentNode(self, context, style, u):
+        # Pick accent in current size, following successor chain while width <= u.
+        font = context.font(style, self.accent.fam)
+        node = self._fontCharIfExists(font, self.accent.char)
+        if node is None:
+            return None, None
+        while True:
+            chain = getattr(node.char_info, "chain", None)
+            if chain is None:
+                break
+            nxt = self._fontCharIfExists(font, chain)
+            if nxt is None or nxt.width > u:
+                break
+            node = nxt
+        return node, font
+
+    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
+        # Rule 12 starts from nucleus in style C'.
+        self._attach_scripts = True
+        base_symbol = self.nucleus if isinstance(self.nucleus, MathSymbol) else None
+        x = self._typesetField(parser, self.nucleus, context, Style(style.style, cramped=True))
+        u = x.width
+        y_char, accent_font = self._rule12AccentNode(context, style, u)
+        # If accent doesn't exist in current size, continue at Rule 16.
+        if y_char is None:
+            return super().typesetNucleus(parser, packed, context, style)
+        s = self._rule12Skew(base_symbol, context, style) if base_symbol is not None else Dimen()
+        delta = x.height
+        xh = Dimen(accent_font.param[4])  # fontdimen5 (x-height)
+        if delta > xh:
+            delta = xh
+        if base_symbol is not None:
+            old_h = x.height
+            base_atom = Atom(ATOM_TYPE.ORD)
+            base_atom.nucleus = self.nucleus
+            base_atom.sub = self.sub
+            base_atom.sup = self.sup
+            x = base_atom.assemble(parser, context, style)
+            delta += x.height - old_h
+            # Rule 12 single-character branch absorbs scripts into x.
+            self._attach_scripts = False
+        # y is accent character including italic correction.
+        y = box.HBox(parser, None, 0)
+        y.list.append(y_char)
+        if float(y_char.italic) != 0:
+            y.list.append(nd.Kern(y_char.italic, automatic=True))
+        y.typeset(parser, [])
+        y.shifted = s + (u - y.width) / 2
+        # z stacks y, kern(-delta), x.
+        y.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        x.typeset_context = VNodeContext(parser.state.layout, init_prevdepth)
+        z = box.VBox(parser, None, 0)
+        z.list[:] = [y, nd.Kern(Dimen(-float(delta))), x]
+        z.typeset(parser, [])
+        if z.height < x.height:
+            z.list.insert(0, nd.Kern(x.height - z.height))
+            z.typeset(parser, [])
+        z.width = x.width
+        packed.append(z)
+        return Dimen()
     
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -2265,15 +2429,15 @@ class Line(Atom):
         else:
             x.typeset(parser, [])
         theta = Dimen(context.xi(style)[7])
-        vbox = box.VBox(parser, None, 0)
-        kern1 = nd.Kern(theta)
-        rule = nd.Rule(NEG_MAX_DIMEN, theta, 0)
-        kern2 = nd.Kern(3*theta)
         if self.atom_type == ATOM_TYPE.OVER:
-            vbox.list[:] = [kern1, rule, kern2, x]
+            vbox = Atom.overbar(parser, x, 3 * theta, theta)
         else:
+            vbox = box.VBox(parser, None, 0)
+            kern1 = nd.Kern(theta)
+            rule = nd.Rule(NEG_MAX_DIMEN, theta, 0)
+            kern2 = nd.Kern(3*theta)
             vbox.list[:] = [x, kern2, rule, kern1]
-        vbox.typeset(parser, [])
+            vbox.typeset(parser, [])
         packed.append(vbox)
         return Dimen()
 

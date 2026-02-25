@@ -513,6 +513,27 @@ def test_rule17_does_not_insert_italic_kern_when_subscript_exists(math):
     assert len(kerns) == 0
 
 
+def test_rule20_op_to_inner_inserts_thinmuskip_in_text_style(math):
+    math.parse("$\\mathop a\\mathinner b$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
+    assert len(glues) == 1
+    assert float(glues[0].glue.dimen) == pytest.approx(float(mlist.typeset_context.muskips[0].dimen), abs=1e-4)
+    math.parse("$")
+
+
+def test_rule20_op_to_inner_space_is_nonscript(math):
+    math.parse("$\\scriptstyle\\mathop a\\mathinner b$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
+    assert len(glues) == 0
+    math.parse("$")
+
+
 def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
     mlist = mmode.MList(math)

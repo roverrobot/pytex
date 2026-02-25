@@ -59,6 +59,36 @@ class ParagraphTypesetContext:
         self.words = self.buildWords(parser, paragraph)
         self.actual_looseness = 0
 
+    def lineShape(self, line_no):
+        # TEX provides a special abbreviation
+        # for it in terms of two parameters called \hangindent and \hangafter. The command
+        # ‘\hangindent=⟨dimen⟩’ specifies a so-called hanging indentation, and the command
+        # ‘\hangafter=⟨number⟩’ specifies the duration of that indentation. Let x and n be the
+        # respective values of \hangindent and \hangafter, and let h be the value of \hsize;
+        # then if n≥0, hanging indentation will occur on lines n+1, n+2,...of the paragraph,
+        # but if n<0 it will occur on lines 1, 2,..., |n|. Hanging indentation means that lines will
+        # be of width h−|x|instead of their normal width h; if x≥0, the lines will be indented
+        # at the left margin, otherwise they will be indented at the right margin. If \parshape is present, 
+        # then it takes precedence.
+        if self.parshape:
+            i = line_no - 1
+            if i >= len(self.parshape):
+                i = len(self.parshape) - 1
+            return self.parshape[i]
+        hang = self.hangindent
+        if hang == 0:
+            return Dimen(), self.hsize
+        after = self.hangafter
+        if after >= 0:
+            hanging = line_no > after
+        else:
+            hanging = line_no <= -after
+        if not hanging:
+            return Dimen(), self.hsize
+        if hang > 0:
+            return hang, self.hsize - abs(hang)
+        return Dimen(), self.hsize - abs(hang)
+
     def buildWords(self, parser, paragraph):
         # TEX looks for potentially hyphenatable words by searching ahead from each
         # glue item that is not in a math formula. The search bypasses charac-
@@ -221,7 +251,7 @@ class Paragraph(hmode.HList):
         if lines:
             for i, line in enumerate(lines):
                 packed = []
-                indent, measure = _lineShape(context, i + 1)
+                indent, measure = context.lineShape(i + 1)
                 if indent != 0:
                     packed.append(nd.Glue(Glue(indent)))
                 packed.append(nd.Glue(context.leftskip))
@@ -249,7 +279,7 @@ class Paragraph(hmode.HList):
             self.next_paragraph.typeset_context.prevgraf = line_count
             # For an immediately following display, TeX uses the next line-shape
             # slot to determine \displayindent and \displaywidth.
-            displayindent, displaywidth = _lineShape(context, line_count + 1)
+            displayindent, displaywidth = context.lineShape(line_count + 1)
             next_context = self.next_paragraph.typeset_context
             if hasattr(next_context, "displayindent"):
                 next_context.displayindent = displayindent
@@ -403,41 +433,6 @@ class Paragraph(hmode.HList):
         return _BreakCandidateScan.fillMetrics(context, hlist, breaks)
 
 
-def _isDiscardable(node):
-    return node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY)
-
-
-def _lineShape(context, line_no):
-    # TEX provides a special abbreviation
-    # for it in terms of two parameters called \hangindent and \hangafter. The command
-    # ‘\hangindent=⟨dimen⟩’ specifies a so-called hanging indentation, and the command
-    # ‘\hangafter=⟨number⟩’ specifies the duration of that indentation. Let x and n be the
-    # respective values of \hangindent and \hangafter, and let h be the value of \hsize;
-    # then if n≥0, hanging indentation will occur on lines n+1, n+2,...of the paragraph,
-    # but if n<0 it will occur on lines 1, 2,..., |n|. Hanging indentation means that lines will
-    # be of width h−|x|instead of their normal width h; if x≥0, the lines will be indented
-    # at the left margin, otherwise they will be indented at the right margin. If \parshape is present, 
-    # then it takes precedence.
-    if context.parshape:
-        i = line_no - 1
-        if i >= len(context.parshape):
-            i = len(context.parshape) - 1
-        return context.parshape[i]
-    hang = context.hangindent
-    if hang == 0:
-        return Dimen(), context.hsize
-    after = context.hangafter
-    if after >= 0:
-        hanging = line_no > after
-    else:
-        hanging = line_no <= -after
-    if not hanging:
-        return Dimen(), context.hsize
-    if hang > 0:
-        return hang, context.hsize - abs(hang)
-    return Dimen(), context.hsize - abs(hang)
-
-
 class _BreakCandidate:
     """
     A legal line-break candidate.
@@ -489,7 +484,7 @@ class _Line:
 
         last_line = end.break_index == breaker.end
         line_glue = context.leftskip + context.rightskip
-        _, measure = breaker._lineShape(self.line_no)
+        _, measure = breaker.context.lineShape(self.line_no)
         target = measure
         natural_width = natural.dimen + line_glue.dimen
         glue_total = natural + line_glue
@@ -596,6 +591,10 @@ class _BreakCandidateScan:
             return Glue(node.kern)
         return Glue()
 
+    @staticmethod
+    def _isDiscardable(node):
+        return node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY)
+
     def _prepareCandidateStart(self, candidate):
         if candidate.break_index >= self.end:
             candidate.line_start_index = self.end
@@ -611,7 +610,7 @@ class _BreakCandidateScan:
 
         start = candidate.break_index
         discard = Glue()
-        while start < self.end and _isDiscardable(self.para[start]):
+        while start < self.end and self._isDiscardable(self.para[start]):
             discard += self._discardContribution(self.para[start])
             start += 1
         candidate.line_start_index = start
@@ -649,7 +648,7 @@ class _BreakCandidateScan:
                     append_candidate(_BreakCandidate(i - 1))
                 elif prev_type == nd.NODE_TYPE.MATH and not prev.on:
                     append_candidate(_BreakCandidate(i - 1))
-                elif not _isDiscardable(prev):
+                elif not self._isDiscardable(prev):
                     append_candidate(_BreakCandidate(i))
                 continue
 
@@ -698,19 +697,6 @@ class _BreakCandidateScan:
         return candidates
 
 
-class _VirtualDisc:
-    """
-    Discretionary payload for an automatic hyphenation break candidate.
-    """
-    def __init__(self, pre, post=None, replace=None):
-        self.pre = list(pre)
-        self.post = [] if post is None else list(post)
-        self.replace = [] if replace is None else list(replace)
-        self.pre_width = nd.Disc._fixedWidth(self.pre)
-        self.post_width = nd.Disc._fixedWidth(self.post)
-        self.replace_width = nd.Disc._fixedWidth(self.replace)
-
-
 class _LineBreaker:
     """
     One line-breaking round based on candidate graph nodes and a double loop.
@@ -723,9 +709,6 @@ class _LineBreaker:
         self.allow_overfull = allow_overfull
         self.breaks = breaks
         self.actual_looseness = 0
-
-    def _lineShape(self, line_no):
-        return _lineShape(self.context, line_no)
 
     @staticmethod
     def _badness(ratio):

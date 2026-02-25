@@ -9,6 +9,12 @@ from pytex import mmode
 from pytex.dimen import Dimen
 
 
+def simple_context(parshape, hsize, hangindent, hangafter):
+    ctx = types.SimpleNamespace(parshape=parshape, hsize=hsize, hangindent=hangindent, hangafter=hangafter)
+    ctx.lineShape = types.MethodType(paragraph.ParagraphTypesetContext.lineShape, ctx)
+    return ctx
+
+
 def test_language(cmr10):
     cmr10.parse("\\language 1 ab\\setlanguage 1 c")
     top = cmr10.lists[-1]
@@ -111,37 +117,37 @@ def test_hyphenate_uses_snapshot_words(cmr10):
 
 
 def test_lineshape_hangindent_after_positive():
-    ctx = types.SimpleNamespace(
+    ctx = simple_context(
         parshape=[],
         hsize=Dimen(20),
         hangindent=Dimen(5),
         hangafter=1,
     )
-    assert paragraph._lineShape(ctx, 1) == (0, 20)
-    assert paragraph._lineShape(ctx, 2) == (5, 15)
+    assert ctx.lineShape(1) == (0, 20)
+    assert ctx.lineShape(2) == (5, 15)
 
 
 def test_lineshape_hangindent_after_negative():
-    ctx = types.SimpleNamespace(
+    ctx = simple_context(
         parshape=[],
         hsize=Dimen(20),
         hangindent=Dimen(-4),
         hangafter=-2,
     )
-    assert paragraph._lineShape(ctx, 1) == (0, 16)
-    assert paragraph._lineShape(ctx, 2) == (0, 16)
-    assert paragraph._lineShape(ctx, 3) == (0, 20)
+    assert ctx.lineShape(1) == (0, 16)
+    assert ctx.lineShape(2) == (0, 16)
+    assert ctx.lineShape(3) == (0, 20)
 
 
 def test_lineshape_parshape_precedes_hangindent():
-    ctx = types.SimpleNamespace(
+    ctx = simple_context(
         parshape=[(Dimen(3), Dimen(9))],
         hsize=Dimen(20),
         hangindent=Dimen(5),
         hangafter=-10,
     )
-    assert paragraph._lineShape(ctx, 1) == (3, 9)
-    assert paragraph._lineShape(ctx, 3) == (3, 9)
+    assert ctx.lineShape(1) == (3, 9)
+    assert ctx.lineShape(3) == (3, 9)
 
 
 def _lineEndingWord(hbox):

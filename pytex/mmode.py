@@ -2071,7 +2071,7 @@ class Over(Atom):
         Appendix G, Rule 15b: base numerator/denominator shifts.
         """
         sigma = context.sigma(style)
-        if style.style > MATH_STYLE.T:
+        if style.style < MATH_STYLE.T:
             # C > T
             u = Dimen(sigma[7])   # sigma8
             v = Dimen(sigma[10])  # sigma11
@@ -2088,7 +2088,7 @@ class Over(Atom):
         Returns adjusted (u, v, clearance_kern).
         """
         xi8 = Dimen(context.xi(style)[7])
-        phi = (7 * xi8) if style.style > MATH_STYLE.T else (3 * xi8)
+        phi = (7 * xi8) if style.style < MATH_STYLE.T else (3 * xi8)
         psi = (u - x.depth) - (z.height - v)
         if psi < phi:
             delta = (phi - psi) / 2
@@ -2103,7 +2103,7 @@ class Over(Atom):
 
         Returns adjusted (u, v, kern_above_rule, kern_below_rule).
         """
-        phi = (3 * theta) if style.style > MATH_STYLE.T else theta
+        phi = (3 * theta) if style.style < MATH_STYLE.T else theta
         a = Dimen(context.sigma(style)[21])  # axis height, sigma22
         half_theta = theta / 2
         k1 = (u - x.depth) - (a + half_theta)
@@ -2157,7 +2157,7 @@ class Over(Atom):
             right_delim = Delim(0, 0)
         else:
             left_delim, right_delim = self.delims
-        min_total = Dimen(context.sigma(style)[19] if style.style > MATH_STYLE.T else context.sigma(style)[20])
+        min_total = Dimen(context.sigma(style)[19] if style.style < MATH_STYLE.T else context.sigma(style)[20])
         total = out.height + out.depth
         if total < min_total:
             total = min_total

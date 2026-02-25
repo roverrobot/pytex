@@ -1471,8 +1471,8 @@ def test_fraction_rule15b_uv_script(math):
     frac = math.lists[-1][-1][0]
     _, _, theta = frac.rule15(ctx, style)
     u, v = frac.rule15b(ctx, style, theta)
-    assert float(u) == pytest.approx(sigma[7], abs=1e-4)   # sigma8
-    assert float(v) == pytest.approx(sigma[10], abs=1e-4)  # sigma11
+    assert float(u) == pytest.approx(sigma[8], abs=1e-4)   # sigma9
+    assert float(v) == pytest.approx(sigma[11], abs=1e-4)  # sigma12
 
 
 def test_fraction_rule15c_atop_construction(math):
@@ -1539,6 +1539,17 @@ def test_fraction_rule15d_over_construction(math):
     assert float(out.depth) == pytest.approx(float(z.depth + v), abs=1e-4)
 
 
+def test_fraction_display_metrics_match_tex(parser):
+    parser.parse("\\input plain")
+    parser.parse("\\setbox0=\\hbox{$\\displaystyle {a^2 \\over b^2}$}")
+    b = parser.state.box[0]
+    # Reference metrics from pdfTeX:
+    # \\hbox(14.9051+6.85951)x12.17201
+    assert float(b.width) == pytest.approx(12.17201, abs=1e-4)
+    assert float(b.height) == pytest.approx(14.90510, abs=1e-4)
+    assert float(b.depth) == pytest.approx(6.85951, abs=1e-4)
+
+
 def test_fraction_rule15d_over_min_clearance_script(math):
     style = mmode.Style(mmode.MATH_STYLE.S)
     ctx = mmode.MathTypesetContext(math, mmode.MATH_CONTEXT_MODE.SUBFORMULA)
@@ -1550,7 +1561,7 @@ def test_fraction_rule15d_over_min_clearance_script(math):
     out = packed[1]
     _, k1, _, k2, _ = out.list
     _, _, theta = frac.rule15(ctx, style)
-    phi = 3 * theta
+    phi = theta
     assert float(k1.kern) >= float(phi)
     assert float(k2.kern) >= float(phi)
 

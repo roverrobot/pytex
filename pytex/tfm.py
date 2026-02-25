@@ -6,6 +6,7 @@ from pytex import node
 from pytex.module import Module
 from struct import unpack, pack
 import io
+import os
 
 
 class BinaryStream:
@@ -279,6 +280,9 @@ class TFM:
 
 
 nullfont = TFM("nullfont", None)
+# process-level cache for parsed on-disk TFM files
+_system_tfm_cache = {}
+_system_tfm_name_cache = {}
 
 
 class TFMDict(dict):
@@ -300,10 +304,26 @@ def loadTFM(parser, name: str):
     """
     if name in parser.tfm:
         return parser.tfm[name]
+    name_key = (id(parser.resolver), name)
+    tfm = _system_tfm_name_cache.get(name_key)
+    if tfm is not None:
+        parser.tfm[name] = tfm
+        return tfm
     file = parser.resolver.openIn(name, "fonts/tfm")
     if file is None:
         raise FileNotFoundError(f"TFM file {name} not found")
-    tfm = TFM(name, file)
+    # Only share process-wide cache for real files on disk. In-memory streams
+    # may change between parsers and should stay parser-local.
+    path = getattr(file, "name", None)
+    cache_key = None
+    if isinstance(path, str) and path:
+        cache_key = os.path.realpath(path)
+    tfm = _system_tfm_cache.get(cache_key) if cache_key is not None else None
+    if tfm is None:
+        tfm = TFM(name, file)
+        if cache_key is not None:
+            _system_tfm_cache[cache_key] = tfm
+    _system_tfm_name_cache[name_key] = tfm
     parser.tfm[name] = tfm
     file.close()
     return tfm

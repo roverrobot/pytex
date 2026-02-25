@@ -247,6 +247,15 @@ class Paragraph(hmode.HList):
         if self.next_paragraph is not None:
             self.next_paragraph.prevgraf = line_count
             self.next_paragraph.typeset_context.prevgraf = line_count
+            # For an immediately following display, TeX uses the next line-shape
+            # slot to determine \displayindent and \displaywidth.
+            displayindent, displaywidth = _lineShape(context, line_count + 1)
+            next_context = self.next_paragraph.typeset_context
+            if hasattr(next_context, "displayindent"):
+                next_context.displayindent = displayindent
+                next_context.displaywidth = displaywidth
+                parser.state.layout["displayindent"] = displayindent
+                parser.state.layout["displaywidth"] = displaywidth
             # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
             # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
             # the closing $$ of another display), p is set to -16383.99999 pt (i.e., to the smallest legal
@@ -258,9 +267,9 @@ class Paragraph(hmode.HList):
                 p = Dimen(-16383.99999)
             else:
                 p = hbox.rightmost() + 2 * context.em
-            parser.state.layout.predisplaysize = p
-            self.next_paragraph.typeset_context.predisplaysize = p
-            self.next_paragraph.typeset_context.prevdepth = hbox.depth
+            parser.state.layout["predisplaysize"] = p
+            next_context.predisplaysize = p
+            next_context.prevdepth = hbox.depth
 
     def lineBreak(self, parser, hlist):
         """

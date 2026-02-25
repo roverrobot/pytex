@@ -94,15 +94,15 @@ class Box(nd.Box):
             self.to = self.spread + natural.dimen
         spread = self.spread
         if spread is None:
-            self.glue_ratio = 0
+            self.glue_ratio = 0.0
         if self.to is None:
             self.to = natural.dimen + self.spread
         elif spread > 0 and natural.stretch.factor != 0:
-            self.glue_ratio = spread / natural.stretch.factor
+            self.glue_ratio = float(spread) / natural.stretch.factor
         elif spread < 0 and natural.shrink.factor != 0:
-            self.glue_ratio = spread / natural.shrink.factor
+            self.glue_ratio = float(spread) / natural.shrink.factor
         else:
-            self.glue_ratio = 0
+            self.glue_ratio = 0.0
         packed.append(self)
         self.natural = natural
 

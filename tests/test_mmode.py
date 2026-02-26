@@ -598,15 +598,31 @@ def test_rule14_marks_text_symbol_for_rule17(math):
     assert not wrappers[1].text_symbol
 
 
-def test_rule17_italic_kern_suppressed_for_text_symbol_with_nonzero_fontdimen2(math):
+def test_rule17_cases(math):
+    # Rule 17: math-list nucleus is typeset to a box.
+    inner = mmode.MList(math)
+    inner.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "b"),
+    ])
+    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom.nucleus = inner
+    mlist = mmode.MList(math)
+    mlist.append(atom)
+    packed = []
+    ctx = mmode.MathTypesetContext(False)
+    ctx.snapshot(math)
+    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    assert any(n.node_type == nd.NODE_TYPE.HLIST for n in packed), "rule17 math-list nucleus should typeset to a box"
+
+    # Rule 17: text-symbol mark suppresses italic correction kern.
     math.parse("\\textfont0=\\tenit \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f")
     base = mmode.MathTypesetContext(False)
     base.snapshot(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
     font = base.font(style, 0)
-    assert float(font.param[1]) != 0
-    assert float(font["f"].italic) != 0
+    assert float(font.param[1]) != 0 and float(font["f"].italic) != 0, "rule17 text-symbol fixture precondition"
 
     plain_ctx = mmode.AtomTypesetContext(base, None)
     plain_ctx.atom_type = mmode.ATOM_TYPE.ORD
@@ -614,7 +630,7 @@ def test_rule17_italic_kern_suppressed_for_text_symbol_with_nonzero_fontdimen2(m
     plain = []
     atom.typeset(math, plain, plain_ctx, style)
     plain_kerns = [n for n in plain if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
-    assert len(plain_kerns) == 1
+    assert len(plain_kerns) == 1, "rule17 plain symbol should get italic kern"
 
     text_ctx = mmode.AtomTypesetContext(base, None)
     text_ctx.atom_type = mmode.ATOM_TYPE.ORD
@@ -622,142 +638,127 @@ def test_rule17_italic_kern_suppressed_for_text_symbol_with_nonzero_fontdimen2(m
     text = []
     atom.typeset(math, text, text_ctx, style)
     text_kerns = [n for n in text if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
-    assert len(text_kerns) == 0
+    assert len(text_kerns) == 0, "rule17 text symbol should suppress italic kern"
 
-
-def test_rule17_does_not_insert_italic_kern_when_subscript_exists(math):
+    # Rule 17: subscript present suppresses italic correction kern.
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "f")
     atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("i"), -1)
-    base = mmode.MathTypesetContext(False)
-    base.snapshot(math)
     ctx = mmode.AtomTypesetContext(base, None)
     ctx.atom_type = mmode.ATOM_TYPE.ORD
     ctx.text_symbol = False
     packed = []
     atom.typeset(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
-    assert len(kerns) == 0
+    assert len(kerns) == 0, "rule17 symbol with subscript should suppress italic kern"
 
 
-def test_rule20_op_to_inner_inserts_thinmuskip_in_text_style(math):
-    math.parse("$\\mathop a\\mathinner b$")
-    mlist = math.lists[-1][1]
-    packed = []
-    mlist.typeset(math, packed)
-    glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
-    assert len(glues) == 1
-    assert float(glues[0].glue.dimen) == pytest.approx(float(mlist.typeset_context.muskips[0].dimen), abs=1e-4)
-    math.parse("$")
+def test_rule20_spacing_cases(math):
+    cases = [
+        (
+            "$\\mathop a\\mathinner b$",
+            1,
+            lambda mlist, glues: float(glues[0].glue.dimen)
+            == pytest.approx(float(mlist.typeset_context.muskips[0].dimen), abs=1e-4),
+            "rule20 text style should insert thinmuskip",
+        ),
+        (
+            "$\\scriptstyle\\mathop a\\mathinner b$",
+            0,
+            lambda mlist, glues: True,
+            "rule20 script style should remove nonscript spacing",
+        ),
+    ]
+    for expr, expected_count, predicate, label in cases:
+        math.parse(expr)
+        mlist = next(n for n in reversed(math.lists[-1]) if isinstance(n, mmode.InlineMathList))
+        packed = []
+        mlist.typeset(math, packed)
+        glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
+        assert len(glues) == expected_count, label
+        assert predicate(mlist, glues), label
 
 
-def test_rule20_op_to_inner_space_is_nonscript(math):
-    math.parse("$\\scriptstyle\\mathop a\\mathinner b$")
-    mlist = math.lists[-1][1]
-    packed = []
-    mlist.typeset(math, packed)
-    glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
-    assert len(glues) == 0
-    math.parse("$")
-
-
-def test_rule21_bin_penalty_inserted_in_paragraph_math(math):
-    mlist = mmode.InlineMathList(math)
-    mlist.extend([
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-        _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
-    ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    ctx.binoppenalty = 123
-    packed = []
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
-    assert len(penalties) == 1
-    assert penalties[0].penalty == 123
-
-
-def test_rule21_rel_penalty_not_after_rel_followed_by_rel(math):
-    mlist = mmode.InlineMathList(math)
-    mlist.extend([
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-        _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
-        _mk_atom(mmode.ATOM_TYPE.REL, 1, "c"),
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "d"),
-    ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    ctx.relpenalty = 234
-    packed = []
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
-    assert len(penalties) == 1
-    assert penalties[0].penalty == 234
-
-
-def test_rule21_skips_if_next_item_is_penalty(math):
-    mlist = mmode.InlineMathList(math)
-    mlist.extend([
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-        _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
-        nd.Penalty(50),
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
-    ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    ctx.relpenalty = 345
-    packed = []
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
-    assert len(penalties) == 1
-    assert penalties[0].penalty == 50
-
-
-def test_rule21_skips_if_penalty_value_is_ge_10000(math):
-    mlist = mmode.InlineMathList(math)
-    mlist.extend([
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-        _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
-    ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    ctx.binoppenalty = 10000
-    packed = []
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
-    assert len(penalties) == 0
-
-
-def test_rule21_disabled_outside_paragraph_math(math):
-    mlist = mmode.MList(math)
-    mlist.extend([
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-        _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
-    ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    ctx.binoppenalty = 123
-    packed = []
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
-    assert len(penalties) == 0
-
-
-def test_rule21_skips_after_final_item(math):
-    mlist = mmode.InlineMathList(math)
-    mlist.extend([
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-        _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
-    ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    ctx.relpenalty = 123
-    packed = []
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
-    assert len(penalties) == 0
+def test_rule21_penalty_cases(math):
+    cases = [
+        (
+            "bin inserted in paragraph math",
+            mmode.InlineMathList,
+            lambda: [
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+                _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+            ],
+            {"binoppenalty": 123},
+            [123],
+        ),
+        (
+            "rel not inserted before rel",
+            mmode.InlineMathList,
+            lambda: [
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+                _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+                _mk_atom(mmode.ATOM_TYPE.REL, 1, "c"),
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "d"),
+            ],
+            {"relpenalty": 234},
+            [234],
+        ),
+        (
+            "skip when next item is penalty",
+            mmode.InlineMathList,
+            lambda: [
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+                _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+                nd.Penalty(50),
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+            ],
+            {"relpenalty": 345},
+            [50],
+        ),
+        (
+            "skip when configured penalty >= 10000",
+            mmode.InlineMathList,
+            lambda: [
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+                _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+            ],
+            {"binoppenalty": 10000},
+            [],
+        ),
+        (
+            "disabled outside paragraph math",
+            mmode.MList,
+            lambda: [
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+                _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+            ],
+            {"binoppenalty": 123},
+            [],
+        ),
+        (
+            "skip after final item",
+            mmode.InlineMathList,
+            lambda: [
+                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+                _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+            ],
+            {"relpenalty": 123},
+            [],
+        ),
+    ]
+    for label, list_type, nodes, ctx_overrides, expected in cases:
+        mlist = list_type(math)
+        mlist.extend(nodes())
+        ctx = mmode.MathTypesetContext(False)
+        ctx.snapshot(math)
+        for key, value in ctx_overrides.items():
+            setattr(ctx, key, value)
+        packed = []
+        mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+        penalties = [n.penalty for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+        assert penalties == expected, label
 
 
 def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
@@ -783,101 +784,60 @@ def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
     assert len(auto_kerns) == 0
 
 
-def test_rule17_math_list_nucleus_is_typeset_as_box(math):
-    inner = mmode.MList(math)
-    inner.extend([
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "b"),
-    ])
-    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom.nucleus = inner
-    mlist = mmode.MList(math)
-    mlist.append(atom)
-    packed = []
+def test_rule18_substeps(math):
+    def close(actual, expected, stage):
+        assert float(actual) == pytest.approx(float(expected), abs=1e-4), stage
+
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    assert any(n.node_type == nd.NODE_TYPE.HLIST for n in packed)
+    style = mmode.Style(mmode.MATH_STYLE.T)
 
-
-def test_rule18a_char_translation_sets_u_v_zero(math):
+    # 18a: character nucleus => u=v=0
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
     u, v = atom.rule18a(math, translated, ctx, style)
-    assert u == 0
-    assert v == 0
+    assert u == 0 and v == 0, "rule18a char nucleus should set u=v=0"
 
-
-def test_rule18a_char_plus_kern_translation_sets_u_v_zero(math):
+    # 18a: char+kern nucleus => u=v=0
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "f")
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("i"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
-    assert len(translated) == 2
-    assert translated[1].node_type == nd.NODE_TYPE.KERN
+    assert len(translated) == 2 and translated[1].node_type == nd.NODE_TYPE.KERN, "rule18a char+kern translation shape"
     u, v = atom.rule18a(math, translated, ctx, style)
-    assert u == 0
-    assert v == 0
+    assert u == 0 and v == 0, "rule18a char+kern should set u=v=0"
 
-
-def test_rule18a_box_translation_uses_sigma18_sigma19(math):
+    # 18a: box nucleus uses sigma18/sigma19
     inner = mmode.MList(math)
     inner.append(_mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"))
     inner.append(_mk_atom(mmode.ATOM_TYPE.ORD, 1, "b"))
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
     atom.nucleus = inner
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
-    assert len(translated) == 1
-    assert translated[0].node_type == nd.NODE_TYPE.HLIST
+    assert len(translated) == 1 and translated[0].node_type == nd.NODE_TYPE.HLIST, "rule18a box translation shape"
     h = translated[0].height
     d = translated[0].depth
     q = Dimen(ctx.sigma(style.superscript())[17])
     r = Dimen(ctx.sigma(style.subscript())[18])
     u, v = atom.rule18a(math, translated, ctx, style)
-    assert float(u) == pytest.approx(float(h - q), abs=1e-4)
-    assert float(v) == pytest.approx(float(d + r), abs=1e-4)
+    close(u, h - q, "rule18a box u should use h-q")
+    close(v, d + r, "rule18a box v should use d+r")
 
-
-def test_rule18b_subscript_only_appends_shifted_script_box(math):
+    # 18b: subscript only
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
     atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 2
+    assert len(b.list) == 2, "rule18b should append one subscript box"
     sub_box = b.list[1]
-    assert sub_box.node_type == nd.NODE_TYPE.HLIST
-    assert float(sub_box.shifted) >= 0
-
-
-def test_rule18b_subscript_only_uses_scriptspace_and_shift_formula(math):
-    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
-    atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
-    b = atom.assemble(math, ctx, style)
-    sub_box = b.list[1]
-
+    assert sub_box.node_type == nd.NODE_TYPE.HLIST and float(sub_box.shifted) >= 0, "rule18b sub box shape/shift"
     raw = box.HBox(math, None, 0)
     atom.sub.typeset(math, raw.list, ctx, style.subscript())
     raw.typeset(math, [])
-    assert float(sub_box.width) == pytest.approx(float(raw.width + ctx.scriptspace), abs=1e-4)
-
+    close(sub_box.width, raw.width + ctx.scriptspace, "rule18b should add scriptspace")
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
     _, v = atom.rule18a(math, translated, ctx, style)
@@ -885,151 +845,93 @@ def test_rule18b_subscript_only_uses_scriptspace_and_shift_formula(math):
     sigma16 = Dimen(sigma[15])
     sigma5 = Dimen(sigma[4])
     lift_limit = sub_box.height - Dimen(abs(float(sigma5)) * 4 / 5)
-    expected = v
-    if sigma16 > expected:
-        expected = sigma16
-    if lift_limit > expected:
-        expected = lift_limit
-    assert float(sub_box.shifted) == pytest.approx(float(expected), abs=1e-4)
+    expected = max(v, sigma16, lift_limit)
+    close(sub_box.shifted, expected, "rule18b sub shift formula")
 
-
-def test_rule18c_superscript_only_appends_shifted_script_box(math):
+    # 18c: superscript only
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 2
+    assert len(b.list) == 2, "rule18c should append one superscript box"
     sup_box = b.list[1]
-    assert sup_box.node_type == nd.NODE_TYPE.HLIST
-    assert float(sup_box.shifted) <= 0
-
-
-def test_rule18c_superscript_only_uses_scriptspace_and_shift_formula(math):
-    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
-    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
-    b = atom.assemble(math, ctx, style)
-    sup_box = b.list[1]
-
+    assert sup_box.node_type == nd.NODE_TYPE.HLIST and float(sup_box.shifted) <= 0, "rule18c sup box shape/shift"
     raw = box.HBox(math, None, 0)
     atom.sup.typeset(math, raw.list, ctx, style.superscript())
     raw.typeset(math, [])
-    assert float(sup_box.width) == pytest.approx(float(raw.width + ctx.scriptspace), abs=1e-4)
-
+    close(sup_box.width, raw.width + ctx.scriptspace, "rule18c should add scriptspace")
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
     u, _ = atom.rule18a(math, translated, ctx, style)
-    sigma = ctx.sigma(style)
-    sigma5 = Dimen(sigma[4])
-    p = Dimen(sigma[13])  # sigma14 in text style
+    sigma5 = Dimen(ctx.sigma(style)[4])
+    p = Dimen(ctx.sigma(style)[13])  # sigma14 in text style
     lift_limit = sup_box.depth + Dimen(abs(float(sigma5)) / 4)
-    expected = u
-    if p > expected:
-        expected = p
-    if lift_limit > expected:
-        expected = lift_limit
-    assert float(sup_box.shifted) == pytest.approx(-float(expected), abs=1e-4)
+    expected = max(u, p, lift_limit)
+    close(sup_box.shifted, -expected, "rule18c sup shift formula")
 
-
-def test_rule18c_p_selection_display_text_and_cramped(math):
+    # 18c p selection by style
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
     x = box.HBox(math, 0, 0)
     x.typeset(math, [])
-    context = mmode.MathTypesetContext(False)
-    context.snapshot(math)
-
     u0 = Dimen()
-    u_disp = atom.rule18c(x, context, mmode.Style(mmode.MATH_STYLE.D, cramped=False), u0)
-    u_text = atom.rule18c(x, context, mmode.Style(mmode.MATH_STYLE.T, cramped=False), u0)
-    u_crmp = atom.rule18c(x, context, mmode.Style(mmode.MATH_STYLE.T, cramped=True), u0)
-    sigma_disp = context.sigma(mmode.Style(mmode.MATH_STYLE.D, cramped=False))
-    sigma_text = context.sigma(mmode.Style(mmode.MATH_STYLE.T, cramped=False))
-    sigma_crmp = context.sigma(mmode.Style(mmode.MATH_STYLE.T, cramped=True))
-    assert float(u_disp) >= float(Dimen(sigma_disp[12]))  # sigma13
-    assert float(u_text) >= float(Dimen(sigma_text[13]))  # sigma14
-    assert float(u_crmp) >= float(Dimen(sigma_crmp[14]))  # sigma15
+    u_disp = atom.rule18c(x, ctx, mmode.Style(mmode.MATH_STYLE.D, cramped=False), u0)
+    u_text = atom.rule18c(x, ctx, mmode.Style(mmode.MATH_STYLE.T, cramped=False), u0)
+    u_crmp = atom.rule18c(x, ctx, mmode.Style(mmode.MATH_STYLE.T, cramped=True), u0)
+    sigma_disp = ctx.sigma(mmode.Style(mmode.MATH_STYLE.D, cramped=False))
+    sigma_text = ctx.sigma(mmode.Style(mmode.MATH_STYLE.T, cramped=False))
+    sigma_crmp = ctx.sigma(mmode.Style(mmode.MATH_STYLE.T, cramped=True))
+    assert float(u_disp) >= float(Dimen(sigma_disp[12])), "rule18c display should use sigma13"
+    assert float(u_text) >= float(Dimen(sigma_text[13])), "rule18c text should use sigma14"
+    assert float(u_crmp) >= float(Dimen(sigma_crmp[14])), "rule18c cramped should use sigma15"
 
-
-def test_rule18d_both_scripts_sub_box_and_v_floor(math):
+    # 18d: both scripts, sub box and v floor
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
     atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
-
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
     u, v = atom.rule18a(math, translated, ctx, style)
     x = atom._typesetScriptField(math, atom.sup, ctx, style.superscript())
     u = atom.rule18c(x, ctx, style, u)
     y, v2 = atom.rule18d(math, ctx, style, v)
-
     raw = box.HBox(math, None, 0)
     atom.sub.typeset(math, raw.list, ctx, style.subscript())
     raw.typeset(math, [])
-    assert float(y.width) == pytest.approx(float(raw.width + ctx.scriptspace), abs=1e-4)
-    assert v2 >= v
-    assert v2 >= Dimen(ctx.sigma(style)[16])  # sigma17
+    close(y.width, raw.width + ctx.scriptspace, "rule18d sub box should include scriptspace")
+    assert v2 >= v and v2 >= Dimen(ctx.sigma(style)[16]), "rule18d should enforce v>=max(v,sigma17)"
 
-
-def test_rule18e_enforces_minimum_sup_sub_clearance(math):
+    # 18e: minimum clearance
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     x = nd.Box(0, 0, 10)
     y = nd.Box(0, 10, 0)
-    u = Dimen()
-    v = Dimen()
-    u2, v2 = atom.rule18e(x, y, ctx, style, u, v)
+    u2, v2 = atom.rule18e(x, y, ctx, style, Dimen(), Dimen())
     theta = Dimen(ctx.xi(style)[7])
     clearance = (u2 - x.depth) - (y.height - v2)
-    assert float(clearance) == pytest.approx(float(4 * theta), abs=1e-4)
+    close(clearance, 4 * theta, "rule18e should enforce 4theta clearance")
 
-
-def test_rule18e_enforces_superscript_bottom_floor(math):
-    atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
+    # 18e: superscript bottom floor
     x = nd.Box(0, 0, 1)
     y = nd.Box(0, 0, 0)
     u = Dimen()
     v = Dimen(100)
     u2, v2 = atom.rule18e(x, y, ctx, style, u, v)
     floor = Dimen(abs(float(ctx.sigma(style)[4])) * 4 / 5)
-    assert float(u2 - x.depth) == pytest.approx(float(floor), abs=1e-4)
-    assert float(v2) == pytest.approx(float(v - (u2 - u)), abs=1e-4)
+    close(u2 - x.depth, floor, "rule18e should enforce 4/5 x-height floor")
+    close(v2, v - (u2 - u), "rule18e should preserve clearance by reducing v")
 
-
-def test_rule18f_both_scripts_appends_joint_vbox(math):
+    # 18f: assembled both scripts form joint vbox
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
     atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 2
+    assert len(b.list) == 2, "rule18f should append one joint scripts vbox"
     joint = b.list[1]
-    assert joint.node_type == nd.NODE_TYPE.VLIST
-    assert len(joint.list) == 3
-    assert joint.list[1].node_type == nd.NODE_TYPE.KERN
+    assert joint.node_type == nd.NODE_TYPE.VLIST and len(joint.list) == 3, "rule18f joint vbox shape"
+    assert joint.list[1].node_type == nd.NODE_TYPE.KERN, "rule18f joint vbox middle node should be kern"
 
-
-def test_rule18f_uses_delta_and_expected_vertical_geometry(math):
+    # 18f: delta and expected vertical geometry
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "f")
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
     atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
-
     translated = []
     delta = atom.typesetNucleus(math, translated, ctx, style)
     u, v = atom.rule18a(math, translated, ctx, style)
@@ -1038,17 +940,16 @@ def test_rule18f_uses_delta_and_expected_vertical_geometry(math):
     y, v = atom.rule18d(math, ctx, style, v)
     u, v = atom.rule18e(x, y, ctx, style, u, v)
     expected_k = u + v - x.depth - y.height
-
     b = atom.assemble(math, ctx, style)
     joint = b.list[1]
     top = joint.list[0]
     if float(delta) != 0:
-        assert top.node_type == nd.NODE_TYPE.HLIST
-        assert top.list[0].node_type == nd.NODE_TYPE.KERN
-        assert float(top.list[0].kern) == pytest.approx(float(delta), abs=1e-4)
-    assert float(joint.list[1].kern) == pytest.approx(float(expected_k), abs=1e-4)
-    assert float(joint.depth) == pytest.approx(float(y.depth + v), abs=1e-4)
-    assert float(joint.height) == pytest.approx(float(top.height + u), abs=1e-4)
+        assert top.node_type == nd.NODE_TYPE.HLIST, "rule18f delta should wrap top in hbox"
+        assert top.list[0].node_type == nd.NODE_TYPE.KERN, "rule18f delta wrapper should start with kern"
+        close(top.list[0].kern, delta, "rule18f delta kern width")
+    close(joint.list[1].kern, expected_k, "rule18f middle kern formula")
+    close(joint.depth, y.depth + v, "rule18f joint depth formula")
+    close(joint.height, top.height + u, "rule18f joint height formula")
 
 
 def test_rule18_integral_sub_sup_matches_tex_metrics(parser):
@@ -1064,7 +965,8 @@ def test_rule18_integral_sub_sup_matches_tex_metrics(parser):
     assert b.list[2].node_type == nd.NODE_TYPE.VLIST
 
 
-def test_rule13a_op_limits_stack_and_rebox(math):
+def test_rule13_op_cases(math):
+    # Rule 13a: limits stack and rebox geometry.
     atom = _mk_atom(mmode.ATOM_TYPE.OP, 1, "f")
     atom.limits = mmode.MATH_LIMITS.NORMAL
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
@@ -1073,10 +975,9 @@ def test_rule13a_op_limits_stack_and_rebox(math):
     ctx.snapshot(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 1
+    assert len(b.list) == 1, "rule13a limits should produce one stacked nucleus"
     limits_box = b.list[0]
-    assert limits_box.node_type == nd.NODE_TYPE.VLIST
-    assert len(limits_box.list) == 7
+    assert limits_box.node_type == nd.NODE_TYPE.VLIST and len(limits_box.list) == 7, "rule13a limits stack shape"
     assert [n.node_type for n in limits_box.list] == [
         nd.NODE_TYPE.KERN,
         nd.NODE_TYPE.HLIST,
@@ -1089,37 +990,30 @@ def test_rule13a_op_limits_stack_and_rebox(math):
     x = limits_box.list[1]
     y = limits_box.list[3]
     z = limits_box.list[5]
-    assert x.width == y.width == z.width
+    assert x.width == y.width == z.width, "rule13a x/y/z should be reboxed to equal width"
     delta = Dimen(ctx.font(style, 1)["f"].italic)
-    assert float(x.shifted) == pytest.approx(float(delta / 2), abs=1e-4)
-    assert float(z.shifted) == pytest.approx(float(Dimen() - (delta / 2)), abs=1e-4)
+    assert float(x.shifted) == pytest.approx(float(delta / 2), abs=1e-4), "rule13a superscript horizontal shift"
+    assert float(z.shifted) == pytest.approx(float(Dimen() - (delta / 2)), abs=1e-4), "rule13a subscript horizontal shift"
     # Rule 13a baseline should run through the centered nucleus y, not the
     # bottom of the entire limits stack.
-    assert limits_box.depth > 0
+    assert limits_box.depth > 0, "rule13a baseline should pass through centered nucleus"
 
-
-def test_rule13_displaylimits_only_attach_in_display_style(math):
+    # Rule 13: displaylimits only attaches in display style.
     disp = _mk_atom(mmode.ATOM_TYPE.OP, 1, "f")
     disp.limits = mmode.MATH_LIMITS.DISPLAY
     disp.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
     b_disp = disp.assemble(math, ctx, mmode.Style(mmode.MATH_STYLE.D))
-    assert len(b_disp.list) == 1
-    assert b_disp.list[0].node_type == nd.NODE_TYPE.VLIST
+    assert len(b_disp.list) == 1 and b_disp.list[0].node_type == nd.NODE_TYPE.VLIST, "rule13 displaylimits in display style"
 
     text = _mk_atom(mmode.ATOM_TYPE.OP, 1, "f")
     text.limits = mmode.MATH_LIMITS.DISPLAY
     text.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
     b_text = text.assemble(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    assert len(b_text.list) == 2
-    assert b_text.list[0].node_type == nd.NODE_TYPE.HLIST
-    assert b_text.list[1].node_type == nd.NODE_TYPE.HLIST
+    assert len(b_text.list) == 2, "rule13 displaylimits in text style should not stack limits"
+    assert b_text.list[0].node_type == nd.NODE_TYPE.HLIST, "rule13 text-style op nucleus box"
+    assert b_text.list[1].node_type == nd.NODE_TYPE.HLIST, "rule13 text-style superscript box"
 
-
-def test_rule13_display_style_uses_successor_for_op_symbol(math):
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    # Rule 13: display style uses successor for op symbol when available.
     style = mmode.Style(mmode.MATH_STYLE.D)
     # The fixture's symbols family (2) has no successor chains; extension family (3) does.
     font = ctx.font(style, 3)
@@ -1139,15 +1033,15 @@ def test_rule13_display_style_uses_successor_for_op_symbol(math):
         source_char = info.char
         target_char = chain
         break
-    assert source_char is not None, "expected successor chain in extension family"
+    assert source_char is not None, "rule13 successor test precondition: expected chain in extension family"
     atom = _mk_atom(mmode.ATOM_TYPE.OP, 3, source_char)
     atom.limits = mmode.MATH_LIMITS.NONE
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 1
+    assert len(b.list) == 1, "rule13 successor path should emit single nucleus box"
     nucleus = b.list[0]
-    assert nucleus.node_type == nd.NODE_TYPE.HLIST
-    assert nucleus.list[0].node_type == nd.NODE_TYPE.CHAR
-    assert nucleus.list[0].char == target_char
+    assert nucleus.node_type == nd.NODE_TYPE.HLIST, "rule13 successor nucleus should be hbox"
+    assert nucleus.list[0].node_type == nd.NODE_TYPE.CHAR, "rule13 successor nucleus should start with char"
+    assert nucleus.list[0].char == target_char, "rule13 display style should choose successor character"
 
 
 def test_indent(math):
@@ -1308,46 +1202,37 @@ def test_radical(math):
     math.parse("$")
 
 
-def test_rule11_radical_typesetnucleus_builds_delim_and_overbar(math):
+def test_rule11_radical_cases(math):
     delim = mmode.Delim(0x270370, 0)
     oprand = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
     atom = mmode.Rad(delim, oprand)
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
+
     translated = []
     delta = atom.typesetNucleus(math, translated, ctx, style)
-    assert delta == 0
-    assert len(translated) == 1
+    assert delta == 0, "rule11 radical nucleus should leave delta=0"
+    assert len(translated) == 1, "rule11 radical nucleus should emit one wrapped node"
     wrapped = translated[0]
-    assert wrapped.node_type == nd.NODE_TYPE.HLIST
-    assert len(wrapped.list) == 2
+    assert wrapped.node_type == nd.NODE_TYPE.HLIST and len(wrapped.list) == 2, "rule11 wrapped radical structure"
     delim_box, overbar = wrapped.list
-    assert delim_box.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
-    assert overbar.node_type == nd.NODE_TYPE.VLIST
+    assert delim_box.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST), "rule11 delimiter box type"
+    assert overbar.node_type == nd.NODE_TYPE.VLIST, "rule11 overbar should be vbox"
     assert [n.node_type for n in overbar.list[:3]] == [
         nd.NODE_TYPE.KERN,
         nd.NODE_TYPE.RULE,
         nd.NODE_TYPE.KERN,
-    ]
+    ], "rule11 overbar top should be kern-rule-kern"
 
-
-def test_rule11_radical_scripts_attached_by_rule18(math):
-    delim = mmode.Delim(0x270370, 0)
-    oprand = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
-    atom = mmode.Rad(delim, oprand)
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 2
+    assert len(b.list) == 2, "rule11 scripts should be attached by rule18"
     wrapped = b.list[0]
-    assert wrapped.node_type == nd.NODE_TYPE.HLIST
-    assert len(wrapped.list) == 2
-    assert wrapped.list[0].node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
-    assert wrapped.list[1].node_type == nd.NODE_TYPE.VLIST
-    assert b.list[1].node_type == nd.NODE_TYPE.HLIST
+    assert wrapped.node_type == nd.NODE_TYPE.HLIST and len(wrapped.list) == 2, "rule11 wrapped radical retained under scripts"
+    assert wrapped.list[0].node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST), "rule11 delimiter retained under scripts"
+    assert wrapped.list[1].node_type == nd.NODE_TYPE.VLIST, "rule11 overbar retained under scripts"
+    assert b.list[1].node_type == nd.NODE_TYPE.HLIST, "rule11 attached script box"
 
 
 def test_rule11_radical_display_vs_text_style_metrics(parser):
@@ -1385,7 +1270,8 @@ def test_mathaccent(math):
         assert "accent" in str(e)
 
 
-def test_rule12_single_char_base_absorbs_scripts_inside_accent_box(math):
+def test_rule12_accent_cases(math):
+    # Single-char base absorbs scripts inside accent box.
     accent = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | ord("b"), -1)
     atom = mmode.Accent(accent, mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
@@ -1393,37 +1279,29 @@ def test_rule12_single_char_base_absorbs_scripts_inside_accent_box(math):
     ctx.snapshot(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 1
+    assert len(b.list) == 1, "rule12 single-char base should absorb scripts"
     z = b.list[0]
-    assert z.node_type == nd.NODE_TYPE.VLIST
-    assert z.list[-1].node_type == nd.NODE_TYPE.HLIST
-    assert len(z.list[-1].list) >= 2
+    assert z.node_type == nd.NODE_TYPE.VLIST, "rule12 single-char accent result should be vbox"
+    assert z.list[-1].node_type == nd.NODE_TYPE.HLIST, "rule12 base+scripts should be last node in accent vbox"
+    assert len(z.list[-1].list) >= 2, "rule12 absorbed base should include script content"
 
-
-def test_rule12_non_single_base_keeps_rule16_script_attachment(math):
+    # Non-single base keeps rule16 script attachment outside accent nucleus.
     accent = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | ord("b"), -1)
     base = mmode.MList(math)
     base.append(mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
     atom = mmode.Accent(accent, base)
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert len(b.list) == 2
-    assert b.list[0].node_type == nd.NODE_TYPE.VLIST
-    assert b.list[1].node_type == nd.NODE_TYPE.HLIST
+    assert len(b.list) == 2, "rule12 non-single base should keep external script attachment"
+    assert b.list[0].node_type == nd.NODE_TYPE.VLIST, "rule12 non-single accent nucleus should be vbox"
+    assert b.list[1].node_type == nd.NODE_TYPE.HLIST, "rule12 non-single script attachment should be separate hbox"
 
-
-def test_rule12_missing_accent_char_falls_back_to_rule16(math):
+    # Missing accent char falls back to rule16 behavior.
     missing = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | 0xFF, -1)
     atom = mmode.Accent(missing, mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
-    assert any(getattr(n, "char", None) == "a" for n in b.list)
-    assert not any(n.node_type == nd.NODE_TYPE.VLIST for n in b.list)
+    assert any(getattr(n, "char", None) == "a" for n in b.list), "rule12 missing accent should keep base char"
+    assert not any(n.node_type == nd.NODE_TYPE.VLIST for n in b.list), "rule12 missing accent should skip accent vbox"
 
 
 def test_delimiter(math):

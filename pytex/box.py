@@ -155,10 +155,6 @@ class HBox(Box):
     """
     def __init__(self, parser, to, spread):
         super().__init__(to, spread, hmode.HList(parser, True))
-        self.migrate = []
-
-    def saveInfo(self):
-        return super().saveInfo() | {"extra": {"migrate": self.migrate}}
 
     @classmethod
     def new(cls, parser, **kwargs):
@@ -195,10 +191,9 @@ class HBox(Box):
             packed.append(self)
             return
         super().typeset(parser, packed)
-        self.migrate = [
-            n for n in self.list
-            if n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS)
-        ]
+        for n in self.list:
+            if n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
+                packed.append(n)
         self.width = self.to
 
     def rightmost(self):
@@ -268,6 +263,14 @@ def readToSpread(parser):
     return None, dim
 
 
+class ListEndCallback:
+    def __init__(self, parser):
+        self.parser = parser
+    
+    def __call__(self):
+        self.parser.lists.pop()
+
+
 class BuildBox(Command):
     """
     the base class for \\hbox, \\vbox and \\vtop commands
@@ -282,19 +285,9 @@ class BuildBox(Command):
     vertical = None
     
     def execute(self, parser):
-        box = self.boxValue(parser, False)
         top = parser.lists[-1]
+        box = self.boxValue(parser, False)
         top.append(box)
-        # if we are in vertical model, then migrate
-        if top.type == LISTTYPE.VERTICAL:
-            migrate = getattr(box, "migrate", None)
-            if migrate:
-                for n in migrate:
-                    if n.node_type == nd.NODE_TYPE.ADJUST:
-                        for m in n.vlist:
-                            top.append(m)
-                    else:
-                        top.append(n)
 
     def boxValue(self, parser, setbox):
         to, spread = readToSpread(parser)
@@ -303,22 +296,15 @@ class BuildBox(Command):
         t = parser.token_expand()
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
-        if setbox:
-            # \afterassignment is put after the { token.
-            afterassignment = parser.state.globals["afterassignment"]
-            if afterassignment is not None:
-                parser.state.globals["afterassignment"] = None
-                parser.input.unread(afterassignment)
-                if parser.tracingcommands > 0 and parser.checkRange():
-                    parser.message(f"afterassignment: {parser.tokenToString(afterassignment)}")
+        parser.lists.append(box.list)
+        box.list.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value
         if every:
             parser.input.push(TokenListScanner(every))
             if parser.tracingcommands > 0 and parser.checkRange():
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
-        parser.input.unread(t)
-        parser.readList(box.list, self.group_type)
-        box.typeset(parser, [])
+        if not setbox:
+            parser.beginGroup(parser.input.position(), self.group_type, ListEndCallback(parser))
         return box
 
 
@@ -342,16 +328,14 @@ def readBox(parser, setbox=False):
     command = parser.token_expand().definition
     if command is None:
         raise ValueError("expecting a box", parser.input.position())
-    try:
-        return command.boxValue(parser, setbox)
-    except AttributeError:
+    box_value = getattr(command, "boxValue", None)
+    if box_value is None:
         raise ValueError("expecting a box", parser.input.position())
+    return box_value(parser, setbox)
     
 
 class BoxArrayItemAccessor(ArrayItemAccessor):
     def readValue(self, parser):
-        if self.index == 1:
-            x=0
         return readBox(parser, setbox=True)
     
     def boxValue(self, parser):
@@ -360,6 +344,14 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
         @param parser: the parser
         """
         return self.domain[self.index]
+    
+    def assign(self, parser, prefixes):
+        top = parser.lists[-1]
+        super().assign(parser, prefixes)
+        new = parser.lists[-1]
+        if new is not top:
+            # we are reading a list, but the group has not started yet to accommodate \afterassignment
+            parser.beginGroup(parser.input.position(), new.group_type, ListEndCallback(parser))
     
 
 class BoxArray(Array):
@@ -671,6 +663,31 @@ class LEADERS_TYPE(enum.Enum):
     XLEADERS = 2
 
 
+def _appendLeader(parser, type, box):
+    t = parser.token_expand().definition
+    if t is None or not isinstance(t, GlueCommand):
+        raise ValueError("expecting a glue", parser.input.position())
+    top = parser.lists[-1]
+    if (t.vert and top.type == LISTTYPE.VERTICAL) or (not t.vert and top.type != LISTTYPE.VERTICAL):
+        glue = t.glueValue(parser)
+    else:
+        raise ValueError("glue in the wrong mode", parser.input.position())
+    node = nd.Glue(glue)
+    node.leaders = (type, box)
+    parser.lists[-1].append(node)
+
+
+class LeaderBoxCallback:
+    def __init__(self, parser, type, box):
+        self.parser = parser
+        self.type = type
+        self.box = box
+
+    def __call__(self):
+        self.parser.lists.pop()
+        _appendLeader(self.parser, self.type, self.box)
+
+
 class Leaders(Command):
     """
     The \\leaders, \\cleaders and \\xleaders command.
@@ -689,26 +706,23 @@ class Leaders(Command):
                 box = t.readRule(parser)
             else:
                 raise ValueError("rule in the wrong mode", parser.input.position())
-        else: # box
-            parser.input.unread(t)
-            box = parser.readBox()
-            if (box.node_type == nd.NODE_TYPE.HLIST and top.type == LISTTYPE.VERTICAL) or (box.node_type == nd.NODE_TYPE.VLIST and top.type != LISTTYPE.VERTICAL):
-                raise ValueError("box in the wrong mode", parser.input.position())
-        t = parser.token_expand().definition
-        if t is None:
-            raise ValueError("expecting a glue", parser.input.position())
-        if isinstance(t, GlueCommand):
-            if (t.vert and top.type == LISTTYPE.VERTICAL) or (not t.vert and top.type != LISTTYPE.VERTICAL):
-                glue = t.glueValue(parser)
-            else:
-                raise ValueError("glue in the wrong mode", parser.input.position())
-        else:
-            raise ValueError("expecting a glue", parser.input.position())
-        node = nd.Glue(glue)
-        node.leaders = (self.type, box)
+            _appendLeader(parser, self.type, box)
+            return
+        # box
         top = parser.lists[-1]
-        parser.lists[-1].append(node)
-
+        box_value = getattr(t.definition, "boxValue", None)
+        if box_value is None:
+            raise ValueError("expecting a rule or a box", parser.input.position())
+        box = box_value(parser, setbox=True)
+        if (box.node_type == nd.NODE_TYPE.HLIST and top.type == LISTTYPE.VERTICAL) or (box.node_type == nd.NODE_TYPE.VLIST and top.type != LISTTYPE.VERTICAL):
+            raise ValueError("box in the wrong mode", parser.input.position())
+        new = parser.lists[-1]
+        if new is not top:
+            # we are reading a list, but the group has not started yet to accommodate \afterassignment
+            parser.beginGroup(parser.input.position(), new.group_type, LeaderBoxCallback(parser, self.type, box))
+        else:
+            _appendLeader(parser, self.type, box)
+ 
 
 class LastBox(Command):
     """

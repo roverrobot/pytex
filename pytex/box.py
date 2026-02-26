@@ -624,20 +624,22 @@ class AccentNode(nd.Node):
         if char is None:
             nodes.append(accent)
             return
-        # build the accent
-        # append a kern to shift the accent so that it aligns with the char
-        w = char.width + char.italic
-        dx = (w - accent.width) / 2
+        # TeX \accent positioning in horizontal mode:
+        # dx = 1/2 (w(base) - w(accent)) + slant * (h(base) - xheight).
+        # The accent glyph is raised/lowered by xheight - h(base), if negative.
+        font = char.font
+        slant = Dimen(font.param[0])   # \fontdimen1
+        ex = Dimen(font.param[4])      # \fontdimen5 (x-height)
+        dx = (char.width - accent.width) / 2 + slant * (char.height - ex)
         if dx != 0:
             nodes.append(nd.Kern(dx))
         accentbox = AccentBox(accent)
-        ex = char.font.param[4] # font dimen 5 is ex
         dy = ex - char.height
         if dy < 0:
             accentbox.shifted = dy
         nodes.append(accentbox)
-        # move the char back by the width of the accent box
-        nodes.append(nd.Kern(-(float(char.width) + float(accent.width)) / 2))
+        # Backspace by the accent advance, preserving total width as w(base).
+        nodes.append(nd.Kern(-dx - accent.width))
         nodes.append(char)
         return
 

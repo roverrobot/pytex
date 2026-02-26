@@ -248,6 +248,33 @@ def test_accent(cmr10):
     assert char.char == "1"
 
 
+def test_accent_italic_alignment_uses_slant(cmr10):
+    # Reference from pdfTeX:
+    # \hbox(9.58334+1.94444)x3.06665
+    # .\kern -0.36249 (for accent)
+    # .\hbox(6.94444+0.0)x5.11108, shifted -2.6389
+    # ..\tenit ^^S
+    # .\kern -4.7486 (for accent)
+    # .\tenit f
+    cmr10.parse("\\font\\tenit=cmti10 \\tenit\\noindent\\accent19 f\\relax")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 1
+    assert top[0].node_type == NODE_TYPE.ACCENT
+    hbox = bx.HBox(cmr10, None, Dimen())
+    hbox.list = top
+    hbox.typeset(cmr10, [])
+    packed = hbox.list
+    assert packed[0].node_type == NODE_TYPE.KERN
+    assert float(packed[0].kern) == pytest.approx(-0.36249, abs=1e-4)
+    assert packed[1].node_type == NODE_TYPE.HLIST
+    assert float(packed[1].shifted) == pytest.approx(-2.63890, abs=1e-4)
+    assert packed[2].node_type == NODE_TYPE.KERN
+    assert float(packed[2].kern) == pytest.approx(-4.74860, abs=1e-4)
+    assert packed[3].node_type == NODE_TYPE.CHAR
+    assert packed[3].char == "f"
+
+
 def test_lastbox(cmr10):
     cmr10.parse("1\\hbox{Hello, world!}\\setbox0=\\lastbox")
     top = cmr10.lists[-1]

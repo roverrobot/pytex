@@ -952,18 +952,41 @@ def test_rule18_substeps(math):
     close(joint.height, top.height + u, "rule18f joint height formula")
 
 
-def test_rule18_integral_sub_sup_matches_tex_metrics(parser):
+def test_plain_math_reference_metrics(parser):
     parser.parse("\\input plain")
+
     parser.parse("\\setbox0=\\hbox{$\\displaystyle \\int_0^1$}")
-    b = parser.state.box[0]
-    b.typeset(parser, [])
+    integral = parser.state.box[0]
+    integral.typeset(parser, [])
     # Reference metrics from pdfTeX:
     # \\hbox(15.65013+9.11122)x14.48615
-    assert float(b.width) == pytest.approx(14.48615, abs=1e-4)
-    assert float(b.height) == pytest.approx(15.65013, abs=1e-4)
-    assert float(b.depth) == pytest.approx(9.11122, abs=1e-4)
-    assert b.list[1].node_type == nd.NODE_TYPE.HLIST
-    assert b.list[2].node_type == nd.NODE_TYPE.VLIST
+    assert float(integral.width) == pytest.approx(14.48615, abs=1e-4)
+    assert float(integral.height) == pytest.approx(15.65013, abs=1e-4)
+    assert float(integral.depth) == pytest.approx(9.11122, abs=1e-4)
+    assert integral.list[1].node_type == nd.NODE_TYPE.HLIST
+    assert integral.list[2].node_type == nd.NODE_TYPE.VLIST
+
+    parser.parse("\\setbox1=\\hbox{$\\displaystyle \\sqrt{a}$}")
+    disp = parser.state.box[1]
+    disp.typeset(parser, [])
+    assert float(disp.width) == pytest.approx(13.61925, abs=1e-4)
+    assert float(disp.height) == pytest.approx(8.49092, abs=1e-4)
+    assert float(disp.depth) == pytest.approx(1.90904, abs=1e-4)
+
+    parser.parse("\\setbox2=\\hbox{$\\sqrt{a}$}")
+    text = parser.state.box[2]
+    text.typeset(parser, [])
+    assert float(text.width) == pytest.approx(13.61925, abs=1e-4)
+    assert float(text.height) == pytest.approx(8.00272, abs=1e-4)
+    assert float(text.depth) == pytest.approx(2.39725, abs=1e-4)
+
+    parser.parse("\\setbox3=\\hbox{$\\displaystyle {a^2 \\over b^2}$}")
+    frac = parser.state.box[3]
+    frac.typeset(parser, [])
+    # \\hbox(14.9051+6.85951)x12.17201
+    assert float(frac.width) == pytest.approx(12.17201, abs=1e-4)
+    assert float(frac.height) == pytest.approx(14.90510, abs=1e-4)
+    assert float(frac.depth) == pytest.approx(6.85951, abs=1e-4)
 
 
 def test_rule13_op_cases(math):
@@ -1234,23 +1257,6 @@ def test_rule11_radical_cases(math):
     assert wrapped.list[0].node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST), "rule11 delimiter retained under scripts"
     assert wrapped.list[1].node_type == nd.NODE_TYPE.VLIST, "rule11 overbar retained under scripts"
     assert b.list[1].node_type == nd.NODE_TYPE.HLIST, "rule11 attached script box"
-
-
-def test_rule11_radical_display_vs_text_style_metrics(parser):
-    parser.parse("\\input plain")
-    parser.parse("\\setbox0=\\hbox{$\\displaystyle \\sqrt{a}$}")
-    disp = parser.state.box[0]
-    disp.typeset(parser, [])
-    assert float(disp.width) == pytest.approx(13.61925, abs=1e-4)
-    assert float(disp.height) == pytest.approx(8.49092, abs=1e-4)
-    assert float(disp.depth) == pytest.approx(1.90904, abs=1e-4)
-
-    parser.parse("\\setbox1=\\hbox{$\\sqrt{a}$}")
-    text = parser.state.box[1]
-    text.typeset(parser, [])
-    assert float(text.width) == pytest.approx(13.61925, abs=1e-4)
-    assert float(text.height) == pytest.approx(8.00272, abs=1e-4)
-    assert float(text.depth) == pytest.approx(2.39725, abs=1e-4)
 
 
 def test_mathaccent(math):
@@ -1599,18 +1605,6 @@ def test_fraction_rule15d_over_construction(math):
     assert float(k2.kern) >= float(theta)
     assert float(out.height) == pytest.approx(float(x.height + u), abs=1e-4)
     assert float(out.depth) == pytest.approx(float(z.depth + v), abs=1e-4)
-
-
-def test_fraction_display_metrics_match_tex(parser):
-    parser.parse("\\input plain")
-    parser.parse("\\setbox0=\\hbox{$\\displaystyle {a^2 \\over b^2}$}")
-    b = parser.state.box[0]
-    # Reference metrics from pdfTeX:
-    # \\hbox(14.9051+6.85951)x12.17201
-    b.typeset(parser, [])
-    assert float(b.width) == pytest.approx(12.17201, abs=1e-4)
-    assert float(b.height) == pytest.approx(14.90510, abs=1e-4)
-    assert float(b.depth) == pytest.approx(6.85951, abs=1e-4)
 
 
 def test_fraction_rule15d_over_min_clearance_script(math):

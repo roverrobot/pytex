@@ -956,6 +956,7 @@ def test_rule18_integral_sub_sup_matches_tex_metrics(parser):
     parser.parse("\\input plain")
     parser.parse("\\setbox0=\\hbox{$\\displaystyle \\int_0^1$}")
     b = parser.state.box[0]
+    b.typeset(parser, [])
     # Reference metrics from pdfTeX:
     # \\hbox(15.65013+9.11122)x14.48615
     assert float(b.width) == pytest.approx(14.48615, abs=1e-4)
@@ -1237,15 +1238,16 @@ def test_rule11_radical_cases(math):
 
 def test_rule11_radical_display_vs_text_style_metrics(parser):
     parser.parse("\\input plain")
-
     parser.parse("\\setbox0=\\hbox{$\\displaystyle \\sqrt{a}$}")
     disp = parser.state.box[0]
+    disp.typeset(parser, [])
     assert float(disp.width) == pytest.approx(13.61925, abs=1e-4)
     assert float(disp.height) == pytest.approx(8.49092, abs=1e-4)
     assert float(disp.depth) == pytest.approx(1.90904, abs=1e-4)
 
     parser.parse("\\setbox1=\\hbox{$\\sqrt{a}$}")
     text = parser.state.box[1]
+    text.typeset(parser, [])
     assert float(text.width) == pytest.approx(13.61925, abs=1e-4)
     assert float(text.height) == pytest.approx(8.00272, abs=1e-4)
     assert float(text.depth) == pytest.approx(2.39725, abs=1e-4)
@@ -1605,6 +1607,7 @@ def test_fraction_display_metrics_match_tex(parser):
     b = parser.state.box[0]
     # Reference metrics from pdfTeX:
     # \\hbox(14.9051+6.85951)x12.17201
+    b.typeset(parser, [])
     assert float(b.width) == pytest.approx(12.17201, abs=1e-4)
     assert float(b.height) == pytest.approx(14.90510, abs=1e-4)
     assert float(b.depth) == pytest.approx(6.85951, abs=1e-4)

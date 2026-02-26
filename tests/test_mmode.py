@@ -660,7 +660,7 @@ def test_rule20_op_to_inner_space_is_nonscript(math):
     math.parse("$")
 
 
-def test_rule22_bin_penalty_inserted_in_paragraph_math(math):
+def test_rule21_bin_penalty_inserted_in_paragraph_math(math):
     mlist = mmode.InlineMathList(math)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
@@ -677,7 +677,7 @@ def test_rule22_bin_penalty_inserted_in_paragraph_math(math):
     assert penalties[0].penalty == 123
 
 
-def test_rule22_rel_penalty_not_after_rel_followed_by_rel(math):
+def test_rule21_rel_penalty_not_after_rel_followed_by_rel(math):
     mlist = mmode.InlineMathList(math)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
@@ -695,7 +695,7 @@ def test_rule22_rel_penalty_not_after_rel_followed_by_rel(math):
     assert penalties[0].penalty == 234
 
 
-def test_rule22_skips_if_next_item_is_penalty(math):
+def test_rule21_skips_if_next_item_is_penalty(math):
     mlist = mmode.InlineMathList(math)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
@@ -713,7 +713,7 @@ def test_rule22_skips_if_next_item_is_penalty(math):
     assert penalties[0].penalty == 50
 
 
-def test_rule22_skips_if_penalty_value_is_ge_10000(math):
+def test_rule21_skips_if_penalty_value_is_ge_10000(math):
     mlist = mmode.InlineMathList(math)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
@@ -729,7 +729,7 @@ def test_rule22_skips_if_penalty_value_is_ge_10000(math):
     assert len(penalties) == 0
 
 
-def test_rule22_disabled_outside_paragraph_math(math):
+def test_rule21_disabled_outside_paragraph_math(math):
     mlist = mmode.MList(math)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
@@ -745,7 +745,7 @@ def test_rule22_disabled_outside_paragraph_math(math):
     assert len(penalties) == 0
 
 
-def test_rule22_skips_after_final_item(math):
+def test_rule21_skips_after_final_item(math):
     mlist = mmode.InlineMathList(math)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),

@@ -122,7 +122,7 @@ class MathTypesetContext:
         self.delimitershortfall = layout["delimitershortfall"]
         if self.inner:
             self.mathsurround = layout["mathsurround"]
-            # Rule 22 inter-atom penalties (paragraph math only).
+            # Rule 21 inter-atom penalties (paragraph math only).
             self.binoppenalty = layout["binoppenalty"]
             self.relpenalty = layout["relpenalty"]
             return
@@ -174,7 +174,7 @@ class AtomTypesetContext:
     - prev_atom_type: the effective class of the last emitted atom-like item
     - atom_type: the effective class of the current emitted wrapper
     - text_symbol: whether Rule 14 marked current atom nucleus as text symbol
-    - paragraph_math: whether Rule 22 inter-atom penalties are enabled
+    - paragraph_math: whether Rule 21 inter-atom penalties are enabled
       (true only for InlineMathList / paragraph math)
     """
     def __init__(self, context, prev_atom_type):
@@ -482,9 +482,9 @@ class MList(lists.List):
         if prev is not None and prev.node_type == ATOM_TYPE.BIN:
             prev.node_type = ATOM_TYPE.ORD
 
-    def _rule22Penalty(self, context, current_item, next_item):
+    def _rule21Penalty(self, context, current_item, next_item):
         """
-        Appendix G Rule 22 inter-atom penalties.
+        Appendix G Rule 21 inter-atom penalties.
         """
         if not context.paragraph_math:
             return None
@@ -527,7 +527,7 @@ class MList(lists.List):
                 item.typeset(parser, packed, atom_context, item.style)
             else:
                 packed.append(item)
-            p = self._rule22Penalty(atom_context, item, nxt)
+            p = self._rule21Penalty(atom_context, item, nxt)
             if p is not None:
                 packed.append(p)
             item = nxt
@@ -556,6 +556,8 @@ class InlineMathList(MList):
         return {"init": [x for x in self], "extra": { "fraction": self.fraction}}
 
     def typeset(self, parser, packed):
+        # Appendix G Rule 22: inline math translation is enclosed by
+        # math-on/math-off nodes, each carrying the current \mathsurround.
         math_shift = nd.MathShift(True)
         math_shift.source = self
         math_shift.kern = Dimen(self.typeset_context.mathsurround)

@@ -178,6 +178,21 @@ def _lineBoxes(vlist):
     return [node for node in vlist if node.node_type == nd.NODE_TYPE.HLIST]
 
 
+def _lineText(hbox):
+    chars = []
+    for node in hbox.list:
+        if node.node_type == nd.NODE_TYPE.CHAR:
+            chars.append(node.char)
+            continue
+        if node.node_type == nd.NODE_TYPE.LIGATURE:
+            source = getattr(node, "source", None)
+            if source:
+                chars.extend(c.char for c in source)
+            else:
+                chars.append(node.char)
+    return "".join(chars)
+
+
 def test_linebreak_matches_tex_reference_paragraph(cmr10):
     text = (
         "TEX attempts to choose desirable places to divide your document into individual "
@@ -235,6 +250,20 @@ def test_linebreak_plain_paragraph_cases(parser):
     assert len(lines) == 3
     endings = [_lineEndingWord(line) for line in lines]
     assert endings[0] == "hyphen-"
+
+    _reset_outer_vlist(parser)
+    parser.parse(
+        "this is a test to double check the line breaking in a math list at the inline math "
+        " $from\\;this\\;f(x)=y\\;we\\;test$ this line break thing.\\par"
+    )
+    para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
+    out = vmode.VList(parser)
+    para.typeset(parser, out)
+    lines = _lineBoxes(out)
+    assert len(lines) == 2
+    assert _lineText(lines[0]).endswith("=")
+    penalties = [node.penalty for node in lines[0].list if node.node_type == nd.NODE_TYPE.PENALTY]
+    assert penalties == [500]
 
 
 def test_paragraph_typeset_inserts_interline_glue(cmr10):

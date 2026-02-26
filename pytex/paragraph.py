@@ -268,6 +268,12 @@ class Paragraph(hmode.HList):
                     packed.extend(node.replace)
                 else:
                     packed.append(node)
+            # TeX keeps an explicit breakpoint penalty in the ending line box
+            # when the break is chosen at that penalty node.
+            if line.end.break_index < len(hlist):
+                end_node = hlist[line.end.break_index]
+                if end_node.node_type == nd.NODE_TYPE.PENALTY:
+                    packed.append(end_node)
             # if the line ends at a ligature, append the pre nodes
             if line.end.disc is not None:
                 packed.extend(line.end.disc.pre)

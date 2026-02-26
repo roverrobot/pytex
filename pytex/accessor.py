@@ -197,10 +197,10 @@ class ArrayAccessor(token.Command):
 
 class ParameterAccessor(Accessor):
     """
-    An accessor for a parameter. It is a command that takes a single argument, the name of the parameter,
-    and returns the value of the parameter.
+    An accessor for a parameter. 
 
-    @param entry: the entry of the parameter
+    @param entry: the state.NamedEntry that stores the parameter
+    @return the value of the parameter.
     """
     def __init__(self, entry):
         self.entry = entry

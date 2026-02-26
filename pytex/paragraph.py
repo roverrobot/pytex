@@ -10,6 +10,7 @@ from pytex.module import Module
 from pytex.dimen import Dimen
 from pytex.glue import Glue
 from pytex.hmode import HorizontalCommand
+from pytex.integer import IntegerArrayItemAccessor
 
 
 class Word:
@@ -214,6 +215,8 @@ class Paragraph(hmode.HList):
         # these two fields are used to link paragraphs together for display math integration,
         self.next_paragraph = None
         self.prev_paragraph = None
+        # if this paragraph has been typeset, then the line boxes are stored in this cache
+        self._typeset_cache = None
 
     # not a proper node
     node_type = None
@@ -224,11 +227,12 @@ class Paragraph(hmode.HList):
         del d["init"]["inner"]
         return d | {"extra": {"disc": self.disc}}
     
-    def typeset(self, parser, vlist): 
+    def pretypeset(self, parser): 
         """
-        typeset the paragraph into the given vertical list, using the current typeset context.
+        pretypeset the paragraph, i.e., break into lines, and set the , using the current typeset context.
         """
-        # TODO: add a parskip into vlist first
+        if self._typeset_cache is not None:
+            return
         # pre-typeset the nodes into a new HList
         context = self.typeset_context
         hlist = hmode.HList(parser, inner=True)
@@ -248,44 +252,42 @@ class Paragraph(hmode.HList):
         context.line_count = line_count
         # add the lines into the vlist
         hbox = None
-        if lines:
-            for i, line in enumerate(lines):
-                packed = []
-                indent, measure = context.lineShape(i + 1)
-                if indent != 0:
-                    packed.append(nd.Glue(Glue(indent)))
-                packed.append(nd.Glue(context.leftskip))
-                # if the line starts with a ligature then add in the post nodes
-                if line.begin.disc is not None:
-                    packed.extend(line.begin.disc.post)
-                # for any disc node in between, replace it with the replace list
-                for node in hlist[line.begin.line_start_index:line.end.break_index]:
-                    if node.node_type == nd.NODE_TYPE.DISC:
-                        packed.extend(node.replace)
-                    else:
-                        packed.append(node)
-                # if the line ends at a ligature, append the pre nodes
-                if line.end.disc is not None:
-                    packed.extend(line.end.disc.pre)
-                packed.append(nd.Glue(context.rightskip))
-                hbox = bx.HBox(parser, measure, None)
-                hbox.list = packed
-                hbox.typeset(parser, [])
-                hbox.source = self
-                hbox.typeset_context = LineContext(parser, context, line)
-                vlist.append(hbox)
+        self._typeset_cache = []
+        for i, line in enumerate(lines):
+            packed = []
+            indent, measure = context.lineShape(i + 1)
+            if indent != 0:
+                packed.append(nd.Glue(Glue(indent)))
+            packed.append(nd.Glue(context.leftskip))
+            # if the line starts with a ligature then add in the post nodes
+            if line.begin.disc is not None:
+                packed.extend(line.begin.disc.post)
+            # for any disc node in between, replace it with the replace list
+            for node in hlist[line.begin.line_start_index:line.end.break_index]:
+                if node.node_type == nd.NODE_TYPE.DISC:
+                    packed.extend(node.replace)
+                else:
+                    packed.append(node)
+            # if the line ends at a ligature, append the pre nodes
+            if line.end.disc is not None:
+                packed.extend(line.end.disc.pre)
+            packed.append(nd.Glue(context.rightskip))
+            hbox = bx.HBox(parser, measure, None)
+            hbox.list = packed
+            hbox.typeset(parser, [])
+            hbox.source = self
+            hbox.typeset_context = LineContext(parser, context, line)
+            self._typeset_cache.append(hbox)
         if self.next_paragraph is not None:
             self.next_paragraph.prevgraf = line_count
-            self.next_paragraph.typeset_context.prevgraf = line_count
             # For an immediately following display, TeX uses the next line-shape
             # slot to determine \displayindent and \displaywidth.
             displayindent, displaywidth = context.lineShape(line_count + 1)
             next_context = self.next_paragraph.typeset_context
-            if hasattr(next_context, "displayindent"):
-                next_context.displayindent = displayindent
-                next_context.displaywidth = displaywidth
-                parser.state.volatile["displayindent"] = displayindent
-                parser.state.volatile["displaywidth"] = displaywidth
+            next_context.prevgraf = line_count
+            self.line_count = line_count
+            next_context.displayindent = displayindent
+            next_context.displaywidth = displaywidth
             # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
             # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
             # the closing $$ of another display), p is set to -16383.99999 pt (i.e., to the smallest legal
@@ -294,12 +296,16 @@ class Paragraph(hmode.HList):
             # that hbox, plus the indentation by which the enclosing hbox has been moved right, plus
             # two ems in the current font.
             if hbox is None:
-                p = Dimen(-16383.99999)
+                next_context.predisplaysize = Dimen(-16383.99999)
+                next_context.prevdepth = Dimen()
             else:
-                p = hbox.rightmost() + 2 * context.em
-            parser.state.volatile["predisplaysize"] = p
-            next_context.predisplaysize = p
-            next_context.prevdepth = hbox.depth
+                next_context.predisplaysize = hbox.rightmost() + 2 * context.em
+                next_context.prevdepth = hbox.depth
+
+    def typeset(self, parser, vlist):
+        self.pretypeset(parser)
+        for line in self._typeset_cache:
+            vlist.append(line)
 
     def lineBreak(self, parser, hlist):
         """
@@ -869,8 +875,26 @@ class SetLanguage(HorizontalCommand):
         hlist.append(Language(language))
 
 
+class PrevGraf(IntegerArrayItemAccessor):
+    def intValue(self, parser):
+        value = parser.state.globals["prevgraf"]
+        if value is not None:
+            return value
+        # when this is accessed here, we are in building a list. So we use parser.paragraph_before_last_display_math
+        # if this paragraph does not exist, then the value has not been changed. we should have returned early
+        para = parser.last_paragraph
+        assert para is not None
+        para.pretypeset(parser)
+        return para.line_count
+
 mod = Module("paragraph",
     commands={
         "setlanguage": SetLanguage(),
     },
+    parameters={
+        "prevgraf": {"value": 0, "accessor": PrevGraf, "domain": "globals"},
+    },
+    attributes={
+        "last_paragraph": None,
+    }
 )

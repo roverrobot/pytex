@@ -13,11 +13,11 @@ from pytex import node as nd
 from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import ParameterAccessor
+from pytex.accessor import ParameterAccessor, Accessor
 from pytex.define import Define
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
-from pytex.dimen import Dimen, NEG_MAX_DIMEN
+from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
 from pytex import box
 from pytex.hmode import HList, Ligature
 from pytex.ligature import ligature_step, run_ligature_program
@@ -31,12 +31,6 @@ class MATH_STYLE(enum.IntEnum):
     T = 1 # text style
     S = 2 # script style
     SS = 3 # script script style
-
-
-class MATH_CONTEXT_MODE(enum.IntEnum):
-    INLINE = 0
-    DISPLAY = 1
-    SUBFORMULA = 2
 
 
 class Style(serialization.Serializable):
@@ -90,14 +84,15 @@ class Style(serialization.Serializable):
 class MathTypesetContext:
     """
     Typesetting snapshot for math mode.
-
-    mode controls which non-font parameters are captured:
-    - INLINE: inline paragraph math ($...$)
-    - DISPLAY: display math ($$...$$)
-    - SUBFORMULA: nested math fields/typeset helpers
     """
-    def __init__(self, parser, mode):
-        self.mode = MATH_CONTEXT_MODE(mode)
+    def __init__(self, inner):
+        self.inner = inner
+        if not inner:
+            self.prevgraf = None
+            self.predisplaysize = None
+            self.prevdepth = None
+
+    def snapshot(self, parser):
         layout = parser.state.layout
         # fonts
         def copy(array):
@@ -125,30 +120,27 @@ class MathTypesetContext:
         # delimiter sizing parameters used by Rule 19.
         self.delimiterfactor = layout["delimiterfactor"]
         self.delimitershortfall = layout["delimitershortfall"]
-        if self.mode == MATH_CONTEXT_MODE.INLINE:
+        if self.inner:
             self.mathsurround = layout["mathsurround"]
             # Rule 22 inter-atom penalties (paragraph math only).
             self.binoppenalty = layout["binoppenalty"]
             self.relpenalty = layout["relpenalty"]
-        elif self.mode == MATH_CONTEXT_MODE.DISPLAY:
-            self.prevgraf = None
-            # display math parameters
-            volatile = parser.state.volatile
-            self.predisplaypenalty = layout["predisplaypenalty"]
-            self.displaywidth = volatile["displaywidth"]
-            self.displayindent = volatile["displayindent"]
-            self.predisplaysize = None
-            self.prevdepth = None
-            self.postdisplaypenalty = layout["postdisplaypenalty"]
-            self.abovedisplayskip = layout["abovedisplayskip"]
-            self.belowdisplayskip = layout["belowdisplayskip"]
-            self.abovedisplayshortskip = layout["abovedisplayshortskip"]
-            self.belowdisplayshortskip = layout["belowdisplayshortskip"]
-            # interline parameters
-            self.baselineskip = layout["baselineskip"]
-            self.lineskip = layout["lineskip"]
-            self.lineskiplimit = layout["lineskiplimit"]
-            self.interlinepenalty = 0 # do not emit interline penalty
+            return
+        # display math parameters
+        volatile = parser.state.volatile
+        self.predisplaypenalty = layout["predisplaypenalty"]
+        self.displaywidth = volatile["displaywidth"]
+        self.displayindent = volatile["displayindent"]
+        self.postdisplaypenalty = layout["postdisplaypenalty"]
+        self.abovedisplayskip = layout["abovedisplayskip"]
+        self.belowdisplayskip = layout["belowdisplayskip"]
+        self.abovedisplayshortskip = layout["abovedisplayshortskip"]
+        self.belowdisplayshortskip = layout["belowdisplayshortskip"]
+        # interline parameters
+        self.baselineskip = layout["baselineskip"]
+        self.lineskip = layout["lineskip"]
+        self.lineskiplimit = layout["lineskiplimit"]
+        self.interlinepenalty = 0 # do not emit interline penalty
 
     def __getitem__(self, index):
         return getattr(self, index, None)
@@ -171,6 +163,7 @@ class MathTypesetContext:
 
     def xi(self, style: Style):
         return self.font(style, 3).param
+
 
 class AtomTypesetContext:
     """
@@ -557,6 +550,7 @@ class MList(lists.List):
 class InlineMathList(MList):
     def __init__(self, parser, nodes=None):
         super().__init__(parser, True, nodes)
+        self.typeset_context = MathTypesetContext(True)
 
     def saveInfo(self):
         return {"init": [x for x in self], "extra": { "fraction": self.fraction}}
@@ -579,10 +573,11 @@ class DisplayMathList(MList):
         # where the MList points to the equation number material, and the bool indicates
         # whether the equation number is on the left
         self.eqno = None
-        self.typeset_context: MathTypesetContext = None
+        self.typeset_context = MathTypesetContext(False)
         # these point to the unrestricted hlists before and after the display math
         self.prev_paragraph = None
         self.next_paragraph = None
+        self._typeset_cache = None
 
     def saveInfo(self):
         return {
@@ -593,10 +588,18 @@ class DisplayMathList(MList):
         }
 
     def typeset(self, parser, packed):
-        # display math
-        assert self.typeset_context.prevgraf is not None
-        # check the \predisplaysize
-        assert self.typeset_context.predisplaysize is not None
+        self.pretypeset(parser)
+        for n in self._typeset_cache:
+            packed.append(n)
+    
+    def pretypeset(self, parser):
+        if self._typeset_cache is not None:
+            return
+        cache = []
+        self._typeset_cache = cache
+        if self.typeset_context.prevgraf is None:
+            # the previous paragraph was not typeset. We should pre-typeset it
+            self.prev_paragraph.pretypeset(parser)
         # After a display has been read, TEX converts it from a math list to a horizontal
         # list h in display style, as explained in Appendix G. An equation number, if
         # present, is processed in text style and put into an hbox a with its natural width. Now
@@ -677,7 +680,7 @@ class DisplayMathList(MList):
         # appended as an hbox by itself, shifted right s and preceded by interline glue as usual;
         # an infinite penalty is also appended, to prevent a page break between this number and
         # the display. Otherwise a glue item ga is placed on the vertical list.
-        packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
+        cache.append(nd.Penalty(self.typeset_context.predisplaypenalty))
         if d + s <= p or left is True:
             ga = self.typeset_context.abovedisplayskip
             gb = self.typeset_context.belowdisplayskip
@@ -687,10 +690,10 @@ class DisplayMathList(MList):
         if e == 0 and left is True:
             a.typeset_context = VNodeContext(self.typeset_context, None)
             a.shifted = Dimen(s)
-            packed.append(a)
-            packed.append(nd.Penalty(10000))
+            cache.append(a)
+            cache.append(nd.Penalty(10000))
         else:
-            packed.append(nd.Glue(ga))
+            cache.append(nd.Glue(ga))
         if e != 0:
             # Now comes the displayed equation itself. If e!= 0, the
             # equation number box a is combined with the formula box b as follows: Let k
@@ -715,7 +718,7 @@ class DisplayMathList(MList):
         b.shifted = Dimen(s+d)
         b.typeset_context = VNodeContext(self.typeset_context, None)
         b.typeset_context.prevdepth = init_prevdepth # prevent interline glue
-        packed.append(b)
+        cache.append(b)
         # The final task is to append the glue or the equation number
         # that follows the display. If there was an \eqno and if e = 0, an infinite
         # penalty is placed on the vertical list, followed by the equation number box a shifted
@@ -723,15 +726,15 @@ class DisplayMathList(MList):
         # of \postdisplaypenalty. Otherwise a penalty item for the \postdisplaypenalty is
         # appended first, followed by a glue item for gb as specified above.
         if e == 0 and left is False:
-            packed.append(nd.Penalty(10000))
+            cache.append(nd.Penalty(10000))
             a.shifted = Dimen(s + z) - a.width
             a.typeset_context = VNodeContext(self.typeset_context, None)
             a.typeset_context.prevdepth = init_prevdepth
-            packed.append(a)
-            packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
+            cache.append(a)
+            cache.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
         else:
-            packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
-            packed.append(nd.Glue(gb))
+            cache.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
+            cache.append(nd.Glue(gb))
         # TEX now adds 3 to \prevgraf and returns to horizontal mode.
         next_prevgraf = self.typeset_context.prevgraf + 3
         if self.next_paragraph is not None:
@@ -1373,13 +1376,8 @@ class MathEndGroupCallback:
 
 
 class MathShitfEndGroupCallback(MathEndGroupCallback):
-    def __init__(self, parser, prev_par):
-        super().__init__(parser)
-        self.prev_par = prev_par
-
     def endgroup(self, parser, top, mlist):
-        mode = MATH_CONTEXT_MODE.INLINE if mlist.inner else MATH_CONTEXT_MODE.DISPLAY
-        mlist.typeset_context = MathTypesetContext(parser, mode)
+        mlist.typeset_context.snapshot(parser)
         # here top points to the enclosing horizontal list
         # if mlist is inline math, then we simply add it to the enclosing list
         if mlist.inner:
@@ -1390,9 +1388,6 @@ class MathShitfEndGroupCallback(MathEndGroupCallback):
         mlist.typeset_context.predisplaysize = NEG_MAX_DIMEN
         top.append(mlist)
         new_par = parser.newParagraph(indent=False, parskip=False) # the new paragraph after the display math
-        if self.prev_par is not None:
-            self.prev_par.next_paragraph = mlist
-        mlist.prev_paragraph = self.prev_par
         mlist.next_paragraph = new_par
         new_par.prev_paragraph = mlist
 
@@ -1449,18 +1444,32 @@ def mathShift(parser):
             inner = True
             parser.input.unread(t)
     if not inner:
+        volatile = parser.state.volatile
         if len(top) > 0:
-            prev_par = top
             parser.endParagraph()
+            prev_par = top
+            parser.paragraph_before_last_display_math = top
+            volatile["displaywidth"] = None
+            volatile["displayindent"] = None
+            volatile["predisplaysize"] = None
+            parser.state.globals["prevgraf"] = None
         else:
             # Drop empty paragraph and keep default display metrics for no previous line.
             parser.lists.pop()
             parser.clearParagraphSettings()
+            parser.paragraph_before_last_display_math = None
+            volatile["displaywidth"] = Dimen()
+            volatile["displayindent"] = Dimen()
+            volatile["predisplaysize"] = Dimen()
+            parser.state.globals["prevgraf"] = 0
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
-    parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT, MathShitfEndGroupCallback(parser, prev_par))
+    parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT, MathShitfEndGroupCallback(parser))
     mlist = InlineMathList(parser) if inner else DisplayMathList(parser)
     parser.lists.append(mlist)
+    if prev_par is not None:
+        prev_par.next_paragraph = mlist
+    mlist.prev_paragraph = prev_par
     every = parser.everymath.value if inner else parser.everydisplay.value
     if every:
         parser.input.push(TokenListScanner(every))
@@ -2516,11 +2525,45 @@ class Line(Atom):
         packed.append(vbox)
         return Dimen()
 
+
+class VolatileParameterAccessor(Accessor, DimenCommand):
+    def __init__(self, name):
+        self.index = name
+
+    def saveInfo(self):
+        return {"init": {"name": self.index}}
+
+    @classmethod
+    def new(cls, parser, **kargs):
+        cls(kargs["name"])
+
+    def readValue(self, parser):
+        return parser.readDimen()
+    
+    def set(self, parser, value):
+        parser.state.volatile[self.index] = value
+    
+    def setGlobal(self, parser, value):
+        parser.state.volatile.setGlobal(self.index, value)
+    
+    def dimenValue(self, parser):
+        value = parser.state.volatile[self.index]
+        if value is not None:
+            return value
+        # when this is accessed here, we are in building a list. So we use parser.paragraph_before_last_display_math
+        # if this paragraph does not exist, then the value has not been changed. we should have returned early
+        para = parser.paragraph_before_last_display_math
+        assert para is not None
+        para.pretypeset(parser)
+        return getattr(para.next_paragraph.typeset_context, self.index)
+
+    
 mod = Module("mmode",
     attributes= {
         "mathShift": mathShift,
         "subscript": subscript,
         "superscript": superscript,
+        "paragraph_before_last_display_math": None,
     },
     commands= {
         "mathchar": MathChar(),
@@ -2560,5 +2603,15 @@ mod = Module("mmode",
         "leqno": Eqno(True),
         "vcenter": VCenter(),
         "nonscript": Nonscript(),
+        "predisplaysize": VolatileParameterAccessor("predisplaysize"),
+        "displaywidth": VolatileParameterAccessor("displaywidth"),
+        "displayindent": VolatileParameterAccessor("displayindent"),
+    },
+    parameters={
+        # these values are automatically set by the parser, and are volatile. But they are subject to
+        # grouping. So they are in the volatile domain, and will not be dumped in a format.
+        "predisplaysize": {"value": Dimen(), "accessor": None, "domain": "volatile"},
+        "displaywidth": {"value": Dimen(), "accessor": None, "domain": "volatile"},
+        "displayindent": {"value": Dimen(), "accessor": None, "domain": "volatile"},
     },
 )

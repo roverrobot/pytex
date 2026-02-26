@@ -67,7 +67,7 @@ class VList(lists.List):
                 # we return the depth of the node
                 depth = getattr(node, "depth", None)
                 if depth is None:
-                    # if there is no depth, we need to expand it in-place
+                    # if there is no depth, we need to pre-typeset it in-place
                     nodes = self._expandNode(self.parser, node)
                     self[i:i+1] = nodes
                     # we search backwards for the first box with a depth

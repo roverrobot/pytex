@@ -390,7 +390,6 @@ module = Module("integer",
         "looseness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         "hangafter": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         # global parameters
-        "prevgraf": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
         "deadcycles": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
         "insertpenalties": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
     },

@@ -367,6 +367,7 @@ class Parser:
         hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist)
         # TeX clears \\looseness after each paragraph.
         top.append(hlist)
+        self.last_paragraph = hlist
         self.clearParagraphSettings()
 
     def clearParagraphSettings(self):

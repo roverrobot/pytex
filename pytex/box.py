@@ -34,6 +34,7 @@ class Box(nd.Box):
         self.shifted = 0
         self.natural = None
         self.glue_ratio = 0
+        self._typeset_cache = None
 
     def saveInfo(self):
         return {
@@ -51,11 +52,15 @@ class Box(nd.Box):
     def typeset(self, parser, packed):
         """
         typeset the box
+        @param parser: the parser
         @param packed: if provided, append this node and skip in-place typesetting.
         """
-        if self.width is not None: 
-            # we have been typeset. do nothing
-            packed.append(self)
+        self.pretypeset(parser)
+        packed.append(self._typeset_cache)
+
+    def pretypeset(self, parser):
+        if self._typeset_cache is not None:
+            # it has been typeset. do nothing
             return
         content = []
         typeset_nodes = getattr(self.list, "typesetNodes", None)
@@ -103,8 +108,8 @@ class Box(nd.Box):
             self.glue_ratio = float(spread) / natural.shrink.factor
         else:
             self.glue_ratio = 0.0
-        packed.append(self)
         self.natural = natural
+        self._typeset_cache = self
 
     def _expand(self, parser, content, node):
         """
@@ -214,10 +219,7 @@ class HBox(Box):
                 ss = glue.stretch if ratio > 0 else glue.shrink
                 if ss.order < s.order:
                     continue
-                if ss.order == 0:
-                    w -= glue.dimen + ss.factor * ratio
-                else:
-                    w -= glue.dimen + ss.factor * ratio / s.factor * abs(self.spread)
+                w -= glue.dimen + ss.factor * ratio
             else:
                 nw = getattr(node, "width", None)
                 if nw is not None:

@@ -26,7 +26,7 @@ class Row(serialization.Serializable):
     def __init__(self):
         # the noalign vertical list
         self.noalign = None
-        # a list of restricted hlists
+        # a list of restricted boxes, one for each cell.
         self.cells = []
 
     def saveInfo(self):
@@ -41,14 +41,26 @@ class Row(serialization.Serializable):
         return f"Row({self.cells})"
 
 
+class RowBuildState:
+    """
+    Runtime-only row parsing state.
+    Keeps parser details (alignment/preamble template) off Row.
+    """
+    def __init__(self, row, alignment, template):
+        self.row = row
+        self.alignment = alignment
+        self.template = template
+
+
 class Alignment(nd.Node):
     """
     An alignment node.
     """
-    def __init__(self, to=None, spread=Dimen()):
+    def __init__(self, to=None, spread=Dimen(), vertical=True):
         self.rows = []
         # the first noalign before the first row
         self.noalign = None
+        self.vertical = vertical
         self.tabskips = []
         self.to = to
         self.spread = spread
@@ -65,6 +77,75 @@ class Alignment(nd.Node):
     
     def __repr__(self):
         return f"Alignment({self.rows})"
+    
+    def newBox(self, parser):
+        if self.vertical:
+            return bx.HBox(parser, None, 0)
+        return bx.VBox(parser, None, 0)
+
+
+def _readNoAlign(parser, owner, alignment, row_state, column_no):
+    def callback():
+        parser.lists.pop()
+        newCell(parser, row_state, column_no)
+
+    parser.skipFiller()
+    t = parser.token()
+    if t.catcode != CATCODE.BEGIN_GROUP:
+        raise ValueError("expecting {", parser.input.position())
+    vlist = vmode.VList(parser, inner=True)
+    owner.noalign = vlist
+    parser.lists.append(vlist)
+    # start the group for \noalign vlist, and when the closing } is read, the callback pops off the list
+    parser.beginGroup(parser.input.position(), GROUP_TYPE.NO_ALIGN, callback)
+
+
+def newCell(parser, row_state, column_no):
+    alignment = row_state.alignment
+    row = row_state.row
+    # read in all the tokens up to the end of the cell
+    toks = []
+    while True:
+        t = parser.token_expand()
+        if t is None:
+            raise ValueError("expecting \\cr", parser.input.position())
+        if t.catcode == CATCODE.END_GROUP:
+            if column_no != 0 or toks:
+                raise ValueError("expecting \\cr", parser.input.position())
+            # We may have started a fresh row (e.g. after \\cr\\noalign{...})
+            # but reached the alignment-closing `}` before any cell content.
+            # Drop that empty row frame from the alignment rows.
+            if not row.cells and alignment.rows and alignment.rows[-1] is row:
+                alignment.rows.pop()
+            parser.input.unread(t)
+            return
+        if t.catcode == CATCODE.ALIGNMENT_TAB or t.definition is span or t.definition is cr or t.definition is crcr:
+            parser.input.unread(t)
+            break
+        toks.append(t)
+    # start a new cell
+    cell = alignment.newBox(parser)
+    cell.list.row = row_state
+    cell.list.column_no = column_no
+    row.cells.append(cell)
+    parser.lists.append(cell.list)
+    # start the group fo the cell
+    parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+    column: Column = row_state.template[column_no]
+    parser.input.push(lexer.TokenListScanner(column.u))
+    parser.input.push(lexer.TokenListScanner(toks))
+    parser.input.push(lexer.TokenListScanner(column.v))
+
+
+def endCell(parser, is_last):
+    parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+    cell = parser.lists.pop()
+    row_state = cell.row
+    alignment = row_state.alignment
+    if is_last:
+        return row_state
+    newCell(parser, row_state, cell.column_no + 1)
+    return row_state
 
 
 class CrCr(Command):
@@ -77,25 +158,35 @@ class CrCr(Command):
         Execute the command. It terminates the current row in an alignment.
         @param parser: the parser
         """
-        alignment = parser.alignment
-        if alignment is None:
-            raise ValueError("misplaced \\crcr", parser.input.position())
-        if alignment.row is None:
-            # we just finished reading the preamble
-            end = alignment.readNoAlign(parser)
-            if end:
-                # if the next token is a closing }, we end the alignment
-                parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-                return
-            alignment.newRow(parser)
+        # end the cell
+        row_state = endCell(parser, is_last=True)
+        template = row_state.template
+        alignment = row_state.alignment
+        t = parser.token_expand()
+        if t is None:
+            raise ValueError("expecting }", parser.input.position())
+        if t.catcode == CATCODE.END_GROUP:
+            parser.input.unread(t)
+            return
+        command = getattr(t, "definition", None)
+        if command != noalign:
+            parser.input.unread(t)
+        noalign_owner = alignment if len(alignment.rows) == 0 else alignment.rows[-1]
+        # start a new line
+        row = Row()
+        alignment.rows.append(row)
+        row_state = RowBuildState(row, alignment, template)
+        # check for noalign
+        if command == noalign:
+            _readNoAlign(parser, noalign_owner, alignment, row_state, 0)
         else:
-            # check for a noalign AND the closing } for the alignment
-            alignment.endOfCell(parser, command=self)
+            # build the first cell
+            newCell(parser, row_state, 0)
 
 
 class Cr(CrCr):
     """
-    A generic class for \\cr, \\cr, \\span, \\omit, \\noalign commands.
+    the \\cr command
     """
     def execute(self, parser):
         # check if it is followed by a \crcr
@@ -115,17 +206,60 @@ class Span(Command):
         Execute the command. It terminates the current row in an alignment and starts a new one.
         @param parser: the parser
         """
-        alignment = parser.alignment
-        if alignment is None:
-            raise ValueError("misplaced \\span", parser.input.position())
-        alignment.endOfCell(parser, command=self)
+        parser.lists[-1].span = True
+        endCell(parser, is_last=False)
+
+
+class Omit(Command):
+    """
+    The \\Omit command.
+    It is used to terminate a row in an alignment and start a new one.
+    """
+    def execute(self, parser):
+        """
+        Execute the command. It terminates the current row in an alignment and starts a new one.
+        @param parser: the parser
+        """
+        parser.lists[-1].omit = True
+
+
+class NoAlign(Command):
+    """
+    The \\noalign.
+    It is used to terminate a row in an alignment and start a new one.
+    """
+    def execute(self, parser):
+        """
+        Execute the command. It terminates the current row in an alignment and starts a new one.
+        @param parser: the parser
+        """
+        raise ValueError("unexpected \\noalign", parser.input.position())
 
 
 cr = Cr()
 crcr = CrCr()
 span = Span()
-omit = Command()
-noalign = Command()
+noalign = NoAlign()
+
+
+class Column:
+    """
+    The column definition
+    """
+    def __init__(self):
+        self.u = []
+        self.v = []
+
+
+class AlignmentEndCallback:
+    def __init__(self, parser):
+        self.parser = parser
+
+    def __call__(self):
+        # are we still handling cells?
+        top = self.parser.lists[-1]
+        if getattr(top, "row", None) is not None:
+            raise ValueError("expecting \\cr", self.parser.input.position())
 
 
 class AlignmentBuilder:
@@ -134,224 +268,89 @@ class AlignmentBuilder:
     It is used to build an alignment from a list of tokens.
     @param enclosing: the enclosing list in the parser
     """
-    def __init__(self, vertical: bool, to=None, spread=Dimen()):
-        self.vertical = vertical
-        # the alignment being built
-        self.alignment = Alignment(to, spread)
+    def __init__(self, alignment):
+        self.alignment = alignment
         # the current row being built
         self.row = None
         # the current cell being built
         self.cell = None
         # the preamble for the alignment, whiich is a list of templates
         # each template is a tuple of two lists, the tokens to the left and right of the # token
-        self.preamble = []
-        # the tabskips for the alignment
-        self.tabskips = []
-
-    def readToken(self, parser, expand=False):
-        """
-        read a token and check if it terminates a cell
-        @param parser: the parser
-        @param expand: whether to expand the token
-        @return the token and the terminator (or None for not terminating)
-
-        the tokens that terminate a cell are: \\cr, \\crcr, &, and \\span
-        """
-        t = parser.token_expand() if expand else parser.token()
-        if t is None:
-            return t, t
-        if t.catcode == CATCODE.ALIGNMENT_TAB:
-            terminator = t
-        elif not t.is_command:
-            terminator = None
-        elif t.definition is crcr:
-            terminator = cr
-        elif t.definition is cr:
-            # is the next token a \crcr? \cr\crcr is the same
-            t1 = parser.token()
-            if t1 is not None and (not t1.is_command or t1.definition != crcr):
-                parser.input.unread(t1)
-            terminator = cr
-        elif t.definition is span:
-            terminator = span
-        else:
-            terminator = None
-        if terminator is cr:
-            every = parser.everycr.value
-            if every:
-                parser.input.push(lexer.TokenListScanner(every))
-                if parser.tracingcommands > 0 and parser.checkRange():
-                    parser.message(f"everycr: {parser.toksToString(every)}")
-        return t, terminator
+        self.preamble = None
         
-    def readTokens(self, parser):
+    def readPreamble(self, parser):
         """
-        read a list of tokens until a terminator is found
+        read the preamble
         @param parser: the parser
-        @param is_template: whether the tokens are part of a template
         @return: a list of tokens (not including the terminator) and the terminator. 
         
-        If  is_template is True, a \\tabskip is read, it is an attribute of the toks list.
+        a \\tabskip is read, it is an attribute of the toks list.
 
-        The terminator is one of \\cr, \\crcr, &, and one of # (if is_template is True) or \\span
-        (if is_template is False)
+        The terminator is one of \\cr, \\crcr, 
         """
-        toks = []
+        # we start a new group, which will be terminated by \cr or \crcr
+        column = Column()
+        self.preamble = [column]
+        self.alignment.tabskips.append(parser.state.parameters["tabskip"])
+        # the template of a column looks like u # v
+        current = column.u
         tabskip = parser.builtin["\\tabskip"]
         # the scanner
+        # Build the preamble against a synthetic row that seeds the first real row.
+        row = Row()
+        row_state = RowBuildState(row, self.alignment, self.preamble)
+        cell = self.alignment.newBox(parser)
+        cell.list.row = row_state
+        cell.list.column_no = 0
+        row.cells.append(cell)
+        parser.lists.append(cell.list)
+        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         while True:
-            t, terminator = self.readToken(parser)
-            if terminator is None:
-                if t.catcode == CATCODE.PARAMETER:
-                    return toks, t
-                # we need to check for \tabskip
-                if t.is_command and t.definition == tabskip:
-                    t.definition.execute(parser)
-                    continue
-                toks.append(t)
-                continue
+            t = parser.token()
+            if t and t.definition == span:
+                t = parser.token_expand()
             if t is None:
                 raise ValueError("expecting a \\cr", parser.input.position())
-            if terminator.catcode == CATCODE.ALIGNMENT_TAB:
-                return toks, terminator
-            if terminator == span:
-                # expand the next token
-                t = parser.token_expand()
-                if t is None:
-                    raise ValueError("expecting a \\cr", parser.input.position())
-                parser.input.unread(t)
+            # \span
+            if t.catcode == CATCODE.PARAMETER:
+                if current is column.u:
+                    current = column.v
+                else:
+                    raise ValueError("displaced #", parser.input.position())
                 continue
-            return toks, terminator
-            
-    def readHeader(self, parser):
-        """
-        read one cell in the templace row
-        @param parser: the parser
-        @return: the template, and whether the column ends
-        The template is a tuple of two lists for the tokens before and after the #
-        """
-        left, terminator = self.readTokens(parser)
-        if terminator.catcode == CATCODE.PARAMETER:
-            right, terminator = self.readTokens(parser)
-        else:
-            right = []
-        return (left, right), terminator
-    
-    def readNoAlign(self, parser):
-        """
-        Read a noalign and check if the next token is a closing }.
-        @param parser: the parser
-        @param scanner: an AlignScanner instance
-        @return 
-        """
-        t = parser.skipSpaces()
-        if t is None:
-            raise ValueError("unexpected end of input in alignment", parser.input.position())
-        if t.is_command and t.definition == noalign:
-            list = vmode.VList(parser) if self.vertical else hmode.HList(parser, True)
-            parser.readList(list, GROUP_TYPE.NO_ALIGN)
-            if self.row is None:
-                # we are in the preamble, so we just store the noalign list
-                self.alignment.noalign = list
+            if t.catcode == CATCODE.ALIGNMENT_TAB:
+                column = Column()
+                self.preamble.append(column)
+                self.alignment.tabskips.append(parser.state.parameters["tabskip"])
+                current = column.u
+                continue
+            if t.definition is tabskip:
+                t.definition.execute(parser)
+            elif t.definition is cr or t.definition is crcr:
+                self.alignment.tabskips.append(parser.state.parameters["tabskip"])
+                t.definition.execute(parser)
+                break
             else:
-                # we are in a row, so we store the noalign list in the row
-                self.row.noalign = list
-            t = parser.skipSpaces()
-        if t.catcode == CATCODE.END_GROUP:
-            parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-            return True
-        parser.input.unread(t)
-        return False
-    
-    def newRow(self, parser):
-        self.row = Row()
-        self.alignment.rows.append(self.row)
-        self.right = None
-        self.cell = None
-        self.newCell(parser, span=False)
+                current.append(t)
 
-    def finishCell(self, parser, command):
-        parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-        if command != span:
-            parser.lists.pop()
-            self.cell = None
-        if command.catcode == CATCODE.ALIGNMENT_TAB:
-            self.newCell(parser, span=False)
-        elif command == span:
-            self.newCell(parser, span=True)
-#        assert token.definition == cr or token.definition == crcr
-        elif not self.readNoAlign(parser):
-            self.newRow(parser)
-        return False
-
-    def endOfCell(self, parser, command):
-        """
-        reading to the end of current cell.
-        @param parser: the parser
-        @param span: whether the next cell is a span cell
-        @param row_end: whether the cell is at the end of a row
-
-        The right bracket of the template is read, if present.
-        """
-        if self.cell is None:
-            raise ValueError("no cell to end", parser.input.position())
-        if self.right is not None and self.right:
-            scanner = lexer.TokenListScanner(self.right)
-            scanner.stop = lambda: self.finishCell(parser, command)
-            parser.input.push(scanner)
-            self.right = None
-        else:
-            self.finishCell(parser, command)
-
-    def newCell(self, parser, span: bool):
-        """
-        Read a cell.
-        @param parser: the parser
-        @param span: whether the cell is a span cell
-        @return: the cell and the terminator
-        """
-        n = len(self.row.cells)
-        if n >= len(self.preamble):
-            raise ValueError("too many columns in alignment", parser.input.position())
-        if span:
-            self.cell.span += 1
-        else:
-            cell = hmode.HList(parser, True) if self.vertical else vmode.VList(parser)
-            cell.span = 0
-            self.cell = cell
-            self.row.cells.append(cell)
-            parser.lists.append(cell)
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-        # check for \omit, if present as the next token, then do not use template.
-        t = parser.token_expand()
-        if t is None:
-            raise ValueError("expecting a \\cr", parser.input.position())
-        self.omit = t.definition == omit
-        if not self.omit:
-            parser.input.unread(t)
-            left, self.right = self.preamble[n]
-            if left:
-                parser.input.push(lexer.TokenListScanner(left))
-
-    def begin(self, parser):
+    def run(self, parser):
         """
         begin a new alignment
         """
-        def callback():
-            parser.finishAlignment()
+        # start a new group
+        parser.skipFiller()
         t = parser.token_expand()
         if t is None or t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
-        self.alignment.tabskips = [parser.tabskip.value]
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN, callback)
-        # read the preamble
-        while True:
-            header, terminator = self.readHeader(parser)
-            self.preamble.append(header)
-            self.alignment.tabskips.append(parser.tabskip.value)
-            if terminator == cr or terminator == crcr:
-                terminator.execute(parser)
-                break
+        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN, AlignmentEndCallback(parser))
+        self.readPreamble(parser)
+
+
+def _newAlignment(parser, list, vertical):
+    to, spread = parser.readToSpread()
+    alignment = Alignment(to, spread, vertical)
+    list.append(alignment)
+    AlignmentBuilder(alignment).run(parser)
 
 
 class HAlign(lists.ModeDependentCommand):
@@ -359,12 +358,12 @@ class HAlign(lists.ModeDependentCommand):
     The \\halign command.
     """
     def vertical(self, parser, vlist):
-        parser.newAlignment()
+        _newAlignment(parser, vlist, True)
     
     def math(self, parser, mlist):
         if len(mlist) > 0 or mlist.inner:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
-        parser.newAlignment()
+        _newAlignment(parser, mlist, True)
 
 
 class VAlign(lists.ModeDependentCommand):
@@ -372,7 +371,7 @@ class VAlign(lists.ModeDependentCommand):
     The \\valign command.
     """
     def horizontal(self, parser, hlist):
-        parser.newAlignment()
+        _newAlignment(parser, hlist, False)
 
 
 mod = Module("align",
@@ -382,7 +381,10 @@ mod = Module("align",
         "cr": cr,
         "crcr": crcr,
         "span": span,
-        "omit": omit,
+        "omit": Omit(),
         "noalign": noalign,
+    },
+    attributes={
+        "endCell": endCell,
     }
 )

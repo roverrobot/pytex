@@ -22,6 +22,8 @@ def test_halign(cmr10):
 def test_tabskip(cmr10):
     cmr10.parse("\\tabskip 1pt\\halign{1 #\\tabskip 2pt& 2 #\\cr a & b\\cr}")
     top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
     node = top[0]
     assert len(node.tabskips) == 3
     assert node.tabskips[0] == glue.Glue(1)
@@ -32,6 +34,8 @@ def test_tabskip(cmr10):
 def test_noalign(cmr10):
     cmr10.parse("\\halign{1 #& 2 #\\cr\\noalign{\\vskip1pt} a & b\\cr\\noalign{\\vskip2pt}}")
     top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
     node = top[0]
     assert node.noalign is not None
     assert len(node.noalign) == 1
@@ -50,8 +54,8 @@ def test_span(cmr10):
     top = cmr10.lists[-1]
     node = top[0]
     row = node.rows[0]
-    len(row.cells) == 1
-    assert row.cells[0].span == 1
+    assert len(row.cells) == 2
+    assert row.cells[0].list.span == 1
 
 
 def test_omit(cmr10):
@@ -59,6 +63,7 @@ def test_omit(cmr10):
     top = cmr10.lists[-1]
     node = top[0]
     row = node.rows[0]
-    assert len(row.cells) == 1
-    assert row.cells[0].span == 1
-    assert len(row.cells[0]) == 6
+    assert len(row.cells) == 2
+    assert row.cells[0].list.span == 1
+    assert row.cells[1].list.omit == 1
+    assert len(row.cells[1].list) == 4

@@ -95,3 +95,60 @@ def test_omit_as_first_non_space_token_ignores_template(cmr10):
     assert len(row.cells) == 1
     assert not hasattr(row.cells[0].list, "omit")
     assert len(row.cells[0].list) == 1
+
+
+def test_halign_typesets_to_vbox(cmr10):
+    cmr10.parse("\\halign{#&#\\cr a&bc\\cr}")
+    node = cmr10.lists[-1][0]
+    packed = []
+    node.typeset(cmr10, packed)
+    box = packed[0]
+    assert box.node_type == nd.NODE_TYPE.VLIST
+    assert box.typeset_context is node.typeset_context
+    assert len(box.list) == 1
+    assert box.list[0].node_type == nd.NODE_TYPE.HLIST
+
+
+def test_halign_span_widths_follow_tex_formula(cmr10):
+    cmr10.parse(
+        "\\tabskip 0pt"
+        "\\halign{#&#&#\\cr"
+        "\\kern1pt&\\kern1pt&\\kern1pt\\cr"
+        "\\kern1pt\\span\\kern1pt\\span\\kern4pt\\cr"
+        "\\kern1pt\\span\\kern3pt\\cr}"
+    )
+    node = cmr10.lists[-1][0]
+    packed = []
+    node.typeset(cmr10, packed)
+    box = packed[0]
+    rows = [item for item in box.list if item.node_type == nd.NODE_TYPE.HLIST]
+    assert box.width == 6
+    assert len(rows) == 3
+    assert rows[0].width == 6
+    assert rows[1].width == 6
+    assert rows[2].width == 6
+
+
+def test_halign_spanned_box_uses_row_glue_setting(cmr10):
+    cmr10.parse(
+        "\\tabskip 0pt plus 1pt"
+        "\\halign to 10pt{#&#\\cr"
+        "\\kern1pt&\\kern1pt\\cr"
+        "\\kern1pt\\span\\kern1pt\\cr}"
+    )
+    node = cmr10.lists[-1][0]
+    packed = []
+    node.typeset(cmr10, packed)
+    box = packed[0]
+    rows = [item for item in box.list if item.node_type == nd.NODE_TYPE.HLIST]
+    assert len(rows) == 2
+    assert rows[0].width == 10
+    assert rows[1].width == 10
+    assert float(rows[1].list[1].width) == pytest.approx(4.6666667, abs=1e-4)
+
+
+def test_valign_typesets_to_hbox(cmr10):
+    cmr10.parse("\\setbox1=\\hbox{\\valign{#\\cr a\\cr b\\cr}}")
+    outer = cmr10.state.box[1]
+    outer.typeset(cmr10, [])
+    assert outer.list[0].node_type == nd.NODE_TYPE.HLIST

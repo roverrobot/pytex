@@ -7,6 +7,7 @@ from pytex import lists
 from pytex import node as nd
 from pytex import box as bx
 from pytex import hmode
+from pytex import vmode
 from pytex.token import Token, CATCODE, Command
 from pytex import lexer
 from pytex import glue
@@ -62,6 +63,7 @@ class Alignment(nd.Node):
         self.tabskips = []
         self.to = to
         self.spread = spread
+        self._typeset_cache = None
 
     node_type = nd.NODE_TYPE.ALIGNMENT
     needs_vcontext = False
@@ -85,6 +87,167 @@ class Alignment(nd.Node):
     def newBox(self, parser):
         raise NotImplementedError
 
+    def typeset(self, parser, packed):
+        self.pretypeset(parser)
+        packed.append(self._typeset_cache)
+
+    def pretypeset(self, parser):
+        raise NotImplementedError
+
+    def _collectEntries(self, parser):
+        # TeXBook notation is 1-based; this implementation uses the same names
+        # with 0-based indices. Thus `w[j]` is TeX's w_{j+1}, and `t[k+1]` is
+        # the glue between columns k and k+1.
+        rows = []
+        n_raw = 0
+        for row in self.rows:
+            entries = []
+            i = 0
+            column = 0
+            while i < len(row.cells):
+                start = column
+                cells = []
+                while True:
+                    cell = row.cells[i]
+                    cell.typeset(parser, [])
+                    cells.append(cell)
+                    column += 1
+                    if not getattr(cell.list, "span", 0):
+                        break
+                    i += 1
+                    if i >= len(row.cells):
+                        raise ValueError("missing cell after \\span", parser.input.position())
+                entry = {
+                    "start": start,
+                    "span": len(cells),
+                    "cells": cells,
+                    "measure": self.entryMeasure(cells),
+                }
+                entries.append(entry)
+                i += 1
+            if column > n_raw:
+                n_raw = column
+            rows.append((row, entries))
+        if n_raw == 0:
+            return rows, [], list(self.tabskips[:1])
+        merge = self._mergeColumns(rows, n_raw)
+        column_map = []
+        j = -1
+        for raw_j in range(n_raw):
+            if raw_j == 0 or not merge[raw_j - 1]:
+                j += 1
+            column_map.append(j)
+        n = j + 1
+        t = [self._tabskip(0)]
+        for k, merged in enumerate(merge):
+            if not merged:
+                t.append(self._tabskip(k + 1))
+        t.append(self._tabskip(n_raw))
+        reduced_rows = []
+        for row, entries in rows:
+            mapped = []
+            for entry in entries:
+                i = column_map[entry["start"]]
+                j = column_map[entry["start"] + entry["span"] - 1]
+                inner_t = []
+                raw_i = entry["start"]
+                raw_j = entry["start"] + entry["span"] - 1
+                for raw_k in range(raw_i, raw_j):
+                    if merge[raw_k]:
+                        continue
+                    inner_t.append(t[column_map[raw_k + 1]])
+                mapped.append(entry | {"start": i, "span": j - i + 1, "inner_t": inner_t})
+            reduced_rows.append((row, mapped))
+        w_ij = [[] for _ in range(n)]
+        for _, entries in reduced_rows:
+            for entry in entries:
+                i = entry["start"]
+                j = i + entry["span"] - 1
+                w_ij[j].append((i, Dimen(entry["measure"])))
+        w = []
+        for j in range(n):
+            w_j = None
+            for i, wij in w_ij[j]:
+                candidate = Dimen(wij)
+                for k in range(i, j):
+                    candidate -= w[k] + t[k + 1].dimen
+                if w_j is None or candidate > w_j:
+                    w_j = candidate
+            if w_j is None:
+                raise ValueError("alignment column has no usable entry", parser.input.position())
+            w.append(w_j)
+        return reduced_rows, w, t
+
+    def _tabskip(self, index):
+        if index < len(self.tabskips):
+            return self.tabskips[index]
+        return glue.Glue()
+
+    def _mergeColumns(self, rows, raw_columns):
+        merge_after = [False] * max(0, raw_columns - 1)
+        for boundary in range(raw_columns - 1):
+            seen = False
+            merged = True
+            for _, entries in rows:
+                left = False
+                right = False
+                spanned = False
+                for entry in entries:
+                    start = entry["start"]
+                    end = start + entry["span"]
+                    if start <= boundary < end:
+                        left = True
+                    if start <= boundary + 1 < end:
+                        right = True
+                    if start <= boundary < end - 1:
+                        spanned = True
+                if not (left or right):
+                    continue
+                seen = True
+                if not spanned:
+                    merged = False
+                    break
+            merge_after[boundary] = seen and merged
+        return merge_after
+
+    def _combineCells(self, parser, cells):
+        if len(cells) == 1:
+            return cells[0]
+        box = self.entryBox(parser)
+        box.list[:] = list(cells)
+        box.typeset(parser, [])
+        return box
+
+    def _appendVerticalMaterial(self, parser, vlist, nodes):
+        for node in nodes:
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                node.typeset(parser, [])
+            vlist.append(node)
+
+    def _glueSet(self, total, delta):
+        if delta > 0 and total.stretch.factor != 0:
+            return float(delta) / total.stretch.factor, total.stretch.order, True
+        if delta < 0 and total.shrink.factor != 0:
+            return float(delta) / total.shrink.factor, total.shrink.order, False
+        return 0.0, None, delta > 0
+
+    def _spanTarget(self, w, t, i, j):
+        target = Dimen()
+        for k in range(i, j + 1):
+            target += w[k]
+        for k in range(i + 1, j + 1):
+            target += t[k].dimen
+        return target
+
+    def entryMeasure(self, cells):
+        raise NotImplementedError
+
+    def entryBox(self, parser):
+        raise NotImplementedError
+
+    def reboxEntry(self, parser, box, target):
+        raise NotImplementedError
+
 
 class HAlignment(Alignment):
     """
@@ -100,6 +263,124 @@ class HAlignment(Alignment):
     def newBox(self, parser):
         return bx.HBox(parser, None, 0)
 
+    def entryMeasure(self, cells):
+        total = Dimen()
+        for cell in cells:
+            total += cell.width
+        return total
+
+    def entryBox(self, parser):
+        return bx.HBox(parser, None, 0)
+
+    def reboxEntry(self, parser, box, target):
+        target = Dimen(target)
+        if box.width == target:
+            return box
+        out = bx.HBox(parser, target, None)
+        hss = glue.Glue(0, glue.Stretchness(1, 1), glue.Stretchness(1, 1))
+        out.list.append(nd.Glue(hss))
+        out.list.append(box)
+        out.list.append(nd.Glue(hss))
+        out.typeset(parser, [])
+        return out
+
+    def _buildSpanBox(self, parser, entry):
+        box = bx.HBox(parser, None, Dimen())
+        total = glue.Glue()
+        inner = iter(entry["inner_t"])
+        for idx, item in enumerate(entry["cells"]):
+            if idx != 0:
+                tabskip = next(inner, None)
+                if tabskip is not None:
+                    box.list.append(nd.Glue(tabskip))
+                    total += tabskip
+            box.list.append(item)
+        box.typeset(parser, [])
+        return box, total
+
+    def _applyBoxGlueSet(self, box, ratio, order, stretching):
+        box.glue_ratio = ratio
+        if order is None:
+            return
+        natural = box.width
+        if stretching:
+            stretch = box.natural.stretch
+            if stretch.order != order:
+                return
+            box.width = natural + stretch.factor * ratio
+            return
+        shrink = box.natural.shrink
+        if shrink.order != order:
+            return
+        box.width = natural + shrink.factor * ratio
+
+    def _rowContext(self, prevdepth):
+        if self.typeset_context is None:
+            return None
+
+        class RowContext:
+            def __init__(self, context, prevdepth):
+                self.baselineskip = context.baselineskip
+                self.lineskip = context.lineskip
+                self.lineskiplimit = context.lineskiplimit
+                self.interlinepenalty = context.interlinepenalty
+                self.prevdepth = prevdepth
+
+        return RowContext(self.typeset_context, prevdepth)
+
+    def pretypeset(self, parser):
+        if self._typeset_cache is not None:
+            return
+        rows, w, t = self._collectEntries(parser)
+        prepared = []
+        W = Dimen()
+        for row, entries in rows:
+            rowbox = bx.HBox(parser, None, Dimen())
+            row_total = glue.Glue()
+            span_boxes = []
+            if t:
+                rowbox.list.append(nd.Glue(t[0]))
+                row_total += t[0]
+            for entry in entries:
+                i = entry["start"]
+                j = i + entry["span"] - 1
+                if entry["span"] == 1:
+                    box = self.reboxEntry(parser, self._combineCells(parser, entry["cells"]), w[i])
+                else:
+                    box, inner = self._buildSpanBox(parser, entry)
+                    row_total += inner
+                    span_boxes.append(box)
+                rowbox.list.append(box)
+                if j + 1 < len(t):
+                    rowbox.list.append(nd.Glue(t[j + 1]))
+                    row_total += t[j + 1]
+            rowbox.typeset(parser, [])
+            prepared.append((row, rowbox, row_total, span_boxes))
+            if rowbox.width > W:
+                W = Dimen(rowbox.width)
+        if self.to is not None:
+            W = self.to
+        else:
+            W += self.spread
+        out = bx.VBox(parser, None, Dimen())
+        out.typeset_context = self.typeset_context
+        if self.noalign is not None:
+            self._appendVerticalMaterial(parser, out.list, self.noalign)
+        for row, rowbox, row_total, span_boxes in prepared:
+            ratio, order, stretching = self._glueSet(row_total, W - rowbox.width)
+            for box in span_boxes:
+                self._applyBoxGlueSet(box, ratio, order, stretching)
+            rowbox.glue_ratio = ratio
+            rowbox.width = W
+            context = self._rowContext(out.list.prevdepth)
+            if context is not None:
+                rowbox.typeset_context = context
+            out.list.append(rowbox)
+            if row.noalign is not None:
+                self._appendVerticalMaterial(parser, out.list, row.noalign)
+        out.typeset(parser, [])
+        self._typeset_cache = out
+
 
 class VAlignment(Alignment):
     """
@@ -107,6 +388,49 @@ class VAlignment(Alignment):
     """
     def newBox(self, parser):
         return bx.VBox(parser, None, 0)
+
+    def entryMeasure(self, cells):
+        total = Dimen()
+        for cell in cells:
+            total += cell.height + cell.depth
+        return total
+
+    def entryBox(self, parser):
+        return bx.VBox(parser, None, 0)
+
+    def reboxEntry(self, parser, box, target):
+        target = Dimen(target)
+        if box.height + box.depth == target:
+            return box
+        out = bx.VBox(parser, target, None)
+        vss = glue.Glue(0, glue.Stretchness(1, 1), glue.Stretchness(1, 1))
+        out.list.append(nd.Glue(vss))
+        out.list.append(box)
+        out.list.append(nd.Glue(vss))
+        out.typeset(parser, [])
+        return out
+
+    def pretypeset(self, parser):
+        if self._typeset_cache is not None:
+            return
+        rows, w, t = self._collectEntries(parser)
+        out = bx.HBox(parser, self.to, self.spread)
+        for row, entries in rows:
+            colbox = bx.VBox(parser, None, 0)
+            if t:
+                colbox.list.append(nd.Glue(t[0]))
+            for entry in entries:
+                box = self._combineCells(parser, entry["cells"])
+                i = entry["start"]
+                j = i + entry["span"] - 1
+                target = self._spanTarget(w, t, i, j)
+                colbox.list.append(self.reboxEntry(parser, box, target))
+                if j + 1 < len(t):
+                    colbox.list.append(nd.Glue(t[j + 1]))
+            colbox.typeset(parser, [])
+            out.list.append(colbox)
+        out.typeset(parser, [])
+        self._typeset_cache = out
 
 
 def _readNoAlign(parser, owner, alignment, row_state, column_no):
@@ -164,6 +488,12 @@ def newCell(parser, row_state, column_no):
 
 
 def endCell(parser, is_last):
+    while getattr(parser.lists[-1], "row", None) is None:
+        top = parser.lists[-1]
+        if top.type == lists.LISTTYPE.HORIZONTAL and not top.inner:
+            parser.endParagraph()
+            continue
+        break
     parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
     cell = parser.lists.pop()
     row_state = cell.row

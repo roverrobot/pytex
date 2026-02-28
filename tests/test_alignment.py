@@ -12,8 +12,9 @@ def test_halign(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     assert len(top) == 1
     node = top[0]
-    assert isinstance(node, align.Alignment)
+    assert isinstance(node, align.HAlignment)
     assert node.noalign is None
+    assert node.typeset_context is not None
     assert len(node.rows) == 1
     row = node.rows[0]
     assert len(row.cells) == 2

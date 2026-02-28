@@ -88,9 +88,13 @@ class VList(lists.List):
         @param node: the node to append
         """
         context = getattr(node, "typeset_context", None)
+        if context is None and getattr(node, "needs_vcontext", False):
+            node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)
+            context = node.typeset_context
         is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
         if context is None and is_box:
             node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)
+            context = node.typeset_context
         if is_box:
             # if the box has a depth, we capture it. Otherwise, we will resolve it lazily when needed.
             self.prevdepth = getattr(node, "depth", None)

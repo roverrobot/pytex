@@ -55,31 +55,57 @@ class Alignment(nd.Node):
     """
     An alignment node.
     """
-    def __init__(self, to=None, spread=Dimen(), vertical=True):
+    def __init__(self, to=None, spread=Dimen()):
         self.rows = []
         # the first noalign before the first row
         self.noalign = None
-        self.vertical = vertical
         self.tabskips = []
         self.to = to
         self.spread = spread
 
     node_type = nd.NODE_TYPE.ALIGNMENT
+    needs_vcontext = False
 
     def saveInfo(self):
         return {
+            "init": {
+                "to": self.to,
+                "spread": self.spread,
+            },
             "extra": {
                 "rows": self.rows,
                 "noalign": self.noalign,
+                "tabskips": self.tabskips,
             },
         }
     
     def __repr__(self):
-        return f"Alignment({self.rows})"
+        return f"{self.__class__.__name__}({self.rows})"
     
     def newBox(self, parser):
-        if self.vertical:
-            return bx.HBox(parser, None, 0)
+        raise NotImplementedError
+
+
+class HAlignment(Alignment):
+    """
+    A \\halign node. It is vertical material, so it must capture vertical typesetting
+    context when appended to a vlist.
+    """
+    needs_vcontext = True
+
+    def __init__(self, to=None, spread=Dimen()):
+        super().__init__(to, spread)
+        self.typeset_context = None
+
+    def newBox(self, parser):
+        return bx.HBox(parser, None, 0)
+
+
+class VAlignment(Alignment):
+    """
+    A \\valign node. It behaves like an hbox with respect to surrounding layout.
+    """
+    def newBox(self, parser):
         return bx.VBox(parser, None, 0)
 
 
@@ -355,9 +381,9 @@ class AlignmentBuilder:
         self.readPreamble(parser)
 
 
-def _newAlignment(parser, list, vertical):
+def _newAlignment(parser, list, cls):
     to, spread = parser.readToSpread()
-    alignment = Alignment(to, spread, vertical)
+    alignment = cls(to, spread)
     list.append(alignment)
     AlignmentBuilder(alignment).run(parser)
 
@@ -367,12 +393,12 @@ class HAlign(lists.ModeDependentCommand):
     The \\halign command.
     """
     def vertical(self, parser, vlist):
-        _newAlignment(parser, vlist, True)
+        _newAlignment(parser, vlist, HAlignment)
     
     def math(self, parser, mlist):
         if len(mlist) > 0 or mlist.inner:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
-        _newAlignment(parser, mlist, True)
+        _newAlignment(parser, mlist, HAlignment)
 
 
 class VAlign(lists.ModeDependentCommand):
@@ -380,7 +406,7 @@ class VAlign(lists.ModeDependentCommand):
     The \\valign command.
     """
     def horizontal(self, parser, hlist):
-        _newAlignment(parser, hlist, False)
+        _newAlignment(parser, hlist, VAlignment)
 
 
 mod = Module("align",

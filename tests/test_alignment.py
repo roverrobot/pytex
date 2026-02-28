@@ -65,5 +65,32 @@ def test_omit(cmr10):
     row = node.rows[0]
     assert len(row.cells) == 2
     assert row.cells[0].list.span == 1
-    assert row.cells[1].list.omit == 1
-    assert len(row.cells[1].list) == 4
+    assert len(row.cells[1].list) == 1
+
+
+def test_cell_leading_spaces_are_omitted(cmr10):
+    cmr10.parse("\\halign{1#\\cr   a\\cr}")
+    top = cmr10.lists[-1]
+    node = top[0]
+    row = node.rows[0]
+    assert len(row.cells) == 1
+    assert len(row.cells[0].list) == 2
+
+
+def test_template_leading_spaces_are_omitted(cmr10):
+    cmr10.parse("\\halign{   1#\\cr a\\cr}")
+    top = cmr10.lists[-1]
+    node = top[0]
+    row = node.rows[0]
+    assert len(row.cells) == 1
+    assert len(row.cells[0].list) == 2
+
+
+def test_omit_as_first_non_space_token_ignores_template(cmr10):
+    cmr10.parse("\\halign{1#2\\cr   \\omit a\\cr}")
+    top = cmr10.lists[-1]
+    node = top[0]
+    row = node.rows[0]
+    assert len(row.cells) == 1
+    assert not hasattr(row.cells[0].list, "omit")
+    assert len(row.cells[0].list) == 1

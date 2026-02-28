@@ -105,8 +105,14 @@ def newCell(parser, row_state, column_no):
     row = row_state.row
     # read in all the tokens up to the end of the cell
     toks = []
-    while True:
+    has_omit = False
+    t = parser.skipSpaces(True)
+    if t is None:
+        raise ValueError("expecting \\cr", parser.input.position())
+    if getattr(t, "definition", None) is omit:
+        has_omit = True
         t = parser.token_expand()
+    while True:
         if t is None:
             raise ValueError("expecting \\cr", parser.input.position())
         if t.catcode == CATCODE.END_GROUP:
@@ -123,6 +129,7 @@ def newCell(parser, row_state, column_no):
             parser.input.unread(t)
             break
         toks.append(t)
+        t = parser.token_expand()
     # start a new cell
     cell = alignment.newBox(parser)
     cell.list.row = row_state
@@ -131,6 +138,9 @@ def newCell(parser, row_state, column_no):
     parser.lists.append(cell.list)
     # start the group fo the cell
     parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+    if has_omit:
+        parser.input.push(lexer.TokenListScanner(toks))
+        return
     column: Column = row_state.template[column_no]
     parser.input.push(lexer.TokenListScanner(column.u))
     parser.input.push(lexer.TokenListScanner(toks))
@@ -220,8 +230,8 @@ class Omit(Command):
         Execute the command. It terminates the current row in an alignment and starts a new one.
         @param parser: the parser
         """
-        parser.lists[-1].omit = True
-
+        raise ValueError("misplaced \\omit", parser.input.position())
+    
 
 class NoAlign(Command):
     """
@@ -240,6 +250,7 @@ cr = Cr()
 crcr = CrCr()
 span = Span()
 noalign = NoAlign()
+omit = Omit()
 
 
 class Column:
@@ -305,6 +316,10 @@ class AlignmentBuilder:
         row.cells.append(cell)
         parser.lists.append(cell.list)
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+        t = parser.skipSpaces(False)
+        if t is None:
+            raise ValueError("expecting a \\cr", parser.input.position())
+        parser.input.unread(t)
         while True:
             t = parser.token()
             if t and t.definition == span:
@@ -323,6 +338,10 @@ class AlignmentBuilder:
                 self.preamble.append(column)
                 self.alignment.tabskips.append(parser.state.parameters["tabskip"])
                 current = column.u
+                t = parser.skipSpaces(False)
+                if t is None:
+                    raise ValueError("expecting a \\cr", parser.input.position())
+                parser.input.unread(t)
                 continue
             if t.definition is tabskip:
                 t.definition.execute(parser)
@@ -381,7 +400,7 @@ mod = Module("align",
         "cr": cr,
         "crcr": crcr,
         "span": span,
-        "omit": Omit(),
+        "omit": omit,
         "noalign": noalign,
     },
     attributes={

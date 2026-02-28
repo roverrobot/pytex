@@ -276,25 +276,30 @@ class Discretionary(HorizontalCommand):
     """
     The \\discretionary command.
     """
-    def readValue(self, parser):
+    def _readParts(self, parser, out, math):
         pre = HList(parser)
-        parser.readList(pre, GROUP_TYPE.DISC)
         post = HList(parser)
-        parser.readList(post, GROUP_TYPE.DISC)
         replace = HList(parser)
-        parser.readList(replace, GROUP_TYPE.DISC)
-        # Add the discretionary node
-        return nd.Disc(pre, post, replace)
+        
+        def finish():
+            node = nd.Disc(pre, post, replace)
+            if math and len(node.replace) > 0:
+                raise ValueError("replace part of discretionary must be empty in math mode")
+            out.append(node)
+
+        def readReplace():
+            parser.readList(replace, GROUP_TYPE.DISC, finish)
+
+        def readPost():
+            parser.readList(post, GROUP_TYPE.DISC, readReplace)
+
+        parser.readList(pre, GROUP_TYPE.DISC, readPost)
     
     def horizontal(self, parser, hlist):
-        # Read the three arguments
-        hlist.append(self.readValue(parser))
+        self._readParts(parser, hlist, False)
 
     def math(self, parser, mlist):
-        node = self.readValue(parser)
-        if len(node.replace) > 0:
-            raise ValueError("replace part of discretionary must be empty in math mode")
-        mlist.append(node)
+        self._readParts(parser, mlist, True)
 
 
 class VAdjust(HorizontalCommand):
@@ -303,7 +308,6 @@ class VAdjust(HorizontalCommand):
     """
     def horizontal(self, parser, hlist):
         # Read the argument
-        
         vlist = parser.readVList(GROUP_TYPE.VADJUST)
         # Add the vadjust node
         hlist.append(nd.VAdjust(vlist))

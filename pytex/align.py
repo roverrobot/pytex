@@ -7,7 +7,6 @@ from pytex import lists
 from pytex import node as nd
 from pytex import box as bx
 from pytex import hmode
-from pytex import vmode
 from pytex.token import Token, CATCODE, Command
 from pytex import lexer
 from pytex import glue
@@ -85,19 +84,10 @@ class Alignment(nd.Node):
 
 
 def _readNoAlign(parser, owner, alignment, row_state, column_no):
-    def callback():
-        parser.lists.pop()
-        newCell(parser, row_state, column_no)
-
-    parser.skipFiller()
-    t = parser.token()
-    if t.catcode != CATCODE.BEGIN_GROUP:
-        raise ValueError("expecting {", parser.input.position())
-    vlist = vmode.VList(parser, inner=True)
-    owner.noalign = vlist
-    parser.lists.append(vlist)
-    # start the group for \noalign vlist, and when the closing } is read, the callback pops off the list
-    parser.beginGroup(parser.input.position(), GROUP_TYPE.NO_ALIGN, callback)
+    owner.noalign = parser.readVList(
+        GROUP_TYPE.NO_ALIGN,
+        lambda: newCell(parser, row_state, column_no),
+    )
 
 
 def newCell(parser, row_state, column_no):

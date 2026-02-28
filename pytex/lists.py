@@ -139,30 +139,36 @@ class IfInner(conditional.Conditional):
         return 0 if parser.lists[-1].inner else 1
 
 
-def readList(parser, list, reason: GROUP_TYPE):
+class ListReadEndCallback:
+    def __init__(self, parser, list, callback):
+        self.parser = parser
+        self.list = list
+        self.callback = callback
+
+    def __call__(self):
+        if self.list is not None:
+            self.parser.lists.pop()
+        if self.callback is not None:
+            self.callback()
+
+
+def readList(parser, list, reason: GROUP_TYPE, callback=None):
     """
     Read a list from the input stack.
     @param parser: The parser.
     @param list: The list to read.
     @param reason: The reason for reading the list.
+    @param callback: Called after the list group closes and the list is popped.
     """
-    def callback():
-        parser.run = False
     parser.skipFiller()
     pos = parser.input.position()
     t = parser.token_expand()
     if t.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting a {", pos)
-    # when in math mode, beginning a group will create a new math list
-    # so there is no need to provide one
     if list is not None:
         parser.lists.append(list)
+        callback = ListReadEndCallback(parser, list, callback)
     parser.beginGroup(pos, reason, callback)
-    parser.loop()
-    parser.run = True
-    # math list has already been popped in endgroup
-    if list is not None:
-        parser.lists.pop()
     return list
 
 
@@ -222,8 +228,9 @@ class Insert(Command):
         n = parser.readInteger()
         if n < 0 or n == 255:
             raise ValueError(f"invalid insert number {n}", parser.input.position())
+        top = parser.lists[-1]
         vlist = parser.readVList(GROUP_TYPE.INSERT)
-        parser.lists[-1].append(nd.Insert(n, vlist))
+        top.append(nd.Insert(n, vlist))
 
 
 class Mark(Command):

@@ -672,6 +672,9 @@ class AlignmentBuilder:
                 t = parser.token_expand()
             if t is None:
                 raise ValueError("expecting a \\cr", parser.input.position())
+            if t.catcode == CATCODE.BEGIN_GROUP:
+                current.extend(parser.readBalancedText([t], expand=False, macro=False))
+                continue
             # \span
             if t.catcode == CATCODE.PARAMETER:
                 if current is column.u:

@@ -87,6 +87,13 @@ def test_template_leading_spaces_are_omitted(cmr10):
     assert len(row.cells[0].list) == 2
 
 
+def test_preamble_balanced_text_hides_cr(cmr10):
+    cmr10.parse("\\halign{{\\cr}#\\cr}")
+    top = cmr10.lists[-1]
+    node = top[0]
+    assert len(node.rows) == 0
+
+
 def test_omit_as_first_non_space_token_ignores_template(cmr10):
     cmr10.parse("\\halign{1#2\\cr   \\omit a\\cr}")
     top = cmr10.lists[-1]

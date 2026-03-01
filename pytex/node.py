@@ -180,8 +180,7 @@ class Kern(Node):
         return f"Kern({self.kern}pt)"
 
     def meaning(self, parser):
-        auto = " auto" if self.automatic else ""
-        return f"\\kern {self.kern}{auto}"
+        return f"\\kern{self.kern}"
 
 
 class Penalty(Node):

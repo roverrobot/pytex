@@ -875,7 +875,6 @@ class HAlignMathList(nd.Node):
         alignment = self.display[0]
         body = alignment.typeset(parser, self.typeset_context)
         body.typeset_context = vmode.VNodeContext(self.typeset_context, None)
-        body.typeset_context.prevdepth = vmode.init_prevdepth
         packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
         packed.append(nd.Glue(self.typeset_context.abovedisplayskip, "\\abovedisplayskip"))
         packed.append(body)

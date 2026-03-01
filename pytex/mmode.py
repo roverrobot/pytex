@@ -719,7 +719,6 @@ class DisplayMathList(MList):
         b.typeset(parser, [])
         b.shifted = Dimen(s+d)
         b.typeset_context = VNodeContext(self.typeset_context, None)
-        b.typeset_context.prevdepth = init_prevdepth # prevent interline glue
         cache.append(b)
         # The final task is to append the glue or the equation number
         # that follows the display. If there was an \eqno and if e = 0, an infinite

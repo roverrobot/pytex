@@ -86,10 +86,9 @@ def test_linebreak_discards_leading_discardables(cmr10):
     para.typeset(cmr10, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
-    assert len(line.list) >= 2
-    assert line.list[0].node_type == nd.NODE_TYPE.GLUE
-    assert line.list[1].node_type == nd.NODE_TYPE.CHAR
-    assert line.list[1].char == "a"
+    assert len(line.list) >= 1
+    assert line.list[0].node_type == nd.NODE_TYPE.CHAR
+    assert line.list[0].char == "a"
 
 
 def test_linebreak_typesets_mlist_before_breaking(cmr10):

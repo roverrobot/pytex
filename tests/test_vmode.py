@@ -103,7 +103,7 @@ def test_leaders(cmr10, cmd, type):
     assert len(top) == 1
     node = top[0]
     assert node.node_type == nd.NODE_TYPE.GLUE
-    assert node.glue == glue.Glue(2.84526)
+    assert node.glue == glue.Glue(7227.0 / 254)
     ltype, box = node.leaders
     assert ltype == type
     assert box.node_type == nd.NODE_TYPE.VLIST
@@ -167,7 +167,7 @@ def test_prevdepth_penalty_does_not_reset(parser):
 def test_prevdepth_kept_across_glue_kern_penalty(parser):
     vlist = vmode.VList(parser)
     vlist.append(_test_hbox(parser, depth=3))
-    vlist.append(nd.Glue(glue.Glue(1)))
+    vlist.append(nd.Glue(glue.Glue(1), None))
     vlist.append(nd.Kern(1))
     vlist.append(nd.Penalty(0))
     assert vlist.resolvePrevDepth() == 3

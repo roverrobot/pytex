@@ -265,7 +265,7 @@ class ControlledSpace(HorizontalCommand):
     """
     def horizontal(self, parser, hlist):
         font = parser.state.parameters["currentfont"]
-        hlist.append(nd.Glue(font.spaceglue))
+        hlist.append(nd.Glue(font.spaceglue, None))
 
     def math(self, parser, mlist):
         # In math mode, a space is a no-op

@@ -127,9 +127,9 @@ class VList(lists.List):
                         baselineskip = context.baselineskip
                         diff = baselineskip.dimen - prevdepth - item.height
                         if diff < context.lineskiplimit:
-                            packed.append(nd.Glue(context.lineskip))
+                            packed.append(nd.Glue(context.lineskip, "\\lineskip"))
                         else:
-                            packed.append(nd.Glue(Glue(diff, baselineskip.stretch, baselineskip.shrink)))
+                            packed.append(nd.Glue(Glue(diff, baselineskip.stretch, baselineskip.shrink), "\\baselineskip"))
                     # update prevdepth for the next item
                     prevdepth = item.depth
                     if firstbox:

@@ -243,7 +243,7 @@ def test_leaders(cmr10, cmd, type):
     assert len(top) == 3
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.GLUE
-    assert node.glue == glue.Glue(2.84526)
+    assert node.glue == glue.Glue(7227.0 / 254)
     ltype, box = node.leaders
     assert ltype == type
     assert box.node_type == nd.NODE_TYPE.HLIST

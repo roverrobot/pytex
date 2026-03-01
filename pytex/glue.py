@@ -12,6 +12,12 @@ from pytex.module import Module
 from pytex.define import registerdef
 
 
+def _to_dimen(value):
+    if isinstance(value, Dimen):
+        return value
+    return Dimen(value)
+
+
 class Stretchness(serialization.Serializable):
     """
     the stretchness of a glue
@@ -21,7 +27,7 @@ class Stretchness(serialization.Serializable):
     """
     mu = False
     def __init__(self, factor=Dimen(), order: int=0):
-        self.factor = factor
+        self.factor = _to_dimen(factor)
         self.order = order
     
     def saveInfo(self):
@@ -37,6 +43,12 @@ class Stretchness(serialization.Serializable):
         if self.order == 0:
             return f"{self.factor}pt"
         return f"{self.factor}fi{'l'*self.order}"
+
+    def __repr__(self):
+        factor = repr(self.factor) if isinstance(self.factor, Dimen) else repr(Dimen(self.factor))
+        if self.order == 0:
+            return factor
+        return f"{factor}fi{'l'*self.order}"
     
     def __add__(self, other):
         if self.order == other.order:
@@ -72,7 +84,7 @@ class Glue(serialization.Serializable):
     """
     mu = False
     def __init__(self, dimen=Dimen(), stretch=Stretchness(), shrink=Stretchness()):
-        self.dimen = dimen
+        self.dimen = _to_dimen(dimen)
         self.stretch = stretch
         self.shrink = shrink
     
@@ -98,6 +110,14 @@ class Glue(serialization.Serializable):
 
     def __str__(self):
         return f"{self.dimen}pt plus {self.stretch} minus {self.shrink}"
+
+    def __repr__(self):
+        result = repr(self.dimen)
+        if self.stretch is not None and (self.stretch.order != 0 or self.stretch.factor != 0):
+            result += " plus " + repr(self.stretch)
+        if self.shrink is not None and (self.shrink.order != 0 or self.shrink.factor != 0):
+            result += " minus " + repr(self.shrink)
+        return result
     
     def __add__(self, other):
         return self.__class__(self.dimen + other.dimen, self.stretch + other.stretch, self.shrink + other.shrink)
@@ -132,6 +152,12 @@ class MuStretchness(Stretchness):
         if self.order == 0:
             return f"{self.factor}mu"
         return f"{self.factor}fi{'l'*self.order}"
+
+    def __repr__(self):
+        factor = repr(self.factor) if isinstance(self.factor, Dimen) else repr(Dimen(self.factor))
+        if self.order == 0:
+            return f"{factor}mu"
+        return f"{factor}fi{'l'*self.order}"
     
     def __eq__(self, value):
         if not isinstance(value, MuStretchness):
@@ -154,6 +180,14 @@ class MuGlue(Glue):
             result += " plus " + str(self.stretch)
         if self.shrink is not None:
             result += " minus " + str(self.shrink)
+        return result
+
+    def __repr__(self):
+        result = f"{self.dimen}mu"
+        if self.stretch is not None and (self.stretch.order != 0 or self.stretch.factor != 0):
+            result += " plus " + repr(self.stretch)
+        if self.shrink is not None and (self.shrink.order != 0 or self.shrink.factor != 0):
+            result += " minus " + repr(self.shrink)
         return result
 
     def __eq__(self, value):

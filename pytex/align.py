@@ -379,9 +379,9 @@ class HAlignment(Alignment):
             return box
         out = bx.HBox(parser, target, None)
         hss = glue.Glue(0, glue.Stretchness(1, 1), glue.Stretchness(1, 1))
-        out.list.append(nd.Glue(hss))
+        out.list.append(nd.Glue(hss, None))
         out.list.append(box)
-        out.list.append(nd.Glue(hss))
+        out.list.append(nd.Glue(hss, None))
         out.typeset(parser, [])
         return out
 
@@ -393,7 +393,7 @@ class HAlignment(Alignment):
             if idx != 0:
                 tabskip = next(inner, None)
                 if tabskip is not None:
-                    box.list.append(nd.Glue(tabskip))
+                    box.list.append(nd.Glue(tabskip, "\\tabskip"))
                     total += tabskip
             box.list.append(item)
         box.typeset(parser, [])
@@ -444,7 +444,7 @@ class HAlignment(Alignment):
             row_total = glue.Glue()
             span_boxes = []
             if t:
-                rowbox.list.append(nd.Glue(t[0]))
+                rowbox.list.append(nd.Glue(t[0], "\\tabskip"))
                 row_total += t[0]
             for entry in entries:
                 i = entry["start"]
@@ -457,7 +457,7 @@ class HAlignment(Alignment):
                     span_boxes.append(box)
                 rowbox.list.append(box)
                 if j + 1 < len(t):
-                    rowbox.list.append(nd.Glue(t[j + 1]))
+                    rowbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
                     row_total += t[j + 1]
             rowbox.typeset(parser, [])
             prepared.append((row, rowbox, row_total, span_boxes))
@@ -528,9 +528,9 @@ class VAlignment(Alignment):
             return box
         out = bx.VBox(parser, target, None)
         vss = glue.Glue(0, glue.Stretchness(1, 1), glue.Stretchness(1, 1))
-        out.list.append(nd.Glue(vss))
+        out.list.append(nd.Glue(vss, None))
         out.list.append(box)
-        out.list.append(nd.Glue(vss))
+        out.list.append(nd.Glue(vss, None))
         out.typeset(parser, [])
         return out
 
@@ -542,7 +542,7 @@ class VAlignment(Alignment):
         for row, entries in rows:
             colbox = bx.VBox(parser, None, 0)
             if t:
-                colbox.list.append(nd.Glue(t[0]))
+                colbox.list.append(nd.Glue(t[0], "\\tabskip"))
             for entry in entries:
                 box = self._combineCells(parser, entry["cells"])
                 i = entry["start"]
@@ -550,7 +550,7 @@ class VAlignment(Alignment):
                 target = self._spanTarget(w, t, i, j)
                 colbox.list.append(self.reboxEntry(parser, box, target))
                 if j + 1 < len(t):
-                    colbox.list.append(nd.Glue(t[j + 1]))
+                    colbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
             colbox.typeset(parser, [])
             out.list.append(colbox)
         out.typeset(parser, [])
@@ -877,10 +877,10 @@ class HAlignMathList(nd.Node):
         body.typeset_context = vmode.VNodeContext(self.typeset_context, None)
         body.typeset_context.prevdepth = vmode.init_prevdepth
         packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
-        packed.append(nd.Glue(self.typeset_context.abovedisplayskip))
+        packed.append(nd.Glue(self.typeset_context.abovedisplayskip, "\\abovedisplayskip"))
         packed.append(body)
         packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
-        packed.append(nd.Glue(self.typeset_context.belowdisplayskip))
+        packed.append(nd.Glue(self.typeset_context.belowdisplayskip, "\\belowdisplayskip"))
         next_prevgraf = self.typeset_context.prevgraf + 3
         if self.next_paragraph is not None:
             self.next_paragraph.prevgraf = next_prevgraf

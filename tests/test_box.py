@@ -226,7 +226,7 @@ def test_box_void(box):
 def test_unhbox(box):
     box.parse("1\\unhbox0")
     top = box.lists[-1]
-    assert len(top) == 16
+    assert len(top) == 15
     assert box.state.box[0] is None
 
 
@@ -249,9 +249,9 @@ def test_unvbox_wrongbox(box):
 def test_unhcopy(box):
     box.parse("1\\unhcopy0")
     top = box.lists[-1]
-    assert len(top) == 16
+    assert len(top) == 15
     box0 = box.state.box[0]
-    assert len(box0.list) == 14
+    assert len(box0.list) == 13
 
 
 def test_unvbox(box):
@@ -332,7 +332,7 @@ def test_lastbox(cmr10):
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 2
     box = cmr10.state.box[0]
-    assert len(box.list) == 14
+    assert len(box.list) == 13
 
 
 def test_lastbox_empty(cmr10):

@@ -40,59 +40,22 @@ class HList(lists.List):
     """
     def __init__(self, parser, inner=True, nodes=[]):
         super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner, nodes=nodes)
-        self.lig_base = None
-        self.in_word = False
         self.spacefactor = 1000
         self.sfcode = parser.state.sfcode
 
     def append(self, node):
-        # \spacefactor for characters has been handled in parser.addChar. Now we need to set
-        # \spacefactor to 1000 for other nodes.
+        # The stored list keeps raw characters. Ligatures are formed later when
+        # the list is typeset.
         if node.node_type != nd.NODE_TYPE.CHAR:
             self.spacefactor = 1000
             list.append(self, node)
-            self.lig_base = None
-            self.in_word = False
             return
         sf = self.sfcode[ord(node.char)]
         if sf != 0:
             if self.spacefactor < 1000 < sf:
                 sf = 1000
             self.spacefactor = sf
-        # we should check for the start/end of a word to handle boundary characters.
-        nextchar = ord(node.char)
-        lc = self.parser.state.lccode[nextchar]
-        if not self.in_word and  lc != 0:
-            # boundary character at the start of a word, we should check for left boundary
-            self.in_word = True
-            # todo
-        elif self.in_word and lc == 0:
-            # boundary character at the end of a word, we should check for right boundary
-            self.in_word = False
-            # todo
-        # we should check for ligature
-        if self.lig_base is None:
-            self.lig_base = node
-            list.append(self, node)
-            return
-        # now we are building a ligature, we need to check if the current node can be combined with the ligature base
-        base = self.lig_base
-        assert self[-1] is base, "the ligature base should always be the last character in the list"
-        if ligature_step(base, node) is None:
-            # no ligature program, cannot be combined
-            list.append(self, node)
-            self.lig_base = node
-            return
-        self.pop()
-        # The ligature program may recurse; run it on a temporary working list.
-        working = run_ligature_program(
-            [base, node],
-            make_ligature=lambda insert_char, replaced, step, current, nxt: Ligature(insert_char, replaced),
-            make_kern=lambda step, current, nxt: nd.Kern(step.kern * current.font.at, True),
-            source_nodes=lambda n: list(n.source) if isinstance(n, Ligature) else [n],
-        )
-        self.extend(working)
-        self.lig_base = working[-1]
+        list.append(self, node)
 
     def typesetNode(self, parser, node, packed):
         """
@@ -113,12 +76,42 @@ class HList(lists.List):
             if getattr(n, "source", None) is None:
                 n.source = node
 
+    def typesetNodeWithLigatures(self, parser, node, packed, state):
+        """
+        Typeset one source node, forming ligatures from adjacent raw characters.
+        """
+        if node.node_type != nd.NODE_TYPE.CHAR:
+            state["lig_base"] = None
+            self.typesetNode(parser, node, packed)
+            return
+        base = state["lig_base"]
+        if base is None:
+            packed.append(node)
+            state["lig_base"] = node
+            return
+        assert packed[-1] is base, "the ligature base should be the last emitted character"
+        if ligature_step(base, node) is None:
+            packed.append(node)
+            state["lig_base"] = node
+            return
+        packed.pop()
+        working = run_ligature_program(
+            [base, node],
+            make_ligature=lambda insert_char, replaced, step, current, nxt: Ligature(insert_char, replaced),
+            make_kern=lambda step, current, nxt: nd.Kern(step.kern * current.font.at, True),
+            source_nodes=lambda n: list(n.source) if isinstance(n, Ligature) else [n],
+        )
+        for n in working:
+            packed.append(n)
+        state["lig_base"] = working[-1]
+
     def typesetNodes(self, parser, packed):
         """
         Typeset/expand nodes into packed output.
         """
+        state = {"lig_base": None}
         for node in self:
-            self.typesetNode(parser, node, packed)
+            self.typesetNodeWithLigatures(parser, node, packed, state)
         return packed
     
 class HorizontalCommand(lists.ModeDependentCommand):

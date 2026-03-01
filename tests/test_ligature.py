@@ -18,9 +18,12 @@ from pytex import hmode
 def test_ligatures(cmr10, input, char):
     cmr10.parse(input)
     top = cmr10.lists[-1]
-    assert len(top) == 3
-    assert top[2].node_type == nd.NODE_TYPE.GLUE
-    lig = top[1]
+    assert len(top) == len(input) + 2
+    packed = []
+    top.typesetNodes(cmr10, packed)
+    assert len(packed) == 3
+    assert packed[2].node_type == nd.NODE_TYPE.GLUE
+    lig = packed[1]
     assert ord(lig.char) == char
     assert isinstance(lig, hmode.Ligature)
     assert len(lig.source) == len(input)
@@ -35,9 +38,12 @@ def test_kern(cmr10, input):
     cmr10.parse(input)
     at = cmr10.state.parameters["currentfont"].at
     top = cmr10.lists[-1]
-    assert len(top) == 5
-    assert top[4].node_type == nd.NODE_TYPE.GLUE
-    knode = top[2]
+    assert len(top) == len(input) + 2
+    packed = []
+    top.typesetNodes(cmr10, packed)
+    assert len(packed) == 5
+    assert packed[4].node_type == nd.NODE_TYPE.GLUE
+    knode = packed[2]
     assert isinstance(knode, nd.Kern)
     assert knode.automatic
     font = cmr10.state.parameters["currentfont"]

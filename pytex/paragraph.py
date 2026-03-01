@@ -233,11 +233,12 @@ class Paragraph(hmode.HList):
         """
         if self._typeset_cache is not None:
             return
-        # pre-typeset the nodes into a new HList
+        # Pre-typeset the paragraph nodes into a temporary horizontal stream.
         context = self.typeset_context
-        hlist = hmode.HList(parser, inner=True)
+        hlist = []
         words = iter(context.words)
         word = next(words, None)
+        ligature_state = {"lig_base": None}
         for i, node in enumerate(self):
             if word is not None:
                 if i == word.begin:
@@ -245,7 +246,7 @@ class Paragraph(hmode.HList):
                 elif i == word.end:
                     word.end = len(hlist)
                     word = next(words, None)
-            self.typesetNode(parser, node, hlist)
+            self.typesetNodeWithLigatures(parser, node, hlist, ligature_state)
         # line break the hlist into lines and pack them into the vlist
         lines = self.lineBreak(parser, hlist)
         line_count = len(lines)

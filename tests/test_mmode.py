@@ -1,4 +1,5 @@
 import pytest
+from pytex import align
 from pytex import mmode
 from pytex import lists
 from pytex import node as nd
@@ -108,6 +109,35 @@ def test_mlist_typeset_display(math):
     assert len(top) == 3
     packed = []
     top.typesetNodes(math, packed)
+
+
+def test_display_halign_replaces_display_math_list(math):
+    math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$")
+    top = math.lists[0]
+    node = next(n for n in top if isinstance(n, align.HAlignMathList))
+    assert len(node) == 1
+    assert isinstance(node[0], align.MAlignment)
+
+
+def test_display_halign_typesets_with_display_wrapper(math):
+    math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$\\par")
+    top = math.lists[0]
+    node = next(n for n in top if isinstance(n, align.HAlignMathList))
+    packed = []
+    top.typesetNodes(math, packed)
+    display = [n for n in packed if getattr(n, "source", None) is node]
+    assert len(display) == 5
+    assert display[0].node_type == nd.NODE_TYPE.PENALTY
+    assert display[0].penalty == node.typeset_context.predisplaypenalty
+    assert display[1].node_type == nd.NODE_TYPE.GLUE
+    assert display[1].glue == node.typeset_context.abovedisplayskip
+    assert display[2].node_type == nd.NODE_TYPE.VLIST
+    assert display[3].node_type == nd.NODE_TYPE.PENALTY
+    assert display[3].penalty == node.typeset_context.postdisplaypenalty
+    assert display[4].node_type == nd.NODE_TYPE.GLUE
+    assert display[4].glue == node.typeset_context.belowdisplayskip
+    rows = [item for item in display[2].list if item.node_type == nd.NODE_TYPE.HLIST]
+    assert len(rows) == 1
 
 
 def test_subformula_single_char_drops_outer_hbox(math):

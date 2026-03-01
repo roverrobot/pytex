@@ -415,8 +415,10 @@ class HAlignment(Alignment):
             return
         box.width = natural + shrink.factor * ratio
 
-    def _rowContext(self, prevdepth):
-        if self.typeset_context is None:
+    def _rowContext(self, prevdepth, context=None):
+        if context is None:
+            context = self.typeset_context
+        if context is None:
             return None
 
         class RowContext:
@@ -427,11 +429,13 @@ class HAlignment(Alignment):
                 self.interlinepenalty = context.interlinepenalty
                 self.prevdepth = prevdepth
 
-        return RowContext(self.typeset_context, prevdepth)
+        return RowContext(context, prevdepth)
 
-    def pretypeset(self, parser):
+    def pretypeset(self, parser, context=None):
         if self._typeset_cache is not None:
             return
+        if context is None:
+            context = self.typeset_context
         rows, w, t = self._collectEntries(parser)
         prepared = []
         W = Dimen()
@@ -464,7 +468,7 @@ class HAlignment(Alignment):
         else:
             W += self.spread
         out = bx.VBox(parser, None, Dimen())
-        out.typeset_context = self.typeset_context
+        out.typeset_context = context
         if self.noalign is not None:
             self._appendVerticalMaterial(parser, out.list, self.noalign)
         for row, rowbox, row_total, span_boxes in prepared:
@@ -473,14 +477,33 @@ class HAlignment(Alignment):
                 self._applyBoxGlueSet(box, ratio, order, stretching)
             rowbox.glue_ratio = ratio
             rowbox.width = W
-            context = self._rowContext(out.list.prevdepth)
-            if context is not None:
-                rowbox.typeset_context = context
+            row_context = self._rowContext(out.list.prevdepth, context)
+            if row_context is not None:
+                rowbox.typeset_context = row_context
             out.list.append(rowbox)
             if row.noalign is not None:
                 self._appendVerticalMaterial(parser, out.list, row.noalign)
         out.typeset(parser, [])
         self._typeset_cache = out
+
+
+class MAlignment(HAlignment):
+    """
+    A \\halign used as a display alignment inside $$...$$.
+    """
+    needs_vcontext = False
+
+    def typeset(self, parser, context):
+        if self._typeset_cache is None:
+            self.pretypeset(parser, context)
+        return self._typeset_cache
+
+    def pretypeset(self, parser, context):
+        super().pretypeset(parser, context)
+        shift = Dimen(context.displayindent)
+        for row in self._typeset_cache.list:
+            if row.node_type == nd.NODE_TYPE.HLIST:
+                row.shifted = shift
 
 
 class VAlignment(Alignment):
@@ -788,9 +811,12 @@ class HAlign(Align):
         self.newAlignment(parser, vlist, HAlignment)
     
     def math(self, parser, mlist):
-        if len(mlist) > 0 or mlist.inner:
+        from pytex import mmode
+        if not isinstance(mlist, mmode.DisplayMathList) or len(mlist) > 0:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
-        self.newAlignment(parser, mlist, HAlignment)
+        mlist = HAlignMathList(mlist)
+        parser.lists[-1] = mlist
+        self.newAlignment(parser, mlist, MAlignment)
 
 
 class VAlign(Align):
@@ -799,6 +825,68 @@ class VAlign(Align):
     """
     def horizontal(self, parser, hlist):
         self.newAlignment(parser, hlist, VAlignment)
+
+
+class HAlignMathList(nd.Node):
+    """
+    Wrapper around a DisplayMathList whose sole node is a display \\halign.
+    """
+    node_type = nd.NODE_TYPE.MATH
+    type = lists.LISTTYPE.MATH
+
+    def __init__(self, display):
+        object.__setattr__(self, "display", display)
+
+    def saveInfo(self):
+        return {"init": {"display": self.display}}
+
+    @classmethod
+    def new(cls, parser, display):
+        return cls(display)
+
+    def __getattr__(self, name):
+        return getattr(self.display, name)
+
+    def __setattr__(self, name, value):
+        if name == "display":
+            object.__setattr__(self, name, value)
+            return
+        if name == "eqno" and value is not None:
+            raise ValueError("misplaced equation number", self.display.parser.input.position())
+        setattr(self.display, name, value)
+
+    def __len__(self):
+        return len(self.display)
+
+    def __iter__(self):
+        return iter(self.display)
+
+    def __getitem__(self, index):
+        return self.display[index]
+
+    def append(self, node):
+        if len(self.display) > 0 or not isinstance(node, MAlignment):
+            raise ValueError("only assignments can follow \\halign in display math", self.display.parser.input.position())
+        self.display.append(node)
+
+    def typeset(self, parser, packed):
+        if self.typeset_context.prevgraf is None:
+            self.prev_paragraph.pretypeset(parser)
+        alignment = self.display[0]
+        body = alignment.typeset(parser, self.typeset_context)
+        body.typeset_context = vmode.VNodeContext(self.typeset_context, None)
+        body.typeset_context.prevdepth = vmode.init_prevdepth
+        packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
+        packed.append(nd.Glue(self.typeset_context.abovedisplayskip))
+        packed.append(body)
+        packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
+        packed.append(nd.Glue(self.typeset_context.belowdisplayskip))
+        next_prevgraf = self.typeset_context.prevgraf + 3
+        if self.next_paragraph is not None:
+            self.next_paragraph.prevgraf = next_prevgraf
+            next_context = getattr(self.next_paragraph, "typeset_context", None)
+            if next_context is not None:
+                next_context.prevgraf = next_prevgraf
 
 
 def init(parser):

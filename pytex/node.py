@@ -78,6 +78,21 @@ class Box(Node):
     def meaning(self, parser):
         kind = "\\hbox" if self.node_type == NODE_TYPE.HLIST else "\\vbox"
         line = f"{kind}({self.height}+{self.depth})x{self.width}"
+        to = getattr(self, "to", None)
+        natural = getattr(self, "natural", None)
+        spread = None if natural is None or to is None else to - natural.dimen
+        if spread is not None and spread != 0:
+            glue = None
+            ratio = getattr(self, "glue_ratio", 0.0)
+            if spread > 0:
+                glue = natural.stretch
+            elif spread < 0:
+                glue = natural.shrink
+                ratio = -ratio
+            if glue is not None and (glue.order != 0 or glue.factor != 0):
+                suffix = "" if glue.order == 0 else f"fi{'l' * glue.order}"
+                sign = "- " if getattr(self, "glue_ratio", Dimen()) < 0 else ""
+                line += f", glue set {sign}{ratio}{suffix}"
         shifted = getattr(self, "shifted", 0)
         if shifted != 0:
             line += f", shifted {shifted}"

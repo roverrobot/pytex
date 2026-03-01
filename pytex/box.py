@@ -28,12 +28,12 @@ class Box(nd.Box):
     """
     def __init__(self, to, spread, list=None):
         super().__init__(None, None, None)
-        self.to = to
-        self.spread = spread
+        self.to = None if to is None else Dimen(to)
+        self.spread = None if spread is None else Dimen(spread)
         self.list = list
         self.shifted = 0
         self.natural = None
-        self.glue_ratio = 0
+        self.glue_ratio = Dimen()
         self._typeset_cache = None
 
     def saveInfo(self):
@@ -99,15 +99,15 @@ class Box(nd.Box):
             self.to = self.spread + natural.dimen
         spread = self.spread
         if spread is None:
-            self.glue_ratio = 0.0
+            self.glue_ratio = Dimen()
         if self.to is None:
             self.to = natural.dimen + self.spread
         elif spread > 0 and natural.stretch.factor != 0:
-            self.glue_ratio = float(spread) / natural.stretch.factor
+            self.glue_ratio = spread / natural.stretch.factor
         elif spread < 0 and natural.shrink.factor != 0:
-            self.glue_ratio = float(spread) / natural.shrink.factor
+            self.glue_ratio = spread / natural.shrink.factor
         else:
-            self.glue_ratio = 0.0
+            self.glue_ratio = Dimen()
         self.natural = natural
         self._typeset_cache = self
 
@@ -203,7 +203,7 @@ class HBox(Box):
             ratio = self.glue_ratio
             s = self.natural.stretch
         else:
-            ratio = -self.glue_ratio if self.spread < 0 else 0
+            ratio = -self.glue_ratio if self.spread < 0 else Dimen()
             s = self.natural.shrink
         for node in reversed(self.list):
             node_type = node.node_type

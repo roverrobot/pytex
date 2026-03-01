@@ -27,6 +27,13 @@ def test_showbox_respects_breadth_limit(cmr10):
     assert "etc." in log
 
 
+def test_box_meaning_reports_glue_set(cmr10):
+    cmr10.parse("\\setbox1=\\hbox to 20pt{a\\hfil}")
+    box = cmr10.state.box[1]
+    box.typeset(cmr10, [])
+    assert "glue set" in box.meaning(cmr10)
+
+
 def test_showlists_dumps_current_list_stack(cmr10):
     cmr10.parse("ab")
     cmr10.parse("\\showlists")

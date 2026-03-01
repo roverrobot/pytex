@@ -68,6 +68,7 @@ def test_hbox_to(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.HLIST
+    assert isinstance(box.to, Dimen)
     box.typeset(cmr10,[])
     assert box.width == 100
     assert box.height == 6.94444
@@ -80,6 +81,7 @@ def test_hbox_spread(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.HLIST
+    assert isinstance(box.spread, Dimen)
     box.typeset(cmr10,[])
     assert box.width == 65.58344
     assert box.height == 6.94444

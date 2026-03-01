@@ -69,13 +69,40 @@ class MainVList(vmode.VList):
         bad = (100 * num * num * num + (den * den * den) // 2) // (den * den * den)
         return min(10000, bad)
 
-    def _pageCost(self, total, goal, penalty):
-        if penalty <= -10000:
-            return -inf
+    def _pageCost(self, total, goal, penalty, insert_penalties=0):
         badness = self._pageBadness(total, goal)
-        if badness == inf:
+        if penalty >= 10000:
             return inf
-        return badness + penalty
+        if penalty <= -10000:
+            if badness == inf or insert_penalties >= 10000:
+                return inf
+            return penalty
+        if badness == inf or insert_penalties >= 10000:
+            return inf
+        if badness == 10000:
+            return 100000
+        return badness + penalty + insert_penalties
+
+    @staticmethod
+    def _isNonDiscardable(node):
+        return node.node_type not in (
+            nd.NODE_TYPE.GLUE,
+            nd.NODE_TYPE.KERN,
+            nd.NODE_TYPE.PENALTY,
+        )
+
+    @classmethod
+    def _isLegalBreak(cls, nodes, start, index):
+        node = nodes[index]
+        if node.node_type == nd.NODE_TYPE.PENALTY:
+            return True
+        if node.node_type == nd.NODE_TYPE.GLUE:
+            if index <= start:
+                return False
+            return cls._isNonDiscardable(nodes[index - 1])
+        if node.node_type == nd.NODE_TYPE.KERN:
+            return index + 1 < len(nodes) and nodes[index + 1].node_type == nd.NODE_TYPE.GLUE
+        return False
 
     @staticmethod
     def _prunePageTop(nodes, start):
@@ -99,14 +126,17 @@ class MainVList(vmode.VList):
                     total += top
                     topskip_added = True
             if node.node_type == nd.NODE_TYPE.PENALTY:
+                if node.penalty >= 10000:
+                    continue
                 cost = self._pageCost(total, goal, node.penalty)
+                current = (cost, i, False)
                 if best is None or cost < best[0]:
-                    best = (cost, i, False)
+                    best = current
                 if node.penalty <= -10000:
-                    return best
+                    return best if best is not None else current
                 continue
             self._pageMeasure(total, node)
-            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+            if self._isLegalBreak(nodes, start, i):
                 cost = self._pageCost(total, goal, 0)
                 if best is None or cost < best[0]:
                     best = (cost, i, True)

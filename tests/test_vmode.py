@@ -257,3 +257,42 @@ def test_page_break_insert_not_implemented(cmr10):
     cmr10.parse("\\insert 2{\\vskip 1in}")
     with pytest.raises(NotImplementedError):
         cmr10.breakPages()
+
+
+def test_page_cost_matches_tex_formula(parser):
+    main = parser.lists[0]
+    total = glue.Glue(0, glue.Stretchness(1))
+    assert main._pageCost(total, Dimen(5), 0) == 100000
+    assert main._pageCost(total, Dimen(5), 10000) == float("inf")
+
+    overfull = glue.Glue(10)
+    assert main._pageCost(overfull, Dimen(), -10000) == float("inf")
+    assert main._pageCost(total, Dimen(1), 0, 10000) == float("inf")
+
+
+def test_page_break_glue_requires_non_discardable_predecessor(parser):
+    parser.parse("\\vsize=10pt\\topskip=0pt")
+    main = parser.lists[0]
+    first = _test_hbox(parser, height=6, depth=0)
+    second = _test_hbox(parser, height=6, depth=0)
+    nodes = [
+        first,
+        nd.Penalty(0),
+        nd.Glue(glue.Glue(4, glue.Stretchness(1)), None),
+        second,
+    ]
+    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue())
+    assert end == 1
+
+
+def test_page_break_kern_requires_following_glue(parser):
+    parser.parse("\\vsize=10pt\\topskip=0pt")
+    main = parser.lists[0]
+    nodes = [
+        _test_hbox(parser, height=6, depth=0),
+        nd.Kern(4),
+        _test_hbox(parser, height=6, depth=0),
+        nd.Glue(glue.Glue(), None),
+    ]
+    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue())
+    assert end != 2

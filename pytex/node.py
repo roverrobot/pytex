@@ -77,10 +77,10 @@ class Box(Node):
 
     def meaning(self, parser):
         kind = "\\hbox" if self.node_type == NODE_TYPE.HLIST else "\\vbox"
-        line = f"{kind}({self.height}pt+{self.depth}pt)x{self.width}pt"
+        line = f"{kind}({self.height}+{self.depth})x{self.width}"
         shifted = getattr(self, "shifted", 0)
         if shifted != 0:
-            line += f", shifted {shifted}pt"
+            line += f", shifted {shifted}"
         return line
 
 
@@ -124,7 +124,7 @@ class Rule(Box):
         return f"Rule({self.width}, {self.height}, {self.depth})"
 
     def meaning(self, parser):
-        return f"\\rule({self.height}pt+{self.depth}pt)x{self.width}pt"
+        return f"\\rule({self.height}+{self.depth})x{self.width}"
     
 
 class Glue(Node):
@@ -181,7 +181,7 @@ class Kern(Node):
 
     def meaning(self, parser):
         auto = " auto" if self.automatic else ""
-        return f"\\kern {self.kern}pt{auto}"
+        return f"\\kern {self.kern}{auto}"
 
 
 class Penalty(Node):

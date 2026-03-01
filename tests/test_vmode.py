@@ -376,6 +376,7 @@ def test_output_pages_default_shipout(cmr10):
     assert len(cmr10.shipout.pages) == 1
     assert pages[0] is cmr10.shipout.pages[0]
     assert cmr10.state.box[255] is None
+    assert cmr10.state.globals["deadcycles"] == 0
 
 
 def test_output_routine_can_carry_material_forward(cmr10):
@@ -387,6 +388,7 @@ def test_output_routine_can_carry_material_forward(cmr10):
     assert len(pages) == 2
     assert len(cmr10.shipout.pages) == 2
     assert cmr10.state.count[0] == 1
+    assert cmr10.state.globals["deadcycles"] == 0
     first = pages[0].list[1]
     second = pages[1].list[1]
     assert first.node_type == nd.NODE_TYPE.HLIST
@@ -404,3 +406,17 @@ def test_output_routine_sees_outputpenalty(cmr10):
     )
     cmr10.outputPages()
     assert cmr10.state.count[0] == 123
+
+
+def test_output_uses_default_when_maxdeadcycles_reached(cmr10):
+    cmr10.parse(
+        "\\deadcycles=1\\maxdeadcycles=1"
+        "\\output={\\global\\count0=1\\shipout\\box255}"
+        "\\vsize=20pt\\topskip=0pt\\hbox{A}"
+    )
+    pages = cmr10.outputPages()
+    assert len(pages) == 1
+    assert len(cmr10.shipout.pages) == 1
+    assert cmr10.state.count[0] == 0
+    assert cmr10.state.box[255] is None
+    assert cmr10.state.globals["deadcycles"] == 0

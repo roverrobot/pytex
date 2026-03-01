@@ -29,6 +29,14 @@ class Shipout:
         self.pages.append(box)
 
 
+def shipout(parser, box):
+    """
+    Ship out a box and perform the runtime bookkeeping TeX does around \\shipout.
+    """
+    parser.shipout.shipout(box)
+    parser.state.globals["deadcycles"] = 0
+
+
 class ShipOutCommand(vmode.VerticalCommand):
     """
     The \\shipout command.
@@ -38,7 +46,7 @@ class ShipOutCommand(vmode.VerticalCommand):
         box = parser.readBox()
         if box is None:
             return
-        parser.shipout.shipout(box)
+        shipout(parser, box)
 
 
 class OutputRoutineEndCallback:
@@ -367,9 +375,21 @@ class MainVList(vmode.VList):
 
     def _runOutputRoutine(self, parser, page):
         output = parser.output.value
+        parser.state.box[255] = page
         if not output:
-            parser.shipout.shipout(page)
+            parser.state.globals["deadcycles"] += 1
+            shipout(parser, page)
+            parser.state.box[255] = None
             return []
+        if parser.state.globals["deadcycles"] >= parser.state.parameters["maxdeadcycles"]:
+            parser.message(
+                f"Output loop---{parser.state.globals['deadcycles']} consecutive dead cycles"
+            )
+            parser.state.globals["deadcycles"] += 1
+            shipout(parser, page)
+            parser.state.box[255] = None
+            return []
+        parser.state.globals["deadcycles"] += 1
         outlist = vmode.VList(parser)
         parser.lists.append(outlist)
         parser.beginGroup(
@@ -377,7 +397,6 @@ class MainVList(vmode.VList):
             GROUP_TYPE.OUTPUT,
             OutputRoutineEndCallback(parser, outlist),
         )
-        parser.state.box[255] = page
         parser.input.push(lexer.TokenListScanner([EndOutputRoutineToken()]))
         parser.input.push(lexer.TokenListScanner(output))
         self._runNestedLoop(parser)
@@ -394,6 +413,7 @@ class MainVList(vmode.VList):
         if parser.state.current_group.aftergroup:
             raise NotImplementedError("aftergroup in the output routine is not implemented yet")
         parser.endGroup(parser.input.position(), GROUP_TYPE.OUTPUT)
+        parser.state.box[255] = None
         carry = []
         outlist.typesetNodes(parser, carry)
         return carry

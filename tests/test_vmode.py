@@ -296,3 +296,17 @@ def test_page_break_kern_requires_following_glue(parser):
     ]
     end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue())
     assert end != 2
+
+
+def test_page_break_prefers_later_equal_cost_breakpoint(parser):
+    parser.parse("\\vsize=10pt\\topskip=0pt")
+    main = parser.lists[0]
+    nodes = [
+        _test_hbox(parser, height=6, depth=0),
+        nd.Glue(glue.Glue(0, glue.Stretchness(1, 1)), None),
+        nd.Penalty(0),
+        nd.Penalty(0),
+        _test_hbox(parser, height=6, depth=0),
+    ]
+    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue())
+    assert end == 3

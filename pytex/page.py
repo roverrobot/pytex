@@ -23,7 +23,9 @@ class MainVList(vmode.VList):
     @staticmethod
     def _pageMeasure(total, node):
         if node.node_type == nd.NODE_TYPE.GLUE:
-            total += node.glue
+            total.dimen += node.glue.dimen
+            total.stretch = total.stretch + node.glue.stretch
+            total.shrink = total.shrink + node.glue.shrink
         elif node.node_type == nd.NODE_TYPE.KERN:
             total.dimen += node.kern
         elif node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
@@ -123,14 +125,14 @@ class MainVList(vmode.VList):
             if not topskip_added:
                 top = self._pageTopskip(topskip, node)
                 if top is not None:
-                    total += top
+                    total = total + top
                     topskip_added = True
             if node.node_type == nd.NODE_TYPE.PENALTY:
                 if node.penalty >= 10000:
                     continue
                 cost = self._pageCost(total, goal, node.penalty)
                 current = (cost, i, False)
-                if best is None or cost < best[0]:
+                if best is None or cost <= best[0]:
                     best = current
                 if node.penalty <= -10000:
                     return best if best is not None else current
@@ -138,7 +140,7 @@ class MainVList(vmode.VList):
             self._pageMeasure(total, node)
             if self._isLegalBreak(nodes, start, i):
                 cost = self._pageCost(total, goal, 0)
-                if best is None or cost < best[0]:
+                if best is None or cost <= best[0]:
                     best = (cost, i, True)
             if self._pageBadness(total, goal) == inf and best is not None:
                 break

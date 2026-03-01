@@ -483,17 +483,19 @@ class HAlignment(Alignment):
         out.typeset(parser, [])
         self._typeset_cache = out
 
-    def _prepareExpandedRows(self):
+    def _prepareExpandedRows(self, context=None):
         if self._expanded_rows_ready:
             return
+        if context is None:
+            context = self.typeset_context
         rowboxes = [item for item in self._typeset_cache.list if item.node_type == nd.NODE_TYPE.HLIST]
         for index, rowbox in enumerate(rowboxes):
             row_context = getattr(rowbox, "typeset_context", None)
             if row_context is None:
                 continue
-            if index == 0 and self.typeset_context is not None:
-                row_context.prevdepth = self.typeset_context.prevdepth
-                row_context.interlinepenalty = self.typeset_context.interlinepenalty
+            if index == 0 and context is not None:
+                row_context.prevdepth = context.prevdepth
+                row_context.interlinepenalty = context.interlinepenalty
             else:
                 row_context.prevdepth = vmode.init_prevdepth
                 row_context.interlinepenalty = 0
@@ -511,10 +513,11 @@ class MAlignment(HAlignment):
     """
     needs_vcontext = False
 
-    def typeset(self, parser, context):
+    def typeset(self, parser, packed, context):
         if self._typeset_cache is None:
             self.pretypeset(parser, context)
-        return self._typeset_cache
+        self._prepareExpandedRows(context)
+        packed.extend(self._typeset_cache.list)
 
     def pretypeset(self, parser, context):
         super().pretypeset(parser, context)
@@ -903,11 +906,9 @@ class HAlignMathList(nd.Node):
         if self.typeset_context.prevgraf is None:
             self.prev_paragraph.pretypeset(parser)
         alignment = self.display[0]
-        body = alignment.typeset(parser, self.typeset_context)
-        body.typeset_context = vmode.VNodeContext(self.typeset_context, None)
         packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
         packed.append(nd.Glue(self.typeset_context.abovedisplayskip, "\\abovedisplayskip"))
-        packed.append(body)
+        alignment.typeset(parser, packed, self.typeset_context)
         packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
         packed.append(nd.Glue(self.typeset_context.belowdisplayskip, "\\belowdisplayskip"))
         next_prevgraf = self.typeset_context.prevgraf + 3

@@ -135,13 +135,11 @@ def test_display_halign_typesets_with_display_wrapper(math):
     assert display[0].penalty == node.typeset_context.predisplaypenalty
     assert display[1].node_type == nd.NODE_TYPE.GLUE
     assert display[1].glue == node.typeset_context.abovedisplayskip
-    assert display[2].node_type == nd.NODE_TYPE.VLIST
+    assert display[2].node_type == nd.NODE_TYPE.HLIST
     assert display[3].node_type == nd.NODE_TYPE.PENALTY
     assert display[3].penalty == node.typeset_context.postdisplaypenalty
     assert display[4].node_type == nd.NODE_TYPE.GLUE
     assert display[4].glue == node.typeset_context.belowdisplayskip
-    rows = [item for item in display[2].list if item.node_type == nd.NODE_TYPE.HLIST]
-    assert len(rows) == 1
 
 
 def test_subformula_single_char_drops_outer_hbox(math):

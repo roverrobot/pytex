@@ -20,6 +20,14 @@ import enum
 import types
 
 
+class VBoxTypesetContext:
+    """
+    Snapshot of vbox-local layout parameters needed for lazy typesetting.
+    """
+    def __init__(self, layout):
+        self.boxmaxdepth = layout["boxmaxdepth"]
+
+
 class Box(nd.Box):
     """
     the base class for \\hbox, \\vbox, and \\vtop
@@ -405,6 +413,7 @@ class VBox(Box):
     """
     def __init__(self, parser, to, spread):
         super().__init__(to, spread, vmode.VList(parser))
+        self.box_typeset_context = VBoxTypesetContext(parser.state.layout)
 
     @classmethod
     def new(cls, parser, **kwargs):
@@ -414,15 +423,77 @@ class VBox(Box):
 
     def calculate(self, node, natural, dim):
         if dim is None:
-            natural.dimen += self.depth
-            self.depth = 0
             return natural
         w, h, d = dim
         if self.width is None or w > float(self.width):
             self.width = w
-        natural.dimen += h + self.depth
-        self.depth = d
         return natural
+
+    def pretypeset(self, parser):
+        if self._typeset_cache is not None:
+            return
+        content = []
+        typeset_nodes = getattr(self.list, "typesetNodes", None)
+        if typeset_nodes is None:
+            for n in self.list:
+                self._expand(parser, content, n)
+        else:
+            typeset_nodes(parser, content)
+        self.list[:] = content
+        natural = Glue()
+        self.width = Dimen()
+        self.height = Dimen()
+        self.depth = Dimen()
+        last_depth = Dimen()
+        have_box = False
+        trailing_glue = False
+        for n in self.list:
+            node_type = n.node_type
+            if node_type == nd.NODE_TYPE.GLUE:
+                natural += n.glue
+                if have_box:
+                    trailing_glue = True
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                natural.dimen += n.kern
+                if have_box:
+                    trailing_glue = True
+                continue
+            if isinstance(n, nd.Box):
+                shifted = n.shifted if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) else 0
+                w = n.width
+                h = n.height - shifted
+                d = n.depth + shifted
+                natural = self.calculate(n, natural, (w, h, d))
+                natural.dimen += h + last_depth
+                last_depth = d
+                have_box = True
+                trailing_glue = False
+                continue
+            self.calculate(n, natural, None)
+        if have_box and not trailing_glue:
+            self.depth = last_depth
+        else:
+            self.depth = Dimen()
+        maxdepth = self.box_typeset_context.boxmaxdepth
+        if self.depth > maxdepth:
+            natural.dimen += self.depth - maxdepth
+            self.depth = maxdepth
+        if self.spread is None:
+            if self.to is None:
+                self.to = natural.dimen
+            self.spread = self.to - natural.dimen
+        elif self.to is None:
+            self.to = self.spread + natural.dimen
+        spread = self.spread
+        if spread > 0 and natural.stretch.factor != 0:
+            self.glue_ratio = spread / natural.stretch.factor
+        elif spread < 0 and natural.shrink.factor != 0:
+            self.glue_ratio = spread / natural.shrink.factor
+        else:
+            self.glue_ratio = Dimen()
+        self.natural = natural
+        self._typeset_cache = self
 
     def typeset(self, parser, packed):
         """

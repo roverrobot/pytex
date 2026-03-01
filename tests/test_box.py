@@ -1,5 +1,7 @@
 import pytest
 from pytex import box as bx
+from pytex import glue
+from pytex import node as nd
 from pytex import lists
 from pytex.node import NODE_TYPE
 from pytex import texlive
@@ -125,6 +127,44 @@ def test_vbox_spread(box):
     assert b.height == 6.94444 + 6.94444 + 1.94444 + 10.00002 + 10
     assert b.depth == 1.94444
     assert len(b.list) == 4
+
+
+def _synthetic_hbox(parser, height=6, depth=2, width=0):
+    hbox = bx.HBox(parser, None, 0)
+    hbox.width = Dimen(width)
+    hbox.height = Dimen(height)
+    hbox.depth = Dimen(depth)
+    hbox.list = []
+    return hbox
+
+
+def test_vbox_trailing_glue_zeroes_depth(parser):
+    vbox = bx.VBox(parser, None, 0)
+    vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
+    vbox.list.append(nd.Penalty(0))
+    vbox.list.append(nd.Glue(glue.Glue(4), None))
+    vbox.typeset(parser, [])
+    assert vbox.height == 10
+    assert vbox.depth == 0
+
+
+def test_vbox_trailing_penalty_keeps_depth(parser):
+    vbox = bx.VBox(parser, None, 0)
+    vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
+    vbox.list.append(nd.Penalty(0))
+    vbox.typeset(parser, [])
+    assert vbox.height == 6
+    assert vbox.depth == 3
+
+
+def test_vbox_uses_captured_boxmaxdepth(parser):
+    parser.state.layout["boxmaxdepth"] = Dimen(1)
+    vbox = bx.VBox(parser, None, 0)
+    vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
+    parser.state.layout["boxmaxdepth"] = Dimen()
+    vbox.typeset(parser, [])
+    assert vbox.height == 8
+    assert vbox.depth == 1
 
 
 def test_vtop(box):

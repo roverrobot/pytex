@@ -1,10 +1,58 @@
 from pytex.module import Module
 from pytex import toks
 from pytex import integer
+from pytex import lists
 from pytex.state import Dict, NamedEntry
 from pytex.accessor import Accessor
-from pytex.expandable import toksToString
+from pytex.token import Command
+from pytex.expandable import toksToString, tokenToString
 
+
+def _diag(parser, lines):
+    for line in lines:
+        parser.message(line, console=parser.tracingonline > 0)
+
+
+def _show_limit(value):
+    return None if value <= 0 else value
+
+
+def _show_items(parser, lines, items, prefix, depth):
+    if depth is not None and depth < 0:
+        lines.append(prefix + "...")
+        return
+    breadth = _show_limit(parser.state.parameters["showboxbreadth"])
+    shown = items if breadth is None else items[:breadth]
+    child_depth = None if depth is None else depth - 1
+    for node in shown:
+        _show_node(parser, lines, node, prefix, child_depth)
+    if breadth is not None and len(items) > breadth:
+        lines.append(prefix + "etc.")
+
+
+def _show_node(parser, lines, node, prefix="", depth=None):
+    lines.append(prefix + node.meaning(parser))
+    items = getattr(node, "list", None)
+    if items:
+        _show_items(parser, lines, items, prefix + ".", depth)
+
+
+def _show_box(parser, box):
+    if box is None:
+        return ["void"]
+    lines = [box.meaning(parser)]
+    depth = _show_limit(parser.state.parameters["showboxdepth"])
+    items = getattr(box, "list", None)
+    if items:
+        _show_items(parser, lines, items, ".", depth)
+    return lines
+
+
+def _show_list(parser, current):
+    lines = [current.meaning(parser)]
+    depth = _show_limit(parser.state.parameters["showboxdepth"])
+    _show_items(parser, lines, list(current), ".", depth)
+    return lines
 
 def checkRange(parser):
     """
@@ -157,6 +205,52 @@ class TracingSource(Accessor):
         parser.tracingsource = value
 
 
+class Show(Command):
+    """
+    The \\show command.
+    """
+    def execute(self, parser):
+        t = parser.skipSpaces(False)
+        if t is None:
+            raise ValueError("missing token after \\show", parser.input.position())
+        _diag(parser, [f"> {tokenToString(parser, t)}={t.meaning(parser)}", "OK."])
+
+
+class ShowThe(Command):
+    """
+    The \\showthe command.
+    """
+    def execute(self, parser):
+        tokens = parser.builtin["\\the"].expanded(parser)
+        _diag(parser, [f"> {toksToString(parser, tokens)}", "OK."])
+
+
+class ShowBox(Command):
+    """
+    The \\showbox command.
+    """
+    def execute(self, parser):
+        index = parser.readInteger()
+        box = parser.state.box[index] if 0 <= index < len(parser.state.box) else None
+        lines = [f"> \\box{index}="]
+        lines.extend(_show_box(parser, box))
+        lines.append("OK.")
+        _diag(parser, lines)
+
+
+class ShowLists(Command):
+    """
+    The \\showlists command.
+    """
+    def execute(self, parser):
+        lines = ["> \\showlists"]
+        for level, current in enumerate(reversed(parser.lists)):
+            lines.append(f"### list {level}")
+            lines.extend(_show_list(parser, current))
+        lines.append("OK.")
+        _diag(parser, lines)
+
+
 def init(parser):
     """
     initialize the tracing module
@@ -206,6 +300,10 @@ mod = Module("tracing",
     },
     commands = {
         "tracingsource": TracingSource(),
+        "show": Show(),
+        "showthe": ShowThe(),
+        "showbox": ShowBox(),
+        "showlists": ShowLists(),
     },
     init = init,
 )

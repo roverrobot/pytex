@@ -45,6 +45,13 @@ class List(list, serialization.Serializable):
         inner = "inner" if self.inner else ""
         return f'{type}({inner}, [{", ".join(repr(node) for node in self)}])'
 
+    def meaning(self, parser):
+        if self.type == LISTTYPE.VERTICAL:
+            return "VList" if self.inner else "VList(outer)"
+        if self.type == LISTTYPE.HORIZONTAL:
+            return "HList(inner)" if self.inner else "HList"
+        return "MList(inner)" if self.inner else "DisplayMathList"
+
     def append(self, node):
         # A raw horizontal list must not become a node in another list.
         # Paragraph is the only horizontal-list-like value allowed on a list,

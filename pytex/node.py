@@ -40,6 +40,9 @@ class Node(serialization.Serializable):
     def __repr__(self):
         return self.node_type.name
 
+    def meaning(self, parser):
+        return repr(self)
+
 
 class MathShift(Node):
     """
@@ -55,6 +58,10 @@ class MathShift(Node):
 
     def __repr__(self):
         return "MathOn" if self.on else "MathOff"
+
+    def meaning(self, parser):
+        state = "on" if self.on else "off"
+        return f"\\math {state} {getattr(self, 'kern', 0)}pt"
     
 
 class Box(Node):
@@ -68,6 +75,14 @@ class Box(Node):
 
     def saveInfo(self):
         return {"init": {"width": self.width, "height": self.height, "depth": self.depth}}
+
+    def meaning(self, parser):
+        kind = "\\hbox" if self.node_type == NODE_TYPE.HLIST else "\\vbox"
+        line = f"{kind}({self.height}pt+{self.depth}pt)x{self.width}pt"
+        shifted = getattr(self, "shifted", 0)
+        if shifted != 0:
+            line += f", shifted {shifted}pt"
+        return line
 
 
 class CharNode(Box):
@@ -93,6 +108,9 @@ class CharNode(Box):
     def __repr__(self):
         return f"{self.char}"
 
+    def meaning(self, parser):
+        return f"\\{self.font.tfm.name} {self.char}"
+
 
 class Rule(Box):
     """
@@ -102,6 +120,9 @@ class Rule(Box):
     
     def __repr__(self):
         return f"Rule({self.width}, {self.height}, {self.depth})"
+
+    def meaning(self, parser):
+        return f"\\rule({self.height}pt+{self.depth}pt)x{self.width}pt"
     
 
 class Glue(Node):
@@ -119,6 +140,11 @@ class Glue(Node):
     def __repr__(self):
         set = self.glue if self.kern is None else f"{self.kern}pt"
         return f"Glue({set})"
+
+    def meaning(self, parser):
+        if self.kern is not None:
+            return f"\\glue set {self.kern}pt"
+        return f"\\glue {self.glue}"
     
     node_type = NODE_TYPE.GLUE
 
@@ -141,6 +167,10 @@ class Kern(Node):
     def __repr__(self):
         return f"Kern({self.kern}pt)"
 
+    def meaning(self, parser):
+        auto = " auto" if self.automatic else ""
+        return f"\\kern {self.kern}pt{auto}"
+
 
 class Penalty(Node):
     """
@@ -157,6 +187,9 @@ class Penalty(Node):
 
     def __repr__(self):
         return f"Penalty(self.penalty)"
+
+    def meaning(self, parser):
+        return f"\\penalty {self.penalty}"
 
 
 class Disc(Node):
@@ -194,6 +227,9 @@ class Disc(Node):
     
     def __repr__(self):
         return f"Disc({self.pre}, {self.post}, {self.replace})"
+
+    def meaning(self, parser):
+        return "\\discretionary"
 
     node_type = NODE_TYPE.DISC
    
@@ -245,7 +281,7 @@ class VAdjust(Node):
 
 class Mark(Node):
     """
-    A \mark node.
+    A \\mark node.
     """
     def __init__(self, tokens):
         self.tokens = tokens

@@ -49,9 +49,13 @@ def _show_box(parser, box):
 
 
 def _show_list(parser, current):
-    lines = [current.meaning(parser)]
+    is_main_vlist = (
+        getattr(current, "type", None) == lists.LISTTYPE.VERTICAL
+        and not getattr(current, "inner", True)
+    )
+    lines = [] if is_main_vlist else [current.meaning(parser)]
     depth = _show_limit(parser.state.parameters["showboxdepth"])
-    _show_items(parser, lines, list(current), ".", depth)
+    _show_items(parser, lines, list(current), "" if is_main_vlist else ".", depth)
     return lines
 
 def checkRange(parser):
@@ -245,7 +249,12 @@ class ShowLists(Command):
     def execute(self, parser):
         lines = ["> \\showlists"]
         for level, current in enumerate(reversed(parser.lists)):
-            lines.append(f"### list {level}")
+            is_main_vlist = (
+                getattr(current, "type", None) == lists.LISTTYPE.VERTICAL
+                and not getattr(current, "inner", True)
+            )
+            if not is_main_vlist:
+                lines.append(f"### list {level}")
             lines.extend(_show_list(parser, current))
         lines.append("OK.")
         _diag(parser, lines)

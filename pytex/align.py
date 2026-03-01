@@ -162,8 +162,8 @@ class Alignment(nd.Node):
         # the first noalign before the first row
         self.noalign = None
         self.tabskips = []
-        self.to = to
-        self.spread = spread
+        self.to = None if to is None else Dimen(to)
+        self.spread = None if spread is None else Dimen(spread)
         self._typeset_cache = None
 
     node_type = nd.NODE_TYPE.ALIGNMENT
@@ -327,10 +327,10 @@ class Alignment(nd.Node):
 
     def _glueSet(self, total, delta):
         if delta > 0 and total.stretch.factor != 0:
-            return float(delta) / total.stretch.factor, total.stretch.order, True
+            return delta / total.stretch.factor, total.stretch.order, True
         if delta < 0 and total.shrink.factor != 0:
-            return float(delta) / total.shrink.factor, total.shrink.order, False
-        return 0.0, None, delta > 0
+            return delta / total.shrink.factor, total.shrink.order, False
+        return Dimen(), None, delta > 0
 
     def _spanTarget(self, w, t, i, j):
         target = Dimen()
@@ -875,7 +875,6 @@ class HAlignMathList(nd.Node):
         alignment = self.display[0]
         body = alignment.typeset(parser, self.typeset_context)
         body.typeset_context = vmode.VNodeContext(self.typeset_context, None)
-        body.typeset_context.prevdepth = vmode.init_prevdepth
         packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
         packed.append(nd.Glue(self.typeset_context.abovedisplayskip, "\\abovedisplayskip"))
         packed.append(body)

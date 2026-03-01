@@ -34,6 +34,12 @@ def test_box_meaning_reports_glue_set(cmr10):
     assert "glue set" in box.meaning(cmr10)
 
 
+def test_literal_glue_is_unnamed_in_tracing(cmr10):
+    cmr10.parse("\\setbox1=\\hbox to 20pt{a\\hfil}\\showbox1")
+    log = cmr10.logContent()
+    assert "\\glue(\\hfil)" not in log
+
+
 def test_showlists_dumps_current_list_stack(cmr10):
     cmr10.parse("ab")
     cmr10.parse("\\showlists")

@@ -285,13 +285,13 @@ class MainVList(vmode.VList):
                     continue
                 effective = self._effectiveTotal(total, bottom_depth, current_context.maxdepth)
                 cost = self._pageCost(effective, current_context.vsize, node.penalty)
-                current = (cost, i, False, current_context)
+                current = (cost, i, False, current_context, node.penalty)
                 if best is None or cost <= best[0]:
                     best = current
                 if cost == inf or node.penalty <= -10000:
-                    _, index, include, best_context = best if best is not None else current
+                    _, index, include, best_context, best_penalty = best if best is not None else current
                     end, next_start = self._candidateBreak(index, include)
-                    return end, next_start, best_context
+                    return end, next_start, best_context, best_penalty
                 continue
             self._pageMeasure(total, node)
             if self._hasDepth(node):
@@ -300,17 +300,17 @@ class MainVList(vmode.VList):
                 effective = self._effectiveTotal(total, bottom_depth, current_context.maxdepth)
                 cost = self._pageCost(effective, current_context.vsize, 0)
                 if best is None or cost <= best[0]:
-                    best = (cost, i, True, current_context)
+                    best = (cost, i, True, current_context, 0)
             if self._pageBadness(
                 self._effectiveTotal(total, bottom_depth, current_context.maxdepth),
                 current_context.vsize,
             ) == inf and best is not None:
                 break
         if best is None:
-            return len(nodes), len(nodes), current_context
-        _, index, include, best_context = best
+            return len(nodes), len(nodes), current_context, 0
+        _, index, include, best_context, best_penalty = best
         end, next_start = self._candidateBreak(index, include)
-        return end, next_start, best_context
+        return end, next_start, best_context, best_penalty
 
     def _buildPage(self, parser, nodes, start, end, context):
         built = []
@@ -409,16 +409,18 @@ class MainVList(vmode.VList):
             start, context = self._prunePageTop(material, start, context)
             if start >= len(material):
                 break
-            end, next_start, break_context = self._bestPageBreak(material, start, context)
+            end, next_start, break_context, break_penalty = self._bestPageBreak(material, start, context)
             if end <= start:
                 end = min(start + 1, len(material))
                 next_start = end
                 break_context = self._advanceContext(material, start, end, context)
+                break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
             page.list[:] = self._buildPage(parser, material, start, end, context)
             page.typeset(parser, [])
             pages.append(page)
+            parser.state.layout["outputpenalty"] = break_penalty
             parser.state.parameters["topmark"] = list(topmark)
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
@@ -438,16 +440,18 @@ class MainVList(vmode.VList):
             start, context = self._prunePageTop(material, start, context)
             if start >= len(material):
                 break
-            end, next_start, break_context = self._bestPageBreak(material, start, context)
+            end, next_start, break_context, break_penalty = self._bestPageBreak(material, start, context)
             if end <= start:
                 end = min(start + 1, len(material))
                 next_start = end
                 break_context = self._advanceContext(material, start, end, context)
+                break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
             parser.state.parameters["topmark"] = list(topmark)
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
+            parser.state.layout["outputpenalty"] = break_penalty
             page.list[:] = self._buildPage(parser, material, start, end, context)
             page.typeset(parser, [])
             carry = self._runOutputRoutine(parser, page)

@@ -281,7 +281,7 @@ def test_page_break_glue_requires_non_discardable_predecessor(parser):
         nd.Glue(glue.Glue(4, glue.Stretchness(1)), None),
         second,
     ]
-    end, _, _ = main._bestPageBreak(nodes, 0, page.PageBuilderContext(parser.state.layout))
+    end, _, _, _ = main._bestPageBreak(nodes, 0, page.PageBuilderContext(parser.state.layout))
     assert end == 1
 
 
@@ -294,7 +294,7 @@ def test_page_break_kern_requires_following_glue(parser):
         _test_hbox(parser, height=6, depth=0),
         nd.Glue(glue.Glue(), None),
     ]
-    end, _, _ = main._bestPageBreak(nodes, 0, page.PageBuilderContext(parser.state.layout))
+    end, _, _, _ = main._bestPageBreak(nodes, 0, page.PageBuilderContext(parser.state.layout))
     assert end != 2
 
 
@@ -308,7 +308,7 @@ def test_page_break_prefers_later_equal_cost_breakpoint(parser):
         nd.Penalty(0),
         _test_hbox(parser, height=6, depth=0),
     ]
-    end, _, _ = main._bestPageBreak(nodes, 0, page.PageBuilderContext(parser.state.layout))
+    end, _, _, _ = main._bestPageBreak(nodes, 0, page.PageBuilderContext(parser.state.layout))
     assert end == 3
 
 
@@ -395,3 +395,12 @@ def test_output_routine_can_carry_material_forward(cmr10):
     second_chars = [n.char for n in second.list if n.node_type == nd.NODE_TYPE.CHAR]
     assert "A" in first_chars
     assert "X" in second_chars
+
+
+def test_output_routine_sees_outputpenalty(cmr10):
+    cmr10.parse(
+        "\\output={\\global\\count0=\\outputpenalty\\shipout\\box255}"
+        "\\vsize=20pt\\topskip=0pt\\hbox{A}\\penalty123"
+    )
+    cmr10.outputPages()
+    assert cmr10.state.count[0] == 123

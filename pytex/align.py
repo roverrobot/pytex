@@ -534,26 +534,18 @@ class VAlignment(Alignment):
         self._typeset_cache = out
 
 class EndCellToken(Token):
-    def __init__(self, cell, next_column_no=None):
+    def __init__(self, cell, is_last):
         super().__init__("\\endcell", None)
         self.cell = cell
-        self.next_column_no = next_column_no
-
-    def execute(self, parser):
-        self.cell.close(parser)
-        if self.next_column_no is not None:
-            newCell(parser, self.cell.row_build_state, self.next_column_no)
-
-
-class EndRowToken(Token):
-    def __init__(self, cell):
-        super().__init__("\\endrow", None)
-        self.cell = cell
+        self.is_last = is_last
 
     def execute(self, parser):
         row = self.cell.row_build_state
         self.cell.close(parser)
-        row.finishRow(parser)
+        if self.is_last:
+            row.finishRow(parser)
+        else:
+            newCell(parser, row, self.cell.column_no + 1)
 
 
 def newCell(parser, row_state, column_no):
@@ -583,9 +575,9 @@ def newCell(parser, row_state, column_no):
 def endCell(parser, is_last):
     cell = parser.alignments.currentCell()
     if cell is None:
-        raise ValueError("expecting \\cr", parser.input.position())
-    next_column_no = None if is_last else cell.column_no + 1
-    parser.input.push(lexer.TokenListScanner([EndCellToken(cell, next_column_no)]))
+        message = "unexpected \\cr" if is_last else "expecting \\cr"
+        raise ValueError(message, parser.input.position())
+    parser.input.push(lexer.TokenListScanner([EndCellToken(cell, is_last)]))
     cell.pushTemplate(parser)
 
 
@@ -599,11 +591,7 @@ class CrCr(Command):
         Execute the command. It terminates the current row in an alignment.
         @param parser: the parser
         """
-        cell = parser.alignments.currentCell()
-        if cell is None:
-            raise ValueError("unexpected \\cr", parser.input.position())
-        parser.input.push(lexer.TokenListScanner([EndRowToken(cell)]))
-        cell.pushTemplate(parser)
+        endCell(parser, is_last=True)
 
 
 

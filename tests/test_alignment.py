@@ -120,16 +120,13 @@ def test_omit_as_first_non_space_token_ignores_template(cmr10):
     assert len(row.cells[0].list) == 1
 
 
-def test_halign_typesets_to_vbox(cmr10):
+def test_halign_typesets_directly_to_rows(cmr10):
     cmr10.parse("\\halign{#&#\\cr a&bc\\cr}")
     node = cmr10.lists[-1][0]
     packed = []
     node.typeset(cmr10, packed)
-    box = packed[0]
-    assert box.node_type == nd.NODE_TYPE.VLIST
-    assert box.typeset_context is node.typeset_context
-    assert len(box.list) == 1
-    assert box.list[0].node_type == nd.NODE_TYPE.HLIST
+    assert len(packed) == 1
+    assert packed[0].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_halign_span_widths_follow_tex_formula(cmr10):
@@ -143,9 +140,7 @@ def test_halign_span_widths_follow_tex_formula(cmr10):
     node = cmr10.lists[-1][0]
     packed = []
     node.typeset(cmr10, packed)
-    box = packed[0]
-    rows = [item for item in box.list if item.node_type == nd.NODE_TYPE.HLIST]
-    assert box.width == 6
+    rows = [item for item in packed if item.node_type == nd.NODE_TYPE.HLIST]
     assert len(rows) == 3
     assert rows[0].width == 6
     assert rows[1].width == 6
@@ -163,8 +158,7 @@ def test_halign_spanned_box_uses_row_glue_setting(cmr10):
     assert isinstance(node.to, Dimen)
     packed = []
     node.typeset(cmr10, packed)
-    box = packed[0]
-    rows = [item for item in box.list if item.node_type == nd.NODE_TYPE.HLIST]
+    rows = [item for item in packed if item.node_type == nd.NODE_TYPE.HLIST]
     assert len(rows) == 2
     assert rows[0].width == 10
     assert rows[1].width == 10

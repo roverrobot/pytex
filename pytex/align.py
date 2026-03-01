@@ -360,6 +360,7 @@ class HAlignment(Alignment):
     def __init__(self, to=None, spread=Dimen()):
         super().__init__(to, spread)
         self.typeset_context = None
+        self._expanded_rows_ready = False
 
     def newBox(self, parser):
         return bx.HBox(parser, None, 0)
@@ -485,6 +486,27 @@ class HAlignment(Alignment):
                 self._appendVerticalMaterial(parser, out.list, row.noalign)
         out.typeset(parser, [])
         self._typeset_cache = out
+
+    def _prepareExpandedRows(self):
+        if self._expanded_rows_ready:
+            return
+        rowboxes = [item for item in self._typeset_cache.list if item.node_type == nd.NODE_TYPE.HLIST]
+        for index, rowbox in enumerate(rowboxes):
+            row_context = getattr(rowbox, "typeset_context", None)
+            if row_context is None:
+                continue
+            if index == 0 and self.typeset_context is not None:
+                row_context.prevdepth = self.typeset_context.prevdepth
+                row_context.interlinepenalty = self.typeset_context.interlinepenalty
+            else:
+                row_context.prevdepth = vmode.init_prevdepth
+                row_context.interlinepenalty = 0
+        self._expanded_rows_ready = True
+
+    def typeset(self, parser, packed):
+        self.pretypeset(parser)
+        self._prepareExpandedRows()
+        packed.extend(self._typeset_cache.list)
 
 
 class MAlignment(HAlignment):

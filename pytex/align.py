@@ -559,6 +559,8 @@ class VAlignment(Alignment):
         out = bx.HBox(parser, self.to, self.spread)
         for row, entries in rows:
             colbox = bx.VBox(parser, None, 0)
+            entry_boxes = []
+            col_width = Dimen()
             if t:
                 colbox.list.append(nd.Glue(t[0], "\\tabskip"))
             for entry in entries:
@@ -566,9 +568,15 @@ class VAlignment(Alignment):
                 i = entry["start"]
                 j = i + entry["span"] - 1
                 target = self._spanTarget(w, t, i, j)
-                colbox.list.append(self.reboxEntry(parser, box, target))
+                box = self.reboxEntry(parser, box, target)
+                entry_boxes.append(box)
+                if box.width > col_width:
+                    col_width = box.width
+                colbox.list.append(box)
                 if j + 1 < len(t):
                     colbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
+            for box in entry_boxes:
+                box.width = col_width
             colbox.typeset(parser, [])
             out.list.append(colbox)
         out.typeset(parser, [])

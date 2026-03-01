@@ -49,11 +49,6 @@ class Parser:
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
         self.ifstack = []
-        # the list stack
-        # the alignment currently being built
-        self.alignment = None
-        # the alignment stack
-        self.alignments = []
         self.lists = [vmode.VList(self, inner=False)]
         self.log = self.getLogFile()
         # the console file. None to standard output, or os.devnull for no output

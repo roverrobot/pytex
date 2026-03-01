@@ -94,6 +94,21 @@ def test_preamble_balanced_text_hides_cr(cmr10):
     assert len(node.rows) == 0
 
 
+def test_nested_valign_in_halign_cell(cmr10):
+    cmr10.parse("\\halign{#\\cr \\valign{#\\cr a\\cr b\\cr}\\cr}")
+    top = cmr10.lists[-1]
+    node = top[0]
+    row = node.rows[0]
+    assert len(row.cells) == 1
+    assert len(row.cells[0].list) == 1
+    assert isinstance(row.cells[0].list[0], align.VAlignment)
+
+
+def test_nested_halign_in_valign_cell(cmr10):
+    cmr10.parse("\\setbox1=\\hbox{\\valign{#\\cr \\halign{#\\cr \\hbox{}\\cr}\\cr}}")
+    assert cmr10.state.box[1] is not None
+
+
 def test_omit_as_first_non_space_token_ignores_template(cmr10):
     cmr10.parse("\\halign{1#2\\cr   \\omit a\\cr}")
     top = cmr10.lists[-1]

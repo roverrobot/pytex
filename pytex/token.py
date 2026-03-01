@@ -332,8 +332,7 @@ class AlignmentTabToken(Token):
 
         This command can only appear in alignment.
         """
-        top = parser.lists[-1]
-        if getattr(top, "row", None) is None:
+        if parser.alignments.currentCell() is None:
             raise ValueError("unexpected &", parser.input.position())
         parser.endCell(is_last=False)
 

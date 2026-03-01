@@ -41,15 +41,116 @@ class Row(serialization.Serializable):
         return f"Row({self.cells})"
 
 
+class AlignmentBuildStack(list):
+    def currentCell(self):
+        if not self:
+            return None
+        row_state = self[-1].current_row_state
+        if row_state is None:
+            return None
+        return row_state.current_cell
+
+
+class CellBuildState:
+    """
+    Wrapper around the list holding a cell being built.
+    This is pushed onto parser.lists so build-time state does not live on the list.
+
+    @param cell: the list holding the cell content
+    @param column_no: the column number of the cell
+    @param row_build_state: the build state of the row this cell is in
+    @param templates: remaining template parts to inject, in reverse push order
+    """
+    def __init__(self, cell, column_no, row_build_state, templates):
+        object.__setattr__(self, "cell", cell)
+        object.__setattr__(self, "column_no", column_no)
+        object.__setattr__(self, "row_build_state", row_build_state)
+        object.__setattr__(self, "templates", templates)
+
+    def __getattr__(self, name):
+        return getattr(self.cell, name)
+
+    def __setattr__(self, name, value):
+        setattr(self.cell, name, value)
+
+    def __getitem__(self, index):
+        return self.cell[index]
+
+    def __setitem__(self, index, value):
+        self.cell[index] = value
+
+    def __delitem__(self, key):
+        del self.cell[key]
+
+    def __len__(self):
+        return len(self.cell)
+
+    def __iter__(self):
+        return iter(self.cell)
+
+    def pushTemplate(self, parser):
+        if self.templates:
+            template = self.templates.pop()
+            if template:
+                parser.input.push(lexer.TokenListScanner(template))
+
+    def close(self, parser):
+        while parser.lists[-1] is not self:
+            top = parser.lists[-1]
+            if top.type == lists.LISTTYPE.HORIZONTAL and not top.inner:
+                parser.endParagraph()
+                continue
+            break
+        parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+        parser.lists.pop()
+        self.row_build_state.current_cell = None
+
+
 class RowBuildState:
     """
     Runtime-only row parsing state.
     Keeps parser details (alignment/preamble template) off Row.
     """
-    def __init__(self, row, alignment, template):
+    def __init__(self, row, alignment, template, builder):
         self.row = row
         self.alignment = alignment
         self.template = template
+        self.builder = builder
+        self.current_cell = None
+
+    def newCell(self, parser, column_no, omit=False):
+        cell = self.alignment.newBox(parser)
+        self.row.cells.append(cell)
+        if omit:
+            templates = []
+        else:
+            column = self.template[column_no]
+            templates = [column.v, column.u]
+        self.current_cell = CellBuildState(cell.list, column_no, self, templates)
+        return self.current_cell
+
+    def finishRow(self, parser):
+        t = parser.token_expand()
+        if t is None:
+            raise ValueError("expecting }", parser.input.position())
+        if t.catcode == CATCODE.END_GROUP:
+            parser.input.unread(t)
+            return
+        command = getattr(t, "definition", None)
+        if command != noalign:
+            parser.input.unread(t)
+        noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
+        row = Row()
+        self.alignment.rows.append(row)
+        row_state = RowBuildState(row, self.alignment, self.template, self.builder)
+        self.builder.current_row_state = row_state
+        if command == noalign:
+            noalign_owner.noalign = parser.readVList(
+                GROUP_TYPE.NO_ALIGN,
+                lambda: newCell(parser, row_state, 0),
+            )
+        else:
+            newCell(parser, row_state, 0)
 
 
 class Alignment(nd.Node):
@@ -432,76 +533,60 @@ class VAlignment(Alignment):
         out.typeset(parser, [])
         self._typeset_cache = out
 
+class EndCellToken(Token):
+    def __init__(self, cell, next_column_no=None):
+        super().__init__("\\endcell", None)
+        self.cell = cell
+        self.next_column_no = next_column_no
 
-def _readNoAlign(parser, owner, alignment, row_state, column_no):
-    owner.noalign = parser.readVList(
-        GROUP_TYPE.NO_ALIGN,
-        lambda: newCell(parser, row_state, column_no),
-    )
+    def execute(self, parser):
+        self.cell.close(parser)
+        if self.next_column_no is not None:
+            newCell(parser, self.cell.row_build_state, self.next_column_no)
+
+
+class EndRowToken(Token):
+    def __init__(self, cell):
+        super().__init__("\\endrow", None)
+        self.cell = cell
+
+    def execute(self, parser):
+        row = self.cell.row_build_state
+        self.cell.close(parser)
+        row.finishRow(parser)
 
 
 def newCell(parser, row_state, column_no):
     alignment = row_state.alignment
     row = row_state.row
-    # read in all the tokens up to the end of the cell
-    toks = []
     has_omit = False
     t = parser.skipSpaces(True)
     if t is None:
         raise ValueError("expecting \\cr", parser.input.position())
     if getattr(t, "definition", None) is omit:
         has_omit = True
-        t = parser.token_expand()
-    while True:
-        if t is None:
-            raise ValueError("expecting \\cr", parser.input.position())
+    else:
         if t.catcode == CATCODE.END_GROUP:
-            if column_no != 0 or toks:
+            if column_no != 0:
                 raise ValueError("expecting \\cr", parser.input.position())
-            # We may have started a fresh row (e.g. after \\cr\\noalign{...})
-            # but reached the alignment-closing `}` before any cell content.
-            # Drop that empty row frame from the alignment rows.
             if not row.cells and alignment.rows and alignment.rows[-1] is row:
                 alignment.rows.pop()
             parser.input.unread(t)
             return
-        if t.catcode == CATCODE.ALIGNMENT_TAB or t.definition is span or t.definition is cr or t.definition is crcr:
-            parser.input.unread(t)
-            break
-        toks.append(t)
-        t = parser.token_expand()
-    # start a new cell
-    cell = alignment.newBox(parser)
-    cell.list.row = row_state
-    cell.list.column_no = column_no
-    row.cells.append(cell)
-    parser.lists.append(cell.list)
-    # start the group fo the cell
+        parser.input.unread(t)
+    cell = row_state.newCell(parser, column_no, has_omit)
+    parser.lists.append(cell)
     parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-    if has_omit:
-        parser.input.push(lexer.TokenListScanner(toks))
-        return
-    column: Column = row_state.template[column_no]
-    parser.input.push(lexer.TokenListScanner(column.u))
-    parser.input.push(lexer.TokenListScanner(toks))
-    parser.input.push(lexer.TokenListScanner(column.v))
+    cell.pushTemplate(parser)
 
 
 def endCell(parser, is_last):
-    while getattr(parser.lists[-1], "row", None) is None:
-        top = parser.lists[-1]
-        if top.type == lists.LISTTYPE.HORIZONTAL and not top.inner:
-            parser.endParagraph()
-            continue
-        break
-    parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-    cell = parser.lists.pop()
-    row_state = cell.row
-    alignment = row_state.alignment
-    if is_last:
-        return row_state
-    newCell(parser, row_state, cell.column_no + 1)
-    return row_state
+    cell = parser.alignments.currentCell()
+    if cell is None:
+        raise ValueError("expecting \\cr", parser.input.position())
+    next_column_no = None if is_last else cell.column_no + 1
+    parser.input.push(lexer.TokenListScanner([EndCellToken(cell, next_column_no)]))
+    cell.pushTemplate(parser)
 
 
 class CrCr(Command):
@@ -514,30 +599,12 @@ class CrCr(Command):
         Execute the command. It terminates the current row in an alignment.
         @param parser: the parser
         """
-        # end the cell
-        row_state = endCell(parser, is_last=True)
-        template = row_state.template
-        alignment = row_state.alignment
-        t = parser.token_expand()
-        if t is None:
-            raise ValueError("expecting }", parser.input.position())
-        if t.catcode == CATCODE.END_GROUP:
-            parser.input.unread(t)
-            return
-        command = getattr(t, "definition", None)
-        if command != noalign:
-            parser.input.unread(t)
-        noalign_owner = alignment if len(alignment.rows) == 0 else alignment.rows[-1]
-        # start a new line
-        row = Row()
-        alignment.rows.append(row)
-        row_state = RowBuildState(row, alignment, template)
-        # check for noalign
-        if command == noalign:
-            _readNoAlign(parser, noalign_owner, alignment, row_state, 0)
-        else:
-            # build the first cell
-            newCell(parser, row_state, 0)
+        cell = parser.alignments.currentCell()
+        if cell is None:
+            raise ValueError("unexpected \\cr", parser.input.position())
+        parser.input.push(lexer.TokenListScanner([EndRowToken(cell)]))
+        cell.pushTemplate(parser)
+
 
 
 class Cr(CrCr):
@@ -562,7 +629,10 @@ class Span(Command):
         Execute the command. It terminates the current row in an alignment and starts a new one.
         @param parser: the parser
         """
-        parser.lists[-1].span = True
+        cell = parser.alignments.currentCell()
+        if cell is None:
+            raise ValueError("unexpected \\span", parser.input.position())
+        cell.span = True
         endCell(parser, is_last=False)
 
 
@@ -609,14 +679,15 @@ class Column:
 
 
 class AlignmentEndCallback:
-    def __init__(self, parser):
+    def __init__(self, parser, builder):
         self.parser = parser
+        self.builder = builder
 
     def __call__(self):
-        # are we still handling cells?
-        top = self.parser.lists[-1]
-        if getattr(top, "row", None) is not None:
+        if self.parser.alignments.currentCell() is not None:
             raise ValueError("expecting \\cr", self.parser.input.position())
+        if self.parser.alignments and self.parser.alignments[-1] is self.builder:
+            self.parser.alignments.pop()
 
 
 class AlignmentBuilder:
@@ -628,9 +699,7 @@ class AlignmentBuilder:
     def __init__(self, alignment):
         self.alignment = alignment
         # the current row being built
-        self.row = None
-        # the current cell being built
-        self.cell = None
+        self.current_row_state = None
         # the preamble for the alignment, whiich is a list of templates
         # each template is a tuple of two lists, the tokens to the left and right of the # token
         self.preamble = None
@@ -655,12 +724,12 @@ class AlignmentBuilder:
         # the scanner
         # Build the preamble against a synthetic row that seeds the first real row.
         row = Row()
-        row_state = RowBuildState(row, self.alignment, self.preamble)
+        row_state = RowBuildState(row, self.alignment, self.preamble, self)
+        self.current_row_state = row_state
         cell = self.alignment.newBox(parser)
-        cell.list.row = row_state
-        cell.list.column_no = 0
         row.cells.append(cell)
-        parser.lists.append(cell.list)
+        row_state.current_cell = CellBuildState(cell.list, 0, row_state, [])
+        parser.lists.append(row_state.current_cell)
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         t = parser.skipSpaces(False)
         if t is None:
@@ -710,36 +779,42 @@ class AlignmentBuilder:
         t = parser.token_expand()
         if t is None or t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN, AlignmentEndCallback(parser))
+        parser.alignments.append(self)
+        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN, AlignmentEndCallback(parser, self))
         self.readPreamble(parser)
 
 
-def _newAlignment(parser, list, cls):
-    to, spread = parser.readToSpread()
-    alignment = cls(to, spread)
-    list.append(alignment)
-    AlignmentBuilder(alignment).run(parser)
-
-
-class HAlign(lists.ModeDependentCommand):
+class Align(lists.ModeDependentCommand):
     """
     The \\halign command.
     """
+    def newAlignment(self, parser, list, cls):
+        to, spread = parser.readToSpread()
+        alignment = cls(to, spread)
+        list.append(alignment)
+        AlignmentBuilder(alignment).run(parser)
+
+
+class HAlign(Align):
     def vertical(self, parser, vlist):
-        _newAlignment(parser, vlist, HAlignment)
+        self.newAlignment(parser, vlist, HAlignment)
     
     def math(self, parser, mlist):
         if len(mlist) > 0 or mlist.inner:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
-        _newAlignment(parser, mlist, HAlignment)
+        self.newAlignment(parser, mlist, HAlignment)
 
 
-class VAlign(lists.ModeDependentCommand):
+class VAlign(Align):
     """
     The \\valign command.
     """
     def horizontal(self, parser, hlist):
-        _newAlignment(parser, hlist, VAlignment)
+        self.newAlignment(parser, hlist, VAlignment)
+
+
+def init(parser):
+    parser.alignments = AlignmentBuildStack()
 
 
 mod = Module("align",
@@ -754,5 +829,6 @@ mod = Module("align",
     },
     attributes={
         "endCell": endCell,
-    }
+    },
+    init=init,
 )

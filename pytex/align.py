@@ -723,13 +723,15 @@ class Column:
 
 
 class AlignmentEndCallback:
-    def __init__(self, parser, builder):
+    def __init__(self, parser, builder, target):
         self.parser = parser
         self.builder = builder
+        self.target = target
 
     def __call__(self):
         if self.parser.alignments.currentCell() is not None:
             raise ValueError("expecting \\cr", self.parser.input.position())
+        self.target.append(self.builder.alignment)
         if self.parser.alignments and self.parser.alignments[-1] is self.builder:
             self.parser.alignments.pop()
 
@@ -814,7 +816,7 @@ class AlignmentBuilder:
             else:
                 current.append(t)
 
-    def run(self, parser):
+    def run(self, parser, target):
         """
         begin a new alignment
         """
@@ -824,7 +826,7 @@ class AlignmentBuilder:
         if t is None or t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
         parser.alignments.append(self)
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN, AlignmentEndCallback(parser, self))
+        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN, AlignmentEndCallback(parser, self, target))
         self.readPreamble(parser)
 
 
@@ -835,8 +837,7 @@ class Align(lists.ModeDependentCommand):
     def newAlignment(self, parser, list, cls):
         to, spread = parser.readToSpread()
         alignment = cls(to, spread)
-        list.append(alignment)
-        AlignmentBuilder(alignment).run(parser)
+        AlignmentBuilder(alignment).run(parser, list)
 
 
 class HAlign(Align):

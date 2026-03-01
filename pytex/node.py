@@ -60,8 +60,7 @@ class MathShift(Node):
         return "MathOn" if self.on else "MathOff"
 
     def meaning(self, parser):
-        state = "on" if self.on else "off"
-        return f"\\math {state} {getattr(self, 'kern', 0)}pt"
+        return "\\mathon" if self.on else "\\mathoff"
     
 
 class Box(Node):

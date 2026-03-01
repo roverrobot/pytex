@@ -169,4 +169,4 @@ def test_valign_typesets_to_hbox(cmr10):
     cmr10.parse("\\setbox1=\\hbox{\\valign{#\\cr a\\cr b\\cr}}")
     outer = cmr10.state.box[1]
     outer.typeset(cmr10, [])
-    assert outer.list[0].node_type == nd.NODE_TYPE.HLIST
+    assert outer.list[0].node_type == nd.NODE_TYPE.VLIST

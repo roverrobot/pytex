@@ -376,15 +376,13 @@ class HAlignment(Alignment):
 
     def reboxEntry(self, parser, box, target):
         target = Dimen(target)
+        box.typeset(parser, [])
         if box.width == target:
             return box
-        out = bx.HBox(parser, target, None)
-        hss = glue.Glue(0, glue.Stretchness(1, 1), glue.Stretchness(1, 1))
-        out.list.append(nd.Glue(hss, None))
-        out.list.append(box)
-        out.list.append(nd.Glue(hss, None))
-        out.typeset(parser, [])
-        return out
+        ratio, order, stretching = self._glueSet(box.natural, target - box.width)
+        box.glue_ratio = ratio
+        box.width = target
+        return box
 
     def _buildSpanBox(self, parser, entry):
         box = bx.HBox(parser, None, Dimen())
@@ -396,7 +394,8 @@ class HAlignment(Alignment):
                 if tabskip is not None:
                     box.list.append(nd.Glue(tabskip, "\\tabskip"))
                     total += tabskip
-            box.list.append(item)
+            item.typeset(parser, [])
+            box.list.extend(item.list)
         box.typeset(parser, [])
         return box, total
 
@@ -577,6 +576,10 @@ class VAlignment(Alignment):
             out.list.append(colbox)
         out.typeset(parser, [])
         self._typeset_cache = out
+
+    def typeset(self, parser, packed):
+        self.pretypeset(parser)
+        packed.extend(self._typeset_cache.list)
 
 class EndCellToken(Token):
     def __init__(self, cell, is_last):

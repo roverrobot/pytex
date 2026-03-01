@@ -386,34 +386,15 @@ class HAlignment(Alignment):
 
     def _buildSpanBox(self, parser, entry):
         box = bx.HBox(parser, None, Dimen())
-        total = glue.Glue()
-        inner = iter(entry["inner_t"])
-        for idx, item in enumerate(entry["cells"]):
-            if idx != 0:
-                tabskip = next(inner, None)
-                if tabskip is not None:
-                    box.list.append(nd.Glue(tabskip, "\\tabskip"))
-                    total += tabskip
+        for item in entry["cells"]:
             item.typeset(parser, [])
             box.list.extend(item.list)
-        box.typeset(parser, [])
-        return box, total
+        return box
 
-    def _applyBoxGlueSet(self, box, ratio, order, stretching):
-        box.glue_ratio = ratio
-        if order is None:
-            return
-        natural = box.width
-        if stretching:
-            stretch = box.natural.stretch
-            if stretch.order != order:
-                return
-            box.width = natural + stretch.factor * ratio
-            return
-        shrink = box.natural.shrink
-        if shrink.order != order:
-            return
-        box.width = natural + shrink.factor * ratio
+    def _emptyEntry(self, parser, width):
+        box = bx.HBox(parser, width, Dimen())
+        box.typeset(parser, [])
+        return box
 
     def _rowContext(self, prevdepth, context=None):
         if context is None:
@@ -442,7 +423,9 @@ class HAlignment(Alignment):
         for row, entries in rows:
             rowbox = bx.HBox(parser, None, Dimen())
             row_total = glue.Glue()
-            span_boxes = []
+            row_entries = []
+            row_height = Dimen()
+            row_depth = Dimen()
             if t:
                 rowbox.list.append(nd.Glue(t[0], "\\tabskip"))
                 row_total += t[0]
@@ -451,16 +434,32 @@ class HAlignment(Alignment):
                 j = i + entry["span"] - 1
                 if entry["span"] == 1:
                     box = self.reboxEntry(parser, self._combineCells(parser, entry["cells"]), w[i])
+                    row_entries.append(box)
+                    if box.height > row_height:
+                        row_height = box.height
+                    if box.depth > row_depth:
+                        row_depth = box.depth
+                    rowbox.list.append(box)
                 else:
-                    box, inner = self._buildSpanBox(parser, entry)
-                    row_total += inner
-                    span_boxes.append(box)
-                rowbox.list.append(box)
+                    box = self.reboxEntry(parser, self._buildSpanBox(parser, entry), w[i])
+                    row_entries.append(box)
+                    if box.height > row_height:
+                        row_height = box.height
+                    if box.depth > row_depth:
+                        row_depth = box.depth
+                    rowbox.list.append(box)
+                    for k in range(i + 1, j + 1):
+                        rowbox.list.append(nd.Glue(t[k], "\\tabskip"))
+                        row_total += t[k]
+                        rowbox.list.append(self._emptyEntry(parser, w[k]))
                 if j + 1 < len(t):
                     rowbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
                     row_total += t[j + 1]
+            for box in row_entries:
+                box.height = row_height
+                box.depth = row_depth
             rowbox.typeset(parser, [])
-            prepared.append((row, rowbox, row_total, span_boxes))
+            prepared.append((row, rowbox, row_total))
             if rowbox.width > W:
                 W = Dimen(rowbox.width)
         if self.to is not None:
@@ -471,10 +470,8 @@ class HAlignment(Alignment):
         out.typeset_context = context
         if self.noalign is not None:
             self._appendVerticalMaterial(parser, out.list, self.noalign)
-        for row, rowbox, row_total, span_boxes in prepared:
+        for row, rowbox, row_total in prepared:
             ratio, order, stretching = self._glueSet(row_total, W - rowbox.width)
-            for box in span_boxes:
-                self._applyBoxGlueSet(box, ratio, order, stretching)
             rowbox.glue_ratio = ratio
             rowbox.width = W
             row_context = self._rowContext(out.list.prevdepth, context)

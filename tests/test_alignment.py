@@ -162,7 +162,9 @@ def test_halign_spanned_box_uses_row_glue_setting(cmr10):
     assert len(rows) == 2
     assert rows[0].width == 10
     assert rows[1].width == 10
-    assert float(rows[1].list[1].width) == pytest.approx(4.6666667, abs=1e-4)
+    assert float(rows[1].glue_ratio) == pytest.approx(8 / 3, abs=1e-4)
+    assert float(rows[1].list[1].width) == pytest.approx(1.0, abs=1e-4)
+    assert float(rows[1].list[3].width) == pytest.approx(1.0, abs=1e-4)
 
 
 def test_valign_typesets_to_hbox(cmr10):

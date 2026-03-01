@@ -1,6 +1,7 @@
 import pytest
 from tests import checkValues
 from pytex import texlive
+from pytex.dimen import Dimen
 
 
 def test_read_dimen(parser):
@@ -39,6 +40,11 @@ def test_read_mu(parser):
     parser.readFrom("10 mu")
     result = parser.readDimen(mu=True)
     assert result == 10
+
+
+def test_dimen_division_rounds_to_nearest_scaled_point():
+    assert Dimen(integer=1) / 2 == Dimen(integer=1)
+    assert Dimen(integer=-1) / 2 == Dimen(integer=-1)
 
 
 def test_read_dimen_with_invalid_unit(parser):

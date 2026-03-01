@@ -4,6 +4,7 @@ from pytex import texlive
 from pytex import lists
 from pytex import glue
 from pytex import node as nd
+from pytex.dimen import Dimen
 
 
 def test_halign(cmr10):
@@ -159,6 +160,7 @@ def test_halign_spanned_box_uses_row_glue_setting(cmr10):
         "\\kern1pt\\span\\kern1pt\\cr}"
     )
     node = cmr10.lists[-1][0]
+    assert isinstance(node.to, Dimen)
     packed = []
     node.typeset(cmr10, packed)
     box = packed[0]

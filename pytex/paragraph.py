@@ -258,7 +258,8 @@ class Paragraph(hmode.HList):
             indent, measure = context.lineShape(i + 1)
             if indent != 0:
                 packed.append(nd.Glue(Glue(indent), "\\parindent"))
-            packed.append(nd.Glue(context.leftskip, "\\leftskip"))
+            if context.leftskip != Glue():
+                packed.append(nd.Glue(context.leftskip, "\\leftskip"))
             # if the line starts with a ligature then add in the post nodes
             if line.begin.disc is not None:
                 packed.extend(line.begin.disc.post)

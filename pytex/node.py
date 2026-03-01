@@ -81,6 +81,8 @@ class Box(Node):
         shifted = getattr(self, "shifted", 0)
         if shifted != 0:
             line += f", shifted {shifted}"
+        if getattr(self, "display", False):
+            line += ", display"
         return line
 
 

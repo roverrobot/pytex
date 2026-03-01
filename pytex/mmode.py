@@ -718,6 +718,7 @@ class DisplayMathList(MList):
             b = line
         b.typeset(parser, [])
         b.shifted = Dimen(s+d)
+        b.display = True
         b.typeset_context = VNodeContext(self.typeset_context, None)
         cache.append(b)
         # The final task is to append the glue or the equation number

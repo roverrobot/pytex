@@ -281,7 +281,7 @@ def test_page_break_glue_requires_non_discardable_predecessor(parser):
         nd.Glue(glue.Glue(4, glue.Stretchness(1)), None),
         second,
     ]
-    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue())
+    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue(), Dimen())
     assert end == 1
 
 
@@ -294,7 +294,7 @@ def test_page_break_kern_requires_following_glue(parser):
         _test_hbox(parser, height=6, depth=0),
         nd.Glue(glue.Glue(), None),
     ]
-    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue())
+    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue(), Dimen())
     assert end != 2
 
 
@@ -308,5 +308,29 @@ def test_page_break_prefers_later_equal_cost_breakpoint(parser):
         nd.Penalty(0),
         _test_hbox(parser, height=6, depth=0),
     ]
-    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue())
+    end, _ = main._bestPageBreak(nodes, 0, Dimen(10), glue.Glue(), Dimen())
     assert end == 3
+
+
+def test_page_break_uses_maxdepth_in_cost_and_page_box(parser):
+    parser.parse("\\maxdepth=2pt")
+    main = parser.lists[0]
+    first = _test_hbox(parser, height=6, depth=3)
+    total = glue.Glue(11, glue.Stretchness(2))
+    effective = main._effectiveTotal(total, first.depth, parser.state.layout["maxdepth"])
+    assert effective.dimen == 10
+    page_nodes = main._buildPage(parser, [first], 0, 1, parser.state.layout["maxdepth"])
+    assert page_nodes[0].node_type == nd.NODE_TYPE.GLUE
+    assert page_nodes[1] is first
+    assert first.depth == 2
+
+
+def test_page_topskip_includes_rule(parser):
+    parser.parse("\\vsize=20pt\\topskip=10pt")
+    main = parser.lists[0]
+    rule = nd.Rule(0, 6, 0)
+    main.append(rule)
+    pages = main.pageBreak(parser)
+    assert pages[0].list[0].node_type == nd.NODE_TYPE.GLUE
+    assert pages[0].list[0].name == "\\topskip"
+    assert pages[0].list[1] is rule

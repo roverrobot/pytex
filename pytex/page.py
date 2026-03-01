@@ -38,7 +38,7 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _pageTopskip(topskip, node):
-        if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+        if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.RULE):
             return None
         dimen = topskip.dimen - node.height
         if dimen < 0:
@@ -107,6 +107,19 @@ class MainVList(vmode.VList):
         return False
 
     @staticmethod
+    def _hasDepth(node):
+        return node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.RULE)
+
+    @staticmethod
+    def _effectiveTotal(total, bottom_depth, maxdepth):
+        if bottom_depth is None:
+            return total
+        excess = bottom_depth - maxdepth
+        if excess <= 0:
+            return total
+        return Glue(total.dimen - excess, total.stretch, total.shrink)
+
+    @staticmethod
     def _prunePageTop(nodes, start):
         while start < len(nodes) and nodes[start].node_type in (
             nd.NODE_TYPE.GLUE,
@@ -116,10 +129,16 @@ class MainVList(vmode.VList):
             start += 1
         return start
 
-    def _bestPageBreak(self, nodes, start, goal, topskip):
+    @staticmethod
+    def _candidateBreak(index, include):
+        end = index + 1 if include else index
+        return end, index + 1
+
+    def _bestPageBreak(self, nodes, start, goal, topskip, maxdepth):
         total = Glue()
         topskip_added = False
         best = None
+        bottom_depth = None
         for i in range(start, len(nodes)):
             node = nodes[i]
             if not topskip_added:
@@ -130,30 +149,35 @@ class MainVList(vmode.VList):
             if node.node_type == nd.NODE_TYPE.PENALTY:
                 if node.penalty >= 10000:
                     continue
-                cost = self._pageCost(total, goal, node.penalty)
+                effective = self._effectiveTotal(total, bottom_depth, maxdepth)
+                cost = self._pageCost(effective, goal, node.penalty)
                 current = (cost, i, False)
                 if best is None or cost <= best[0]:
                     best = current
-                if node.penalty <= -10000:
-                    return best if best is not None else current
+                if cost == inf or node.penalty <= -10000:
+                    _, index, include = best if best is not None else current
+                    return self._candidateBreak(index, include)
                 continue
             self._pageMeasure(total, node)
+            if self._hasDepth(node):
+                bottom_depth = node.depth
             if self._isLegalBreak(nodes, start, i):
-                cost = self._pageCost(total, goal, 0)
+                effective = self._effectiveTotal(total, bottom_depth, maxdepth)
+                cost = self._pageCost(effective, goal, 0)
                 if best is None or cost <= best[0]:
                     best = (cost, i, True)
-            if self._pageBadness(total, goal) == inf and best is not None:
+            if self._pageBadness(self._effectiveTotal(total, bottom_depth, maxdepth), goal) == inf and best is not None:
                 break
         if best is None:
             return len(nodes), len(nodes)
         _, index, include = best
-        end = index + 1 if include else index
-        return end, index + 1
+        return self._candidateBreak(index, include)
 
-    def _buildPage(self, parser, nodes, start, end):
+    def _buildPage(self, parser, nodes, start, end, maxdepth):
         built = []
         topskip = parser.state.layout["topskip"]
         topskip_added = False
+        last_box = None
         for node in nodes[start:end]:
             if not topskip_added:
                 top = self._pageTopskip(topskip, node)
@@ -161,6 +185,10 @@ class MainVList(vmode.VList):
                     built.append(nd.Glue(top, "\\topskip"))
                     topskip_added = True
             built.append(node)
+            if self._hasDepth(node):
+                last_box = node
+        if last_box is not None and last_box.depth > maxdepth:
+            last_box.depth = maxdepth
         return built
 
     def pageBreak(self, parser):
@@ -169,17 +197,18 @@ class MainVList(vmode.VList):
         pages = []
         goal = parser.state.layout["vsize"]
         topskip = parser.state.layout["topskip"]
+        maxdepth = parser.state.layout["maxdepth"]
         start = 0
         while True:
             start = self._prunePageTop(material, start)
             if start >= len(material):
                 break
-            end, next_start = self._bestPageBreak(material, start, goal, topskip)
+            end, next_start = self._bestPageBreak(material, start, goal, topskip, maxdepth)
             if end <= start:
                 end = min(start + 1, len(material))
                 next_start = end
             page = bx.VBox(parser, goal, Dimen())
-            page.list[:] = self._buildPage(parser, material, start, end)
+            page.list[:] = self._buildPage(parser, material, start, end, maxdepth)
             page.typeset(parser, [])
             pages.append(page)
             start = next_start

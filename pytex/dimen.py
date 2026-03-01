@@ -39,7 +39,7 @@ class Dimen(serialization.Serializable):
             f -= d
             if f == 0:
                 break
-        if f > 0:
+        if f >= 0.1:
             s += str(int(f*10 + 0.5))
         return s
     

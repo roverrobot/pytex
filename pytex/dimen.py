@@ -112,6 +112,22 @@ class Dimen(serialization.Serializable):
             denominator = -denominator
             sign = -sign
         return sign * (numerator // denominator)
+
+    @staticmethod
+    def _round_div(numerator, denominator):
+        if denominator == 0:
+            raise ZeroDivisionError("division by zero")
+        sign = 1
+        if numerator < 0:
+            numerator = -numerator
+            sign = -sign
+        if denominator < 0:
+            denominator = -denominator
+            sign = -sign
+        quotient, remainder = divmod(numerator, denominator)
+        if remainder * 2 >= denominator:
+            quotient += 1
+        return sign * quotient
     
     def __mul__(self, other):
         num, den = self._ratio(other)
@@ -123,10 +139,10 @@ class Dimen(serialization.Serializable):
     
     def __truediv__(self, other):
         num, den = self._ratio(other)
-        return Dimen(integer=self._trunc_div(self.value * den, num))
+        return Dimen(integer=self._round_div(self.value * den, num))
     
     def __rtruediv__(self, other):
-        return Dimen(integer=self._trunc_div(self._pt_value(other) * self.scale, self.value))
+        return Dimen(integer=self._round_div(self._pt_value(other) * self.scale, self.value))
     
     def __round__(self, n):
         return Dimen(round(float(self), n))

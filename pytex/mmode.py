@@ -620,18 +620,18 @@ class DisplayMathList(MList):
             a = box.HBox(parser, None, 0)
             eqno.typesetNodes(parser, a.list, self.typeset_context, Style(MATH_STYLE.T))
             a.typeset(parser, [])
-            e = float(a.width)
+            e = a.width
             q = e + self.typeset_context.textfont[2].param[5] # quad (fontdimen6)
         else:
-            q = 0
-            e = 0
+            q = Dimen()
+            e = Dimen()
             eqno = None
             left = None
         h = self.typesetNodes(parser, None, self.typeset_context, Style(MATH_STYLE.D))
         b = box.HBox(parser, None, 0)
         b.list = h
         b.typeset(parser, [])
-        w0 = float(b.width)
+        w0 = b.width
         z = self.typeset_context.displaywidth
         s = self.typeset_context.displayindent
         p = self.typeset_context.predisplaysize
@@ -649,7 +649,7 @@ class DisplayMathList(MList):
                     )
                 )
                 if not_enough_shrink:
-                    e = 0
+                    e = Dimen()
             if e == 0:
                 b = box.HBox(parser, to=min(w0, z), spread=None)
                 b.list = h
@@ -668,7 +668,7 @@ class DisplayMathList(MList):
         d = (z - w) / 2
         if e > 0 and d < 2*e:
             begins_with_glue = len(h) > 0 and h[0].node_type == nd.NODE_TYPE.GLUE
-            d = 0 if begins_with_glue else (z - w - e) / 2
+            d = Dimen() if begins_with_glue else (z - w - e) / 2
         # TEX is now ready to put things onto the current vertical list,
         # just after the material previously constructed for the paragraph-so-far. First
         # comes a penalty item, whose cost is an integer parameter called \predisplaypenalty.

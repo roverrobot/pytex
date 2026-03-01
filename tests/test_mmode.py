@@ -201,7 +201,7 @@ def test_display_centering_uses_half_remaining_width(math):
     z = mlist.typeset_context.displaywidth
     s = mlist.typeset_context.displayindent
     expected = s + (z - b.width) / 2
-    assert float(b.shifted) == pytest.approx(float(expected), abs=1e-4)
+    assert b.shifted == expected
 
 
 def test_display_predisplaysize_adds_two_ems(math):

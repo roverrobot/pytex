@@ -344,6 +344,23 @@ class The(Command):
         parser.input.push(TokenListScanner(toks))
 
 
+class PageMark(Command):
+    """
+    Expand to the current page mark token list.
+    """
+
+    def __init__(self, key):
+        self.key = key
+
+    def toksValue(self, parser):
+        return parser.state.parameters[self.key]
+
+    def expand(self, parser):
+        toks = self.toksValue(parser)
+        if toks:
+            parser.input.push(TokenListScanner(toks))
+
+
 mod = Module("toks",
     attributes = {
         "readBalancedText": readBalancedText,
@@ -356,6 +373,9 @@ mod = Module("toks",
         "lowercase": Case(False),
         "ignorespaces": IgnoreSpaces(),
         "the": The(),
+        "topmark": PageMark("topmark"),
+        "firstmark": PageMark("firstmark"),
+        "botmark": PageMark("botmark"),
         "toksdef": registerdef("toks", ToksArrayItemAccessor),
     },
     domains = {
@@ -372,5 +392,8 @@ mod = Module("toks",
         "everypar": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
         "everymath": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
         "everydisplay": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "topmark": {"value": [], "accessor": None, "domain": "parameters"},
+        "botmark": {"value": [], "accessor": None, "domain": "parameters"},
+        "firstmark": {"value": [], "accessor": None, "domain": "parameters"},
     }
 )

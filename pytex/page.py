@@ -285,11 +285,28 @@ class MainVList(vmode.VList):
                 context = node.context
         return context
 
+    @staticmethod
+    def _pageMarks(nodes, start, end, topmark):
+        first = None
+        bot = None
+        for node in nodes[start:end]:
+            if node.node_type != nd.NODE_TYPE.MARK:
+                continue
+            mark = list(node.tokens)
+            if first is None:
+                first = mark
+            bot = mark
+        if first is None:
+            first = list(topmark)
+            bot = list(topmark)
+        return first, bot
+
     def pageBreak(self, parser):
         material = []
         self.typesetNodes(parser, material)
         pages = []
         context = self.page_initial_context
+        topmark = list(parser.state.parameters["botmark"])
         start = 0
         while True:
             start, context = self._prunePageTop(material, start, context)
@@ -301,9 +318,14 @@ class MainVList(vmode.VList):
                 next_start = end
                 break_context = self._advanceContext(material, start, end, context)
             page = bx.VBox(parser, break_context.vsize, Dimen())
+            firstmark, botmark = self._pageMarks(material, start, end, topmark)
             page.list[:] = self._buildPage(parser, material, start, end, context)
             page.typeset(parser, [])
             pages.append(page)
+            parser.state.parameters["topmark"] = list(topmark)
+            parser.state.parameters["firstmark"] = list(firstmark)
+            parser.state.parameters["botmark"] = list(botmark)
+            topmark = list(botmark)
             context = self._advanceContext(material, start, next_start, context)
             start = next_start
         return pages

@@ -1,13 +1,5 @@
 * \noboundary
 * layout
-  * paragraphs
-  * alignment
-  * math
-    * display math integration with paragraph builder
-      * break paragraph at display location
-      * handle equation numbers (\\eqno/\\leqno)
-      * insert display penalties and display skips
-      * set \\prevgraf and related paragraph state
   * main vlist
     * \topmark \bottommark
     * inserts

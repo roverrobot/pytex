@@ -31,7 +31,7 @@ def test_dimen_array(parser):
 def glueInfo(g):
     return {
         "init": {
-            "dimen": g.dimen, 
+            "dimen": dimenInfo(g.dimen), 
             "stretch": g.stretch.serialize(), 
             "shrink": g.shrink.serialize()
         },

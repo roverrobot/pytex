@@ -187,12 +187,14 @@ def test_insert_migrate(cmr10):
     cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 2
+    assert len(top) == 1
     box = top[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
     assert len(box.list) == 2
-    assert len(box.migrate) == 1
-    node = top[0].migrate[0]
+    packed = []
+    top.typesetNodes(cmr10, packed)
+    assert len(packed) == 2
+    node = packed[1]
     assert node.node_type == nd.NODE_TYPE.INS
     assert node.index == 2
     assert len(node.vlist) == 1
@@ -207,12 +209,16 @@ def test_mark(cmr10):
     cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 2
+    assert len(top) == 1
     box = top[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
     assert len(box.list) == 1
-    assert len(box.migrate) == 1
-    assert toksToString(cmr10, box.migrate[0].tokens) == "123"
+    packed = []
+    top.typesetNodes(cmr10, packed)
+    assert len(packed) == 2
+    migrate = packed[1]
+    assert migrate.node_type == nd.NODE_TYPE.MARK
+    assert toksToString(cmr10, migrate.tokens) == "123"
 
 
 def test_special(cmr10):
@@ -237,7 +243,7 @@ def test_leaders(cmr10, cmd, type):
     assert len(top) == 3
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.GLUE
-    assert node.glue == glue.Glue(2.84526)
+    assert node.glue == glue.Glue(7227.0 / 254)
     ltype, box = node.leaders
     assert ltype == type
     assert box.node_type == nd.NODE_TYPE.HLIST

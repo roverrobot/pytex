@@ -88,9 +88,13 @@ class VList(lists.List):
         @param node: the node to append
         """
         context = getattr(node, "typeset_context", None)
+        if context is None and getattr(node, "needs_vcontext", False):
+            node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)
+            context = node.typeset_context
         is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
         if context is None and is_box:
             node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)
+            context = node.typeset_context
         if is_box:
             # if the box has a depth, we capture it. Otherwise, we will resolve it lazily when needed.
             self.prevdepth = getattr(node, "depth", None)
@@ -123,9 +127,9 @@ class VList(lists.List):
                         baselineskip = context.baselineskip
                         diff = baselineskip.dimen - prevdepth - item.height
                         if diff < context.lineskiplimit:
-                            packed.append(nd.Glue(context.lineskip))
+                            packed.append(nd.Glue(context.lineskip, "\\lineskip"))
                         else:
-                            packed.append(nd.Glue(Glue(diff, baselineskip.stretch, baselineskip.shrink)))
+                            packed.append(nd.Glue(Glue(diff, baselineskip.stretch, baselineskip.shrink), "\\baselineskip"))
                     # update prevdepth for the next item
                     prevdepth = item.depth
                     if firstbox:
@@ -198,15 +202,16 @@ class VFil(VSkip):
         super().__init__()
 
 
-def readVList(parser, reason):
+def readVList(parser, reason, callback=None):
     """
     Read a vertical list.
     @param parser: the parser
     @param reason: the reason for reading the list
+    @param callback: called after the list group closes
     """
     vlist = VList(parser)
     parser.clearParagraphSettings()
-    return parser.readList(vlist, reason)
+    return parser.readList(vlist, reason, callback)
 
 
 class End(Command):

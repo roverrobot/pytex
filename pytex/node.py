@@ -109,7 +109,10 @@ class CharNode(Box):
         return f"{self.char}"
 
     def meaning(self, parser):
-        return f"\\{self.font.tfm.name} {self.char}"
+        font_name = getattr(self.font, "name", None)
+        if font_name is None:
+            font_name = f"\\{self.font.tfm.name}"
+        return f"{font_name} {self.char}"
 
 
 class Rule(Box):

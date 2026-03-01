@@ -128,6 +128,7 @@ class FontArrayAccessor(ArrayAccessor):
 
 
 nullfont = Font(tfm=nullfont_tfm, at=0)
+nullfont.name = "\\nullfont"
 
 
 def fontarray(name): 

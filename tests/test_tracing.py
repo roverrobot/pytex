@@ -18,7 +18,7 @@ def test_showbox_dumps_box_contents(cmr10):
     log = cmr10.logContent()
     assert "> \\box1=" in log
     assert "\\hbox(" in log
-    assert "\\cmr10 a" in log
+    assert "\\f a" in log
 
 
 def test_showbox_respects_breadth_limit(cmr10):
@@ -34,4 +34,4 @@ def test_showlists_dumps_current_list_stack(cmr10):
     assert "> \\showlists" in log
     assert "### list 0" in log
     assert "HList" in log
-    assert "\\cmr10 a" in log
+    assert "\\f a" in log

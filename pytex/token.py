@@ -20,7 +20,6 @@ import typing
 from pytex.module import Module
 from pytex import serialization
 
-
 class CATCODE:
     """
     The category codes of the tokens. The category codes are used to classify the 
@@ -333,10 +332,9 @@ class AlignmentTabToken(Token):
 
         This command can only appear in alignment.
         """
-        alignment = parser.alignment
-        if alignment is None:
+        if parser.alignments.currentCell() is None:
             raise ValueError("unexpected &", parser.input.position())
-        alignment.endOfCell(parser, command=self)
+        parser.endCell(is_last=False)
 
 
 class ParameterToken(Token):

@@ -89,8 +89,6 @@ class Group:
         for store in self.values.values():
             for saved in store.values():
                 saved.restore()
-        if self.callback:
-            self.callback()
 
     def remove(self, domain, index):
         """
@@ -499,12 +497,16 @@ class State:
         """
         if not self.current_group:
             raise ValueError("no current group")
-        aftergroup = self.current_group.aftergroup
-        self.current_group.end(position, group_type)
+        group = self.current_group
+        aftergroup = group.aftergroup
+        callback = group.callback
+        group.end(position, group_type)
         if self.groups:
             self.current_group = self.groups.pop()
         else:
             self.current_group = None
+        if callback:
+            callback()
         return aftergroup
         
 

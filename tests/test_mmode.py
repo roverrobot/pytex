@@ -1,4 +1,5 @@
 import pytest
+from pytex import align
 from pytex import mmode
 from pytex import lists
 from pytex import node as nd
@@ -108,6 +109,35 @@ def test_mlist_typeset_display(math):
     assert len(top) == 3
     packed = []
     top.typesetNodes(math, packed)
+
+
+def test_display_halign_replaces_display_math_list(math):
+    math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$")
+    top = math.lists[0]
+    node = next(n for n in top if isinstance(n, align.HAlignMathList))
+    assert len(node) == 1
+    assert isinstance(node[0], align.MAlignment)
+
+
+def test_display_halign_typesets_with_display_wrapper(math):
+    math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$\\par")
+    top = math.lists[0]
+    node = next(n for n in top if isinstance(n, align.HAlignMathList))
+    packed = []
+    top.typesetNodes(math, packed)
+    display = [n for n in packed if getattr(n, "source", None) is node]
+    assert len(display) == 5
+    assert display[0].node_type == nd.NODE_TYPE.PENALTY
+    assert display[0].penalty == node.typeset_context.predisplaypenalty
+    assert display[1].node_type == nd.NODE_TYPE.GLUE
+    assert display[1].glue == node.typeset_context.abovedisplayskip
+    assert display[2].node_type == nd.NODE_TYPE.VLIST
+    assert display[3].node_type == nd.NODE_TYPE.PENALTY
+    assert display[3].penalty == node.typeset_context.postdisplaypenalty
+    assert display[4].node_type == nd.NODE_TYPE.GLUE
+    assert display[4].glue == node.typeset_context.belowdisplayskip
+    rows = [item for item in display[2].list if item.node_type == nd.NODE_TYPE.HLIST]
+    assert len(rows) == 1
 
 
 def test_subformula_single_char_drops_outer_hbox(math):
@@ -331,7 +361,8 @@ def test_mkern_typeset_uses_style_sigma6(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    assert float(kerns[0].kern) == pytest.approx(mlist.typeset_context.scriptfont[2].param[5], abs=1e-4)
+    mu = mlist.typeset_context.scriptfont[2].param[5] / 18
+    assert kerns[0].kern == 18 * mu
 
 
 def test_nonscript_removes_immediately_following_glue_or_kern(math):
@@ -341,7 +372,8 @@ def test_nonscript_removes_immediately_following_glue_or_kern(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    assert float(kerns[0].kern) == pytest.approx(2 * mlist.typeset_context.textfont[2].param[5], abs=1e-4)
+    mu = mlist.typeset_context.textfont[2].param[5] / 18
+    assert kerns[0].kern == 36 * mu
 
 
 def test_nonscript_keeps_following_glue_or_kern_when_style_is_scriptscript(math):
@@ -351,9 +383,9 @@ def test_nonscript_keeps_following_glue_or_kern_when_style_is_scriptscript(math)
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 2
-    sigma = mlist.typeset_context.scriptscriptfont[2].param[5]
-    assert float(kerns[0].kern) == pytest.approx(sigma, abs=1e-4)
-    assert float(kerns[1].kern) == pytest.approx(2 * sigma, abs=1e-4)
+    mu = mlist.typeset_context.scriptscriptfont[2].param[5] / 18
+    assert kerns[0].kern == 18 * mu
+    assert kerns[1].kern == 36 * mu
 
 
 def test_mathchoice_uses_current_text_style(math):
@@ -363,8 +395,8 @@ def test_mathchoice_uses_current_text_style(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    sigma = mlist.typeset_context.textfont[2].param[5]
-    assert float(kerns[0].kern) == pytest.approx(2 * sigma, abs=1e-4)
+    mu = mlist.typeset_context.textfont[2].param[5] / 18
+    assert kerns[0].kern == 36 * mu
 
 
 def test_mathchoice_uses_current_script_style(math):
@@ -374,8 +406,8 @@ def test_mathchoice_uses_current_script_style(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    sigma = mlist.typeset_context.scriptfont[2].param[5]
-    assert float(kerns[0].kern) == pytest.approx(3 * sigma, abs=1e-4)
+    mu = mlist.typeset_context.scriptfont[2].param[5] / 18
+    assert kerns[0].kern == 54 * mu
 
 
 def test_nested_mathchoice_expands_without_mutating_list(math):
@@ -385,8 +417,8 @@ def test_nested_mathchoice_expands_without_mutating_list(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    sigma = mlist.typeset_context.textfont[2].param[5]
-    assert float(kerns[0].kern) == pytest.approx(2 * sigma, abs=1e-4)
+    mu = mlist.typeset_context.textfont[2].param[5] / 18
+    assert kerns[0].kern == 36 * mu
     assert any(isinstance(n, mmode.ChoiceNode) for n in mlist)
 
 

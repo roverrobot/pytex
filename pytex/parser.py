@@ -49,11 +49,6 @@ class Parser:
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
         self.ifstack = []
-        # the list stack
-        # the alignment currently being built
-        self.alignment = None
-        # the alignment stack
-        self.alignments = []
         self.lists = [vmode.VList(self, inner=False)]
         self.log = self.getLogFile()
         # the console file. None to standard output, or os.devnull for no output
@@ -286,7 +281,7 @@ class Parser:
             else:
                 spaceglue = font.spaceglue
             spaceglue = spaceglue.scale(f/1000)
-        top.append(node.Glue(spaceglue))
+        top.append(node.Glue(spaceglue, None))
 
     def lookup(self, name):
         """
@@ -336,7 +331,7 @@ class Parser:
         # in Chapter 25. (The TeX Book pp.282)        """
         top = self.lists[-1]
         if top.type == lists.LISTTYPE.VERTICAL and (not top.inner) and len(top) > 0 and parskip:
-            top.append(node.Glue(self.state.parameters["parskip"]))
+            top.append(node.Glue(self.state.parameters["parskip"], "\\parskip"))
         hlist = paragraph.Paragraph(self, indent)
         self.lists.append(hlist)
         everypar = self.everypar.value
@@ -361,7 +356,7 @@ class Parser:
         # \penalty10000
         hlist.append(node.Penalty(10000))
         # \hskip\parfillskip
-        hlist.append(node.Glue(self.state.parameters["parfillskip"]))
+        hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
         self.lists.pop()
         top = self.lists[-1]
         hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist)
@@ -429,51 +424,10 @@ class Parser:
         if top.type != lists.LISTTYPE.VERTICAL or top.inner:
             raise ValueError("did not end in the main vertical list")
         # \vfill\penalty-'10000000000
-        top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2))))
+        top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2)), "\\vfill"))
         top.append(node.Penalty(-0x100000))
         self.input.clear()
         self.run = False
         if not self.log.closed:
             self.log.close()
         return self.logContent()
-
-
-    def newAlignment(self):
-        """
-        create a new alignment
-        """
-        vertical = self.lists[-1].type != lists.LISTTYPE.HORIZONTAL
-        # to/spread clause
-        to, spread = self.readToSpread()
-        builder = align.AlignmentBuilder(vertical, to=to, spread=spread)
-        if self.alignment is not None:
-            self.alignments.append(self.alignment)
-        self.alignment = builder
-        builder.begin(self)
-
-    def finishAlignment(self):
-        """
-        finish the current alignment
-        """
-        alignment = self.alignment
-        assert alignment is not None, "no alignment to finish {self.input.position()}"
-        if self.alignments:
-            self.alignment = self.alignments.pop()
-        else:
-            self.alignment = None
-        top = self.lists[-1]
-        top.append(alignment.alignment)
-        if top.type != lists.LISTTYPE.MATH:
-            return
-        # if we are in math mode, we need to check nothing but assignments are left
-        while True:
-            t = self.token_expand()
-            if t is None:
-                raise ValueError("expecting $$", self.input.position())
-            if t.catcode == token.CATCODE.MATH_SHIFT:
-                self.input.unread(t)
-                return
-            c = t.definition
-            if not hasattr(c, "assign"):
-                raise ValueError("only assignments are allowed in math mode after an alignment", self.input.position())
-            c.execute(self)

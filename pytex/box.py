@@ -672,7 +672,7 @@ def _appendLeader(parser, type, box):
         glue = t.glueValue(parser)
     else:
         raise ValueError("glue in the wrong mode", parser.input.position())
-    node = nd.Glue(glue)
+    node = nd.Glue(glue, t.name)
     node.leaders = (type, box)
     parser.lists[-1].append(node)
 

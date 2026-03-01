@@ -51,11 +51,30 @@ class Dimen(serialization.Serializable):
     
     def __neg__(self):
         return Dimen(integer=-self.value)
+
+    @staticmethod
+    def _ratio(value):
+        if isinstance(value, Dimen):
+            return value.value, Dimen.scale
+        if isinstance(value, int):
+            return value, 1
+        try:
+            return value.as_integer_ratio()
+        except AttributeError:
+            return float(value).as_integer_ratio()
+
+    @classmethod
+    def _pt_value(cls, value):
+        if isinstance(value, Dimen):
+            return value.value
+        num, den = cls._ratio(value)
+        return cls._trunc_div(num * cls.scale, den)
+
     def __sub__(self, other):
-        return Dimen(float(self) - float(other))
+        return Dimen(integer=self.value - self._pt_value(other))
     
     def __rsub__(self, other):
-        return Dimen(float(other)-float(self))
+        return Dimen(integer=self._pt_value(other) - self.value)
     
     def __abs__(self):
         return Dimen(integer=abs(self.value))
@@ -76,22 +95,38 @@ class Dimen(serialization.Serializable):
         return self.value <= int(float(other) * self.scale)
 
     def __add__(self, other):
-        return Dimen(float(self) + float(other))
+        return Dimen(integer=self.value + self._pt_value(other))
     
     def __radd__(self, other):
-        return Dimen(float(self) + float(other))
+        return Dimen(integer=self._pt_value(other) + self.value)
+
+    @staticmethod
+    def _trunc_div(numerator, denominator):
+        if denominator == 0:
+            raise ZeroDivisionError("division by zero")
+        sign = 1
+        if numerator < 0:
+            numerator = -numerator
+            sign = -sign
+        if denominator < 0:
+            denominator = -denominator
+            sign = -sign
+        return sign * (numerator // denominator)
     
     def __mul__(self, other):
-        return Dimen(float(self) * float(other))
+        num, den = self._ratio(other)
+        return Dimen(integer=self._trunc_div(self.value * num, den))
     
     def __rmul__(self, other):
-        return Dimen(float(self) * float(other))
+        num, den = self._ratio(other)
+        return Dimen(integer=self._trunc_div(num * self.value, den))
     
     def __truediv__(self, other):
-        return Dimen(float(self) / float(other))
+        num, den = self._ratio(other)
+        return Dimen(integer=self._trunc_div(self.value * den, num))
     
     def __rtruediv__(self, other):
-        return Dimen(float(other) / float(self))
+        return Dimen(integer=self._trunc_div(self._pt_value(other) * self.scale, self.value))
     
     def __round__(self, n):
         return Dimen(round(float(self), n))
@@ -152,10 +187,12 @@ UNITS = {
     "pt" : 1,
     "pc" : 12,
     "in" : 72.27,
+    "bp" : 7227.0 / 7200,
     "dd" : 1238.0 / 1157,
+    "cc" : 14856.0 / 1157,
     "sp" : 1.0 / 65536,
-    "cm" : 7227.0 / 2540,
-    "mm" : 7227.0 / 254,
+    "cm" : 7227.0 / 254,
+    "mm" : 7227.0 / 2540,
 }
 
 def readUnsignedDimen(parser, mu: bool, stretchness: bool):

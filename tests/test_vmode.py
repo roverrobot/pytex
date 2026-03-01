@@ -360,3 +360,10 @@ def test_page_break_uses_marker_context(parser):
     pages = main.pageBreak(parser)
     assert len(pages) == 1
     assert pages[0].height == 20
+
+
+def test_shipout_collects_box(parser):
+    parser.parse("\\shipout\\hbox{A}")
+    assert len(parser.shipout.pages) == 1
+    page = parser.shipout.pages[0]
+    assert page.node_type == nd.NODE_TYPE.HLIST

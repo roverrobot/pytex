@@ -10,6 +10,31 @@ from pytex import node as nd
 from pytex import vmode
 from pytex.glue import Glue
 from pytex.dimen import Dimen
+from pytex.module import Module
+
+
+class Shipout:
+    """
+    Default shipout collector.
+    """
+
+    def __init__(self):
+        self.pages = []
+
+    def shipout(self, box):
+        self.pages.append(box)
+
+
+class ShipOutCommand(vmode.VerticalCommand):
+    """
+    The \\shipout command.
+    """
+
+    def vertical(self, parser, vlist):
+        box = parser.readBox()
+        if box is None:
+            return
+        parser.shipout.shipout(box)
 
 
 class PageBuilderContext:
@@ -329,3 +354,16 @@ class MainVList(vmode.VList):
             context = self._advanceContext(material, start, next_start, context)
             start = next_start
         return pages
+
+
+def init(parser):
+    parser.shipout = Shipout()
+
+
+mod = Module(
+    "page",
+    commands={
+        "shipout": ShipOutCommand(),
+    },
+    init=init,
+)

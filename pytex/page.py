@@ -165,7 +165,7 @@ class MainVList(vmode.VList):
         if delta > 0:
             stretch = total.stretch
             if stretch.factor == 0:
-                return inf
+                return 10000
             if stretch.order > 0:
                 return 0
             num = int(delta)

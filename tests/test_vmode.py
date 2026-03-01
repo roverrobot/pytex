@@ -270,6 +270,11 @@ def test_page_cost_matches_tex_formula(parser):
     assert main._pageCost(total, Dimen(1), 0, 10000) == float("inf")
 
 
+def test_page_badness_underfull_without_stretch_is_finite(parser):
+    main = parser.lists[0]
+    assert main._pageBadness(glue.Glue(0), Dimen(5)) == 10000
+
+
 def test_page_break_glue_requires_non_discardable_predecessor(parser):
     parser.parse("\\vsize=10pt\\topskip=0pt")
     main = parser.lists[0]

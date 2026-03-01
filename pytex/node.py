@@ -133,12 +133,17 @@ class Glue(Node):
     A glue node.
     @param glue: the glue
     """
-    def __init__(self, glue):
+    def __init__(self, glue, name):
         self.glue = glue
+        self.name = name
         self.kern = None
 
     def saveInfo(self):
-        return {"init": {"glue": self.glue}}
+        return {"init": {"glue": self.glue, "name": self.name}}
+
+    @classmethod
+    def new(cls, parser, glue, name=None):
+        return cls(glue, name)
 
     def __repr__(self):
         set = self.glue if self.kern is None else f"{self.kern}pt"
@@ -146,8 +151,13 @@ class Glue(Node):
 
     def meaning(self, parser):
         if self.kern is not None:
-            return f"\\glue set {self.kern}pt"
-        return f"\\glue {self.glue}"
+            if self.name is not None:
+                return f"\\glue({self.name}) set {self.kern}"
+            return f"\\glue set {self.kern}"
+        spec = repr(self.glue)
+        if self.name is not None:
+            return f"\\glue({self.name}) {spec}"
+        return f"\\glue {spec}"
     
     node_type = NODE_TYPE.GLUE
 

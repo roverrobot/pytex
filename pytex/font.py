@@ -26,13 +26,13 @@ class Font(Command):
     """
     def __init__(self, tfm: TFM, at):
         self.tfm = tfm
-        self.at = at
+        self.at = at if isinstance(at, Dimen) else Dimen(at)
         # nullfont
         self.param = [0] * len(tfm.param)
         # param[0] is the only parameter that does not scale with the design size of the font
-        self.param[0] = tfm.param[0]
+        self.param[0] = Dimen(tfm.param[0])
         for i in range(1, len(tfm.param)):
-            self.param[i] = tfm.param[i] * at
+            self.param[i] = tfm.param[i] * self.at
         self.bc = tfm.bc
         self.ec = tfm.ec
         self.charnode = [None] * (self.ec-self.bc+1)

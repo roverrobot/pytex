@@ -281,7 +281,7 @@ class Parser:
             else:
                 spaceglue = font.spaceglue
             spaceglue = spaceglue.scale(f/1000)
-        top.append(node.Glue(spaceglue))
+        top.append(node.Glue(spaceglue, None))
 
     def lookup(self, name):
         """
@@ -331,7 +331,7 @@ class Parser:
         # in Chapter 25. (The TeX Book pp.282)        """
         top = self.lists[-1]
         if top.type == lists.LISTTYPE.VERTICAL and (not top.inner) and len(top) > 0 and parskip:
-            top.append(node.Glue(self.state.parameters["parskip"]))
+            top.append(node.Glue(self.state.parameters["parskip"], "\\parskip"))
         hlist = paragraph.Paragraph(self, indent)
         self.lists.append(hlist)
         everypar = self.everypar.value
@@ -356,7 +356,7 @@ class Parser:
         # \penalty10000
         hlist.append(node.Penalty(10000))
         # \hskip\parfillskip
-        hlist.append(node.Glue(self.state.parameters["parfillskip"]))
+        hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
         self.lists.pop()
         top = self.lists[-1]
         hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist)
@@ -424,7 +424,7 @@ class Parser:
         if top.type != lists.LISTTYPE.VERTICAL or top.inner:
             raise ValueError("did not end in the main vertical list")
         # \vfill\penalty-'10000000000
-        top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2))))
+        top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2)), "\\vfill"))
         top.append(node.Penalty(-0x100000))
         self.input.clear()
         self.run = False

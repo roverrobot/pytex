@@ -695,7 +695,7 @@ class DisplayMathList(MList):
             cache.append(a)
             cache.append(nd.Penalty(10000))
         else:
-            cache.append(nd.Glue(ga))
+            cache.append(nd.Glue(ga, "\\abovedisplayskip" if d + s <= p or left is True else "\\abovedisplayshortskip"))
         if e != 0:
             # Now comes the displayed equation itself. If e!= 0, the
             # equation number box a is combined with the formula box b as follows: Let k
@@ -736,7 +736,7 @@ class DisplayMathList(MList):
             cache.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
         else:
             cache.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
-            cache.append(nd.Glue(gb))
+            cache.append(nd.Glue(gb, "\\belowdisplayskip" if d + s <= p or left is True else "\\belowdisplayshortskip"))
         # TEX now adds 3 to \prevgraf and returns to horizontal mode.
         next_prevgraf = self.typeset_context.prevgraf + 3
         if self.next_paragraph is not None:
@@ -894,7 +894,7 @@ class Atom(nd.Node):
             if style.style > MATH_STYLE.T:
                 return
             space = -space
-        packed.append(nd.Glue(muglue(context, style, context.muskips[space - 1])))
+        packed.append(nd.Glue(muglue(context, style, context.muskips[space - 1]), ["\\thinmuskip", "\\medmuskip", "\\thickmuskip"][space - 1]))
         pass
 
     def typesetNucleus(self, parser, packed, context, style):
@@ -1144,7 +1144,7 @@ class Atom(nd.Node):
             return b
         out = box.HBox(parser, width, None)
         hss = Glue(0, Stretchness(1, 1), Stretchness(1, 1))
-        out.list.append(nd.Glue(hss))
+        out.list.append(nd.Glue(hss, None))
         italic = None
         out.list.extend(b.list)
         if b.list:
@@ -1153,7 +1153,7 @@ class Atom(nd.Node):
                 italic = getattr(right, "italic", None)
         if italic is not None and float(italic) != 0:
             out.list.append(nd.Kern(italic, automatic=True))
-        out.list.append(nd.Glue(hss))
+        out.list.append(nd.Glue(hss, None))
         out.typeset(parser, [])
         return out
     
@@ -1561,7 +1561,17 @@ def mudimen(context, style, dimen):
 
     The mu unit is 1/18 of the em unit of \\textfont[2]
     """
-    return dimen * context.font(style, 2).param[5] / 18 # fontdimen 6 is em
+    sigma6 = context.font(style, 2).param[5]  # fontdimen 6 is em
+
+    def trunc_div(value, divisor):
+        if value >= 0:
+            return value // divisor
+        return -((-value) // divisor)
+
+    # TeX computes mu units with integer arithmetic: first 1mu = sigma6/18,
+    # then the scaled-mu amount is multiplied by that truncated unit.
+    mu = trunc_div(int(sigma6), 18)
+    return Dimen(integer=trunc_div(int(dimen) * mu, Dimen.scale))
 
 
 def muglue(context, style, glue):
@@ -1617,16 +1627,16 @@ class MKern(lists.ModeDependentCommand):
 
 class MuGlue(nd.Glue):
     def __init__(self, glue):
-        super().__init__(glue)
+        super().__init__(glue, None)
         self.mu = True
 
     def saveInfo(self):
-        return {"init": {"glue": self.glue}}
+        return {"init": {"glue": self.glue, "name": self.name}}
 
     def typeset(self, parser, packed, context, style):
         if packed is None:
             raise ValueError("typeset requires a packed list")
-        packed.append(nd.Glue(muglue(context, style, self.glue)))
+        packed.append(nd.Glue(muglue(context, style, self.glue), getattr(self, "name", None)))
         return
 
 
@@ -2477,7 +2487,7 @@ class NonscriptGlue(nd.Glue):
     a class representing a non-script glue
     """
     def __init__(self):
-        super().__init__(Glue())
+        super().__init__(Glue(), None)
         self.nonscript = True
 
     def saveInfo(self):

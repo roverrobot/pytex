@@ -272,7 +272,7 @@ class GlueCommand:
         return parser.readGlue() if self.glue is None else self.glue
     
     def glueNode(self, parser):
-        return nd.Glue(self.glueValue(parser))
+        return nd.Glue(self.glueValue(parser), getattr(self, "name", None))
 
 
 class Remove(Command):

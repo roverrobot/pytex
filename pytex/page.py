@@ -6,11 +6,15 @@ Page breaking for the main vertical list.
 from math import inf
 
 from pytex import box as bx
+from pytex import lexer
 from pytex import node as nd
 from pytex import vmode
-from pytex.glue import Glue
 from pytex.dimen import Dimen
+from pytex.glue import Glue
+from pytex.lists import LISTTYPE
 from pytex.module import Module
+from pytex.state import GROUP_TYPE
+from pytex.token import Token
 
 
 class Shipout:
@@ -35,6 +39,32 @@ class ShipOutCommand(vmode.VerticalCommand):
         if box is None:
             return
         parser.shipout.shipout(box)
+
+
+class OutputRoutineEndCallback:
+    """
+    Pop the temporary output list when the output routine group ends.
+    """
+
+    def __init__(self, parser, vlist):
+        self.parser = parser
+        self.vlist = vlist
+
+    def __call__(self):
+        if self.parser.lists and self.parser.lists[-1] is self.vlist:
+            self.parser.lists.pop()
+
+
+class EndOutputRoutineToken(Token):
+    """
+    Internal token that stops a nested parser.loop() for an output routine.
+    """
+
+    def __init__(self):
+        super().__init__("\\endoutput", None)
+
+    def execute(self, parser):
+        parser.run = False
 
 
 class PageBuilderContext:
@@ -326,6 +356,48 @@ class MainVList(vmode.VList):
             bot = list(topmark)
         return first, bot
 
+    @staticmethod
+    def _runNestedLoop(parser):
+        saved = parser.run
+        parser.run = True
+        try:
+            parser.loop()
+        finally:
+            parser.run = saved
+
+    def _runOutputRoutine(self, parser, page):
+        output = parser.output.value
+        if not output:
+            parser.shipout.shipout(page)
+            return []
+        outlist = vmode.VList(parser)
+        parser.lists.append(outlist)
+        parser.beginGroup(
+            parser.input.position(),
+            GROUP_TYPE.OUTPUT,
+            OutputRoutineEndCallback(parser, outlist),
+        )
+        parser.state.box[255] = page
+        parser.input.push(lexer.TokenListScanner([EndOutputRoutineToken()]))
+        parser.input.push(lexer.TokenListScanner(output))
+        self._runNestedLoop(parser)
+        top = parser.lists[-1]
+        if top.type == LISTTYPE.HORIZONTAL:
+            if top.inner:
+                raise ValueError("output routine ended in internal horizontal mode")
+            parser.endParagraph()
+            top = parser.lists[-1]
+        elif top.type == LISTTYPE.MATH:
+            raise ValueError("output routine ended in math mode")
+        if top is not outlist:
+            raise ValueError("output routine did not end in internal vertical mode")
+        if parser.state.current_group.aftergroup:
+            raise NotImplementedError("aftergroup in the output routine is not implemented yet")
+        parser.endGroup(parser.input.position(), GROUP_TYPE.OUTPUT)
+        carry = []
+        outlist.typesetNodes(parser, carry)
+        return carry
+
     def pageBreak(self, parser):
         material = []
         self.typesetNodes(parser, material)
@@ -354,6 +426,37 @@ class MainVList(vmode.VList):
             context = self._advanceContext(material, start, next_start, context)
             start = next_start
         return pages
+
+    def outputPages(self, parser):
+        material = []
+        self.typesetNodes(parser, material)
+        shipped = len(parser.shipout.pages)
+        context = self.page_initial_context
+        topmark = list(parser.state.parameters["botmark"])
+        start = 0
+        while True:
+            start, context = self._prunePageTop(material, start, context)
+            if start >= len(material):
+                break
+            end, next_start, break_context = self._bestPageBreak(material, start, context)
+            if end <= start:
+                end = min(start + 1, len(material))
+                next_start = end
+                break_context = self._advanceContext(material, start, end, context)
+            page = bx.VBox(parser, break_context.vsize, Dimen())
+            firstmark, botmark = self._pageMarks(material, start, end, topmark)
+            parser.state.parameters["topmark"] = list(topmark)
+            parser.state.parameters["firstmark"] = list(firstmark)
+            parser.state.parameters["botmark"] = list(botmark)
+            page.list[:] = self._buildPage(parser, material, start, end, context)
+            page.typeset(parser, [])
+            carry = self._runOutputRoutine(parser, page)
+            if carry:
+                material[next_start:next_start] = carry
+            topmark = list(botmark)
+            context = self._advanceContext(material, start, next_start, context)
+            start = next_start
+        return parser.shipout.pages[shipped:]
 
 
 def init(parser):

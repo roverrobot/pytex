@@ -445,3 +445,15 @@ class Parser:
             raise ValueError("page breaking requires the main vertical list")
         self.pages = top.pageBreak(self)
         return self.pages
+
+    def outputPages(self):
+        top = self.lists[-1]
+        if top.type == lists.LISTTYPE.HORIZONTAL:
+            if top.inner:
+                raise ValueError("cannot output pages in internal horizontal mode")
+            self.endParagraph()
+            top = self.lists[-1]
+        if not isinstance(top, page.MainVList) or top is not self.lists[0]:
+            raise ValueError("page output requires the main vertical list")
+        self.pages = top.outputPages(self)
+        return self.pages

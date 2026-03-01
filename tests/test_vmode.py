@@ -367,3 +367,31 @@ def test_shipout_collects_box(parser):
     assert len(parser.shipout.pages) == 1
     page = parser.shipout.pages[0]
     assert page.node_type == nd.NODE_TYPE.HLIST
+
+
+def test_output_pages_default_shipout(cmr10):
+    cmr10.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}")
+    pages = cmr10.outputPages()
+    assert len(pages) == 1
+    assert len(cmr10.shipout.pages) == 1
+    assert pages[0] is cmr10.shipout.pages[0]
+    assert cmr10.state.box[255] is None
+
+
+def test_output_routine_can_carry_material_forward(cmr10):
+    cmr10.parse(
+        "\\output={\\ifnum\\count0=0\\global\\count0=1\\hbox{X}\\fi\\shipout\\box255}"
+        "\\vsize=20pt\\topskip=0pt\\hbox{A}"
+    )
+    pages = cmr10.outputPages()
+    assert len(pages) == 2
+    assert len(cmr10.shipout.pages) == 2
+    assert cmr10.state.count[0] == 1
+    first = pages[0].list[1]
+    second = pages[1].list[1]
+    assert first.node_type == nd.NODE_TYPE.HLIST
+    assert second.node_type == nd.NODE_TYPE.HLIST
+    first_chars = [n.char for n in first.list if n.node_type == nd.NODE_TYPE.CHAR]
+    second_chars = [n.char for n in second.list if n.node_type == nd.NODE_TYPE.CHAR]
+    assert "A" in first_chars
+    assert "X" in second_chars

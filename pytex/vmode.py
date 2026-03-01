@@ -141,7 +141,6 @@ class VList(lists.List):
                 packed.append(item)
         return packed
 
-
 class PrevDepth(Accessor, DimenCommand):
     """
     The \\prevdepth command. This is vertical-list-local state.

@@ -5,6 +5,7 @@ from pytex import glue
 from pytex import lists
 from pytex import texlive
 from pytex import vmode
+from pytex import page
 from pytex import box as bx
 from pytex.dimen import Dimen
 from pytex.box import LEADERS_TYPE
@@ -217,3 +218,42 @@ def test_prevdepth_accessor_wrong_mode(cmr10):
         assert False
     except ValueError as e:
         assert "vertical mode" in str(e)
+
+
+def test_page_break_inserts_topskip_and_splits_pages(parser):
+    parser.parse("\\vsize=10pt\\topskip=0pt")
+    main = parser.lists[0]
+    assert isinstance(main, page.MainVList)
+    first = _test_hbox(parser, height=6, depth=0)
+    second = _test_hbox(parser, height=6, depth=0)
+    main.append(first)
+    main.append(nd.Glue(glue.Glue(4), None))
+    main.append(second)
+    pages = main.pageBreak(parser)
+    assert len(pages) == 2
+    assert pages[0].height == 10
+    assert pages[0].list[0].node_type == nd.NODE_TYPE.GLUE
+    assert pages[0].list[0].name == "\\topskip"
+    assert pages[0].list[1] is first
+    assert pages[0].list[2].node_type == nd.NODE_TYPE.GLUE
+    assert pages[1].list[0].node_type == nd.NODE_TYPE.GLUE
+    assert pages[1].list[0].name == "\\topskip"
+    assert pages[1].list[1] is second
+
+
+def test_page_break_uses_topskip_before_first_box(parser):
+    parser.parse("\\vsize=20pt\\topskip=10pt")
+    main = parser.lists[0]
+    assert isinstance(main, page.MainVList)
+    main.append(_test_hbox(parser, height=6, depth=0))
+    pages = main.pageBreak(parser)
+    assert len(pages) == 1
+    assert pages[0].list[0].node_type == nd.NODE_TYPE.GLUE
+    assert pages[0].list[0].name == "\\topskip"
+    assert pages[0].list[0].glue.dimen == 4
+
+
+def test_page_break_insert_not_implemented(cmr10):
+    cmr10.parse("\\insert 2{\\vskip 1in}")
+    with pytest.raises(NotImplementedError):
+        cmr10.breakPages()

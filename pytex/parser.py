@@ -31,6 +31,7 @@ from pytex import align
 from pytex import hyphen
 from pytex import misc
 from pytex import tracing
+from pytex import page
 
 
 class Parser:
@@ -49,7 +50,7 @@ class Parser:
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
         self.ifstack = []
-        self.lists = [vmode.VList(self, inner=False)]
+        self.lists = [page.MainVList(self)]
         self.log = self.getLogFile()
         # the console file. None to standard output, or os.devnull for no output
         self.console = None
@@ -63,6 +64,7 @@ class Parser:
         self.dumper = None
         # the current token
         self.current_token = None
+        self.pages = []
     
     def getLogFile(self):
         """
@@ -431,3 +433,15 @@ class Parser:
         if not self.log.closed:
             self.log.close()
         return self.logContent()
+
+    def breakPages(self):
+        top = self.lists[-1]
+        if top.type == lists.LISTTYPE.HORIZONTAL:
+            if top.inner:
+                raise ValueError("cannot break pages in internal horizontal mode")
+            self.endParagraph()
+            top = self.lists[-1]
+        if not isinstance(top, page.MainVList) or top is not self.lists[0]:
+            raise ValueError("page breaking requires the main vertical list")
+        self.pages = top.pageBreak(self)
+        return self.pages

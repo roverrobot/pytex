@@ -6,6 +6,7 @@ from pytex import node as nd
 from pytex import texlive
 from pytex import vmode
 from pytex import mmode
+from pytex import page
 from pytex.dimen import Dimen
 
 
@@ -212,7 +213,7 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
 
 
 def _reset_outer_vlist(parser):
-    parser.lists = [vmode.VList(parser, inner=False)]
+    parser.lists = [page.MainVList(parser)]
 
 
 def test_linebreak_plain_paragraph_cases(parser):

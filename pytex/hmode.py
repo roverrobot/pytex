@@ -12,6 +12,7 @@ from pytex.state import GROUP_TYPE
 from pytex.box import SetBox, AccentNode, IndentBox
 from pytex.accessor import Accessor
 from pytex.ligature import ligature_step, run_ligature_program
+import types
 
 
 class Ligature(nd.CharNode):
@@ -76,14 +77,93 @@ class HList(lists.List):
             if getattr(n, "source", None) is None:
                 n.source = node
 
+    def _leftBoundaryNode(self, font):
+        step = font.tfm.program.left_boundary
+        if step is None:
+            return None
+        program = {}
+        while step is not None:
+            program[step.next_char] = step
+            step = step.next_step
+        return types.SimpleNamespace(
+            _boundary=True,
+            font=font,
+            char="\0",
+            node_type=nd.NODE_TYPE.CHAR,
+            char_info=types.SimpleNamespace(program=program),
+        )
+
+    def _rightBoundaryNode(self, font):
+        step = font.tfm.program.right_boundary
+        if step is None:
+            return None
+        return types.SimpleNamespace(
+            _boundary=True,
+            font=font,
+            char=chr(step.next_char),
+            node_type=nd.NODE_TYPE.CHAR,
+            char_info=types.SimpleNamespace(program=None),
+        )
+
+    def _runBoundaryProgram(self, working):
+        working = run_ligature_program(
+            working,
+            make_ligature=lambda insert_char, replaced, step, current, nxt: Ligature(insert_char, replaced),
+            make_kern=lambda step, current, nxt: nd.Kern(step.kern * current.font.at, True),
+            source_nodes=lambda n: [] if getattr(n, "_boundary", False) else (list(n.source) if isinstance(n, Ligature) else [n]),
+        )
+        return [n for n in working if not getattr(n, "_boundary", False)]
+
+    def _lastLigBase(self, packed):
+        for n in reversed(packed):
+            if n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                return n
+            if n.node_type not in (nd.NODE_TYPE.KERN,):
+                break
+        return None
+
+    def _applyLeftBoundary(self, node, packed, state):
+        boundary = self._leftBoundaryNode(node.font)
+        if boundary is None:
+            return False
+        working = self._runBoundaryProgram([boundary, node])
+        packed.extend(working)
+        state["lig_base"] = self._lastLigBase(working)
+        return True
+
+    def _applyRightBoundary(self, packed, state):
+        base = state["lig_base"]
+        if base is None:
+            return
+        boundary = self._rightBoundaryNode(base.font)
+        if boundary is None:
+            return
+        assert packed[-1] is base, "the ligature base should be the last emitted character"
+        packed.pop()
+        packed.extend(self._runBoundaryProgram([base, boundary]))
+
     def typesetNodeWithLigatures(self, parser, node, packed, state):
         """
         Typeset one source node, forming ligatures from adjacent raw characters.
         """
         if node.node_type != nd.NODE_TYPE.CHAR:
+            if state["in_word"]:
+                self._applyRightBoundary(packed, state)
+                state["in_word"] = False
             state["lig_base"] = None
             self.typesetNode(parser, node, packed)
             return
+        is_word = self.parser.state.lccode[ord(node.char)] != 0
+        if is_word:
+            if not state["in_word"]:
+                state["in_word"] = True
+                state["lig_base"] = None
+                if self._applyLeftBoundary(node, packed, state):
+                    return
+        elif state["in_word"]:
+            self._applyRightBoundary(packed, state)
+            state["in_word"] = False
+            state["lig_base"] = None
         base = state["lig_base"]
         if base is None:
             packed.append(node)
@@ -109,9 +189,11 @@ class HList(lists.List):
         """
         Typeset/expand nodes into packed output.
         """
-        state = {"lig_base": None}
+        state = {"lig_base": None, "in_word": False}
         for node in self:
             self.typesetNodeWithLigatures(parser, node, packed, state)
+        if state["in_word"]:
+            self._applyRightBoundary(packed, state)
         return packed
     
 class HorizontalCommand(lists.ModeDependentCommand):

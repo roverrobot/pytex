@@ -13,6 +13,26 @@ from pytex import conditional
 from pytex.expandable import toksToString
 
 
+class EndFileScanToken(token.Token):
+    """
+    Internal token that terminates a temporary file-token scan.
+    """
+
+    def __init__(self):
+        super().__init__("\\endfilescan", None)
+
+    def execute(self, parser):
+        raise RuntimeError("unexpected file scan terminator")
+
+
+def pushFileScan(parser, scanner):
+    """
+    Push a temporary scanner that should stop before resuming the normal input stack.
+    """
+    parser.input.push(TokenListScanner([EndFileScanToken()]))
+    parser.input.push(scanner)
+
+
 class OpenOp(ArrayItemAccessor):
     """
     Open a file
@@ -97,14 +117,14 @@ class WriteOp(FileOp):
         return {"init": {"file_id": self.file_id, "tokens": self.tokens}}
     
     def execute(self, parser):
-        scanner = TokenListScanner(self.tokens)
-        # do not pop the scanner
-        scanner.stop = lambda: True
-        parser.input.push(scanner)
+        pushFileScan(parser, TokenListScanner(self.tokens))
         file = self.file(parser)
         tokens = []
         while True:
             t = parser.token_expand()
+            if isinstance(t, EndFileScanToken):
+                parser.input.pop()
+                break
             if t is None:
                 break
             # "#" will be written as "##"
@@ -145,11 +165,13 @@ class ReadOp(ParameterAccessor):
             raise FileNotFoundError(f"file {self.file_id} is not open")
         done = False
         for s in file:
-            scanner = StringScanner(parser.state, s)
-            scanner.stop = lambda: True
-            parser.input.push(scanner)
+            pushFileScan(parser, StringScanner(parser.state, s))
             while True:
                 t = parser.token()
+                if isinstance(t, EndFileScanToken):
+                    parser.input.pop()
+                    done = level == 0
+                    break
                 if t is None:
                     done = level == 0
                     break
@@ -157,6 +179,8 @@ class ReadOp(ParameterAccessor):
                     level += 1
                 elif t.catcode == token.CATCODE.END_GROUP:
                     if level == 0:
+                        parser.input.pop()
+                        parser.input.pop()
                         done = True
                         break
                     level -= 1

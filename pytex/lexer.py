@@ -191,8 +191,6 @@ class Scanner:
         # read the first line
         self.feed()
     
-    stop = None
-
     def feed(self):
         """
         read the next line from the stream
@@ -268,8 +266,6 @@ class TokenListScanner:
         self.toks = toks
         self.iter = iter(toks)
 
-    stop = None
-
     def read(self) -> typing.Optional[Token]:
         """
         read the next token from the list
@@ -313,15 +309,11 @@ class InputStack:
             t = self.top.read()
             if t:
                 return t
-            stop = self.top.stop
             if self.stack:
                 self.top, self.active = self.stack.pop()
             else:
                 self.top = None
                 self.active = None
-            if stop is not None and stop():
-                # the scanner is not terminated, so we can read from it again
-                return
 
     def unread(self, token):
         """

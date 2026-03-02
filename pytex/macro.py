@@ -25,8 +25,6 @@ class MacroScanner:
         self.pushExpansion(replacement, args)
 
     position = None
-    stop = None
-
     def pushExpansion(self, replacement, args):
         """
         push a macro expansion frame

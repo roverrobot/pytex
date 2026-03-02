@@ -45,7 +45,7 @@ class Font(Command):
     def saveInfo(self):
         return {
             "init": {"tfm": self.tfm.name, "at": self.at},
-            "extra": {"fontchar": self.fontchar},
+            "extra": {"fontchar": self.fontchar, "name": getattr(self, "name", None)},
         }
 
     @classmethod
@@ -65,9 +65,12 @@ class Font(Command):
     def execute(self, parser):
         parser.currentfont.set(self)
 
+    def __repr__(self):
+        name = getattr(self, "name", None)
+        return name if name is not None else f"\\{self.tfm.name}"
+
     def meaning(self, parser):
-        at = f"at {self.at}pt" if self.at != self.tfm.header.size else ""
-        return f"select font {self.tfm.name} {at}"
+        return repr(self)
         
     def fontValue(self, parser):
         """

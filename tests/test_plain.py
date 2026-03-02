@@ -44,6 +44,7 @@ def test_plain(plain):
 
 def test_plain_preserves_fontchar(plain):
     current = plain.state.parameters["currentfont"]
+    assert current.name == "\\tenrm"
     assert current.fontchar["hyphenchar"] == 45
     assert current.hyphenChar() is not None
     assert current.hyphenChar().char == "-"

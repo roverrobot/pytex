@@ -1,12 +1,12 @@
-* \noboundary
 * layout
   * main vlist
-    * \topmark \bottommark
     * inserts
-  * leaders
-* output
+  * leader packaging
+* Output routine
+  * DVI shipout
 * eTex
   * \mid
   * \currentifbranch
-* minimal pdftex
-* latex
+  * generalized mark classes.
+  * marks commands
+* minimal pdftex that properly support latex

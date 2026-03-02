@@ -174,13 +174,19 @@ class HBox(Box):
         if dim is None:
             # node is something else.
             if node.node_type == nd.NODE_TYPE.DISC:
-                parser = self.list.parser
-                box = HBox(parser, None, None)
-                box.list = node.replace
-                box.typeset(parser, [])
-                w = box.width
-                h = box.height
-                d = box.depth
+                w = node.replace_width
+                h = Dimen()
+                d = Dimen()
+                for sub in node.replace:
+                    if sub.node_type == nd.NODE_TYPE.KERN:
+                        continue
+                    sh = getattr(sub, "height", None)
+                    sd = getattr(sub, "depth", None)
+                    if sh is not None and sh > h:
+                        h = sh
+                    if sd is not None and sd > d:
+                        d = sd
+                dim = (w, h, d)
             elif node.node_type == nd.NODE_TYPE.MATH:
                 natural.dimen += node.kern # .kern has been set by MList.typeset
                 return natural

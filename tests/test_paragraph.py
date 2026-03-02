@@ -111,7 +111,7 @@ def test_hyphenate_uses_snapshot_words(cmr10):
     para = cmr10.lists[-1][-1]
     scan = paragraph._BreakCandidateScan(para.typeset_context, para)
     assert len(scan.candidates)==3 # begin, space, end
-    hyphenate_scan = para._hyphenate(cmr10, para, scan.candidates)
+    _, hyphenate_scan = para._hyphenate(cmr10)
     assert len(hyphenate_scan) == 4
     assert hyphenate_scan[2].disc is not None
 
@@ -151,6 +151,18 @@ def test_lineshape_parshape_precedes_hangindent():
 
 
 def _lineEndingWord(hbox):
+    def append_nodes(text, nodes):
+        for sub in nodes:
+            if sub.node_type == nd.NODE_TYPE.CHAR:
+                text += sub.char
+            elif sub.node_type == nd.NODE_TYPE.LIGATURE:
+                source = getattr(sub, "source", None)
+                if source:
+                    text += "".join(char.char for char in source)
+                else:
+                    text += sub.char
+        return text
+
     words = []
     current = ""
     for node in hbox.list:
@@ -163,6 +175,9 @@ def _lineEndingWord(hbox):
                 current += "".join(char.char for char in source)
             else:
                 current += node.char
+            continue
+        if node.node_type == nd.NODE_TYPE.DISC:
+            current = append_nodes(current, getattr(node, "list", node.replace))
             continue
         if node.node_type == nd.NODE_TYPE.KERN:
             continue

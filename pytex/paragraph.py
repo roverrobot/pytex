@@ -236,19 +236,11 @@ class Paragraph(hmode.HList):
         # Pre-typeset the paragraph nodes into a temporary horizontal stream.
         context = self.typeset_context
         hlist = []
-        words = iter(context.words)
-        word = next(words, None)
-        ligature_state = {"lig_base": None}
-        for i, node in enumerate(self):
-            if word is not None:
-                if i == word.begin:
-                    word.begin = len(hlist)
-                elif i == word.end:
-                    word.end = len(hlist)
-                    word = next(words, None)
+        ligature_state = {"lig_base": None, "in_word": False}
+        for node in self:
             self.typesetNodeWithLigatures(parser, node, hlist, ligature_state)
         # line break the hlist into lines and pack them into the vlist
-        lines = self.lineBreak(parser, hlist)
+        hlist, lines = self.lineBreak(parser, hlist)
         line_count = len(lines)
         context.line_count = line_count
         # add the lines into the vlist
@@ -267,18 +259,18 @@ class Paragraph(hmode.HList):
             # for any disc node in between, replace it with the replace list
             for node in hlist[line.begin.line_start_index:line.end.break_index]:
                 if node.node_type == nd.NODE_TYPE.DISC:
-                    packed.extend(node.replace)
+                    packed.append(self._lineDisc(node, broken=False))
                 else:
                     packed.append(node)
             # TeX keeps an explicit breakpoint penalty in the ending line box
             # when the break is chosen at that penalty node.
             if line.end.break_index < len(hlist):
                 end_node = hlist[line.end.break_index]
-                if end_node.node_type == nd.NODE_TYPE.PENALTY:
+                if line.end.at_penalty:
                     packed.append(end_node)
             # if the line ends at a ligature, append the pre nodes
             if line.end.disc is not None:
-                packed.extend(line.end.disc.pre)
+                packed.append(self._lineDisc(line.end.disc, broken=True))
             packed.append(nd.Glue(context.rightskip, "\\rightskip"))
             hbox = bx.HBox(parser, measure, None)
             hbox.list = packed
@@ -315,6 +307,14 @@ class Paragraph(hmode.HList):
         for line in self._typeset_cache:
             vlist.append(line)
 
+    @staticmethod
+    def _lineDisc(disc, broken):
+        rendered = disc.pre if broken else disc.replace
+        out = nd.Disc(disc.pre, disc.post, rendered)
+        out.list = rendered
+        out.source = getattr(disc, "source", None)
+        return out
+
     def lineBreak(self, parser, hlist):
         """
         Break the paragraph into lines (TeXbook Chapter 14).
@@ -333,23 +333,18 @@ class Paragraph(hmode.HList):
         pre_tolerance = context.pretolerance
         if pre_tolerance < 0:
             pre_tolerance = context.tolerance
-        breaker = _LineBreaker(
-            self,
-            scan.candidates,
-            pre_tolerance,
-        )
+        breaker = _LineBreaker(self, hlist, scan.candidates, pre_tolerance)
         lines = breaker.run()
+        working_hlist = hlist
+        working_breaks = scan.candidates
         if lines is None or (
             context.looseness != 0
             and breaker.actual_looseness != context.looseness
         ):
-            breaks = self._hyphenate(parser, hlist, scan.candidates)
-            if breaks:
-                hyphen_breaker = _LineBreaker(
-                    self,
-                    breaks,
-                    context.tolerance,
-                )
+            hyphenated = self._hyphenate(parser)
+            if hyphenated:
+                working_hlist, working_breaks = hyphenated
+                hyphen_breaker = _LineBreaker(self, working_hlist, working_breaks, context.tolerance)
                 hyphen_lines = hyphen_breaker.run()
                 if hyphen_lines is not None:
                     breaker = hyphen_breaker
@@ -357,94 +352,51 @@ class Paragraph(hmode.HList):
         if lines is None:
             breaker = _LineBreaker(
                 self,
-                scan.candidates,
+                working_hlist,
+                working_breaks,
                 max(context.tolerance, 10000),
                 allow_overfull=True,
             )
             lines = breaker.run()
         context.actual_looseness = breaker.actual_looseness
-        return lines
+        return working_hlist, lines
 
-    def _hyphenate(self, parser, hlist, scan):
+    def _hyphenate(self, parser, hlist=None, scan=None):
         """
-        Build virtual discretionary break candidates for automatic hyphenation.
-        @param scan: the initial break candidate scan result without hyphenation.
-        @return boolean indicating whether virtual discretionary candidates are available.
+        Insert explicit discretionary nodes into a copied raw paragraph, then
+        re-expand and rescan breakpoints.
         """
         context = self.typeset_context
-        breaks = []
-        words = iter(context.words)
-        current_word = next(words, None)
-        # if no word to hyphenate, return immediately
-        if not scan or current_word is None:
+        if not context.words:
             return None
-        # for each candidate, check if the current word is hyphenatable
-        n = len(scan)
-        next_candidate = scan[0]
-        hyphen = None
-        font = None
-        for i in range(n-1):
-            candidate = next_candidate
-            next_candidate = scan[i + 1]
-            breaks.append(candidate)
-            # while current_word is in the candidate, try to hyphenate it
-            while candidate.break_index <= current_word.begin < next_candidate.break_index:
-                parser.hyphenator.setLanguage(current_word.language)
-                hyphen_points = parser.hyphenator.hyphenate(current_word.text)
-                if hyphen_points:
-                    hyphens = iter(hyphen_points)
-                    left = hyphen_points[0]
-                    right = len(current_word.text) - hyphen_points[-1]
-                    if left >= context.lefthyphenmin and right >= context.righthyphenmin:
-                        # check if the word contains a ligature, as these have different DISC nodes.
-                        pos = 0 # the current character position in the word
-                        hyphen_point = next(hyphens, None)
-                        for j in range(current_word.begin, current_word.end):
-                            disc = None
-                            node = hlist[j]
-                            if node.node_type == nd.NODE_TYPE.LIGATURE:
-                                if font != node.font:
-                                    font = node.font
-                                    hyphen = font.hyphenChar()
-                                if pos <= hyphen_point < pos + len(node.source):
-                                    # we are breaking in the middle of a ligature.
-                                    if hyphen is None:
-                                        break
-                                    pre = node.source[0:hyphen_point - pos]
-                                    pre.append(hyphen)
-                                    post = node.source[hyphen_point - pos:]
-                                    replace = [node]
-                                    disc = nd.Disc(pre, post, replace)
-                                    disc.source = node
-                                    # TODO We are chaning the original paragraph node list here, which is not ideal. 
-                                    hlist[j] = disc
-                                pos += len(node.source)
-                            elif node.node_type == nd.NODE_TYPE.CHAR:
-                                if font != node.font:
-                                    font = node.font
-                                    hyphen = font.hyphenChar()
-                                if pos == hyphen_point:
-                                    # we are breaking at a character boundary.
-                                    if hyphen is None:
-                                        break
-                                    disc = nd.Disc([hyphen], [], [])
-                                pos += 1
-                            if disc is not None:
-                                # add a break candidate here
-                                new = _BreakCandidate(j)
-                                new.disc = disc
-                                new.hyphenated = True
-                                breaks.append(new)
-                                # move to the next hyphenation point
-                                hyphen_point = next(hyphens, None)
-                                if hyphen_point is None:
-                                    break
-                current_word = next(words, None)
-                if current_word is None:
-                    breaks.extend(scan[i + 1:])
-                    return _BreakCandidateScan.fillMetrics(context, hlist, breaks)
-        breaks.extend(scan[n - 1:])
-        return _BreakCandidateScan.fillMetrics(context, hlist, breaks)
+        raw = list(self)
+        inserted = 0
+        for word in context.words:
+            parser.hyphenator.setLanguage(word.language)
+            hyphen_points = parser.hyphenator.hyphenate(word.text)
+            if not hyphen_points:
+                continue
+            for point in hyphen_points:
+                left = point
+                right = len(word.text) - point
+                if left < context.lefthyphenmin or right < context.righthyphenmin:
+                    continue
+                index = word.begin + inserted + point
+                prev = raw[index - 1]
+                if prev.node_type != nd.NODE_TYPE.CHAR:
+                    continue
+                hyphen = prev.font.hyphenChar()
+                if hyphen is None:
+                    continue
+                raw.insert(index, nd.Disc([hyphen], [], []))
+                inserted += 1
+        if inserted == 0:
+            return None
+        packed = []
+        ligature_state = {"lig_base": None, "in_word": False}
+        for node in raw:
+            self.typesetNodeWithLigatures(parser, node, packed, ligature_state)
+        return packed, _BreakCandidateScan(context, packed).candidates
 
 
 class _BreakCandidate:
@@ -452,23 +404,19 @@ class _BreakCandidate:
     A legal line-break candidate.
 
     Fields:
-    - `break_index`: index where the break happens.
+    - `break_index`: first node not included in the current line.
     - `penalty`: break penalty (`<= -10000` means forced).
     - `hyphenated`: whether a break here is hyphenated.
     - `disc`: discretionary node if this is a discretionary break.
-    - `discard`: total discardable glue/kern right after this break.
     - `line_start_index`: first non-discardable index when the next line starts.
-    - `natural`: natural segment (dimen/stretch/shrink) from this start to next candidate.
     """
     def __init__(self, break_index):
         self.break_index = break_index
         self.penalty = 0
         self.hyphenated = False
         self.disc = None
-        self.disc_skip = 0
-        self.discard = Glue()
+        self.at_penalty = False
         self.line_start_index = break_index
-        self.natural = Glue()
 
     @property
     def forced(self):
@@ -483,7 +431,7 @@ class _Line:
     `(linepenalty + badness)^2`, penalty contribution, fitness adjacency
     demerits, and hyphenation demerits.
     """
-    def __init__(self, breaker, prev, begin, end, natural):
+    def __init__(self, breaker, prev, begin, end):
         context = breaker.context
         self.begin = begin
         self.end = end
@@ -500,6 +448,7 @@ class _Line:
         line_glue = context.leftskip + context.rightskip
         _, measure = breaker.context.lineShape(self.line_no)
         target = measure
+        natural = breaker._lineNatural(begin, end)
         natural_width = natural.dimen + line_glue.dimen
         glue_total = natural + line_glue
 
@@ -536,50 +485,21 @@ class _Line:
 
 class _BreakCandidateScan:
     """
-    Scan one paragraph into break candidates and segment metrics.
-
-    This preprocessing is independent from tolerance and demerit settings,
-    so one scan can be reused across multiple line-breaking rounds.
+    Scan one expanded paragraph stream into legal break candidates.
     """
-    def __init__(self, context, para):
-        self.para = para
+    def __init__(self, context, nodes):
+        self.nodes = nodes
         self.context = context
         if (
-            len(para) < 2
-            or para[-2].node_type != nd.NODE_TYPE.PENALTY
-            or para[-2].penalty != 10000
-            or para[-1].node_type != nd.NODE_TYPE.GLUE
-            or para[-1].glue != self.context.parfillskip
+            len(nodes) < 2
+            or nodes[-2].node_type != nd.NODE_TYPE.PENALTY
+            or nodes[-2].penalty != 10000
+            or nodes[-1].node_type != nd.NODE_TYPE.GLUE
+            or nodes[-1].glue != self.context.parfillskip
         ):
             raise ValueError("paragraph does not end with \\penalty10000 and \\parfillskip")
-        # Keep tail nodes in the stream, as TeX does; the final line then
-        # naturally includes \\parfillskip during line fitting/packaging.
-        self.end = len(self.para)
+        self.end = len(self.nodes)
         self.candidates = self._buildBreakCandidates()
-
-    def segmentNatural(self, start, end):
-        if end < start:
-            end = start
-        natural = Glue()
-        for node in self.para[start:end]:
-            node_type = node.node_type
-            if node_type == nd.NODE_TYPE.GLUE:
-                natural += node.glue
-                continue
-            if node_type == nd.NODE_TYPE.KERN:
-                width = node.kern
-            elif node_type == nd.NODE_TYPE.DISC:
-                width = Dimen()
-            elif node_type == nd.NODE_TYPE.MATH:
-                width = getattr(node, "kern", None)
-                if width is None:
-                    raise ValueError("math shift node is missing kern")
-            else:
-                width = getattr(node, "width", None)
-                if width is None:
-                    width = Dimen()
-            natural.dimen += width
-        return natural
 
     @staticmethod
     def _discHyphenated(disc):
@@ -612,23 +532,16 @@ class _BreakCandidateScan:
     def _prepareCandidateStart(self, candidate):
         if candidate.break_index >= self.end:
             candidate.line_start_index = self.end
-            candidate.discard = Glue()
             return
 
         if candidate.disc is not None:
-            # For discretionary breaks, start with post-break material;
-            # discardables after the break are not subtracted here.
-            candidate.line_start_index = candidate.break_index + candidate.disc_skip
-            candidate.discard = Glue()
+            candidate.line_start_index = candidate.break_index + 1
             return
 
-        start = candidate.break_index
-        discard = Glue()
-        while start < self.end and self._isDiscardable(self.para[start]):
-            discard += self._discardContribution(self.para[start])
+        start = candidate.break_index + 1 if candidate.at_penalty else candidate.break_index
+        while start < self.end and self._isDiscardable(self.nodes[start]):
             start += 1
         candidate.line_start_index = start
-        candidate.discard = discard
 
     def _buildBreakCandidates(self):
         # line breaks can happen at these points (TeXBook, page 98)
@@ -646,7 +559,7 @@ class _BreakCandidateScan:
         def append_candidate(candidate):
             candidates.append(candidate)
 
-        for i, node in enumerate(self.para):
+        for i, node in enumerate(self.nodes):
             node_type = node.node_type
 
             if node_type == nd.NODE_TYPE.MATH:
@@ -656,12 +569,12 @@ class _BreakCandidateScan:
             if node_type == nd.NODE_TYPE.GLUE:
                 if in_math or i == 0:
                     continue
-                prev = self.para[i - 1]
+                prev = self.nodes[i - 1]
                 prev_type = prev.node_type
                 if prev_type == nd.NODE_TYPE.KERN:
-                    append_candidate(_BreakCandidate(i - 1))
+                    append_candidate(_BreakCandidate(i))
                 elif prev_type == nd.NODE_TYPE.MATH and not prev.on:
-                    append_candidate(_BreakCandidate(i - 1))
+                    append_candidate(_BreakCandidate(i))
                 elif not self._isDiscardable(prev):
                     append_candidate(_BreakCandidate(i))
                 continue
@@ -669,13 +582,13 @@ class _BreakCandidateScan:
             if node_type == nd.NODE_TYPE.PENALTY and node.penalty < 10000:
                 candidate = _BreakCandidate(i)
                 candidate.penalty = node.penalty
+                candidate.at_penalty = True
                 append_candidate(candidate)
                 continue
 
             if node_type == nd.NODE_TYPE.DISC:
                 candidate = _BreakCandidate(i)
                 candidate.disc = node
-                candidate.disc_skip = 1
                 candidate.hyphenated = self._discHyphenated(node)
                 candidate.penalty = self.context.exhyphenpenalty
                 append_candidate(candidate)
@@ -684,41 +597,21 @@ class _BreakCandidateScan:
             end_candidate = _BreakCandidate(self.end)
             end_candidate.penalty = -10000
             append_candidate(end_candidate)
-
-        return self._fillMetrics(candidates)
-
-    @classmethod
-    def fillMetrics(cls, context, para, candidates):
-        scan = cls.__new__(cls)
-        scan.context = context
-        scan.para = para
-        scan.end = len(para)
-        return scan._fillMetrics(candidates)
-
-    def _fillMetrics(self, candidates):
-
         for candidate in candidates:
             self._prepareCandidateStart(candidate)
-
-        for i, candidate in enumerate(candidates[:-1]):
-            nxt = candidates[i + 1]
-            if candidate.disc is not None:
-                start = candidate.break_index + candidate.disc_skip
-            else:
-                start = candidate.break_index
-            candidate.natural = self.segmentNatural(start, nxt.break_index)
-        candidates[-1].natural = Glue()
         return candidates
 
 
 class _LineBreaker:
     """
-    One line-breaking round based on candidate graph nodes and a double loop.
+    One line-breaking round based on expanded nodes and direct slice
+    measurement between legal breakpoints.
     """
-    def __init__(self, para, breaks, tolerance, allow_overfull=False):
+    def __init__(self, para, nodes, breaks, tolerance, allow_overfull=False):
         self.para = para
+        self.nodes = nodes
         self.context = para.typeset_context
-        self.end = breaks[-1].break_index if breaks else len(para)
+        self.end = breaks[-1].break_index if breaks else len(nodes)
         self.tolerance = tolerance
         self.allow_overfull = allow_overfull
         self.breaks = breaks
@@ -767,6 +660,31 @@ class _LineBreaker:
                 return ratio, 10000
             return None, None
         return ratio, self._badness(ratio)
+
+    def _lineNatural(self, begin, end):
+        natural = Glue()
+        if begin.disc is not None:
+            natural.dimen += begin.disc.post_width
+        for node in self.nodes[begin.line_start_index:end.break_index]:
+            node_type = node.node_type
+            if node_type == nd.NODE_TYPE.GLUE:
+                natural += node.glue
+            elif node_type == nd.NODE_TYPE.KERN:
+                natural.dimen += node.kern
+            elif node_type == nd.NODE_TYPE.DISC:
+                natural.dimen += node.replace_width
+            elif node_type == nd.NODE_TYPE.MATH:
+                width = getattr(node, "kern", None)
+                if width is None:
+                    raise ValueError("math shift node is missing kern")
+                natural.dimen += width
+            else:
+                width = getattr(node, "width", None)
+                if width is not None:
+                    natural.dimen += width
+        if end.disc is not None:
+            natural.dimen += end.disc.pre_width
+        return natural
 
     class _State:
         """
@@ -831,17 +749,9 @@ class _LineBreaker:
             for state in frontier:
                 i = state.break_pos
                 begin = self.breaks[i]
-                natural = Glue() - begin.discard
-                if begin.disc is not None:
-                    natural.dimen += begin.disc.post_width
                 for j in range(i + 1, n):
-                    natural += self.breaks[j - 1].natural
                     end = self.breaks[j]
-                    natural_for_line = natural
-                    if end.disc is not None:
-                        natural_for_line = natural.copy()
-                        natural_for_line.dimen += end.disc.pre_width
-                    line = _Line(self, state.line, begin, end, natural_for_line)
+                    line = _Line(self, state.line, begin, end)
                     if not line.feasible:
                         if (
                             line.ratio is not None
@@ -855,8 +765,6 @@ class _LineBreaker:
                         best = next_states.get(key)
                         if best is None or line.demerits < best.demerits:
                             next_states[key] = self._State(j, line)
-                    if end.disc is not None:
-                        natural.dimen += end.disc.replace_width
             if not next_states:
                 break
             frontier = list(next_states.values())

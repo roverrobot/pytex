@@ -417,10 +417,71 @@ class _BreakCandidate:
         self.disc = None
         self.at_penalty = False
         self.line_start_index = break_index
+        self.next = None
 
     @property
     def forced(self):
         return self.penalty <= -10000
+
+
+class _BreakCandidateChain:
+    """
+    Linked list of legal break candidates over one immutable expanded node list.
+
+    The chain keeps insertions O(1) for future hyphenation work while preserving
+    a minimal list-like API for the current DP breaker and tests.
+    """
+    def __init__(self):
+        self.head = None
+        self.tail = None
+        self.length = 0
+        self._cache = None
+
+    def _touch(self):
+        self._cache = None
+
+    def append(self, candidate):
+        candidate.next = None
+        if self.tail is None:
+            self.head = candidate
+        else:
+            self.tail.next = candidate
+        self.tail = candidate
+        self.length += 1
+        self._touch()
+        return candidate
+
+    def insert_after(self, prev, candidate):
+        if prev is None:
+            candidate.next = self.head
+            if self.head is None:
+                self.tail = candidate
+            self.head = candidate
+        else:
+            candidate.next = prev.next
+            prev.next = candidate
+            if candidate.next is None:
+                self.tail = candidate
+        self.length += 1
+        self._touch()
+        return candidate
+
+    def _as_list(self):
+        if self._cache is None:
+            self._cache = list(self)
+        return self._cache
+
+    def __iter__(self):
+        current = self.head
+        while current is not None:
+            yield current
+            current = current.next
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, index):
+        return self._as_list()[index]
 
 
 class _Line:
@@ -553,11 +614,9 @@ class _BreakCandidateScan:
         # c) at a math-oﬀ that is immediately followed by glue.
         # d) at a penalty (which might have been inserted automatically in a formula).
         # e) at a discretionary break.
-        candidates = [_BreakCandidate(0)]
+        candidates = _BreakCandidateChain()
+        candidates.append(_BreakCandidate(0))
         in_math = False
-
-        def append_candidate(candidate):
-            candidates.append(candidate)
 
         for i, node in enumerate(self.nodes):
             node_type = node.node_type
@@ -572,31 +631,29 @@ class _BreakCandidateScan:
                 prev = self.nodes[i - 1]
                 prev_type = prev.node_type
                 if prev_type == nd.NODE_TYPE.KERN:
-                    append_candidate(_BreakCandidate(i))
+                    candidates.append(_BreakCandidate(i))
                 elif prev_type == nd.NODE_TYPE.MATH and not prev.on:
-                    append_candidate(_BreakCandidate(i))
+                    candidates.append(_BreakCandidate(i))
                 elif not self._isDiscardable(prev):
-                    append_candidate(_BreakCandidate(i))
+                    candidates.append(_BreakCandidate(i))
                 continue
 
             if node_type == nd.NODE_TYPE.PENALTY and node.penalty < 10000:
-                candidate = _BreakCandidate(i)
+                candidate = candidates.append(_BreakCandidate(i))
                 candidate.penalty = node.penalty
                 candidate.at_penalty = True
-                append_candidate(candidate)
                 continue
 
             if node_type == nd.NODE_TYPE.DISC:
-                candidate = _BreakCandidate(i)
+                candidate = candidates.append(_BreakCandidate(i))
                 candidate.disc = node
                 candidate.hyphenated = self._discHyphenated(node)
                 candidate.penalty = self.context.exhyphenpenalty
-                append_candidate(candidate)
 
-        if candidates[-1].break_index != self.end:
+        if candidates.tail.break_index != self.end:
             end_candidate = _BreakCandidate(self.end)
             end_candidate.penalty = -10000
-            append_candidate(end_candidate)
+            candidates.append(end_candidate)
         for candidate in candidates:
             self._prepareCandidateStart(candidate)
         return candidates
@@ -611,10 +668,10 @@ class _LineBreaker:
         self.para = para
         self.nodes = nodes
         self.context = para.typeset_context
-        self.end = breaks[-1].break_index if breaks else len(nodes)
+        self.breaks = tuple(breaks)
+        self.end = self.breaks[-1].break_index if self.breaks else len(nodes)
         self.tolerance = tolerance
         self.allow_overfull = allow_overfull
-        self.breaks = breaks
         self.actual_looseness = 0
 
     @staticmethod

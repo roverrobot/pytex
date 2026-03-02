@@ -12,6 +12,14 @@ def test_output_pages_uses_dvi_shipout(parser, tmp_path):
     assert Path(str(tmp_path / "out.dvi")).exists()
 
 
+def test_output_pages_uses_explicit_output_name(parser, tmp_path):
+    parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="ignored")
+    out = tmp_path / "named-output"
+    shipout = parser.outputPages(str(out))
+    assert isinstance(shipout, dvi.DVIShipout)
+    assert Path(str(out) + ".dvi").exists()
+
+
 def test_dvi_shipout_writes_minimal_page(cmr10, tmp_path):
     cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="page")
     cmr10.jobname = str(tmp_path / "page")

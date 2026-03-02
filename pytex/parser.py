@@ -452,10 +452,10 @@ class Parser:
         self.pages = top.pageBreak(self)
         return self.pages
     
-    def outputPages(self):
+    def outputPages(self, output=None):
         assert self.lists and isinstance(self.lists[-1], page.MainVList), "main vertical list disappeared. How can that happen?"
         assert self.shipout_class is not None
-        with self.shipout_class(self) as shipout:
+        with self.shipout_class(self, output) as shipout:
             self.shipout = shipout
             try:
                 self.lists[-1].outputPages(self)

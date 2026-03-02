@@ -4,16 +4,16 @@ path = str(Path(Path(__file__).parent.absolute()).parent.absolute())
 sys.path.insert(0, path)
 import cProfile
 from pytex.parser import Parser
-from pytex import lists
 # load the texlive module to resolve files in the texlive tree
 from pytex import texlive
-from pytex.serialization import serialize
-# lagtex would require pdftex
+from pytex import etex
+# latex would require pdftex
 from pytex import pdftex
+# dvi output
+from pytex import dvi
 
 from argparse import ArgumentParser
 import os
-import json
 import types
 
 
@@ -22,6 +22,12 @@ argparser.add_argument("-f", "--format", default="initex",
                     help="load the format FMT. If FMT is initex, it dumps a format file. The format is provided in file", metavar="FMT")
 argparser.add_argument("-p", "--profile", action="store_true",
                     help="whether to profile the parser")
+argparser.add_argument(
+    "-o",
+    "--output",
+    default=None,
+    help="output file name for shipout backends (for example the DVI file name)",
+)
 argparser.add_argument(
     "-s",
     "--sort",
@@ -55,16 +61,16 @@ parser.dumper = types.MethodType(dumper, parser)
 if args.profile:
     parser.console = open(os.devnull, "w")
 
+source = args.file
+dir = os.path.dirname(source)
+base = os.path.basename(source)
+file, ext = os.path.splitext(base)
+parser.resolver.format = file
+
 if args.format == "initex":
     if os.path.isabs(args.file):
         raise ValueError("The file must be a relative path")
-    path = Path(args.file)
-    parts = path.parts
-    file = parts[-1] if len(parts) > 1 else parts[0]
-    file_parts = os.path.splitext(file)
-    parser.resolver.format = file_parts[0]
-    source = args.file
-    if len(file_parts) > 1 and file_parts[1] == "" and parser.resolver.format != "plain": # no extension
+    if ext == "" and parser.resolver.format != "plain": # no extension
         source += ".ini"
     print(f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.json", file = parser.console)
 else:
@@ -72,7 +78,6 @@ else:
     fmt = parser.resolver.openIn(args.format, "dump")
     parser.load(fmt)
     fmt.close()
-    source = args.file
 
 input = parser.resolver.openIn(source, "source")
 if input is None:
@@ -86,16 +91,14 @@ if args.profile:
     parser.console.close()
     exit(0)
 else:
-    parser.parse(input)
+    parser.parse(input, jobname=file)
 input.close()
 log = parser.end()
 
 if args.format == "initex":
     parser.dumper(parser.dump())
 else:
-    result = open(args.file+".json", "w")
-    result.write(json.dumps(serialize(parser.lists[0])))
-    result.close()
+    parser.outputPages(args.output)
 
 print("log file content")
 print(log)

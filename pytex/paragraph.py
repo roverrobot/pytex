@@ -556,6 +556,17 @@ class _BreakCandidate:
     - `disc`: discretionary node if this is a discretionary break.
     - `line_start_index`: first non-discardable index when the next line starts.
     """
+    __slots__ = (
+        "break_index",
+        "penalty",
+        "hyphenated",
+        "disc",
+        "disc_skip",
+        "at_penalty",
+        "line_start_index",
+        "next",
+    )
+
     def __init__(self, break_index):
         self.break_index = break_index
         self.penalty = 0
@@ -578,6 +589,8 @@ class _BreakCandidateChain:
     The chain keeps insertions O(1) for future hyphenation work while preserving
     a minimal list-like API for the current DP breaker and tests.
     """
+    __slots__ = ("head", "tail", "length", "_cache")
+
     def __init__(self):
         self.head = None
         self.tail = None
@@ -652,6 +665,19 @@ class _Line:
     `(linepenalty + badness)^2`, penalty contribution, fitness adjacency
     demerits, and hyphenation demerits.
     """
+    __slots__ = (
+        "begin",
+        "end",
+        "prev",
+        "line_no",
+        "hyphenated",
+        "badness",
+        "ratio",
+        "fitness",
+        "demerits",
+        "feasible",
+    )
+
     def __init__(self, breaker, prev, begin, end):
         context = breaker.context
         self.begin = begin
@@ -949,6 +975,8 @@ class _LineBreaker:
         """
         DP state at one breakpoint.
         """
+        __slots__ = ("break_pos", "line", "line_no", "fitness", "hyphenated", "demerits")
+
         def __init__(self, break_pos, line):
             self.break_pos = break_pos
             self.line = line

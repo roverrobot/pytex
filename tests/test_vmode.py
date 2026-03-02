@@ -260,6 +260,7 @@ def test_page_break_insert_not_implemented(cmr10):
 
 
 def test_page_cost_matches_tex_formula(parser):
+    parser.parse("")
     main = parser.lists[0]
     total = glue.Glue(0, glue.Stretchness(1))
     assert main._pageCost(total, Dimen(5), 0) == 100000
@@ -271,6 +272,7 @@ def test_page_cost_matches_tex_formula(parser):
 
 
 def test_page_badness_underfull_without_stretch_is_finite(parser):
+    parser.parse("")
     main = parser.lists[0]
     assert main._pageBadness(glue.Glue(0), Dimen(5)) == 10000
 
@@ -342,6 +344,7 @@ def test_page_topskip_includes_rule(parser):
 
 
 def test_main_vlist_inserts_page_state_marker_on_layout_change(parser):
+    parser.parse("")
     main = parser.lists[0]
     parser.state.layout["vsize"] = Dimen(20)
     box = _test_hbox(parser, height=6, depth=0)
@@ -369,19 +372,19 @@ def test_page_break_uses_marker_context(parser):
 
 def test_shipout_collects_box(parser):
     parser.parse("\\shipout\\hbox{A}")
-    assert len(parser.shipout.pages) == 1
-    page = parser.shipout.pages[0]
-    assert page.node_type == nd.NODE_TYPE.HLIST
+    assert len(parser.lists[0]) == 1
+    assert isinstance(parser.lists[0][0], page.ShipoutNode)
+    shipped = parser.lists[0][0].box
+    assert shipped.node_type == nd.NODE_TYPE.HLIST
 
 
 def test_output_pages_default_shipout(cmr10):
     cmr10.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}")
-    pages = cmr10.outputPages()
-    assert len(pages) == 1
-    assert len(cmr10.shipout.pages) == 1
-    assert pages[0] is cmr10.shipout.pages[0]
+    shipout = cmr10.outputPages()
+    assert len(shipout.pages) == 1
     assert cmr10.state.box[255] is None
     assert cmr10.state.globals["deadcycles"] == 0
+    assert getattr(cmr10, "shipout", None) is None
 
 
 def test_output_routine_can_carry_material_forward(cmr10):
@@ -389,13 +392,12 @@ def test_output_routine_can_carry_material_forward(cmr10):
         "\\output={\\ifnum\\count0=0\\global\\count0=1\\hbox{X}\\fi\\shipout\\box255}"
         "\\vsize=20pt\\topskip=0pt\\hbox{A}"
     )
-    pages = cmr10.outputPages()
-    assert len(pages) == 2
-    assert len(cmr10.shipout.pages) == 2
+    shipout = cmr10.outputPages()
+    assert len(shipout.pages) == 2
     assert cmr10.state.count[0] == 1
     assert cmr10.state.globals["deadcycles"] == 0
-    first = pages[0].list[1]
-    second = pages[1].list[1]
+    first = shipout.pages[0].list[1]
+    second = shipout.pages[1].list[1]
     assert first.node_type == nd.NODE_TYPE.HLIST
     assert second.node_type == nd.NODE_TYPE.HLIST
     first_chars = [n.char for n in first.list if n.node_type == nd.NODE_TYPE.CHAR]
@@ -419,9 +421,18 @@ def test_output_uses_default_when_maxdeadcycles_reached(cmr10):
         "\\output={\\global\\count0=1\\shipout\\box255}"
         "\\vsize=20pt\\topskip=0pt\\hbox{A}"
     )
-    pages = cmr10.outputPages()
-    assert len(pages) == 1
-    assert len(cmr10.shipout.pages) == 1
+    shipout = cmr10.outputPages()
+    assert len(shipout.pages) == 1
     assert cmr10.state.count[0] == 0
     assert cmr10.state.box[255] is None
     assert cmr10.state.globals["deadcycles"] == 0
+
+
+def test_output_pages_ships_deferred_shipouts_before_page(cmr10):
+    cmr10.parse("\\shipout\\hbox{X}\\vsize=20pt\\topskip=0pt\\hbox{A}")
+    shipout = cmr10.outputPages()
+    assert len(shipout.pages) == 2
+    first = shipout.pages[0]
+    second = shipout.pages[1]
+    assert first.node_type == nd.NODE_TYPE.HLIST
+    assert second.node_type == nd.NODE_TYPE.VLIST

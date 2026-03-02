@@ -32,7 +32,7 @@ from pytex import hyphen
 from pytex import misc
 from pytex import tracing
 from pytex import page
-
+import os
 
 class Parser:
     """
@@ -42,15 +42,12 @@ class Parser:
         self.state = state.State()
         # the builtin commands
         self.builtin = {}
-        # for now, characters and spaces are collected in a string
-        for name, mod in ModuleManager.items():
-            mod.populate(self)
         # now we are at a similar stage to INITEX. We do not need to keep the current state.
         self.input = lexer.InputStack()
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
         self.ifstack = []
-        self.lists = [page.MainVList(self)]
+        self.lists = None
         self.log = self.getLogFile()
         # the console file. None to standard output, or os.devnull for no output
         self.console = None
@@ -62,9 +59,13 @@ class Parser:
         #         format.write(content)
         # parser.dumper = dumper
         self.dumper = None
-        # the current token
+        self.shipout_class = None
+        # for now, characters and spaces are collected in a string
+        for name, mod in ModuleManager.items():
+            mod.populate(self)
+        # the current command token
         self.current_token = None
-        self.pages = []
+        self.jobname = "noname"
     
     def getLogFile(self):
         """
@@ -131,20 +132,24 @@ class Parser:
                         continue
             return t
 
-
-    def parse(self, input, name: typing.Optional[str] = None):
+    def parse(self, input, jobname: typing.Optional[str] = None):
         """
         parse the input
         @param input: the input
         @param name: the name of the input
         """
         # we first set up today etc.
+        if self.lists is None:
+            self.lists = [page.MainVList(self)]
         date = datetime.datetime.now()
         self.state.volatile["year"] = date.year
         self.state.volatile["month"] = date.month
         self.state.volatile["day"] = date.day
         self.state.volatile["time"] = date.hour * 60 + date.minute
-        self.readFrom(input, name)
+        self.readFrom(input, jobname)
+        if jobname is not None:
+            base = os.path.basename(jobname)
+            self.jobname = os.path.splitext(base)[0]
         self.run = True
         self.loop()
         if len(self.ifstack) > 0:
@@ -446,15 +451,16 @@ class Parser:
             raise ValueError("page breaking requires the main vertical list")
         self.pages = top.pageBreak(self)
         return self.pages
-
+    
     def outputPages(self):
-        top = self.lists[-1]
-        if top.type == lists.LISTTYPE.HORIZONTAL:
-            if top.inner:
-                raise ValueError("cannot output pages in internal horizontal mode")
-            self.endParagraph()
-            top = self.lists[-1]
-        if not isinstance(top, page.MainVList) or top is not self.lists[0]:
-            raise ValueError("page output requires the main vertical list")
-        self.pages = top.outputPages(self)
-        return self.pages
+        assert self.lists and isinstance(self.lists[-1], page.MainVList), "main vertical list disappeared. How can that happen?"
+        assert self.shipout_class is not None
+        with self.shipout_class(self) as shipout:
+            self.shipout = shipout
+            try:
+                self.lists[-1].outputPages(self)
+            finally:
+                self.shipout = None
+        return shipout
+
+        

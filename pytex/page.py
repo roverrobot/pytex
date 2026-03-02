@@ -22,18 +22,38 @@ class Shipout:
     Default shipout collector.
     """
 
-    def __init__(self):
+    def __init__(self, parser, output=None):
         self.pages = []
 
     def shipout(self, box):
         self.pages.append(box)
+
+    def __enter__(self):
+        self.open()
+        return self
+    
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
 
 
 def shipout(parser, box):
     """
     Ship out a box and perform the runtime bookkeeping TeX does around \\shipout.
     """
-    parser.shipout.shipout(box)
+    backend = getattr(parser, "shipout", None)
+    if backend is None:
+        if parser.lists and isinstance(parser.lists[0], MainVList):
+            parser.lists[0].append(ShipoutNode(box))
+            return
+        raise ValueError("no active shipout backend")
+    backend.shipout(box)
     parser.state.globals["deadcycles"] = 0
 
 
@@ -112,6 +132,27 @@ class PageStateNode(nd.Node):
 
     def __repr__(self):
         return "PageState"
+
+
+class ShipoutNode(nd.Node):
+    """
+    Transparent marker for a deferred \\shipout in the main vertical list.
+    """
+
+    node_type = nd.NODE_TYPE.WHATSIT
+
+    def __init__(self, box):
+        self.box = box
+
+    def saveInfo(self):
+        return {"init": {"box": self.box}}
+
+    @classmethod
+    def new(cls, parser, box):
+        return cls(box)
+
+    def __repr__(self):
+        return "Shipout"
 
 
 class MainVList(vmode.VList):
@@ -199,7 +240,7 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _isNonDiscardable(node):
-        if isinstance(node, PageStateNode):
+        if isinstance(node, (PageStateNode, ShipoutNode)):
             return False
         return node.node_type not in (
             nd.NODE_TYPE.GLUE,
@@ -209,7 +250,7 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _isTransparent(node):
-        return isinstance(node, PageStateNode)
+        return isinstance(node, (PageStateNode, ShipoutNode))
 
     @classmethod
     def _previousRealNode(cls, nodes, start, index):
@@ -259,6 +300,9 @@ class MainVList(vmode.VList):
             node = nodes[start]
             if isinstance(node, PageStateNode):
                 context = node.context
+                start += 1
+                continue
+            if isinstance(node, ShipoutNode):
                 start += 1
                 continue
             if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
@@ -330,6 +374,8 @@ class MainVList(vmode.VList):
             if isinstance(node, PageStateNode):
                 current_context = node.context
                 continue
+            if isinstance(node, ShipoutNode):
+                continue
             if not topskip_added:
                 top = self._pageTopskip(current_context.topskip, node)
                 if top is not None:
@@ -354,6 +400,8 @@ class MainVList(vmode.VList):
         first = None
         bot = None
         for node in nodes[start:end]:
+            if isinstance(node, ShipoutNode):
+                continue
             if node.node_type != nd.NODE_TYPE.MARK:
                 continue
             mark = list(node.tokens)
@@ -364,6 +412,25 @@ class MainVList(vmode.VList):
             first = list(topmark)
             bot = list(topmark)
         return first, bot
+
+    @staticmethod
+    def _shipLeading(nodes, start, context, parser):
+        while start < len(nodes):
+            node = nodes[start]
+            if isinstance(node, PageStateNode):
+                context = node.context
+                start += 1
+                continue
+            if isinstance(node, ShipoutNode):
+                shipout(parser, node.box)
+                start += 1
+                continue
+            break
+        return start, context
+
+    @staticmethod
+    def _pageShipouts(nodes, start, end):
+        return [node.box for node in nodes[start:end] if isinstance(node, ShipoutNode)]
 
     @staticmethod
     def _runNestedLoop(parser):
@@ -461,6 +528,7 @@ class MainVList(vmode.VList):
         topmark = list(parser.state.parameters["botmark"])
         start = 0
         while True:
+            start, context = self._shipLeading(material, start, context, parser)
             start, context = self._prunePageTop(material, start, context)
             if start >= len(material):
                 break
@@ -476,6 +544,8 @@ class MainVList(vmode.VList):
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
             parser.state.layout["outputpenalty"] = break_penalty
+            for box in self._pageShipouts(material, start, end):
+                shipout(parser, box)
             # Keep the built page material as a plain list; it is already packed.
             page.list = self._buildPage(parser, material, start, end, context)
             page.typeset(parser, [])
@@ -488,14 +558,12 @@ class MainVList(vmode.VList):
         return parser.shipout.pages[shipped:]
 
 
-def init(parser):
-    parser.shipout = Shipout()
-
-
 mod = Module(
     "page",
     commands={
         "shipout": ShipOutCommand(),
     },
-    init=init,
+    attributes={
+        "shipout_class": Shipout,
+    }
 )

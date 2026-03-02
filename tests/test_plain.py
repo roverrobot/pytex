@@ -31,12 +31,12 @@ def plain(parser, plain_dump):
     return parser
 
 def test_plain(plain):
-    plain.parse("Hello, world! $\int_0^1 f(x) dx$\end")
+    plain.parse(r"Hello, world! $\int_0^1 f(x) dx$\end")
     # the content of the log file
     top = plain.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     hlist = next(node for node in top if isinstance(node, paragraph.Paragraph))
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
-    # Kerning is now applied while characters are appended to the hlist.
-    assert len(hlist) == 19
+    # The stored paragraph keeps raw characters; ligatures/kerns are formed later.
+    assert len(hlist) == 18
     assert hlist[-3].node_type == nd.NODE_TYPE.MATH

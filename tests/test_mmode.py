@@ -1780,13 +1780,15 @@ def test_atom_rebox_unpackages_hbox_and_centers(math):
     class FakeChar(nd.Box):
         node_type = nd.NODE_TYPE.CHAR
 
-        def __init__(self, width, italic=0):
+        def __init__(self, width, font, italic=0):
             super().__init__(width, 1, 0)
+            self.font = font
             self.italic = Dimen(italic)
-            self.char = "x"
+            # Use a non-letter so the hlist ligature pass does not enter word mode.
+            self.char = "("
 
     b = box.HBox(math, None, None)
-    b.list.append(FakeChar(5, italic=2))
+    b.list.append(FakeChar(5, math.state.parameters["currentfont"], italic=2))
     b.typeset(math, [])
     target = b.width + Dimen(10)
     out = mmode.Atom.rebox(math, b, target)

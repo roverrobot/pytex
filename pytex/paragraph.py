@@ -291,10 +291,37 @@ class Paragraph(hmode.HList):
             expanded = self._typesetNodesWithBreaks(parser, self)
             hlist = expanded
             scan = expanded.candidates
-        hyphenated = scan.clone()
-        inserted = self._insertHyphenBreaks(parser, hlist, hyphenated)
-        if inserted == 0:
+        extras = self._hyphenBreakCandidates(parser, hlist)
+        if not extras:
             return None
+        hyphenated = _BreakCandidateChain()
+        source = scan.head
+        extra_i = 0
+        while source is not None or extra_i < len(extras):
+            use_extra = False
+            if extra_i < len(extras):
+                if source is None:
+                    use_extra = True
+                else:
+                    extra = extras[extra_i]
+                    if extra.break_index < source.break_index:
+                        use_extra = True
+                    elif extra.break_index == source.break_index:
+                        source_kind = 0 if source.disc is not None else 1
+                        extra_kind = 0 if extra.disc is not None else 1
+                        use_extra = (extra_kind, extra.disc_skip) < (source_kind, source.disc_skip)
+            if use_extra:
+                candidate = extras[extra_i]
+                extra_i += 1
+            else:
+                candidate = _BreakCandidate(source.break_index)
+                candidate.penalty = source.penalty
+                candidate.hyphenated = source.hyphenated
+                candidate.disc = source.disc
+                candidate.disc_skip = source.disc_skip
+                candidate.at_penalty = source.at_penalty
+                source = source.next
+            hyphenated.append(candidate)
         for candidate in hyphenated:
             _BreakCandidateScan.prepareCandidateStart(hlist, len(hlist), candidate)
         return hlist, hyphenated
@@ -311,38 +338,37 @@ class Paragraph(hmode.HList):
         out.list = []
         return out
 
-    def _insertHyphenBreaks(self, parser, nodes, breaks):
+    @staticmethod
+    def _hyphenItemLetters(node):
+        if node.node_type == nd.NODE_TYPE.CHAR:
+            return [node]
+        if node.node_type == nd.NODE_TYPE.LIGATURE:
+            source = getattr(node, "source", None) or []
+            if all(c.node_type == nd.NODE_TYPE.CHAR for c in source):
+                return list(source)
+        return None
+
+    def _iterHyphenWords(self, parser, nodes):
+        """
+        Yield trial words from the expanded horizontal list according to
+        TeXBook Appendix H.
+
+        Each yielded item is `(language, hyphen, text, parts)`, where `parts`
+        is a list of `(node_index, node, letters)` for the admissible items
+        forming the word.
+        """
         context = self.typeset_context
         lccode = parser.state.lccode
-        lambda_ = max(1, context.lefthyphenmin)
-        rho = max(1, context.righthyphenmin)
         in_math = False
-        inserted = 0
-        insert_after = breaks.head
         current_language = parser.state.parameters["language"]
         i = 0
         n = len(nodes)
 
-        def item_letters(node):
-            if node.node_type == nd.NODE_TYPE.CHAR:
-                return [node]
-            if node.node_type == nd.NODE_TYPE.LIGATURE:
-                source = getattr(node, "source", None) or []
-                if all(c.node_type == nd.NODE_TYPE.CHAR for c in source):
-                    return list(source)
-            return None
-
         def starts_with_nonletter(node):
-            letters = item_letters(node)
+            letters = self._hyphenItemLetters(node)
             if not letters:
                 return False
             return lccode[ord(letters[0].char)] == 0
-
-        def find_insert_after(target_index):
-            nonlocal insert_after
-            while insert_after.next is not None and insert_after.next.break_index <= target_index:
-                insert_after = insert_after.next
-            return insert_after
 
         while i < n:
             node = nodes[i]
@@ -384,7 +410,7 @@ class Paragraph(hmode.HList):
                 break
 
             start_node = nodes[j]
-            start_letters = item_letters(start_node)
+            start_letters = self._hyphenItemLetters(start_node)
             if not start_letters:
                 i = j + 1
                 continue
@@ -410,7 +436,7 @@ class Paragraph(hmode.HList):
                 if part.node_type == nd.NODE_TYPE.KERN and part.automatic:
                     k += 1
                     continue
-                letters = item_letters(part)
+                letters = self._hyphenItemLetters(part)
                 if letters is None:
                     break
                 ok = True
@@ -423,7 +449,7 @@ class Paragraph(hmode.HList):
                 parts.append((k, part, letters))
                 text.extend(letter.char for letter in letters)
                 k += 1
-            if len(text) < lambda_ + rho:
+            if len(text) < max(1, context.lefthyphenmin) + max(1, context.righthyphenmin):
                 i = k
                 continue
 
@@ -451,8 +477,18 @@ class Paragraph(hmode.HList):
                 i = tail
                 continue
 
-            parser.hyphenator.setLanguage(current_language)
-            hyphen_points = parser.hyphenator.hyphenate("".join(text))
+            yield current_language, hyphen, "".join(text), parts
+            i = tail
+
+    def _hyphenBreakCandidates(self, parser, nodes):
+        context = self.typeset_context
+        lambda_ = max(1, context.lefthyphenmin)
+        rho = max(1, context.righthyphenmin)
+        extras = []
+
+        for language, hyphen, text, parts in self._iterHyphenWords(parser, nodes):
+            parser.hyphenator.setLanguage(language)
+            hyphen_points = parser.hyphenator.hyphenate(text)
             if hyphen_points:
                 total = 0
                 for index, part_node, letters in parts:
@@ -477,12 +513,9 @@ class Paragraph(hmode.HList):
                                 self._typesetFragment(parser, letters[split:]),
                             )
                             candidate.disc_skip = 1
-                        breaks.insert_after(find_insert_after(candidate.break_index), candidate)
-                        insert_after = candidate
-                        inserted += 1
+                        extras.append(candidate)
                     total = next_total
-            i = tail
-        return inserted
+        return extras
 
 
 class _BreakCandidate:

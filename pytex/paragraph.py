@@ -348,6 +348,113 @@ class Paragraph(hmode.HList):
                 return list(source)
         return None
 
+    def _hyphenSkipToStart(self, nodes, start, language, uchyph, lccode):
+        """
+        Search from a potential boundary to the first possible starting item.
+        it returns a tuple of the starting index, the hyphen char, and the current language
+        if hyphen is None, the scan is not successful
+        """
+        j = start-1
+        n = len(nodes) - 1
+        found = False
+        while j < n:
+            j += 1
+            trial = nodes[j]
+            trial_type = trial.node_type
+            if isinstance(trial, Language):
+                language = trial.language
+                continue
+            if trial_type == nd.NODE_TYPE.WHATSIT:
+                continue
+            if trial_type == nd.NODE_TYPE.KERN and trial.automatic:
+                continue
+            if trial_type == nd.NODE_TYPE.CHAR:
+                char = ord(trial.char)
+                lc = lccode[char]
+                if lc == 0:
+                    continue
+                if lc != char and not uchyph:
+                    break
+                found = True
+                break
+            if trial_type == nd.NODE_TYPE.LIGATURE:
+                char = ord(trial.source[0].char)
+                lc = lccode[char]
+                if lc == 0:
+                    continue
+                if lc != char and not uchyph:
+                    break
+                found = True
+                break
+            break
+        # If a suitable starting letter is found, let it be in font f. Hyphenation is abandoned unless the 
+        # \hyphenchar of f is between 0 and 255, and unless a character of that number exists in the font. 
+        hyphen = trial.font.hyphenChar() if found else None
+        return j, hyphen, language
+
+    def _hyphenCollectWord(self, nodes, start, lccode):
+        """
+        Collect one trial word from the expanded node list.
+
+        Return `(tail, hyphen, text, parts)` or `None` if no admissible word
+        starts here.
+        """
+        start_node = nodes[start]
+        font = start_node.font
+
+        parts = []
+        text = []
+        k = start
+        n = len(nodes)
+        while k < n:
+            part = nodes[k]
+            if part.node_type == nd.NODE_TYPE.KERN and part.automatic:
+                k += 1
+                continue
+            letters = self._hyphenItemLetters(part)
+            if letters is None:
+                break
+            ok = True
+            for letter in letters:
+                if letter.font != font or lccode[ord(letter.char)] == 0:
+                    ok = False
+                    break
+            if not ok:
+                break
+            parts.append((k, part, letters))
+            text.extend(letter.char for letter in letters)
+            k += 1
+        return k, "".join(text), parts
+
+    @staticmethod
+    def _hyphenTailAllowed(node):
+        return (
+            node.node_type == nd.NODE_TYPE.GLUE
+            or node.node_type == nd.NODE_TYPE.PENALTY
+            or (node.node_type == nd.NODE_TYPE.KERN and not node.automatic)
+            or node.node_type == nd.NODE_TYPE.WHATSIT
+            or node.node_type in (nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS, nd.NODE_TYPE.ADJUST)
+        )
+
+    def _hyphenWordValid(self, nodes, tail, text):
+        """
+        Check whether a collected trial word is valid for hyphenation.
+        """
+        context = self.typeset_context
+        if len(text) < max(1, context.lefthyphenmin) + max(1, context.righthyphenmin):
+            return False
+        n = len(nodes)
+        while tail < n:
+            tail_node = nodes[tail]
+            if tail_node.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                tail += 1
+                continue
+            if tail_node.node_type == nd.NODE_TYPE.KERN and tail_node.automatic:
+                tail += 1
+                continue
+            break
+        return tail < n and self._hyphenTailAllowed(nodes[tail])
+
     def _iterHyphenWords(self, parser, nodes):
         """
         Yield trial words from the expanded horizontal list according to
@@ -357,18 +464,11 @@ class Paragraph(hmode.HList):
         is a list of `(node_index, node, letters)` for the admissible items
         forming the word.
         """
-        context = self.typeset_context
-        lccode = parser.state.lccode
         in_math = False
         current_language = parser.state.parameters["language"]
+        lccode = parser.state.lccode
         i = 0
         n = len(nodes)
-
-        def starts_with_nonletter(node):
-            letters = self._hyphenItemLetters(node)
-            if not letters:
-                return False
-            return lccode[ord(letters[0].char)] == 0
 
         while i < n:
             node = nodes[i]
@@ -384,100 +484,27 @@ class Paragraph(hmode.HList):
             if in_math:
                 i += 1
                 continue
-            if i != 0 and node_type != nd.NODE_TYPE.GLUE:
+            if i != 0:
                 i += 1
-                continue
+                if node_type != nd.NODE_TYPE.GLUE:
+                    continue
 
-            j = i + 1 if node_type == nd.NODE_TYPE.GLUE else i
-            while j < n:
-                trial = nodes[j]
-                trial_type = trial.node_type
-                if isinstance(trial, Language):
-                    current_language = trial.language
-                    j += 1
-                    continue
-                if trial_type == nd.NODE_TYPE.WHATSIT:
-                    j += 1
-                    continue
-                if trial_type == nd.NODE_TYPE.KERN and trial.automatic:
-                    j += 1
-                    continue
-                if trial_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE) and starts_with_nonletter(trial):
-                    j += 1
-                    continue
-                break
-            if j >= n:
-                break
-
-            start_node = nodes[j]
-            start_letters = self._hyphenItemLetters(start_node)
-            if not start_letters:
-                i = j + 1
-                continue
-            start_char = start_letters[0]
-            start_lc = lccode[ord(start_char.char)]
-            if start_lc == 0:
-                i = j + 1
-                continue
-            if start_lc != ord(start_char.char) and not context.uchyph:
-                i = j + 1
-                continue
-            font = start_char.font
-            hyphen = font.hyphenChar()
+            j, hyphen, current_language = self._hyphenSkipToStart(
+                nodes,
+                i,
+                current_language,
+                self.typeset_context.uchyph,
+                lccode,
+            )
             if hyphen is None:
-                i = j + 1
+                i = j if j > i else i + 1
                 continue
 
-            parts = []
-            text = []
-            k = j
-            while k < n:
-                part = nodes[k]
-                if part.node_type == nd.NODE_TYPE.KERN and part.automatic:
-                    k += 1
-                    continue
-                letters = self._hyphenItemLetters(part)
-                if letters is None:
-                    break
-                ok = True
-                for letter in letters:
-                    if letter.font != font or lccode[ord(letter.char)] == 0:
-                        ok = False
-                        break
-                if not ok:
-                    break
-                parts.append((k, part, letters))
-                text.extend(letter.char for letter in letters)
-                k += 1
-            if len(text) < max(1, context.lefthyphenmin) + max(1, context.righthyphenmin):
-                i = k
-                continue
-
-            tail = k
-            while tail < n:
-                tail_node = nodes[tail]
-                if tail_node.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                    tail += 1
-                    continue
-                if tail_node.node_type == nd.NODE_TYPE.KERN and tail_node.automatic:
-                    tail += 1
-                    continue
-                break
-            if tail >= n:
+            tail, text, parts = self._hyphenCollectWord(nodes, j, lccode)
+            if not self._hyphenWordValid(nodes, tail, text):
                 i = tail
                 continue
-            tail_node = nodes[tail]
-            if not (
-                tail_node.node_type == nd.NODE_TYPE.GLUE
-                or tail_node.node_type == nd.NODE_TYPE.PENALTY
-                or (tail_node.node_type == nd.NODE_TYPE.KERN and not tail_node.automatic)
-                or tail_node.node_type == nd.NODE_TYPE.WHATSIT
-                or tail_node.node_type in (nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS, nd.NODE_TYPE.ADJUST)
-            ):
-                i = tail
-                continue
-
-            yield current_language, hyphen, "".join(text), parts
+            yield current_language, hyphen, text, parts
             i = tail
 
     def _hyphenBreakCandidates(self, parser, nodes):

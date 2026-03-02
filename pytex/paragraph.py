@@ -233,14 +233,11 @@ class Paragraph(hmode.HList):
         """
         if self._typeset_cache is not None:
             return
-        # Pre-typeset the paragraph nodes into a temporary horizontal stream.
         context = self.typeset_context
-        hlist = []
-        ligature_state = {"lig_base": None, "in_word": False}
-        for node in self:
-            self.typesetNodeWithLigatures(parser, node, hlist, ligature_state)
+        scan = self._typesetNodesWithBreaks(parser, self)
+        hlist = scan
         # line break the hlist into lines and pack them into the vlist
-        hlist, lines = self.lineBreak(parser, hlist)
+        hlist, lines = self.lineBreak(parser, hlist, scan.candidates)
         line_count = len(lines)
         context.line_count = line_count
         # add the lines into the vlist
@@ -315,7 +312,20 @@ class Paragraph(hmode.HList):
         out.source = getattr(disc, "source", None)
         return out
 
-    def lineBreak(self, parser, hlist):
+    def _typesetNodesWithBreaks(self, parser, nodes):
+        """
+        Expand raw horizontal nodes and mark legal breakpoints in one pass.
+        """
+        scan = _BreakCandidateScan(self.typeset_context)
+        ligature_state = {"lig_base": None, "in_word": False}
+        for node in nodes:
+            self.typesetNodeWithLigatures(parser, node, scan, ligature_state)
+        if ligature_state["in_word"]:
+            self._applyRightBoundary(scan, ligature_state)
+        scan.finish()
+        return scan
+
+    def lineBreak(self, parser, hlist, breaks=None):
         """
         Break the paragraph into lines (TeXbook Chapter 14).
 
@@ -329,14 +339,15 @@ class Paragraph(hmode.HList):
         breaks (matching TeX's "always break somehow" behavior).
         """
         context = self.typeset_context
-        scan = _BreakCandidateScan(context, hlist)
         pre_tolerance = context.pretolerance
         if pre_tolerance < 0:
             pre_tolerance = context.tolerance
-        breaker = _LineBreaker(self, hlist, scan.candidates, pre_tolerance)
+        if breaks is None:
+            breaks = _BreakCandidateScan(context, hlist).candidates
+        breaker = _LineBreaker(self, hlist, breaks, pre_tolerance)
         lines = breaker.run()
         working_hlist = hlist
-        working_breaks = scan.candidates
+        working_breaks = breaks
         if lines is None or (
             context.looseness != 0
             and breaker.actual_looseness != context.looseness
@@ -392,11 +403,8 @@ class Paragraph(hmode.HList):
                 inserted += 1
         if inserted == 0:
             return None
-        packed = []
-        ligature_state = {"lig_base": None, "in_word": False}
-        for node in raw:
-            self.typesetNodeWithLigatures(parser, node, packed, ligature_state)
-        return packed, _BreakCandidateScan(context, packed).candidates
+        scan = self._typesetNodesWithBreaks(parser, raw)
+        return scan, scan.candidates
 
 
 class _BreakCandidate:
@@ -544,23 +552,24 @@ class _Line:
         self.demerits = demerits
 
 
-class _BreakCandidateScan:
+class _BreakCandidateScan(list):
     """
-    Scan one expanded paragraph stream into legal break candidates.
+    Expanded node list plus its legal break candidates.
+
+    Nodes can be appended incrementally during expansion, so ligature formation
+    and breakpoint discovery happen in the same pass.
     """
-    def __init__(self, context, nodes):
-        self.nodes = nodes
+    def __init__(self, context, nodes=None):
+        super().__init__()
         self.context = context
-        if (
-            len(nodes) < 2
-            or nodes[-2].node_type != nd.NODE_TYPE.PENALTY
-            or nodes[-2].penalty != 10000
-            or nodes[-1].node_type != nd.NODE_TYPE.GLUE
-            or nodes[-1].glue != self.context.parfillskip
-        ):
-            raise ValueError("paragraph does not end with \\penalty10000 and \\parfillskip")
-        self.end = len(self.nodes)
-        self.candidates = self._buildBreakCandidates()
+        self.candidates = _BreakCandidateChain()
+        self.candidates.append(_BreakCandidate(0))
+        self.in_math = False
+        self.end = 0
+        self._finished = False
+        if nodes is not None:
+            self.extend(nodes)
+            self.finish()
 
     @staticmethod
     def _discHyphenated(disc):
@@ -604,7 +613,17 @@ class _BreakCandidateScan:
             start += 1
         candidate.line_start_index = start
 
-    def _buildBreakCandidates(self):
+    @property
+    def nodes(self):
+        return self
+
+    def append(self, node):
+        if self._finished:
+            raise ValueError("cannot append after finishing break scan")
+        i = len(self)
+        super().append(node)
+        node_type = node.node_type
+
         # line breaks can happen at these points (TeXBook, page 98)
         # a) at glue, provided that this glue is immediately preceded by a non-discardable
         # item, and that it is not part of a math formula (i.e., not between math-on and
@@ -614,49 +633,59 @@ class _BreakCandidateScan:
         # c) at a math-oﬀ that is immediately followed by glue.
         # d) at a penalty (which might have been inserted automatically in a formula).
         # e) at a discretionary break.
-        candidates = _BreakCandidateChain()
-        candidates.append(_BreakCandidate(0))
-        in_math = False
+        if node_type == nd.NODE_TYPE.MATH:
+            self.in_math = node.on
+            return
 
-        for i, node in enumerate(self.nodes):
-            node_type = node.node_type
+        if node_type == nd.NODE_TYPE.GLUE:
+            if self.in_math or i == 0:
+                return
+            prev = self[i - 1]
+            prev_type = prev.node_type
+            if prev_type == nd.NODE_TYPE.KERN:
+                self.candidates.append(_BreakCandidate(i))
+            elif prev_type == nd.NODE_TYPE.MATH and not prev.on:
+                self.candidates.append(_BreakCandidate(i))
+            elif not self._isDiscardable(prev):
+                self.candidates.append(_BreakCandidate(i))
+            return
 
-            if node_type == nd.NODE_TYPE.MATH:
-                in_math = node.on
-                continue
+        if node_type == nd.NODE_TYPE.PENALTY and node.penalty < 10000:
+            candidate = self.candidates.append(_BreakCandidate(i))
+            candidate.penalty = node.penalty
+            candidate.at_penalty = True
+            return
 
-            if node_type == nd.NODE_TYPE.GLUE:
-                if in_math or i == 0:
-                    continue
-                prev = self.nodes[i - 1]
-                prev_type = prev.node_type
-                if prev_type == nd.NODE_TYPE.KERN:
-                    candidates.append(_BreakCandidate(i))
-                elif prev_type == nd.NODE_TYPE.MATH and not prev.on:
-                    candidates.append(_BreakCandidate(i))
-                elif not self._isDiscardable(prev):
-                    candidates.append(_BreakCandidate(i))
-                continue
+        if node_type == nd.NODE_TYPE.DISC:
+            candidate = self.candidates.append(_BreakCandidate(i))
+            candidate.disc = node
+            candidate.hyphenated = self._discHyphenated(node)
+            candidate.penalty = self.context.exhyphenpenalty
 
-            if node_type == nd.NODE_TYPE.PENALTY and node.penalty < 10000:
-                candidate = candidates.append(_BreakCandidate(i))
-                candidate.penalty = node.penalty
-                candidate.at_penalty = True
-                continue
+    def extend(self, nodes):
+        for node in nodes:
+            self.append(node)
 
-            if node_type == nd.NODE_TYPE.DISC:
-                candidate = candidates.append(_BreakCandidate(i))
-                candidate.disc = node
-                candidate.hyphenated = self._discHyphenated(node)
-                candidate.penalty = self.context.exhyphenpenalty
-
-        if candidates.tail.break_index != self.end:
+    def finish(self):
+        if self._finished:
+            return self
+        self.end = len(self)
+        if (
+            self.end < 2
+            or self[-2].node_type != nd.NODE_TYPE.PENALTY
+            or self[-2].penalty != 10000
+            or self[-1].node_type != nd.NODE_TYPE.GLUE
+            or self[-1].glue != self.context.parfillskip
+        ):
+            raise ValueError("paragraph does not end with \\penalty10000 and \\parfillskip")
+        if self.candidates.tail.break_index != self.end:
             end_candidate = _BreakCandidate(self.end)
             end_candidate.penalty = -10000
-            candidates.append(end_candidate)
-        for candidate in candidates:
+            self.candidates.append(end_candidate)
+        for candidate in self.candidates:
             self._prepareCandidateStart(candidate)
-        return candidates
+        self._finished = True
+        return self
 
 
 class _LineBreaker:

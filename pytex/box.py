@@ -345,7 +345,23 @@ def readBox(parser, setbox=False):
     box_value = getattr(command, "boxValue", None)
     if box_value is None:
         raise ValueError("expecting a box", parser.input.position())
-    return box_value(parser, setbox)
+    box = box_value(parser, setbox)
+    box_list = getattr(box, "list", None)
+    if (
+        not setbox
+        and box_list is not None
+        and box_list in parser.lists
+    ):
+        while parser.run and box_list in parser.lists:
+            t = parser.token_expand()
+            if t is None:
+                parser.run = False
+                break
+            if parser.tracingcommands:
+                parser.trace(t, mode="execute")
+            parser.current_token = t
+            t.execute(parser)
+    return box
     
 
 class BoxArrayItemAccessor(ArrayItemAccessor):

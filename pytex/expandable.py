@@ -250,10 +250,7 @@ class EndInput(Command):
 
 class JobName(Command):
     def expand(self, parser):
-        active = parser.input.active
-        name = active.name if active and active.name else "noname"
-        stem = pathlib.Path(name).stem
-        parser.input.push(TokenListScanner(toToks(stem)))
+        parser.input.push(TokenListScanner(toToks(parser.jobname)))
 
 
 class Meaning(Command):

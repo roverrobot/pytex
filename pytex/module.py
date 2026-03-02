@@ -75,7 +75,7 @@ class Module:
         """
         if self.attributes is not None:
             for name, value in self.attributes.items():
-                if callable(value):
+                if callable(value) and not isinstance(value, type):
                     setattr(parser, name, types.MethodType(value, parser))
                 else:
                     setattr(parser, name, value)

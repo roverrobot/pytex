@@ -24,7 +24,7 @@ def test_read_dimen(parser):
 
 def test_read_true_dimen(parser):
     # magnify by a factor of 2.0
-    parser.state.layout["mag"] = 2000
+    parser.state.parameters["mag"] = 2000
     parser.readFrom("-1Truept")
     result = parser.readDimen()
     assert result == -0.5 # handling true dimension is done by reducing the unit by \mag/1000

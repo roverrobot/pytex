@@ -363,7 +363,7 @@ module = Module("integer",
         "uchyph": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
         "lefthyphenmin": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
         "righthyphenmin": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "mag": {"value": 1000, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "mag": {"value": 1000, "accessor": IntegerParameterAccessor, "domain": "parameters"},
         "delimiterfactor": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
         # escapechar is a layout parameter because \write may use it
         "escapechar": {"value": ord("\\"), "accessor": IntegerParameterAccessor, "domain": "layout"},

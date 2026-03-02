@@ -43,7 +43,10 @@ class Font(Command):
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}
     
     def saveInfo(self):
-        return {"init": {"tfm": self.tfm.name, "at": self.at}}
+        return {
+            "init": {"tfm": self.tfm.name, "at": self.at},
+            "extra": {"fontchar": self.fontchar},
+        }
 
     @classmethod
     def new(cls, parser, tfm, at):

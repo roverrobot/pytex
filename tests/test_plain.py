@@ -40,3 +40,10 @@ def test_plain(plain):
     # The stored paragraph keeps raw characters; ligatures/kerns are formed later.
     assert len(hlist) == 18
     assert hlist[-3].node_type == nd.NODE_TYPE.MATH
+
+
+def test_plain_preserves_fontchar(plain):
+    current = plain.state.parameters["currentfont"]
+    assert current.fontchar["hyphenchar"] == 45
+    assert current.hyphenChar() is not None
+    assert current.hyphenChar().char == "-"

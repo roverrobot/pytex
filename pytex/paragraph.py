@@ -8,7 +8,7 @@ from pytex import box as bx
 from pytex import lists
 from pytex.module import Module
 from pytex.dimen import Dimen
-from pytex.glue import Glue
+from pytex.glue import Glue, Stretchness
 from pytex.hmode import HorizontalCommand
 from pytex.integer import IntegerArrayItemAccessor
 
@@ -849,6 +849,17 @@ class _LineBreaker:
         self.tolerance = tolerance
         self.allow_overfull = allow_overfull
         self.actual_looseness = 0
+        self._prefix_dimen = [Dimen()]
+        self._prefix_stretch = [[Dimen()] for _ in range(4)]
+        self._prefix_shrink = [[Dimen()] for _ in range(4)]
+        for node in nodes:
+            dimen, stretch, shrink = self._nodeContribution(node)
+            self._prefix_dimen.append(self._prefix_dimen[-1] + dimen)
+            for order in range(4):
+                stretch_part = stretch.factor if stretch.order == order else Dimen()
+                shrink_part = shrink.factor if shrink.order == order else Dimen()
+                self._prefix_stretch[order].append(self._prefix_stretch[order][-1] + stretch_part)
+                self._prefix_shrink[order].append(self._prefix_shrink[order][-1] + shrink_part)
 
     @staticmethod
     def _badness(ratio):
@@ -894,27 +905,42 @@ class _LineBreaker:
             return None, None
         return ratio, self._badness(ratio)
 
+    @staticmethod
+    def _nodeContribution(node):
+        node_type = node.node_type
+        if node_type == nd.NODE_TYPE.GLUE:
+            return node.glue.dimen, node.glue.stretch, node.glue.shrink
+        if node_type == nd.NODE_TYPE.KERN:
+            return node.kern, Stretchness(), Stretchness()
+        if node_type == nd.NODE_TYPE.DISC:
+            return node.replace_width, Stretchness(), Stretchness()
+        if node_type == nd.NODE_TYPE.MATH:
+            width = getattr(node, "kern", None)
+            if width is None:
+                raise ValueError("math shift node is missing kern")
+            return width, Stretchness(), Stretchness()
+        width = getattr(node, "width", None)
+        return (width, Stretchness(), Stretchness()) if width is not None else (Dimen(), Stretchness(), Stretchness())
+
+    @staticmethod
+    def _prefixStretchness(prefix, start, end):
+        for order in range(3, -1, -1):
+            factor = prefix[order][end] - prefix[order][start]
+            if factor != 0:
+                return Stretchness(factor, order)
+        return Stretchness()
+
+    def _sliceGlue(self, start, end):
+        return Glue(
+            self._prefix_dimen[end] - self._prefix_dimen[start],
+            self._prefixStretchness(self._prefix_stretch, start, end),
+            self._prefixStretchness(self._prefix_shrink, start, end),
+        )
+
     def _lineNatural(self, begin, end):
-        natural = Glue()
+        natural = self._sliceGlue(begin.line_start_index, end.break_index)
         if begin.disc is not None:
             natural.dimen += begin.disc.post_width
-        for node in self.nodes[begin.line_start_index:end.break_index]:
-            node_type = node.node_type
-            if node_type == nd.NODE_TYPE.GLUE:
-                natural += node.glue
-            elif node_type == nd.NODE_TYPE.KERN:
-                natural.dimen += node.kern
-            elif node_type == nd.NODE_TYPE.DISC:
-                natural.dimen += node.replace_width
-            elif node_type == nd.NODE_TYPE.MATH:
-                width = getattr(node, "kern", None)
-                if width is None:
-                    raise ValueError("math shift node is missing kern")
-                natural.dimen += width
-            else:
-                width = getattr(node, "width", None)
-                if width is not None:
-                    natural.dimen += width
         if end.disc is not None:
             natural.dimen += end.disc.pre_width
         return natural

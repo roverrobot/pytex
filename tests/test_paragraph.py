@@ -38,15 +38,15 @@ def test_paragraph_typeset_context_snapshot(parser):
     assert p.typeset_context.hsize == 10
 
 
-def test_paragraph_typeset_context_captures_words_and_hyphenation(cmr10):
-    cmr10.parse("\\hyphenation{Tech-nique}\\lefthyphenmin=2\\righthyphenmin=3\\hsize=10pt\\parindent=0pt")
-    # This is preceeded by the indent box, is and a are too short. So the only word to be hyphenated is technique
+def test_paragraph_typeset_context_captures_hyphenation_settings(cmr10):
+    cmr10.parse("\\hyphenation{Tech-nique}\\lefthyphenmin=2\\righthyphenmin=3\\uchyph=1\\hsize=10pt\\parindent=0pt")
     cmr10.parse("This is a technique\\par")
     p = next(node for node in cmr10.lists[-1] if isinstance(node, paragraph.Paragraph))
     assert isinstance(p, paragraph.Paragraph)
     ctx = p.typeset_context
-    assert [word.text for word in ctx.words] == ["technique"]
-    assert p[ctx.words[0].begin].char == "t" and p[ctx.words[0].end-1].char == "e"
+    assert ctx.lefthyphenmin == 2
+    assert ctx.righthyphenmin == 3
+    assert ctx.uchyph is True
 
 
 def test_paragraph_chain_break_on_nonparagraph(parser):

@@ -13,17 +13,6 @@ from pytex.hmode import HorizontalCommand
 from pytex.integer import IntegerArrayItemAccessor
 
 
-class Word:
-    """
-    Snapshot of one word in the original paragraph node list.
-    """
-    def __init__(self, language, begin, end, text):
-        self.language = language
-        self.begin = begin
-        self.end = end
-        self.text = text
-
-
 class ParagraphTypesetContext:
     """
     Frozen typesetting context for a paragraph.
@@ -57,7 +46,7 @@ class ParagraphTypesetContext:
         self.em = parser.state.parameters["currentfont"].param[5]
         self.lefthyphenmin = parser.state.layout["lefthyphenmin"]
         self.righthyphenmin = parser.state.layout["righthyphenmin"]
-        self.words = self.buildWords(parser, paragraph)
+        self.uchyph = parser.state.layout["uchyph"] > 0
         self.actual_looseness = 0
 
     def lineShape(self, line_no):
@@ -89,86 +78,6 @@ class ParagraphTypesetContext:
         if hang > 0:
             return hang, self.hsize - abs(hang)
         return Dimen(), self.hsize - abs(hang)
-
-    def buildWords(self, parser, paragraph):
-        # TEX looks for potentially hyphenatable words by searching ahead from each
-        # glue item that is not in a math formula. The search bypasses charac-
-        # ters whose \lccode is zero, or ligatures that begin with such characters; it also by-
-        # passes whatsits and implicit kern items, i.e., kerns that were inserted by T EX it-
-        # self because of information stored with the font. If the search finds a charac-
-        # ter with nonzero \lccode, or if it finds a ligature that begins with such a charac-
-        # ter, that character is called the starting letter. But if any other type of item oc-
-        # curs before a suitable starting letter is found, hyphenation is abandoned (until af-
-        # ter the next glue item). Thus, a box or rule or mark, or a kern that was explicitly in-
-        # serted by \kern or \/, must not intervene between glue and a hyphenatable word. If
-        # the starting letter is not lowercase (i.e., if it doesn’t equal its own \lccode), hyphen-
-        # ation is abandoned unless \uchyph is positive
-        words = []
-        language = parser.state.parameters["language"]
-        lccode = parser.state.lccode
-        start = None # the start index of the current word
-        # states: 0 = allow, 1 = disallow, 2 = in word
-        state = 0 # allowed at the beginning of the paragraph
-        text = []
-        uchyph = parser.state.layout["uchyph"] > 0
-        font = None
-        hyphenchar = None
-
-        for i, node in enumerate(paragraph):
-            if state == 0:
-                # start only if we see a char with nonzero lccode or a ligature that begins with such a char
-                if node.node_type == nd.NODE_TYPE.LIGATURE:
-                    chars =getattr(node, "source", None)
-                    node = chars[0]
-                if node.node_type == nd.NODE_TYPE.CHAR:
-                    if font != node.font:
-                        font = node.font
-                        hyphenchar = font.fontchar["hyphenchar"]
-                    if hyphenchar < 0 or font.bc > hyphenchar or hyphenchar > font.ec:
-                        continue
-                    c = ord(node.char)
-                    lc = lccode[c]
-                    if lc == c or (lc !=0 and uchyph > 0):
-                        state = 2
-                        start = i
-                        text.append(node.char)
-                        continue
-                state = 1
-                continue
-            if state == 1:
-                # wait until we see a glue
-                if node.node_type == nd.NODE_TYPE.GLUE:
-                    state = 0
-                continue
-            # now state == 2. We are in a word, and we want to keep going until we see something that cannot be part of a word.
-            if node.node_type == nd.NODE_TYPE.KERN and node.automatic and start is not None:
-                continue
-            if node.node_type == nd.NODE_TYPE.CHAR and lccode[ord(node.char)] != 0:
-                text.append(node.char)
-                continue
-            if node.node_type == nd.NODE_TYPE.LIGATURE:
-                source = getattr(node, "source", [])
-                all = True
-                chars = []
-                for c in source:
-                    if c.node_type == nd.NODE_TYPE.CHAR:
-                        if lccode[ord(c.char)] == 0:
-                            all = False
-                            break
-                        chars.append(c.char)
-                if all:
-                    text.extend(chars)
-                    continue
-            if isinstance(node, Language):
-                language = node.language
-            # if the word is too short, do not hyphenate
-            text = "".join(text)
-            if len(text) >= self.lefthyphenmin + self.righthyphenmin:
-                words.append(Word(language, start, i, text))
-            start = None
-            state = 0 if node.node_type == nd.NODE_TYPE.GLUE else 1
-            text = []
-        return words
 
 
 class Language(nd.WhatsIt):
@@ -352,7 +261,7 @@ class Paragraph(hmode.HList):
             context.looseness != 0
             and breaker.actual_looseness != context.looseness
         ):
-            hyphenated = self._hyphenate(parser)
+            hyphenated = self._hyphenate(parser, hlist, breaks)
             if hyphenated:
                 working_hlist, working_breaks = hyphenated
                 hyphen_breaker = _LineBreaker(self, working_hlist, working_breaks, context.tolerance)
@@ -374,37 +283,206 @@ class Paragraph(hmode.HList):
 
     def _hyphenate(self, parser, hlist=None, scan=None):
         """
-        Insert explicit discretionary nodes into a copied raw paragraph, then
-        re-expand and rescan breakpoints.
+        Insert virtual discretionary breakpoints into a copied break chain by
+        scanning the already-expanded node list.
         """
         context = self.typeset_context
-        if not context.words:
-            return None
-        raw = list(self)
-        inserted = 0
-        for word in context.words:
-            parser.hyphenator.setLanguage(word.language)
-            hyphen_points = parser.hyphenator.hyphenate(word.text)
-            if not hyphen_points:
-                continue
-            for point in hyphen_points:
-                left = point
-                right = len(word.text) - point
-                if left < context.lefthyphenmin or right < context.righthyphenmin:
-                    continue
-                index = word.begin + inserted + point
-                prev = raw[index - 1]
-                if prev.node_type != nd.NODE_TYPE.CHAR:
-                    continue
-                hyphen = prev.font.hyphenChar()
-                if hyphen is None:
-                    continue
-                raw.insert(index, nd.Disc([hyphen], [], []))
-                inserted += 1
+        if hlist is None or scan is None:
+            expanded = self._typesetNodesWithBreaks(parser, self)
+            hlist = expanded
+            scan = expanded.candidates
+        hyphenated = scan.clone()
+        inserted = self._insertHyphenBreaks(parser, hlist, hyphenated)
         if inserted == 0:
             return None
-        scan = self._typesetNodesWithBreaks(parser, raw)
-        return scan, scan.candidates
+        for candidate in hyphenated:
+            _BreakCandidateScan.prepareCandidateStart(hlist, len(hlist), candidate)
+        return hlist, hyphenated
+
+    def _typesetFragment(self, parser, chars):
+        packed = []
+        state = {"lig_base": None, "in_word": True}
+        for node in chars:
+            self.typesetNodeWithLigatures(parser, node, packed, state)
+        return packed
+
+    def _virtualDisc(self, pre, post):
+        out = nd.Disc(pre, post, [])
+        out.list = []
+        return out
+
+    def _insertHyphenBreaks(self, parser, nodes, breaks):
+        context = self.typeset_context
+        lccode = parser.state.lccode
+        lambda_ = max(1, context.lefthyphenmin)
+        rho = max(1, context.righthyphenmin)
+        in_math = False
+        inserted = 0
+        insert_after = breaks.head
+        current_language = parser.state.parameters["language"]
+        i = 0
+        n = len(nodes)
+
+        def item_letters(node):
+            if node.node_type == nd.NODE_TYPE.CHAR:
+                return [node]
+            if node.node_type == nd.NODE_TYPE.LIGATURE:
+                source = getattr(node, "source", None) or []
+                if all(c.node_type == nd.NODE_TYPE.CHAR for c in source):
+                    return list(source)
+            return None
+
+        def starts_with_nonletter(node):
+            letters = item_letters(node)
+            if not letters:
+                return False
+            return lccode[ord(letters[0].char)] == 0
+
+        def find_insert_after(target_index):
+            nonlocal insert_after
+            while insert_after.next is not None and insert_after.next.break_index <= target_index:
+                insert_after = insert_after.next
+            return insert_after
+
+        while i < n:
+            node = nodes[i]
+            node_type = node.node_type
+            if isinstance(node, Language):
+                current_language = node.language
+                i += 1
+                continue
+            if node_type == nd.NODE_TYPE.MATH:
+                in_math = node.on
+                i += 1
+                continue
+            if in_math:
+                i += 1
+                continue
+            if i != 0 and node_type != nd.NODE_TYPE.GLUE:
+                i += 1
+                continue
+
+            j = i + 1 if node_type == nd.NODE_TYPE.GLUE else i
+            while j < n:
+                trial = nodes[j]
+                trial_type = trial.node_type
+                if isinstance(trial, Language):
+                    current_language = trial.language
+                    j += 1
+                    continue
+                if trial_type == nd.NODE_TYPE.WHATSIT:
+                    j += 1
+                    continue
+                if trial_type == nd.NODE_TYPE.KERN and trial.automatic:
+                    j += 1
+                    continue
+                if trial_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE) and starts_with_nonletter(trial):
+                    j += 1
+                    continue
+                break
+            if j >= n:
+                break
+
+            start_node = nodes[j]
+            start_letters = item_letters(start_node)
+            if not start_letters:
+                i = j + 1
+                continue
+            start_char = start_letters[0]
+            start_lc = lccode[ord(start_char.char)]
+            if start_lc == 0:
+                i = j + 1
+                continue
+            if start_lc != ord(start_char.char) and not context.uchyph:
+                i = j + 1
+                continue
+            font = start_char.font
+            hyphen = font.hyphenChar()
+            if hyphen is None:
+                i = j + 1
+                continue
+
+            parts = []
+            text = []
+            k = j
+            while k < n:
+                part = nodes[k]
+                if part.node_type == nd.NODE_TYPE.KERN and part.automatic:
+                    k += 1
+                    continue
+                letters = item_letters(part)
+                if letters is None:
+                    break
+                ok = True
+                for letter in letters:
+                    if letter.font != font or lccode[ord(letter.char)] == 0:
+                        ok = False
+                        break
+                if not ok:
+                    break
+                parts.append((k, part, letters))
+                text.extend(letter.char for letter in letters)
+                k += 1
+            if len(text) < lambda_ + rho:
+                i = k
+                continue
+
+            tail = k
+            while tail < n:
+                tail_node = nodes[tail]
+                if tail_node.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                    tail += 1
+                    continue
+                if tail_node.node_type == nd.NODE_TYPE.KERN and tail_node.automatic:
+                    tail += 1
+                    continue
+                break
+            if tail >= n:
+                i = tail
+                continue
+            tail_node = nodes[tail]
+            if not (
+                tail_node.node_type == nd.NODE_TYPE.GLUE
+                or tail_node.node_type == nd.NODE_TYPE.PENALTY
+                or (tail_node.node_type == nd.NODE_TYPE.KERN and not tail_node.automatic)
+                or tail_node.node_type == nd.NODE_TYPE.WHATSIT
+                or tail_node.node_type in (nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS, nd.NODE_TYPE.ADJUST)
+            ):
+                i = tail
+                continue
+
+            parser.hyphenator.setLanguage(current_language)
+            hyphen_points = parser.hyphenator.hyphenate("".join(text))
+            if hyphen_points:
+                total = 0
+                for index, part_node, letters in parts:
+                    next_total = total + len(letters)
+                    for point in hyphen_points:
+                        if not (total < point <= next_total):
+                            continue
+                        left = point
+                        right = len(text) - point
+                        if left < lambda_ or right < rho:
+                            continue
+                        split = point - total
+                        candidate = _BreakCandidate(index if split < len(letters) else index + 1)
+                        candidate.penalty = context.hyphenpenalty
+                        candidate.hyphenated = True
+                        if split == len(letters):
+                            candidate.disc = self._virtualDisc([hyphen], [])
+                            candidate.disc_skip = 0
+                        else:
+                            candidate.disc = self._virtualDisc(
+                                self._typesetFragment(parser, letters[:split]) + [hyphen],
+                                self._typesetFragment(parser, letters[split:]),
+                            )
+                            candidate.disc_skip = 1
+                        breaks.insert_after(find_insert_after(candidate.break_index), candidate)
+                        insert_after = candidate
+                        inserted += 1
+                    total = next_total
+            i = tail
+        return inserted
 
 
 class _BreakCandidate:
@@ -423,6 +501,7 @@ class _BreakCandidate:
         self.penalty = 0
         self.hyphenated = False
         self.disc = None
+        self.disc_skip = 0
         self.at_penalty = False
         self.line_start_index = break_index
         self.next = None
@@ -490,6 +569,19 @@ class _BreakCandidateChain:
 
     def __getitem__(self, index):
         return self._as_list()[index]
+
+    def clone(self):
+        out = _BreakCandidateChain()
+        for candidate in self:
+            copy = _BreakCandidate(candidate.break_index)
+            copy.penalty = candidate.penalty
+            copy.hyphenated = candidate.hyphenated
+            copy.disc = candidate.disc
+            copy.disc_skip = candidate.disc_skip
+            copy.at_penalty = candidate.at_penalty
+            copy.line_start_index = candidate.line_start_index
+            out.append(copy)
+        return out
 
 
 class _Line:
@@ -587,29 +679,21 @@ class _BreakCandidateScan(list):
         return False
 
     @staticmethod
-    def _discardContribution(node):
-        node_type = node.node_type
-        if node_type == nd.NODE_TYPE.GLUE:
-            return node.glue
-        if node_type == nd.NODE_TYPE.KERN:
-            return Glue(node.kern)
-        return Glue()
-
-    @staticmethod
     def _isDiscardable(node):
         return node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY)
 
-    def _prepareCandidateStart(self, candidate):
-        if candidate.break_index >= self.end:
-            candidate.line_start_index = self.end
+    @classmethod
+    def prepareCandidateStart(cls, nodes, end, candidate):
+        if candidate.break_index >= end:
+            candidate.line_start_index = end
             return
 
         if candidate.disc is not None:
-            candidate.line_start_index = candidate.break_index + 1
+            candidate.line_start_index = candidate.break_index + candidate.disc_skip
             return
 
         start = candidate.break_index + 1 if candidate.at_penalty else candidate.break_index
-        while start < self.end and self._isDiscardable(self.nodes[start]):
+        while start < end and cls._isDiscardable(nodes[start]):
             start += 1
         candidate.line_start_index = start
 
@@ -659,6 +743,7 @@ class _BreakCandidateScan(list):
         if node_type == nd.NODE_TYPE.DISC:
             candidate = self.candidates.append(_BreakCandidate(i))
             candidate.disc = node
+            candidate.disc_skip = 1
             candidate.hyphenated = self._discHyphenated(node)
             candidate.penalty = self.context.exhyphenpenalty
 
@@ -683,7 +768,7 @@ class _BreakCandidateScan(list):
             end_candidate.penalty = -10000
             self.candidates.append(end_candidate)
         for candidate in self.candidates:
-            self._prepareCandidateStart(candidate)
+            self.prepareCandidateStart(self.nodes, self.end, candidate)
         self._finished = True
         return self
 

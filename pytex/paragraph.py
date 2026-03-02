@@ -697,8 +697,10 @@ class _LineBreaker:
         self.para = para
         self.nodes = nodes
         self.context = para.typeset_context
-        self.breaks = tuple(breaks)
-        self.end = self.breaks[-1].break_index if self.breaks else len(nodes)
+        self.breaks = breaks
+        self.start = breaks.head
+        self.end = breaks.tail.break_index if breaks.tail is not None else len(nodes)
+        self.last_break = breaks.tail
         self.tolerance = tolerance
         self.allow_overfull = allow_overfull
         self.actual_looseness = 0
@@ -823,20 +825,18 @@ class _LineBreaker:
         """
         Execute one line-breaking round using DP and return chosen lines.
         """
-        n = len(self.breaks)
-        if n == 0:
+        if self.start is None:
             return None
 
-        frontier = [self._State(0, None)]
+        frontier = [self._State(self.start, None)]
         finals = []
 
         while frontier:
             next_states = {}
             for state in frontier:
-                i = state.break_pos
-                begin = self.breaks[i]
-                for j in range(i + 1, n):
-                    end = self.breaks[j]
+                begin = state.break_pos
+                end = begin.next
+                while end is not None:
                     line = _Line(self, state.line, begin, end)
                     if not line.feasible:
                         if (
@@ -847,14 +847,15 @@ class _LineBreaker:
                         ):
                             break
                     else:
-                        key = (j, line.line_no, line.fitness, line.hyphenated)
+                        key = (end, line.line_no, line.fitness, line.hyphenated)
                         best = next_states.get(key)
                         if best is None or line.demerits < best.demerits:
-                            next_states[key] = self._State(j, line)
+                            next_states[key] = self._State(end, line)
+                    end = end.next
             if not next_states:
                 break
             frontier = list(next_states.values())
-            finals.extend([state for state in frontier if state.break_pos == n - 1])
+            finals.extend([state for state in frontier if state.break_pos is self.last_break])
 
         if not finals:
             return None

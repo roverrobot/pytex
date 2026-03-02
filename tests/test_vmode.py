@@ -235,7 +235,7 @@ def test_page_break_inserts_topskip_and_splits_pages(parser):
     assert pages[0].list[0].node_type == nd.NODE_TYPE.GLUE
     assert pages[0].list[0].name == "\\topskip"
     assert pages[0].list[1] is first
-    assert pages[0].list[2].node_type == nd.NODE_TYPE.GLUE
+    assert len(pages[0].list) == 2
     assert pages[1].list[0].node_type == nd.NODE_TYPE.GLUE
     assert pages[1].list[0].name == "\\topskip"
     assert pages[1].list[1] is second

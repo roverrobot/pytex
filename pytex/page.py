@@ -268,9 +268,10 @@ class MainVList(vmode.VList):
         return start, context
 
     @staticmethod
-    def _candidateBreak(index, include):
-        end = index + 1 if include else index
-        return end, index + 1
+    def _candidateBreak(index, kind):
+        if kind == "kern":
+            return index + 1, index + 1
+        return index, index + 1
 
     def _bestPageBreak(self, nodes, start, context):
         total = Glue()
@@ -293,12 +294,12 @@ class MainVList(vmode.VList):
                     continue
                 effective = self._effectiveTotal(total, bottom_depth, current_context.maxdepth)
                 cost = self._pageCost(effective, current_context.vsize, node.penalty)
-                current = (cost, i, False, current_context, node.penalty)
+                current = (cost, i, "penalty", current_context, node.penalty)
                 if best is None or cost <= best[0]:
                     best = current
                 if cost == inf or node.penalty <= -10000:
-                    _, index, include, best_context, best_penalty = best if best is not None else current
-                    end, next_start = self._candidateBreak(index, include)
+                    _, index, kind, best_context, best_penalty = best if best is not None else current
+                    end, next_start = self._candidateBreak(index, kind)
                     return end, next_start, best_context, best_penalty
                 continue
             self._pageMeasure(total, node)
@@ -308,7 +309,7 @@ class MainVList(vmode.VList):
                 effective = self._effectiveTotal(total, bottom_depth, current_context.maxdepth)
                 cost = self._pageCost(effective, current_context.vsize, 0)
                 if best is None or cost <= best[0]:
-                    best = (cost, i, True, current_context, 0)
+                    best = (cost, i, node.node_type.name.lower(), current_context, 0)
             if self._pageBadness(
                 self._effectiveTotal(total, bottom_depth, current_context.maxdepth),
                 current_context.vsize,
@@ -316,8 +317,8 @@ class MainVList(vmode.VList):
                 break
         if best is None:
             return len(nodes), len(nodes), current_context, 0
-        _, index, include, best_context, best_penalty = best
-        end, next_start = self._candidateBreak(index, include)
+        _, index, kind, best_context, best_penalty = best
+        end, next_start = self._candidateBreak(index, kind)
         return end, next_start, best_context, best_penalty
 
     def _buildPage(self, parser, nodes, start, end, context):
@@ -437,7 +438,10 @@ class MainVList(vmode.VList):
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
-            page.list[:] = self._buildPage(parser, material, start, end, context)
+            # The page material is already fully typeset. Keep it as a plain list so
+            # VBox.pretypeset() computes box dimensions without re-running
+            # VList.typesetNodes() and duplicating interline penalties/glue.
+            page.list = self._buildPage(parser, material, start, end, context)
             page.typeset(parser, [])
             pages.append(page)
             parser.state.layout["outputpenalty"] = break_penalty
@@ -472,7 +476,8 @@ class MainVList(vmode.VList):
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
             parser.state.layout["outputpenalty"] = break_penalty
-            page.list[:] = self._buildPage(parser, material, start, end, context)
+            # Keep the built page material as a plain list; it is already packed.
+            page.list = self._buildPage(parser, material, start, end, context)
             page.typeset(parser, [])
             carry = self._runOutputRoutine(parser, page)
             if carry:

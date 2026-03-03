@@ -9,6 +9,7 @@ from pytex import node as nd
 from pytex.dimen import Dimen
 from pytex.module import Module
 from pytex import page
+from math import isinf
 
 
 class DVIShipout(page.Shipout):
@@ -113,17 +114,17 @@ class DVIShipout(page.Shipout):
         return font_id
 
     def _set_font(self, font):
+        if self.current_font == font:
+            return
+        self.current_font = font
         font_id = self.font_ids.get(id(font))
         if font_id is None:
             font_id = self._define_font(font)
-        if self.current_font == font_id:
-            return
         if font_id < 64:
             self._write_byte(171 + font_id)
         else:
             self._write_byte(235)  # fnt1
             self._write_unsigned(font_id, 1)
-        self.current_font = font_id
 
     def _push(self):
         self._write_byte(141)
@@ -135,9 +136,7 @@ class DVIShipout(page.Shipout):
         self._write_byte(142)
         self.h, self.v = self.stack.pop()
 
-    def _move_to(self, h, v):
-        dh = int(h) - self.h
-        dv = int(v) - self.v
+    def _move(self, dh, dv):
         if dh:
             self._write_byte(146)  # right4
             self._write_signed(dh, 4)
@@ -147,8 +146,12 @@ class DVIShipout(page.Shipout):
             self._write_signed(dv, 4)
             self.v += dv
 
-    @staticmethod
-    def _glue_amount(node, box):
+    def _move_to(self, h, v):
+        dh = None if h is None else int(h) - self.h
+        dv = None if v is None else int(v) - self.v
+        self._move(dh, dv)
+
+    def _set_glue(self, node, box):
         amount = node.glue.dimen
         ratio = box.glue_ratio
         if ratio > 0:
@@ -159,25 +162,49 @@ class DVIShipout(page.Shipout):
             shrink = node.glue.shrink
             if shrink.order == box.natural.shrink.order:
                 amount += shrink.factor * ratio
-        return amount
+        if box.node_type == nd.NODE_TYPE.HLIST:
+            self._move(int(amount), None)
+        else:
+            self._move(None, int(amount))
 
-    def _set_char(self, char):
-        code = ord(char)
+    def _set_char(self, node):
+        self._set_font(node.font)
+        code = ord(node.char)
         if code < 128:
             self._write_byte(code)
-        else:
-            self._write_byte(128)  # set1
+        elif code < 256: # set 1
+            self._write_byte(128)
             self._write_unsigned(code, 1)
+        elif code < 65536: # set1
+            self._write_byte(129)
+            self._write_unsigned(code, 2)
+        elif code < 16777216: # set 3
+            self._write_byte(130)
+            self._write_unsigned(code, 3)
+        else:
+            self._write_byte(131)
+            self._write_unsigned(code, 4)
+        self.h += int(node.width)
 
-    def _put_rule(self, height, width, move):
+    def _ship_rule(self, node, box, move):
+        if box.node_type == nd.NODE_TYPE.VLIST:
+            w = int(box.width) if isinf(node.width) else int(node.width)
+            h = int(node.height)
+            d = int(node.depth)
+            if move:
+                self.v += h
+        else:
+            w = int(node.width)
+            h = int(box.height) if isinf(node.height) else int(node.height)
+            d = int(box.depth) if isinf(node.depth) else int(node.depth)
+            if move:
+                self.h += w
         self._write_byte(132 if move else 137)
-        self._write_signed(int(height), 4)
-        self._write_signed(int(width), 4)
-        if move:
-            self.h += int(width)
+        self._write_signed(h + d, 4)
+        self._write_signed(w, 4)
 
     def special(self, text):
-        data = text.encode("utf-8")
+        data = text.encode()
         if len(data) < 256:
             self._write_byte(239)  # xxx1
             self._write_unsigned(len(data), 1)
@@ -186,69 +213,59 @@ class DVIShipout(page.Shipout):
             self._write_unsigned(len(data), 4)
         self._write(data)
 
-    def _ship_box(self, box, x, y):
+    def _ship_box(self, box, parent):
+        self._push()
+        if parent.node_type == nd.NODE_TYPE.HLIST:
+            if box.node_type == nd.NODE_TYPE.HLIST:
+                self._move(None, int(box.shifted))
+                self._ship_hlist(box)
+            else:
+                self._move(None, int(box.shifted) - int(box.height))
+                self._ship_vlist(box)
+            self._pop()
+            self._move(int(box.width), None)
+        else:
+            if box.node_type == nd.NODE_TYPE.HLIST:
+                self._move(int(box.shifted), int(box.height))
+                self._ship_hlist(box)
+            else:
+                self._move(int(box.shifted), None)
+                self._ship_vlist(box)
+            self._pop()
+            self._move(None, int(box.height+box.depth))
+
+    def _ship_hlist(self, box):
         if getattr(box, "list", None) is None:
             return
-        if box.node_type == nd.NODE_TYPE.HLIST:
-            self._ship_hlist(box, x, y)
-        else:
-            self._ship_vlist(box, x, y)
-
-    def _ship_hlist(self, box, x, y):
-        cur = x
         for node in box.list:
             node_type = node.node_type
             if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                self._set_font(node.font)
-                self._move_to(cur, y)
-                self._set_char(node.char)
-                cur += node.width
+                self._set_char(node)
             elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                self._push()
-                child_y = y + node.shifted
-                self._move_to(cur, child_y)
-                self._ship_box(node, cur, child_y)
-                self._pop()
-                cur += node.width
+                self._ship_box(node, box)
             elif node_type == nd.NODE_TYPE.RULE:
-                self._move_to(cur, y - node.height)
-                self._put_rule(node.height + node.depth, node.width, True)
-                cur += node.width
+                self._ship_rule(node, box, True)
             elif node_type == nd.NODE_TYPE.GLUE:
-                cur += self._glue_amount(node, box)
-            elif node_type == nd.NODE_TYPE.KERN:
-                cur += node.kern
+                assert getattr(box, "glue_ratio", None) is not None, "discretionary node contains glue"
+                self._set_glue(node, box)
+            elif node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+                self._move(int(node.kern), None)
             elif node_type == nd.NODE_TYPE.DISC:
-                self._push()
-                self._move_to(cur, y)
-                self._ship_hlist(_DiscList(node.list, box), cur, y)
-                self._pop()
-                cur += node.replace_width
-            elif node_type == nd.NODE_TYPE.MATH:
-                cur += node.kern
+                self._ship_hlist(node)
             elif node_type == nd.NODE_TYPE.WHATSIT:
                 node.output(self.parser, self)
 
-    def _ship_vlist(self, box, x, y):
-        cur = y - box.height
+    def _ship_vlist(self, box):
         for node in box.list:
             node_type = node.node_type
             if node_type == nd.NODE_TYPE.GLUE:
-                cur += self._glue_amount(node, box)
+                self._set_glue(node, box)
             elif node_type == nd.NODE_TYPE.KERN:
-                cur += node.kern
+                self._move(None, int(node.kern))
             elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                self._push()
-                child_x = x + node.shifted
-                child_y = cur + node.height
-                self._move_to(child_x, child_y)
-                self._ship_box(node, child_x, child_y)
-                self._pop()
-                cur += node.height + node.depth
+                self._ship_box(node, box)
             elif node_type == nd.NODE_TYPE.RULE:
-                self._move_to(x, cur)
-                self._put_rule(node.height + node.depth, node.width, False)
-                cur += node.height + node.depth
+                self._ship_rule(node, box, False)
             elif node_type == nd.NODE_TYPE.WHATSIT:
                 node.output(self.parser, self)
 
@@ -279,9 +296,9 @@ class DVIShipout(page.Shipout):
         # DVI coordinates already use TeX's page-origin convention; apply the
         # TeX offsets directly without an extra 1in translation.
         x = self.parser.state.layout["hoffset"]
-        y = self.parser.state.layout["voffset"] + box.height
+        y = self.parser.state.layout["voffset"]
         self._move_to(x, y)
-        self._ship_vlist(box, x, y)
+        self._ship_vlist(box)
         self._write_byte(140)
 
     def close(self):
@@ -306,19 +323,6 @@ class DVIShipout(page.Shipout):
             self._write_byte(223)
         self.file.close()
         self.file = None
-
-
-class _DiscList:
-    """
-    Lightweight adapter so a rendered discretionary branch can reuse _ship_hlist.
-    """
-
-    def __init__(self, nodes, parent):
-        self.list = nodes
-        self.glue_ratio = Dimen()
-        self.natural = parent.natural
-
-    node_type = nd.NODE_TYPE.HLIST
 
 
 mod = Module(

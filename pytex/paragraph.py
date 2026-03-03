@@ -179,8 +179,8 @@ class Paragraph(hmode.HList):
                 packed.append(self._lineDisc(line.end.disc, broken=True))
             packed.append(nd.Glue(context.rightskip, "\\rightskip"))
             hbox = bx.HBox(parser, measure, None)
-            hbox.list = packed
-            hbox.typeset(parser, [])
+            hbox.list[:] = packed
+            hbox = hbox.typeset(parser)
             hbox.source = self
             hbox.typeset_context = LineContext(parser, context, line)
             self._typeset_cache.append(hbox)
@@ -217,7 +217,7 @@ class Paragraph(hmode.HList):
     def _lineDisc(disc, broken):
         rendered = disc.pre if broken else disc.replace
         out = nd.Disc(disc.pre, disc.post, rendered)
-        out.list = rendered
+        out.list = list(rendered)
         out.source = getattr(disc, "source", None)
         return out
 

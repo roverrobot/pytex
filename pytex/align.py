@@ -210,8 +210,7 @@ class Alignment(nd.Node):
                 cells = []
                 while True:
                     cell = row.cells[i]
-                    cell.typeset(parser, [])
-                    cells.append(cell)
+                    cells.append(cell.typeset(parser))
                     column += 1
                     if not getattr(cell.list, "span", 0):
                         break
@@ -316,13 +315,12 @@ class Alignment(nd.Node):
             return cells[0]
         box = self.entryBox(parser)
         box.list[:] = list(cells)
-        box.typeset(parser, [])
-        return box
+        return box.typeset(parser)
 
     def _appendVerticalMaterial(self, parser, vlist, nodes):
         for node in nodes:
             if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                node.typeset(parser, [])
+                node = node.typeset(parser)
             vlist.append(node)
 
     def _glueSet(self, total, delta):
@@ -376,25 +374,23 @@ class HAlignment(Alignment):
 
     def reboxEntry(self, parser, box, target):
         target = Dimen(target)
-        box.typeset(parser, [])
+        box = box.typeset(parser)
         if box.width == target:
             return box
-        ratio, order, stretching = self._glueSet(box.natural, target - box.width)
-        box.glue_ratio = ratio
-        box.width = target
-        return box
+        out = bx.HBox(parser, target, Dimen())
+        out.list[:] = box.list
+        out.source = box.source
+        return out.typeset(parser)
 
     def _buildSpanBox(self, parser, entry):
         box = bx.HBox(parser, None, Dimen())
         for item in entry["cells"]:
-            item.typeset(parser, [])
-            box.list.extend(item.list)
+            box.list.extend(item.typeset(parser).list)
         return box
 
     def _emptyEntry(self, parser, width):
         box = bx.HBox(parser, width, Dimen())
-        box.typeset(parser, [])
-        return box
+        return box.typeset(parser)
 
     def _rowContext(self, prevdepth, context=None):
         if context is None:
@@ -423,12 +419,14 @@ class HAlignment(Alignment):
         for row, entries in rows:
             rowbox = bx.HBox(parser, None, Dimen())
             row_total = glue.Glue()
+            row_width = Dimen()
             row_entries = []
             row_height = Dimen()
             row_depth = Dimen()
             if t:
                 rowbox.list.append(nd.Glue(t[0], "\\tabskip"))
                 row_total += t[0]
+                row_width += t[0].dimen
             for entry in entries:
                 i = entry["start"]
                 j = i + entry["span"] - 1
@@ -440,6 +438,7 @@ class HAlignment(Alignment):
                     if box.depth > row_depth:
                         row_depth = box.depth
                     rowbox.list.append(box)
+                    row_width += box.width
                 else:
                     box = self.reboxEntry(parser, self._buildSpanBox(parser, entry), w[i])
                     row_entries.append(box)
@@ -448,20 +447,24 @@ class HAlignment(Alignment):
                     if box.depth > row_depth:
                         row_depth = box.depth
                     rowbox.list.append(box)
+                    row_width += box.width
                     for k in range(i + 1, j + 1):
                         rowbox.list.append(nd.Glue(t[k], "\\tabskip"))
                         row_total += t[k]
-                        rowbox.list.append(self._emptyEntry(parser, w[k]))
+                        row_width += t[k].dimen
+                        empty = self._emptyEntry(parser, w[k])
+                        rowbox.list.append(empty)
+                        row_width += empty.width
                 if j + 1 < len(t):
                     rowbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
                     row_total += t[j + 1]
+                    row_width += t[j + 1].dimen
             for box in row_entries:
                 box.height = row_height
                 box.depth = row_depth
-            rowbox.typeset(parser, [])
-            prepared.append((row, rowbox, row_total))
-            if rowbox.width > W:
-                W = Dimen(rowbox.width)
+            prepared.append((row, rowbox, row_total, row_width))
+            if row_width > W:
+                W = Dimen(row_width)
         if self.to is not None:
             W = self.to
         else:
@@ -470,18 +473,17 @@ class HAlignment(Alignment):
         out.typeset_context = context
         if self.noalign is not None:
             self._appendVerticalMaterial(parser, out.list, self.noalign)
-        for row, rowbox, row_total in prepared:
-            ratio, order, stretching = self._glueSet(row_total, W - rowbox.width)
-            rowbox.glue_ratio = ratio
-            rowbox.width = W
+        for row, rowbox, row_total, row_width in prepared:
+            rowbox.to = W
+            rowbox.spread = W - row_width
+            rowbox = rowbox.typeset(parser)
             row_context = self._rowContext(out.list.prevdepth, context)
             if row_context is not None:
                 rowbox.typeset_context = row_context
             out.list.append(rowbox)
             if row.noalign is not None:
                 self._appendVerticalMaterial(parser, out.list, row.noalign)
-        out.typeset(parser, [])
-        self._typeset_cache = out
+        self._typeset_cache = out.typeset(parser)
 
     def _prepareExpandedRows(self, context=None):
         if self._expanded_rows_ready:
@@ -552,8 +554,7 @@ class VAlignment(Alignment):
         out.list.append(nd.Glue(vss, None))
         out.list.append(box)
         out.list.append(nd.Glue(vss, None))
-        out.typeset(parser, [])
-        return out
+        return out.typeset(parser)
 
     def pretypeset(self, parser):
         if self._typeset_cache is not None:
@@ -580,10 +581,9 @@ class VAlignment(Alignment):
                     colbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
             for box in entry_boxes:
                 box.width = col_width
-            colbox.typeset(parser, [])
-            out.list.append(colbox)
-        out.typeset(parser, [])
-        self._typeset_cache = out
+                box._typeset_cache = box
+            out.list.append(colbox.typeset(parser))
+        self._typeset_cache = out.typeset(parser)
 
     def typeset(self, parser, packed):
         self.pretypeset(parser)

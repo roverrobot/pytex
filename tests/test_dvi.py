@@ -33,3 +33,11 @@ def test_dvi_shipout_writes_minimal_page(cmr10, tmp_path):
     assert 249 in data  # post_post
     assert ord("a") in data
     assert len(shipout.pages) == 1
+
+
+def test_dvi_adjacent_chars_do_not_emit_explicit_move(cmr10, tmp_path):
+    cmr10.parse("\\shipout\\vbox{\\hbox{ab}}", jobname="pair")
+    cmr10.jobname = str(tmp_path / "pair")
+    cmr10.outputPages()
+    data = Path(str(tmp_path / "pair.dvi")).read_bytes()
+    assert bytes((ord("a"), ord("b"))) in data

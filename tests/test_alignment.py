@@ -170,15 +170,14 @@ def test_halign_spanned_box_uses_row_glue_setting(cmr10):
 def test_valign_typesets_to_hbox(cmr10):
     cmr10.parse("\\setbox1=\\hbox{\\valign{#\\cr a\\cr b\\cr}}")
     outer = cmr10.state.box[1]
-    outer.typeset(cmr10, [])
-    assert outer.list[0].node_type == nd.NODE_TYPE.VLIST
+    assert outer.typeset(cmr10).list[0].node_type == nd.NODE_TYPE.VLIST
 
 
 def test_valign_normalizes_cell_box_widths(cmr10):
     cmr10.parse("\\setbox1=\\hbox{\\valign{#&#\\cr \\hbox{a}&\\hbox{bc}\\cr \\hbox{d}&\\hbox{e}\\cr}}")
     outer = cmr10.state.box[1]
-    outer.typeset(cmr10, [])
-    left, right = outer.list
+    out = outer.typeset(cmr10)
+    left, right = out.list
     left_cells = [node for node in left.list if node.node_type == nd.NODE_TYPE.VLIST]
     right_cells = [node for node in right.list if node.node_type == nd.NODE_TYPE.VLIST]
     assert left_cells[0].width == left.width

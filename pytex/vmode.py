@@ -39,6 +39,8 @@ class VList(lists.List):
         # Explicit override set by \prevdepth, or init_prevdepth after glue/kern/rule.
         # None means "derive from the last contextual node lazily".
         self.prevdepth = init_prevdepth
+        # TeX allows \lastbox in main vertical mode after \unvbox/\unvcopy.
+        self.can_lastbox = False
 
     def _expandNode(self, parser, node):
         # expand a node without side effects on this vertical list
@@ -87,6 +89,7 @@ class VList(lists.List):
         Append a node to the list.
         @param node: the node to append
         """
+        self.can_lastbox = False
         context = getattr(node, "typeset_context", None)
         if context is None and getattr(node, "needs_vcontext", False):
             node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)

@@ -370,6 +370,17 @@ def test_lastbox_vmode(cmr10):
         assert "\\lastbox" in str(e)
 
 
+def test_lastbox_main_vmode_after_unvbox(cmr10):
+    cmr10.parse("\\setbox1=\\vbox{\\hbox{A}\\hbox{B}}\\unvbox1\\setbox0=\\lastbox\\setbox2=\\lastbox")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 0
+    box0 = cmr10.state.box[0]
+    box2 = cmr10.state.box[2]
+    assert box0 is not None and box0.node_type == NODE_TYPE.HLIST
+    assert box2 is not None and box2.node_type == NODE_TYPE.HLIST
+
+
 def test_afterassignment(cmr10):
     cmr10.parse("\\afterassignment a\\setbox1=\\hbox{}")
     box1 = cmr10.state.box[1]

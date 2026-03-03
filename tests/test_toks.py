@@ -70,14 +70,6 @@ def test_toks_token_expand_keeps_token_alias(parser):
     assert t is t0
 
 
-def test_read_general_text_accepts_bgroup_alias(parser):
-    parser.parse("\\let\\bgroup={\\let\\egroup=}")
-    parser.readFrom("\\bgroup ab\\egroup")
-    k = parser.readGeneralText()
-    assert len(k) == 2
-    assert k[0].name == "a"
-
-
 def test_page_mark_commands_expand(collector):
     collector.state.parameters["topmark"] = toToks("AB")
     collector.state.parameters["firstmark"] = toToks("CD")

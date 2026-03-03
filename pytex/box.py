@@ -623,6 +623,8 @@ class UnBox(Command):
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
             raise ValueError("expecting an hbox", parser.input.position())
         top.extend(box.list)
+        if self.vertical and top.type == LISTTYPE.VERTICAL:
+            top.can_lastbox = True
 
 
 class Shift(ModeDependentCommand):
@@ -817,7 +819,7 @@ class LastBox(Command):
     def boxValue(self, parser, setbox):
         top = parser.lists[-1]
         # this command can only be unsed in horizontal mode or in ner vertical mode
-        if top.type == LISTTYPE.VERTICAL and not top.inner:
+        if top.type == LISTTYPE.VERTICAL and not top.inner and not getattr(top, "can_lastbox", False):
             raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
         if top.type == LISTTYPE.MATH:
             raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())

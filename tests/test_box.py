@@ -18,7 +18,7 @@ def test_box_dimensions(box):
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     box0 = box.state.box[0]
-    box0.typeset(box, [])
+    box0 = box0.typeset(box)
     assert Dimen(box0.width) == Dimen(55.58344)
     assert Dimen(box0.height) == 6.94444
     assert Dimen(box0.depth) == 1.94444    
@@ -58,11 +58,11 @@ def test_hbox(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     box = top[-1]
     assert box.node_type == NODE_TYPE.HLIST
-    box.typeset(cmr10,[])
-    assert box.width == 55.58344
-    assert box.height == 6.94444
-    assert box.depth == 1.94444
-    assert len(box.list) == 14
+    typed = box.typeset(cmr10)
+    assert typed.width == 55.58344
+    assert typed.height == 6.94444
+    assert typed.depth == 1.94444
+    assert len(typed.list) == 14
 
 def test_hbox_to(cmr10):
     cmr10.parse("\\hbox to 100pt{Hello, world!}\\relax")
@@ -71,10 +71,10 @@ def test_hbox_to(cmr10):
     box = top[-1]
     assert box.node_type == NODE_TYPE.HLIST
     assert isinstance(box.to, Dimen)
-    box.typeset(cmr10,[])
-    assert box.width == 100
-    assert box.height == 6.94444
-    assert box.depth == 1.94444
+    typed = box.typeset(cmr10)
+    assert typed.width == 100
+    assert typed.height == 6.94444
+    assert typed.depth == 1.94444
 
 
 def test_hbox_spread(cmr10):
@@ -84,10 +84,10 @@ def test_hbox_spread(cmr10):
     box = top[-1]
     assert box.node_type == NODE_TYPE.HLIST
     assert isinstance(box.spread, Dimen)
-    box.typeset(cmr10,[])
-    assert box.width == 65.58344
-    assert box.height == 6.94444
-    assert box.depth == 1.94444
+    typed = box.typeset(cmr10)
+    assert typed.width == 65.58344
+    assert typed.height == 6.94444
+    assert typed.depth == 1.94444
 
 
 def test_vbox(box):
@@ -96,11 +96,11 @@ def test_vbox(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     b = top[-1]
     assert b.node_type == NODE_TYPE.VLIST
-    b.typeset(box,[])
-    assert b.width == 55.58344
-    assert b.height == 6.94444 + 6.94444 + 1.94444 + 10.00002
-    assert b.depth == 1.94444
-    assert len(b.list) == 4
+    typed = b.typeset(box)
+    assert typed.width == 55.58344
+    assert typed.height == 6.94444 + 6.94444 + 1.94444 + 10.00002
+    assert typed.depth == 1.94444
+    assert len(typed.list) == 4
 
 
 def test_vbox_to(box):
@@ -109,11 +109,11 @@ def test_vbox_to(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     b = top[-1]
     assert b.node_type == NODE_TYPE.VLIST
-    b.typeset(box,[])
-    assert b.width == 55.58344
-    assert b.height == 100
-    assert b.depth == 1.94444
-    assert len(b.list) == 4
+    typed = b.typeset(box)
+    assert typed.width == 55.58344
+    assert typed.height == 100
+    assert typed.depth == 1.94444
+    assert len(typed.list) == 4
 
 
 def test_vbox_spread(box):
@@ -122,20 +122,25 @@ def test_vbox_spread(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     b = top[-1]
     assert b.node_type == NODE_TYPE.VLIST
-    b.typeset(box,[])
-    assert b.width == 55.58344
-    assert b.height == 6.94444 + 6.94444 + 1.94444 + 10.00002 + 10
-    assert b.depth == 1.94444
-    assert len(b.list) == 4
+    typed = b.typeset(box)
+    assert typed.width == 55.58344
+    assert typed.height == 6.94444 + 6.94444 + 1.94444 + 10.00002 + 10
+    assert typed.depth == 1.94444
+    assert len(typed.list) == 4
+
+
+class _LeafHBox(nd.Box):
+    node_type = NODE_TYPE.HLIST
+    typeset = None
+
+    def __init__(self, height=6, depth=2, width=0):
+        super().__init__(width, height, depth)
+        self.shifted = 0
+        self.list = None
 
 
 def _synthetic_hbox(parser, height=6, depth=2, width=0):
-    hbox = bx.HBox(parser, None, 0)
-    hbox.width = Dimen(width)
-    hbox.height = Dimen(height)
-    hbox.depth = Dimen(depth)
-    hbox.list = []
-    return hbox
+    return _LeafHBox(height, depth, width)
 
 
 def test_vbox_trailing_glue_zeroes_depth(parser):
@@ -143,18 +148,18 @@ def test_vbox_trailing_glue_zeroes_depth(parser):
     vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
     vbox.list.append(nd.Penalty(0))
     vbox.list.append(nd.Glue(glue.Glue(4), None))
-    vbox.typeset(parser, [])
-    assert vbox.height == 10
-    assert vbox.depth == 0
+    typed = vbox.typeset(parser)
+    assert typed.height == 10
+    assert typed.depth == 0
 
 
 def test_vbox_trailing_penalty_keeps_depth(parser):
     vbox = bx.VBox(parser, None, 0)
     vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
     vbox.list.append(nd.Penalty(0))
-    vbox.typeset(parser, [])
-    assert vbox.height == 6
-    assert vbox.depth == 3
+    typed = vbox.typeset(parser)
+    assert typed.height == 6
+    assert typed.depth == 3
 
 
 def test_vbox_uses_captured_boxmaxdepth(parser):
@@ -162,9 +167,9 @@ def test_vbox_uses_captured_boxmaxdepth(parser):
     vbox = bx.VBox(parser, None, 0)
     vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
     parser.state.layout["boxmaxdepth"] = Dimen()
-    vbox.typeset(parser, [])
-    assert vbox.height == 8
-    assert vbox.depth == 1
+    typed = vbox.typeset(parser)
+    assert typed.height == 8
+    assert typed.depth == 1
 
 
 def test_vtop(box):
@@ -173,11 +178,11 @@ def test_vtop(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     b = top[-1]
     assert b.node_type == NODE_TYPE.VLIST
-    b.typeset(box,[])
-    assert b.width == 55.58344
-    assert b.height == 6.94444 
-    assert b.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
-    assert len(b.list) == 4
+    typed = b.typeset(box)
+    assert typed.width == 55.58344
+    assert typed.height == 6.94444 
+    assert typed.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444
+    assert len(typed.list) == 4
 
 
 def test_vtop_to(box):
@@ -186,11 +191,11 @@ def test_vtop_to(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     b = top[-1]
     assert b.node_type == NODE_TYPE.VLIST
-    b.typeset(box,[])
-    assert b.width == 55.58344
-    assert b.height == 6.94444
-    assert b.depth == 100 - 6.94444 + 1.94444
-    assert len(b.list) == 4
+    typed = b.typeset(box)
+    assert typed.width == 55.58344
+    assert typed.height == 6.94444
+    assert typed.depth == 100 - 6.94444 + 1.94444
+    assert len(typed.list) == 4
 
 def test_vtop_spread(box):
     box.parse("\\vtop spread 10pt{\\copy0\\vskip1em plus 1em\\box0}\\relax")
@@ -198,11 +203,11 @@ def test_vtop_spread(box):
     assert top.type == lists.LISTTYPE.VERTICAL
     b = top[-1]
     assert b.node_type == NODE_TYPE.VLIST
-    b.typeset(box,[])
-    assert b.width == 55.58344
-    assert b.height == 6.94444
-    assert b.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444 + 10
-    assert len(b.list) == 4
+    typed = b.typeset(box)
+    assert typed.width == 55.58344
+    assert typed.height == 6.94444
+    assert typed.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444 + 10
+    assert len(typed.list) == 4
 
 
 @pytest.mark.parametrize("cmd, attr", [
@@ -282,8 +287,7 @@ def test_accent(cmr10):
     assert top[0].node_type == NODE_TYPE.ACCENT
     hbox = bx.HBox(cmr10, None, Dimen())
     hbox.list = top
-    hbox.typeset(cmr10, [])
-    packed = hbox.list
+    packed = hbox.typeset(cmr10).list
     kern = packed[0]
     assert kern.node_type == NODE_TYPE.KERN
     assert kern.kern == -1.25000
@@ -314,8 +318,7 @@ def test_accent_italic_alignment_uses_slant(cmr10):
     assert top[0].node_type == NODE_TYPE.ACCENT
     hbox = bx.HBox(cmr10, None, Dimen())
     hbox.list = top
-    hbox.typeset(cmr10, [])
-    packed = hbox.list
+    packed = hbox.typeset(cmr10).list
     assert packed[0].node_type == NODE_TYPE.KERN
     assert float(packed[0].kern) == pytest.approx(-0.36249, abs=1e-4)
     assert packed[1].node_type == NODE_TYPE.HLIST

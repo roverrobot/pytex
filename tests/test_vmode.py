@@ -144,13 +144,18 @@ def test_unkern(cmr10, cmd):
     assert len(top) == 0
 
 
+class _LeafHBox(nd.Box):
+    node_type = nd.NODE_TYPE.HLIST
+    typeset = None
+
+    def __init__(self, height=6, depth=2):
+        super().__init__(0, height, depth)
+        self.shifted = 0
+        self.list = None
+
+
 def _test_hbox(parser, height=6, depth=2):
-    hbox = bx.HBox(parser, None, 0)
-    hbox.width = Dimen(0)
-    hbox.height = Dimen(height)
-    hbox.depth = Dimen(depth)
-    hbox.list = []
-    return hbox
+    return _LeafHBox(height, depth)
 
 
 def test_prevdepth_penalty_does_not_reset(parser):

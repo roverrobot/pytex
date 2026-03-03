@@ -20,7 +20,6 @@ def test_halign(cmr10):
     row = node.rows[0]
     assert len(row.cells) == 2
 
-
 def test_tabskip(cmr10):
     cmr10.parse("\\tabskip 1pt\\halign{1 #\\tabskip 2pt& 2 #\\cr a & b\\cr}")
     top = cmr10.lists[-1]

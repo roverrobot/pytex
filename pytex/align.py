@@ -133,7 +133,7 @@ class RowBuildState:
         t = parser.token_expand()
         if t is None:
             raise ValueError("expecting }", parser.input.position())
-        if t.catcode == CATCODE.END_GROUP:
+        if parser.token_meaning(t).catcode == CATCODE.END_GROUP:
             parser.input.unread(t)
             return
         command = getattr(t, "definition", None)
@@ -614,7 +614,7 @@ def newCell(parser, row_state, column_no):
     if getattr(t, "definition", None) is omit:
         has_omit = True
     else:
-        if t.catcode == CATCODE.END_GROUP:
+        if parser.token_meaning(t).catcode == CATCODE.END_GROUP:
             if column_no != 0:
                 raise ValueError("expecting \\cr", parser.input.position())
             if not row.cells and alignment.rows and alignment.rows[-1] is row:

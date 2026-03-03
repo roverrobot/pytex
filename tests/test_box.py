@@ -64,6 +64,13 @@ def test_hbox(cmr10):
     assert typed.depth == 1.94444
     assert len(typed.list) == 14
 
+
+def test_hbox_accepts_bgroup_alias(cmr10):
+    cmr10.parse("\\let\\bgroup={\\let\\egroup=}\\setbox0=\\hbox\\bgroup A\\egroup")
+    box0 = cmr10.state.box[0].typeset(cmr10)
+    assert box0.width > 0
+    assert len(box0.list) == 1
+
 def test_hbox_to(cmr10):
     cmr10.parse("\\hbox to 100pt{Hello, world!}\\relax")
     top = cmr10.lists[-1]

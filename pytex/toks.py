@@ -65,7 +65,7 @@ def readBalancedText(parser, toks: list = [], expand: bool = False, macro: bool 
             t, expanded = tok(parser)
             if t is None:
                 raise ValueError("unbalanced token list", parser.input.position())
-            catcode = t.catcode
+            catcode = parser.token_meaning(t).catcode
             if catcode == begin_group:
                 level += 1
             elif catcode == end_group:
@@ -91,7 +91,7 @@ def readBalancedText(parser, toks: list = [], expand: bool = False, macro: bool 
             t = tok()
             if t is None:
                 raise ValueError("unbalanced token list", parser.input.position())
-            catcode = t.catcode
+            catcode = parser.token_meaning(t).catcode
             if catcode == begin_group:
                 level += 1
             elif catcode == end_group:
@@ -136,6 +136,7 @@ def readGeneralText(parser, expand: bool = True):
     """
     skipFiller(parser)
     lbrace = parser.token_expand() if expand else parser.token()
+    lbrace = parser.token_meaning(lbrace)
     if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting {", parser.input.position())
     toks = readBalancedText(parser, [], expand, macro=False)

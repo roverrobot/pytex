@@ -99,9 +99,7 @@ class Parser:
         @return: the next token
         """
         t = self.input.read()
-        if t is None:
-            return None
-        if t.is_command:
+        if t is not None and t.is_command:
             if t.noexpand:
                 t.noexpand = False
                 t.definition = token.relax
@@ -131,6 +129,15 @@ class Parser:
                     if t is None:
                         continue
             return t
+
+    def token_meaning(self, t):
+        """
+        resolve a \\let alias to a literal token without expanding commands.
+        This is used by syntax scanners that accept things like \\bgroup.
+        """
+        if t is not None and t.is_command and isinstance(t.definition, token.Token):
+            return t.definition
+        return t
 
     def parse(self, input, jobname: typing.Optional[str] = None):
         """

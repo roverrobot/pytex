@@ -170,6 +170,7 @@ def readList(parser, list, reason: GROUP_TYPE, callback=None):
     parser.skipFiller()
     pos = parser.input.position()
     t = parser.token_expand()
+    t = parser.token_meaning(t)
     if t.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting a {", pos)
     if list is not None:

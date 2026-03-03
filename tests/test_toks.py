@@ -1,5 +1,6 @@
 import pytest
-from pytex.token import CATCODE
+from pytex.token import CATCODE, CommandToken, Token
+from pytex import toks
 from pytex import node as nd
 from pytex import glue
 from pytex.expandable import toToks
@@ -51,6 +52,30 @@ def test_parpar(parser):
     toks0 = parser.state.toks[0]
     assert len(toks0) == 1
     assert toks0[0].catcode == CATCODE.PARAMETER
+
+
+def test_toks_token_expand_keeps_token_alias(parser):
+    t0 = CommandToken("\\bgroup")
+    t0.definition = Token("{", CATCODE.BEGIN_GROUP)
+
+    def next_token():
+        if getattr(next_token, "seen", False):
+            return None
+        next_token.seen = True
+        return t0
+
+    parser.token = next_token
+    t, expanded = toks.token_expand(parser)
+    assert expanded is None
+    assert t is t0
+
+
+def test_read_general_text_accepts_bgroup_alias(parser):
+    parser.parse("\\let\\bgroup={\\let\\egroup=}")
+    parser.readFrom("\\bgroup ab\\egroup")
+    k = parser.readGeneralText()
+    assert len(k) == 2
+    assert k[0].name == "a"
 
 
 def test_page_mark_commands_expand(collector):

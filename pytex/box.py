@@ -316,6 +316,7 @@ class BuildBox(Command):
         box = self.box(parser, to, spread)
         parser.skipFiller()
         t = parser.token_expand()
+        t = parser.token_meaning(t)
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
         parser.lists.append(box.list)

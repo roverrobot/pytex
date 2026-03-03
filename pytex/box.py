@@ -34,8 +34,9 @@ class Box(nd.Box):
     @param to: the target width or height
     @param spread: the spread
     """
-    def __init__(self, to, spread, list=None):
+    def __init__(self, parser, to, spread, list=None):
         super().__init__(None, None, None)
+        self.parser = parser
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
         self.list = list
@@ -57,14 +58,73 @@ class Box(nd.Box):
             }
         }
 
-    def typeset(self, parser, packed):
+    def typeset(self, parser, packed=None):
         """
         typeset the box
         @param parser: the parser
         @param packed: if provided, append this node and skip in-place typesetting.
         """
         self.pretypeset(parser)
+        if packed is None:
+            return self._typeset_cache
         packed.append(self._typeset_cache)
+
+    def pretypeset(self, parser):
+        raise NotImplementedError("this method should be implemented in subclasses")
+
+    def _expand(self, parser, content, node):
+        """
+        Expand the current list and collect nodes/glues/migratory nodes.
+        """
+        typeset = node.typeset
+        if typeset is None:
+            content.append(node)
+            return
+        start = len(content)
+        typeset(parser, content)
+        if len(content) == start:
+            content.append(node)
+            return
+        for n in content[start:]:
+            if n is node:
+                continue
+            if getattr(n, "source", None) is None:
+                n.source = node
+
+    def copy(self, content=None):
+        """
+        return a copy of the box
+        """
+        BoxType = type(self)
+        box = BoxType(self.parser, self.to, self.spread)
+        box.width = self.width
+        box.height = self.height
+        box.depth = self.depth
+        box.shifted = self.shifted
+        if content is None:
+            box.list = self.list
+        else:
+            box.list[:] = content
+        box.source = self.source
+        box.natural = self.natural
+        box.glue_ratio = self.glue_ratio
+        return box
+
+
+class HBox(Box):
+    """
+    A horizontal box.
+    @param to: the target width
+    @param spread: the spread
+    """
+    def __init__(self, parser, to, spread):
+        super().__init__(parser, to, spread, hmode.HList(parser, True))
+
+    @classmethod
+    def new(cls, parser, **kwargs):
+        return cls(parser, kwargs["to"], kwargs["spread"])
+
+    node_type = nd.NODE_TYPE.HLIST
 
     def pretypeset(self, parser):
         if self._typeset_cache is not None:
@@ -77,13 +137,12 @@ class Box(nd.Box):
                 self._expand(parser, content, n)
         else:
             typeset_nodes(parser, content)
-        self.list[:] = content
         glues = []
         natural = Glue()
         self.width = Dimen()
         self.height = Dimen()
         self.depth = Dimen()
-        for n in self.list:
+        for n in content:
             node_type = n.node_type
             if node_type == nd.NODE_TYPE.GLUE:
                 glues.append(n)
@@ -117,59 +176,9 @@ class Box(nd.Box):
         else:
             self.glue_ratio = Dimen()
         self.natural = natural
-        self._typeset_cache = self
-
-    def _expand(self, parser, content, node):
-        """
-        Expand the current list and collect nodes/glues/migratory nodes.
-        """
-        typeset = node.typeset
-        if typeset is None:
-            content.append(node)
-            return
-        start = len(content)
-        typeset(parser, content)
-        if len(content) == start:
-            content.append(node)
-            return
-        for n in content[start:]:
-            if n is node:
-                continue
-            if getattr(n, "source", None) is None:
-                n.source = node
-
-
-    def copy(self):
-        """
-        return a copy of the box
-        """
-        BoxType = type(self)
-        box = BoxType(self.list.parser, self.to, self.spread)
-        box.width = self.width
-        box.height = self.height
-        box.depth = self.depth
-        box.shifted = self.shifted
-        box.list = self.list
-        box.source = self.source
-        box.glue_ratio = self.glue_ratio
-        return box
-
-
-class HBox(Box):
-    """
-    A horizontal box.
-    @param to: the target width
-    @param spread: the spread
-    """
-    def __init__(self, parser, to, spread):
-        super().__init__(to, spread, hmode.HList(parser, True))
-
-    @classmethod
-    def new(cls, parser, **kwargs):
-        return cls(parser, kwargs["to"], kwargs["spread"])
-
-    node_type = nd.NODE_TYPE.HLIST
-
+        self.width = self.to
+        self._typeset_cache = self.copy(content)
+    
     def calculate(self, node, natural, dim):
         if dim is None:
             # node is something else.
@@ -200,15 +209,14 @@ class HBox(Box):
             self.depth = d
         return natural
     
-    def typeset(self, parser, packed):
-        if self.width is not None:
-            packed.append(self)
-            return
-        super().typeset(parser, packed)
-        for n in self.list:
-            if n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
-                packed.append(n)
+    def typeset(self, parser, packed=None):
+        x = super().typeset(parser, packed)
+        if packed is not None:
+            for n in self.list:
+                if n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
+                    packed.append(n)
         self.width = self.to
+        return x
 
     def rightmost(self):
         # finf the right edge of the rightmost box
@@ -434,7 +442,7 @@ class VBox(Box):
     @param vtop: whether the box is a vtop
     """
     def __init__(self, parser, to, spread):
-        super().__init__(to, spread, vmode.VList(parser))
+        super().__init__(parser, to, spread, vmode.VList(parser))
         self.box_typeset_context = VBoxTypesetContext(parser.state.layout)
 
     @classmethod
@@ -461,7 +469,6 @@ class VBox(Box):
                 self._expand(parser, content, n)
         else:
             typeset_nodes(parser, content)
-        self.list[:] = content
         natural = Glue()
         self.width = Dimen()
         self.height = Dimen()
@@ -469,7 +476,7 @@ class VBox(Box):
         last_depth = Dimen()
         have_box = False
         trailing_glue = False
-        for n in self.list:
+        for n in content:
             node_type = n.node_type
             if node_type == nd.NODE_TYPE.GLUE:
                 natural += n.glue
@@ -515,33 +522,19 @@ class VBox(Box):
         else:
             self.glue_ratio = Dimen()
         self.natural = natural
-        self._typeset_cache = self
-
-    def typeset(self, parser, packed):
-        """
-        typeset the box
-        @param packed: if provided, append this node and skip in-place typesetting.
-        """
-        if self.width is not None:
-            packed.append(self)
-            return
-        super().typeset(parser, packed)
         self.height = self.to
+        self._typeset_cache = self.copy(content)
 
     def __repr__(self):
         return f"VBox({self.width}, {self.height}, {self.depth}, {self.list})"
 
 
 class VTop(VBox):
-    def typeset(self, parser, packed):
-        if self.width is not None:
-            packed.append(self)
-            return
-        super().typeset(parser, packed)
+    def pretypeset(self, parser):
+        super().pretypeset(parser)
         total = self.height + self.depth
-        if self.list:
-            self.height = getattr(self.list[0], "height", 0)
-            self.depth = total - self.height
+        self._typeset_cache.height = self.height = getattr(self.list[0], "height", 0)
+        self._typeset_cache.depth = self.depth = total - self.height
 
 
 class VBoxCommand(BuildBox):
@@ -595,8 +588,7 @@ class BoxDimenCommand(ArrayAccessor, DimenCommand):
         d = getattr(box, self.domain)
         if d is None:
             # not typeset yet
-            box.typeset(parser, [])
-            d = getattr(box, self.domain)
+            d = getattr(box.typeset(parser), self.domain)
         return d
 
 
@@ -675,7 +667,7 @@ class AccentBox(Box):
     An accent box.
     """
     def __init__(self, accent):
-        super().__init__(None, None, [accent])
+        super().__init__(None, None, None, [accent])
         self.accent = accent
         self.width = accent.width
         self.height = accent.height
@@ -734,7 +726,7 @@ class IndentBox(Box):
     An indent box.
     """
     def __init__(self, parser):
-        super().__init__(None, None, None)
+        super().__init__(parser, None, None, None)
         self.width = parser.state.parameters["parindent"]
         self.height = Dimen()
         self.depth = Dimen()

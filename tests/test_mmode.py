@@ -991,7 +991,7 @@ def test_plain_math_reference_metrics(parser):
 
     parser.parse("\\setbox0=\\hbox{$\\displaystyle \\int_0^1$}")
     integral = parser.state.box[0]
-    integral.typeset(parser, [])
+    integral = integral.typeset(parser)
     # Reference metrics from pdfTeX:
     # \\hbox(15.65013+9.11122)x14.48615
     assert float(integral.width) == pytest.approx(14.48615, abs=1e-4)
@@ -1002,21 +1002,21 @@ def test_plain_math_reference_metrics(parser):
 
     parser.parse("\\setbox1=\\hbox{$\\displaystyle \\sqrt{a}$}")
     disp = parser.state.box[1]
-    disp.typeset(parser, [])
+    disp = disp.typeset(parser)
     assert float(disp.width) == pytest.approx(13.61925, abs=1e-4)
     assert float(disp.height) == pytest.approx(8.49092, abs=1e-4)
     assert float(disp.depth) == pytest.approx(1.90904, abs=1e-4)
 
     parser.parse("\\setbox2=\\hbox{$\\sqrt{a}$}")
     text = parser.state.box[2]
-    text.typeset(parser, [])
+    text = text.typeset(parser)
     assert float(text.width) == pytest.approx(13.61925, abs=1e-4)
     assert float(text.height) == pytest.approx(8.00272, abs=1e-4)
     assert float(text.depth) == pytest.approx(2.39725, abs=1e-4)
 
     parser.parse("\\setbox3=\\hbox{$\\displaystyle {a^2 \\over b^2}$}")
     frac = parser.state.box[3]
-    frac.typeset(parser, [])
+    frac = frac.typeset(parser)
     # \\hbox(14.9051+6.85951)x12.17201
     assert float(frac.width) == pytest.approx(12.17201, abs=1e-4)
     assert float(frac.height) == pytest.approx(14.90510, abs=1e-4)
@@ -1426,8 +1426,7 @@ def test_rule19_uses_context_delimiter_parameters(math):
         def typeset(self, parser, total, context, style, axis):
             self.total = Dimen(total)
             b = box.HBox(parser, 0, 0)
-            b.typeset(parser, [])
-            return b
+            return b.typeset(parser)
 
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
     atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)

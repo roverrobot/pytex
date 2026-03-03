@@ -121,10 +121,17 @@ class RowBuildState:
     def newCell(self, parser, column_no, omit=False):
         cell = self.alignment.newBox(parser)
         self.row.cells.append(cell)
+        template = self.template if self.template is not None else self.builder.preamble
         if omit:
             templates = []
         else:
-            column = self.template[column_no]
+            if column_no < len(template):
+                column = template[column_no]
+            else:
+                start = self.builder.repeat_start
+                if start is None or start >= len(template):
+                    raise ValueError("extra alignment tab has been changed to \\cr", parser.input.position())
+                column = template[start + (column_no - start) % (len(template) - start)]
             templates = [column.v, column.u]
         self.current_cell = CellBuildState(cell.list, column_no, self, templates)
         return self.current_cell
@@ -142,7 +149,8 @@ class RowBuildState:
         noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
         row = Row()
         self.alignment.rows.append(row)
-        row_state = RowBuildState(row, self.alignment, self.template, self.builder)
+        template = self.template if self.template is not None else self.builder.preamble
+        row_state = RowBuildState(row, self.alignment, template, self.builder)
         self.builder.current_row_state = row_state
         if command == noalign:
             noalign_owner.noalign = parser.readVList(
@@ -749,6 +757,7 @@ class AlignmentBuilder:
         # the preamble for the alignment, whiich is a list of templates
         # each template is a tuple of two lists, the tokens to the left and right of the # token
         self.preamble = None
+        self.repeat_start = None
         
     def readPreamble(self, parser):
         """
@@ -783,14 +792,13 @@ class AlignmentBuilder:
         parser.input.unread(t)
         while True:
             t = parser.token()
-            if t and t.definition == span:
+            if getattr(t, "definition", None) is span:
                 t = parser.token_expand()
             if t is None:
                 raise ValueError("expecting a \\cr", parser.input.position())
             if t.catcode == CATCODE.BEGIN_GROUP:
                 current.extend(parser.readBalancedText([t], expand=False, macro=False))
                 continue
-            # \span
             if t.catcode == CATCODE.PARAMETER:
                 if current is column.u:
                     current = column.v
@@ -798,6 +806,8 @@ class AlignmentBuilder:
                     raise ValueError("displaced #", parser.input.position())
                 continue
             if t.catcode == CATCODE.ALIGNMENT_TAB:
+                if len(self.preamble) == 1 and current is column.u and not column.u and not column.v:
+                    self.repeat_start = 1
                 column = Column()
                 self.preamble.append(column)
                 self.alignment.tabskips.append(parser.state.parameters["tabskip"])

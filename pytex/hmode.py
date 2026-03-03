@@ -346,7 +346,6 @@ class ControlledSpace(HorizontalCommand):
         # In math mode, a space is a no-op
         self.horizontal(parser, mlist)
 
-
 class Discretionary(HorizontalCommand):
     """
     The \\discretionary command.
@@ -357,7 +356,14 @@ class Discretionary(HorizontalCommand):
         replace = HList(parser)
         
         def finish():
-            node = nd.Disc(pre, post, replace)
+            # we need to handle ligatures and boxes so their width are fixed.
+            packed_pre = []
+            pre.typesetNodes(parser, packed_pre)
+            packed_post = []
+            post.typesetNodes(parser, packed_post)
+            packed_replace = []
+            replace.typesetNodes(parser, packed_replace)
+            node = nd.Disc(packed_pre, packed_post, packed_replace)
             if math and len(node.replace) > 0:
                 raise ValueError("replace part of discretionary must be empty in math mode")
             out.append(node)

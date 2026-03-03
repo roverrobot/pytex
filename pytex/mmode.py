@@ -543,8 +543,7 @@ class MList(lists.List):
         # drop that outer wrapper (TeX optimization for translated sub-mlists).
         hbox = box.HBox(parser, None, None)
         self.typesetNodes(parser, hbox.list, context, style)
-        hbox.typeset(parser, [])
-        packed.append(_drop_redundant_wrapper(hbox, allow_char=True))
+        packed.append(_drop_redundant_wrapper(hbox.typeset(parser), allow_char=True))
 
 
 class InlineMathList(MList):
@@ -619,7 +618,7 @@ class DisplayMathList(MList):
             eqno, left = self.eqno
             a = box.HBox(parser, None, 0)
             eqno.typesetNodes(parser, a.list, self.typeset_context, Style(MATH_STYLE.T))
-            a.typeset(parser, [])
+            a = a.typeset(parser)
             e = a.width
             q = e + self.typeset_context.textfont[2].param[5] # quad (fontdimen6)
         else:
@@ -629,8 +628,8 @@ class DisplayMathList(MList):
             left = None
         h = self.typesetNodes(parser, None, self.typeset_context, Style(MATH_STYLE.D))
         b = box.HBox(parser, None, 0)
-        b.list = h
-        b.typeset(parser, [])
+        b.list[:] = h
+        b = b.typeset(parser)
         w0 = b.width
         z = self.typeset_context.displaywidth
         s = self.typeset_context.displayindent
@@ -639,8 +638,8 @@ class DisplayMathList(MList):
             # look at all the stretchness of a
             if e != 0:
                 b = box.HBox(parser, to=z-q, spread=None)
-                b.list = h
-                b.typeset(parser, [])
+                b.list[:] = h
+                b = b.typeset(parser)
                 not_enough_shrink = (
                     b.spread < 0
                     and (
@@ -652,8 +651,8 @@ class DisplayMathList(MList):
                     e = Dimen()
             if e == 0:
                 b = box.HBox(parser, to=min(w0, z), spread=None)
-                b.list = h
-                b.typeset(parser, [])
+                b.list[:] = h
+                b = b.typeset(parser)
         # TEX tries now to center the display without regard to the
         # equation number. But if such centering would make it too close to that number
         # (where “too close” means that the space between them is less than the width e), the
@@ -716,7 +715,7 @@ class DisplayMathList(MList):
                     line.list.append(k)
                     line.list.append(a)
             b = line
-        b.typeset(parser, [])
+        b = b.typeset(parser)
         b.shifted = Dimen(s+d)
         b.display = True
         b.typeset_context = VNodeContext(self.typeset_context, None)
@@ -909,7 +908,7 @@ class Atom(nd.Node):
         if self.nucleus is None:
             # return an emptybox
             b = box.HBox(parser, 0, 0)
-            b.typeset(parser, [])
+            b = b.typeset(parser)
             packed.append(b)
             return delta
 
@@ -960,7 +959,7 @@ class Atom(nd.Node):
             return n.height - shifted, n.depth + shifted
         b = box.HBox(parser, None, 0)
         b.list.extend(translated)
-        b.typeset(parser, [])
+        b = b.typeset(parser)
         return b.height, b.depth
 
     def rule18a(self, parser, translated, context, style):
@@ -985,9 +984,10 @@ class Atom(nd.Node):
                 x.list.append(field)
             else:
                 typeset(parser, x.list, context, style)
-        x.typeset(parser, [])
-        x = _drop_redundant_wrapper(x, allow_char=False)
+        x = _drop_redundant_wrapper(x.typeset(parser), allow_char=False)
         x.width += context.scriptspace
+        if hasattr(x, "to"):
+            x.to = x.width
         return x
 
     def rule18c(self, x, context, style, u):
@@ -1046,13 +1046,12 @@ class Atom(nd.Node):
             shifted = box.HBox(parser, None, 0)
             shifted.list.append(nd.Kern(delta))
             shifted.list.append(x)
-            shifted.typeset(parser, [])
-            top = shifted
+            top = shifted.typeset(parser)
         k = u + v - x.depth - y.height
         out = box.VBox(parser, top.height + u, 0)
         # Math-internal vertical stacks should not run VList interline glue logic.
-        out.list = [top, nd.Kern(k), y]
-        out.typeset(parser, [])
+        out.list[:] = [top, nd.Kern(k), y]
+        out = out.typeset(parser)
         out.depth = y.depth + v
         packed.append(out)
         return out
@@ -1108,8 +1107,7 @@ class Atom(nd.Node):
         if self._attach_scripts:
             self.typesetScripts(parser, b.list, context, style, delta)
         self._attach_scripts = True
-        b.typeset(parser, [])
-        return b
+        return b.typeset(parser)
 
     @staticmethod
     def overbar(parser, b, k, t):
@@ -1117,14 +1115,13 @@ class Atom(nd.Node):
         Build TeX's overbar box: kern(t), rule(t), kern(k), then box b.
         """
         out = box.VBox(parser, None, 0)
-        out.list = [
+        out.list[:] = [
             nd.Kern(t),
             nd.Rule(NEG_MAX_DIMEN, t, 0),
             nd.Kern(k),
             b,
         ]
-        out.typeset(parser, [])
-        return out
+        return out.typeset(parser)
 
     @staticmethod
     def rebox(parser, b, width):
@@ -1139,7 +1136,7 @@ class Atom(nd.Node):
             raise ValueError("rebox expects an hbox")
         width = Dimen(width)
         if b.width is None:
-            b.typeset(parser, [])
+            b = b.typeset(parser)
         if b.width == width:
             return b
         out = box.HBox(parser, width, None)
@@ -1154,8 +1151,7 @@ class Atom(nd.Node):
         if italic is not None and float(italic) != 0:
             out.list.append(nd.Kern(italic, automatic=True))
         out.list.append(nd.Glue(hss, None))
-        out.typeset(parser, [])
-        return out
+        return out.typeset(parser)
     
 
 class Op(Atom):
@@ -1182,7 +1178,10 @@ class Op(Atom):
                 out.list.append(field)
             else:
                 typeset(parser, out.list, context, style)
-        out.typeset(parser, [])
+        out = out.typeset(parser)
+        if field is not None:
+            out.width += context.scriptspace
+            out.to = out.width
         return out
 
     def _rule13Nucleus(self, parser, context, style, use_limits):
@@ -1196,8 +1195,7 @@ class Op(Atom):
                     y.list.append(self.nucleus)
             else:
                 typeset(parser, y.list, context, style)
-            y.typeset(parser, [])
-            return y, delta
+            return y.typeset(parser), delta
         # C > T means display style in this implementation.
         font = context.font(style, symbol.fam)
         node = font[symbol.char]
@@ -1208,7 +1206,7 @@ class Op(Atom):
         # Include italic correction in width iff limits are used or there is no subscript.
         if float(delta) != 0 and (use_limits or self.sub is None):
             y.list.append(nd.Kern(delta, automatic=True))
-        y.typeset(parser, [])
+        y = y.typeset(parser)
         axis = Dimen(context.sigma(style)[21])  # sigma22
         y.shifted = (y.height - y.depth) / 2 - axis
         return y, delta
@@ -1253,8 +1251,8 @@ class Op(Atom):
             pieces.append(z)
             pieces.append(nd.Kern(xi13))
         out = box.VBox(parser, None, 0)
-        out.list = pieces
-        out.typeset(parser, [])
+        out.list[:] = pieces
+        out = out.typeset(parser)
         # Rule 13a baseline: the resulting vbox baseline aligns with the centered
         # operator nucleus baseline (box y), not with the bottom of the stack.
         below = self._rule13aDepthFromY(out, pieces, y_index)
@@ -1304,8 +1302,7 @@ class Op(Atom):
         else:
             b.list.append(y)
             self.typesetScripts(parser, b.list, context, style, delta)
-        b.typeset(parser, [])
-        return b
+        return b.typeset(parser)
 
 
 class MathSymbol(serialization.Serializable):
@@ -1723,6 +1720,7 @@ class MathChoiceEndGroupCallback(MathEndGroupCallback):
 
     def beginGroup(self, parser):
         t = parser.token_expand()
+        t = parser.token_meaning(t)
         pos = parser.input.position()
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a \"{\"", pos)
@@ -1861,8 +1859,7 @@ class Delim(serialization.Serializable):
         italic = getattr(node, "italic", None)
         if italic is not None and float(italic) != 0:
             b.list.append(nd.Kern(italic, automatic=True))
-        b.typeset(parser, [])
-        return b
+        return b.typeset(parser)
 
     def _buildExtensible(self, parser, chosen, minimum):
         info = chosen["info"]
@@ -1923,7 +1920,7 @@ class Delim(serialization.Serializable):
 
         v = box.VTop(parser, None, 0)
         v.list.extend(parts)
-        v.typeset(parser, [])
+        v = v.typeset(parser)
         # TeX uses the repeatable piece width for extensible delimiters.
         v.width = rep.width
         return v
@@ -1934,14 +1931,15 @@ class Delim(serialization.Serializable):
         height+depth.
         """
         if context is None:
-            context = MathTypesetContext(parser, MATH_CONTEXT_MODE.SUBFORMULA)
+            context = MathTypesetContext(True)
+            context.snapshot(parser)
         if style is None:
             style = Style(MATH_STYLE.T)
         if axis is None:
             axis = Dimen(context.sigma(style)[21])
         if self._isNull():
             b = box.HBox(parser, context.nulldelimiterspace, None)
-            b.typeset(parser, [])
+            b = b.typeset(parser)
             # Rule 15e/19 centering applies to null delimiters as well.
             b.shifted = (b.height - b.depth) / 2 - axis
             return b
@@ -1954,8 +1952,7 @@ class Delim(serialization.Serializable):
             chosen = best
         if chosen is None:
             b = box.HBox(parser, context.nulldelimiterspace, None)
-            b.typeset(parser, [])
-            return b
+            return b.typeset(parser)
         if chosen["extensible"]:
             out = self._buildExtensible(parser, chosen, minimum)
         else:
@@ -1987,8 +1984,7 @@ class Rad(Atom):
                 out.list.append(field)
             else:
                 typeset(parser, out.list, context, style)
-        out.typeset(parser, [])
-        return _drop_redundant_wrapper(out, allow_char=False)
+        return _drop_redundant_wrapper(out.typeset(parser), allow_char=False)
 
     def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
         """
@@ -2010,9 +2006,8 @@ class Rad(Atom):
             clr += delta / 2
         y.shifted = Dimen(-float(x.height + clr))
         out = box.HBox(parser, None, 0)
-        out.list = [y, Atom.overbar(parser, x, clr, y.height)]
-        out.typeset(parser, [])
-        packed.append(out)
+        out.list[:] = [y, Atom.overbar(parser, x, clr, y.height)]
+        packed.append(out.typeset(parser))
         return Dimen()
 
     node_type = nd.NODE_TYPE.MATHNODE
@@ -2194,8 +2189,8 @@ class Over(Atom):
         z = box.HBox(parser, None, 0)
         num.typesetNodes(parser, x.list, context, style.numerator())
         den.typesetNodes(parser, z.list, context, style.denominator())
-        x.typeset(parser, [])
-        z.typeset(parser, [])
+        x = x.typeset(parser)
+        z = z.typeset(parser)
         target = x.width if x.width >= z.width else z.width
         x = Atom.rebox(parser, x, target)
         z = Atom.rebox(parser, z, target)
@@ -2204,21 +2199,21 @@ class Over(Atom):
             # Rule 15c (\atop): enforce minimum clearance with adjusted shifts.
             u, v, k = self.rule15c(x, z, context, style, u, v)
             out = box.VBox(parser, x.height + u, 0)
-            out.list = [x, nd.Kern(k), z]
-            out.typeset(parser, [])
+            out.list[:] = [x, nd.Kern(k), z]
+            out = out.typeset(parser)
             out.depth = z.depth + v
         else:
             # Rule 15d (\over): enforce clearances from numerator/denominator to bar.
             u, v, k1, k2 = self.rule15d(x, z, context, style, theta, u, v)
             out = box.VBox(parser, x.height + u, 0)
-            out.list = [
+            out.list[:] = [
                 x,
                 nd.Kern(k1),
                 nd.Rule(target, theta, 0),
                 nd.Kern(k2),
                 z,
             ]
-            out.typeset(parser, [])
+            out = out.typeset(parser)
             out.depth = z.depth + v
         # Rule 15e: delimiters around the fraction vbox.
         # For plain \over/\atop/\above, TeX uses null delimiters whose width is
@@ -2236,9 +2231,8 @@ class Over(Atom):
         left_box = left_delim.typeset(parser, total, context, style, axis)
         right_box = right_delim.typeset(parser, total, context, style, axis)
         wrapped = box.HBox(parser, None, 0)
-        wrapped.list = [left_box, out, right_box]
-        wrapped.typeset(parser, [])
-        packed.append(wrapped)
+        wrapped.list[:] = [left_box, out, right_box]
+        packed.append(wrapped.typeset(parser))
         return Dimen()
 
     node_type = nd.NODE_TYPE.MATHNODE
@@ -2312,8 +2306,7 @@ class Accent(Atom):
                 out.list.append(field)
             else:
                 typeset(parser, out.list, context, style)
-        out.typeset(parser, [])
-        return _drop_redundant_wrapper(out, allow_char=False)
+        return _drop_redundant_wrapper(out.typeset(parser), allow_char=False)
 
     def _fontCharIfExists(self, font, char):
         code = ord(char)
@@ -2390,15 +2383,16 @@ class Accent(Atom):
         y.list.append(y_char)
         if float(y_char.italic) != 0:
             y.list.append(nd.Kern(y_char.italic, automatic=True))
-        y.typeset(parser, [])
+        y = y.typeset(parser)
         y.shifted = s + (u - y.width) / 2
         # z stacks y, kern(-delta), x.
         z = box.VBox(parser, None, 0)
-        z.list = [y, nd.Kern(Dimen(-float(delta))), x]
-        z.typeset(parser, [])
+        z.list[:] = [y, nd.Kern(Dimen(-float(delta))), x]
+        z = z.typeset(parser)
         if z.height < x.height:
-            z.list.insert(0, nd.Kern(x.height - z.height))
-            z.typeset(parser, [])
+            k = x.height - z.height
+            z.list.insert(0, nd.Kern(k))
+            z.natural.dimen += k
         z.width = x.width
         packed.append(z)
         return Dimen()
@@ -2523,7 +2517,7 @@ class Line(Atom):
         if len(x.list) == 1:
             x = x.list[0]
         else:
-            x.typeset(parser, [])
+            x = x.typeset(parser)
         theta = Dimen(context.xi(style)[7])
         if self.atom_type == ATOM_TYPE.OVER:
             vbox = Atom.overbar(parser, x, 3 * theta, theta)
@@ -2532,8 +2526,8 @@ class Line(Atom):
             kern1 = nd.Kern(theta)
             rule = nd.Rule(NEG_MAX_DIMEN, theta, 0)
             kern2 = nd.Kern(3*theta)
-            vbox.list = [x, kern2, rule, kern1]
-            vbox.typeset(parser, [])
+            vbox.list[:] = [x, kern2, rule, kern1]
+            vbox = vbox.typeset(parser)
         packed.append(vbox)
         return Dimen()
 

@@ -108,6 +108,10 @@ class Box(nd.Box):
         box.source = self.source
         box.natural = self.natural
         box.glue_ratio = self.glue_ratio
+        if content is not None:
+            if hasattr(box, "typeset_context"):
+                box.typeset_context = None
+            box._typeset_cache = box
         return box
 
 

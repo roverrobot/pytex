@@ -110,20 +110,24 @@ class VList(lists.List):
         firstbox = True
         for node in self:
             expanded = self._expandNode(parser, node)
+            node_context = getattr(node, "typeset_context", None)
             for item in expanded:
                 if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                     # if the prevdepth is explicitly set, we use it. Otherwise, we use the current prevdepth
                     context = getattr(item, "typeset_context", None)
                     if context is None:
-                        context = getattr(node, "typeset_context", None)
+                        context = node_context
+                        node_context = None
+                    else:
+                        item.typeset_context = None
                     # add interline penalty if needed
-                    if context.interlinepenalty != 0 and not firstbox:
+                    if context is not None and context.interlinepenalty != 0 and not firstbox:
                         packed.append(nd.Penalty(context.interlinepenalty))
                     d = getattr(context, "prevdepth", None)
                     if d is not None:
                         prevdepth = d
                     # if prevdepth <= -10000, do not add interline glue
-                    if float(prevdepth) > float(init_prevdepth) and not firstbox:
+                    if context is not None and float(prevdepth) > float(init_prevdepth) and not firstbox:
                         baselineskip = context.baselineskip
                         diff = baselineskip.dimen - prevdepth - item.height
                         if diff < context.lineskiplimit:

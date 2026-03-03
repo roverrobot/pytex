@@ -53,7 +53,7 @@ def shipout(parser, box):
             parser.lists[0].append(ShipoutNode(box))
             return
         raise ValueError("no active shipout backend")
-    backend.shipout(box)
+    backend.shipout(box.typeset(parser))
     parser.state.globals["deadcycles"] = 0
 
 
@@ -508,9 +508,8 @@ class MainVList(vmode.VList):
             # The page material is already fully typeset. Keep it as a plain list so
             # VBox.pretypeset() computes box dimensions without re-running
             # VList.typesetNodes() and duplicating interline penalties/glue.
-            page.list = self._buildPage(parser, material, start, end, context)
-            page.typeset(parser, [])
-            pages.append(page)
+            page.list[:] = self._buildPage(parser, material, start, end, context)
+            pages.append(page.typeset(parser))
             parser.state.layout["outputpenalty"] = break_penalty
             parser.state.parameters["topmark"] = list(topmark)
             parser.state.parameters["firstmark"] = list(firstmark)
@@ -547,9 +546,8 @@ class MainVList(vmode.VList):
             for box in self._pageShipouts(material, start, end):
                 shipout(parser, box)
             # Keep the built page material as a plain list; it is already packed.
-            page.list = self._buildPage(parser, material, start, end, context)
-            page.typeset(parser, [])
-            carry = self._runOutputRoutine(parser, page)
+            page.list[:] = self._buildPage(parser, material, start, end, context)
+            carry = self._runOutputRoutine(parser, page.typeset(parser))
             if carry:
                 material[next_start:next_start] = carry
             topmark = list(botmark)

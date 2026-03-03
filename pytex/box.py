@@ -281,7 +281,7 @@ def readToSpread(parser):
         return None, Dimen()
     dim = parser.readDimen()
     if spec == "to":
-        return dim, Dimen()
+        return dim, None
     return None, dim
 
 

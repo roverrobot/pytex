@@ -377,7 +377,7 @@ class HAlignment(Alignment):
         box = box.typeset(parser)
         if box.width == target:
             return box
-        out = bx.HBox(parser, target, Dimen())
+        out = bx.HBox(parser, target, None)
         out.list[:] = box.list
         out.source = box.source
         return out.typeset(parser)
@@ -389,7 +389,7 @@ class HAlignment(Alignment):
         return box
 
     def _emptyEntry(self, parser, width):
-        box = bx.HBox(parser, width, Dimen())
+        box = bx.HBox(parser, width, None)
         return box.typeset(parser)
 
     def _rowContext(self, prevdepth, context=None):

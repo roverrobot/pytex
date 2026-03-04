@@ -127,11 +127,10 @@ class RowBuildState:
         else:
             if column_no < len(template):
                 column = template[column_no]
+            elif self.builder.repeat_start:
+                column = template[column_no % len(template)]
             else:
-                start = self.builder.repeat_start
-                if start is None or start >= len(template):
-                    raise ValueError("extra alignment tab has been changed to \\cr", parser.input.position())
-                column = template[start + (column_no - start) % (len(template) - start)]
+                raise ValueError("extra alignment tab has been changed to \\cr", parser.input.position())
             templates = [column.v, column.u]
         self.current_cell = CellBuildState(cell.list, column_no, self, templates)
         return self.current_cell
@@ -756,8 +755,8 @@ class AlignmentBuilder:
         self.current_row_state = None
         # the preamble for the alignment, whiich is a list of templates
         # each template is a tuple of two lists, the tokens to the left and right of the # token
-        self.preamble = None
-        self.repeat_start = None
+        self.preamble = []
+        self.repeat_start = False
         
     def readPreamble(self, parser):
         """
@@ -769,14 +768,9 @@ class AlignmentBuilder:
 
         The terminator is one of \\cr, \\crcr, 
         """
-        # we start a new group, which will be terminated by \cr or \crcr
-        column = Column()
-        self.preamble = [column]
+        # we first remember the current \tabskip settings        
         self.alignment.tabskips.append(parser.state.parameters["tabskip"])
-        # the template of a column looks like u # v
-        current = column.u
         tabskip = parser.builtin["\\tabskip"]
-        # the scanner
         # Build the preamble against a synthetic row that seeds the first real row.
         row = Row()
         row_state = RowBuildState(row, self.alignment, self.preamble, self)
@@ -785,46 +779,55 @@ class AlignmentBuilder:
         row.cells.append(cell)
         row_state.current_cell = CellBuildState(cell.list, 0, row_state, [])
         parser.lists.append(row_state.current_cell)
+        # we start a new group, which will be terminated by \cr or \crcr
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-        t = parser.skipSpaces(False)
-        if t is None:
-            raise ValueError("expecting a \\cr", parser.input.position())
-        parser.input.unread(t)
         while True:
-            t = parser.token()
-            if getattr(t, "definition", None) is span:
-                t = parser.token_expand()
-            if t is None:
-                raise ValueError("expecting a \\cr", parser.input.position())
-            if t.catcode == CATCODE.BEGIN_GROUP:
-                current.extend(parser.readBalancedText([t], expand=False, macro=False))
-                continue
-            if t.catcode == CATCODE.PARAMETER:
-                if current is column.u:
-                    current = column.v
-                else:
-                    raise ValueError("displaced #", parser.input.position())
-                continue
-            if t.catcode == CATCODE.ALIGNMENT_TAB:
-                if len(self.preamble) == 1 and current is column.u and not column.u and not column.v:
-                    self.repeat_start = 1
-                column = Column()
-                self.preamble.append(column)
-                self.alignment.tabskips.append(parser.state.parameters["tabskip"])
-                current = column.u
-                t = parser.skipSpaces(False)
+            template = [] # the tokans in the column template
+            # we collect all the columns in the outer loop
+            # the leading spaces in a column are ignored
+            t = parser.skipSpaces(False)
+            # now T is the first meaningful token in a column.
+            # in the following loop, we collect the tokens in a column
+            while True:
+                if getattr(t, "definition", None) is span:
+                    t = parser.token_expand()
                 if t is None:
                     raise ValueError("expecting a \\cr", parser.input.position())
-                parser.input.unread(t)
+                if t.catcode == CATCODE.BEGIN_GROUP:
+                    template.extend(parser.readBalancedText([t], expand=False, macro=False))
+                elif t.catcode == CATCODE.ALIGNMENT_TAB:
+                    # end of column, but no crcr
+                    t = None
+                    break
+                elif t.definition is tabskip:
+                    t.definition.execute(parser)
+                elif t.definition is cr or t.definition is crcr:
+                    break
+                else:
+                    template.append(t)
+                t = parser.token()
+            # now a column is read in template. We look for the # token
+            if not template and not self.preamble and t is None:
+                # we have a leading &, this is not a column, but tells us the columns are reused
+                self.repeat_start = True
                 continue
-            if t.definition is tabskip:
-                t.definition.execute(parser)
-            elif t.definition is cr or t.definition is crcr:
-                self.alignment.tabskips.append(parser.state.parameters["tabskip"])
+            catcodes = [x.catcode for x in template]
+            try:
+                i = catcodes.index(CATCODE.PARAMETER)
+            except ValueError:
+                raise ValueError("expecting a #", parser.input.position())
+            if CATCODE.PARAMETER in catcodes[i+1:]:
+                raise ValueError("multiple # tokens", parser.input.position())
+            column = Column()
+            column.u = template[:i]
+            column.v = template[i+1:]
+            self.preamble.append(column)
+            # we shoudl set the tabskip too
+            self.alignment.tabskips.append(parser.state.parameters["tabskip"])
+            if t is not None: # t must be \cr or \crcr
                 t.definition.execute(parser)
                 break
-            else:
-                current.append(t)
+
 
     def run(self, parser, target):
         """

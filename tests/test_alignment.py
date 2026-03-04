@@ -104,6 +104,18 @@ def test_preamble_balanced_text_hides_cr(cmr10):
     assert len(node.rows) == 0
 
 
+def test_preamble_hash_inside_group_is_valid_placeholder(cmr10):
+    cmr10.parse("\\halign{&$1\\over{#}$\\cr 1&2&3\\cr}")
+    node = cmr10.lists[-1][0]
+    row = node.rows[0]
+    assert len(row.cells) == 3
+
+
+def test_preamble_multiple_hash_tokens_fail(cmr10):
+    with pytest.raises(ValueError):
+        cmr10.parse("\\halign{a#b{#}\\cr 1\\cr}")
+
+
 def test_nested_valign_in_halign_cell(cmr10):
     cmr10.parse("\\halign{#\\cr \\valign{#\\cr a\\cr b\\cr}\\cr}")
     top = cmr10.lists[-1]

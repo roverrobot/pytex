@@ -414,12 +414,7 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
         except ValueError as e:
             e.args = (e.args[0], parser.input.position())
             raise e
-        t = parser.state.globals["afterassignment"]
-        if t is not None:
-            parser.input.unread(t)
-            parser.state.globals["afterassignment"] = None
-            if parser.tracingcommands > 0 and parser.checkRange():
-                parser.message(f"afterassignment: {parser.tokenToString(t)}")
+        self.queueAfterassignment(parser)
         new = parser.lists[-1]
         if new is not top:
             # we are reading a list, but the group has not started yet to accommodate \afterassignment

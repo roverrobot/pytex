@@ -97,6 +97,37 @@ def test_hbox_spread(cmr10):
     assert typed.depth == 1.94444
 
 
+def test_hbox_sets_badness_before_next_token(cmr10):
+    cmr10.parse("\\setbox0=\\hbox to 100pt{a}\\count0=\\badness")
+    assert cmr10.state.count[0] == 10000
+
+
+def test_setbox_defers_packing_until_badness_is_read(cmr10):
+    cmr10.parse("\\setbox0=\\hbox to 100pt{a}")
+    box0 = cmr10.state.box[0]
+    assert box0._typeset_cache is None
+    assert cmr10.lastbox is box0
+    cmr10.parse("\\count0=\\badness")
+    assert box0._typeset_cache is not None
+    assert cmr10.state.count[0] == 10000
+
+
+def test_hbox_overfull_sets_badness_to_one_million(cmr10):
+    cmr10.parse("\\setbox0=\\hbox to 0pt{a}\\count0=\\badness")
+    assert cmr10.state.count[0] == 1000000
+
+
+def test_badness_is_not_grouped(parser):
+    parser.parse("{\\badness=123}\\count0=\\badness")
+    assert parser.state.count[0] == 123
+
+
+def test_explicit_badness_assignment_clears_pending_box(cmr10):
+    cmr10.parse("\\setbox0=\\hbox to 100pt{a}\\badness=7\\count0=\\badness")
+    assert cmr10.state.count[0] == 7
+    assert cmr10.state.box[0]._typeset_cache is None
+
+
 def test_vbox(box):
     box.parse("\\vbox{\\copy0\\vskip1em plus 1em\\box0}\\relax")
     top = box.lists[-1]
@@ -108,6 +139,11 @@ def test_vbox(box):
     assert typed.height == 6.94444 + 6.94444 + 1.94444 + 10.00002
     assert typed.depth == 1.94444
     assert len(typed.list) == 4
+
+
+def test_vbox_sets_badness_before_next_token(parser):
+    parser.parse("\\vbox to 10pt{}\\count0=\\badness")
+    assert parser.state.count[0] == 10000
 
 
 def test_vbox_to(box):

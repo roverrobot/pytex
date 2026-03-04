@@ -66,6 +66,7 @@ class Parser:
         # the current command token
         self.current_token = None
         self.jobname = "noname"
+        self.lastbox = None
     
     def getLogFile(self):
         """

@@ -314,7 +314,7 @@ class FixedInteger(Command):
 
 class InputLineNo(Command):
     """
-    \inputlineno, which returns the current line number in the source file
+    \\inputlineno, which returns the current line number in the source file
     """
     def intValue(self, parser):
         # the line number is the current line number
@@ -389,7 +389,6 @@ module = Module("integer",
         # these are reset at the end of every paragraph
         "looseness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         "hangafter": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
-        "badness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         # global parameters
         "deadcycles": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
         "insertpenalties": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},

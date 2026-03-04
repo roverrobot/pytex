@@ -11,11 +11,11 @@ from pytex.accessor import Accessor, ArrayAccessor, ArrayItemAccessor
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen, DimenCommand, DimenArrayAccessor
+from pytex.integer import IntegerArrayItemAccessor
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
 from pytex.lexer import TokenListScanner
-from math import inf
 import enum
 import types
 
@@ -72,6 +72,38 @@ class Box(nd.Box):
     def pretypeset(self, parser):
         raise NotImplementedError("this method should be implemented in subclasses")
 
+    @staticmethod
+    def _set_badness(parser, spread, natural):
+        state = parser.state.globals
+        if spread == 0:
+            state["badness"] = 0
+            return
+        if spread > 0:
+            stretch = natural.stretch
+            if stretch.factor == 0:
+                state["badness"] = 10000
+                return
+            if stretch.order > 0:
+                state["badness"] = 0
+                return
+            num = int(spread)
+            den = int(stretch.factor)
+        else:
+            shrink = natural.shrink
+            if shrink.factor == 0:
+                state["badness"] = 1000000
+                return
+            if shrink.order > 0:
+                state["badness"] = 0
+                return
+            num = -int(spread)
+            den = int(shrink.factor)
+            if num > den:
+                state["badness"] = 1000000
+                return
+        bad = (100 * num * num * num + (den * den * den) // 2) // (den * den * den)
+        state["badness"] = min(10000, bad)
+
     def _expand(self, parser, content, node):
         """
         Expand the current list and collect nodes/glues/migratory nodes.
@@ -113,6 +145,27 @@ class Box(nd.Box):
                 box.typeset_context = None
             box._typeset_cache = box
         return box
+
+
+class BadnessAccessor(IntegerArrayItemAccessor):
+    """
+    Lazily realize the most recent box pack when \\badness is inspected.
+    """
+    def intValue(self, parser):
+        box = parser.lastbox
+        if box is not None:
+            parser.lastbox = None
+            if box._typeset_cache is None:
+                box.pretypeset(parser)
+        return super().intValue(parser)
+
+    def set(self, parser, value):
+        parser.lastbox = None
+        super().set(parser, value)
+
+    def setGlobal(self, parser, value):
+        parser.lastbox = None
+        super().setGlobal(parser, value)
 
 
 class HBox(Box):
@@ -180,6 +233,7 @@ class HBox(Box):
         else:
             self.glue_ratio = Dimen()
         self.natural = natural
+        self._set_badness(parser, spread, natural)
         self.width = self.to
         self._typeset_cache = self.copy(content)
     
@@ -296,12 +350,14 @@ class ListEndCallback:
 
 
 class ReadBoxEndCallback(ListEndCallback):
-    def __init__(self, parser):
+    def __init__(self, parser, box):
         super().__init__(parser)
+        self.box = box
         self.finished = False
 
     def __call__(self):
         super().__call__()
+        self.parser.lastbox = self.box
         self.finished = True
         self.parser.run = False
 
@@ -340,7 +396,7 @@ class BuildBox(Command):
             if parser.tracingcommands > 0 and parser.checkRange():
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         if not setbox:
-            callback = ReadBoxEndCallback(parser)
+            callback = ReadBoxEndCallback(parser, box)
             parser.beginGroup(parser.input.position(), self.group_type, callback)
             parser.loop()
             if callback.finished:
@@ -372,12 +428,14 @@ def readBox(parser, setbox=False):
     
 
 class SetBoxEndCallback:
-    def __init__(self, parser, accessor):
+    def __init__(self, parser, accessor, box):
         self.parser = parser
         self.accessor = accessor
+        self.box = box
 
     def __call__(self):
         self.parser.lists.pop()
+        self.parser.lastbox = self.box
         self.accessor._set(self.parser)
 
 
@@ -410,7 +468,7 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
             parser.beginGroup(
                 parser.input.position(),
                 new.group_type,
-                SetBoxEndCallback(parser, self),
+                SetBoxEndCallback(parser, self, self.value[0]),
             )
         else:
             self._set(parser)
@@ -546,6 +604,7 @@ class VBox(Box):
         else:
             self.glue_ratio = Dimen()
         self.natural = natural
+        self._set_badness(parser, spread, natural)
         self.height = self.to
         self._typeset_cache = self.copy(content)
 
@@ -797,6 +856,7 @@ class LeaderBoxCallback:
 
     def __call__(self):
         self.parser.lists.pop()
+        self.parser.lastbox = self.box
         _appendLeader(self.parser, self.type, self.box)
 
 
@@ -856,6 +916,9 @@ class LastBox(Command):
 mod = Module("hbox", 
     domains={
         "box": {"generator": BoxArray, "accessor": SetBox},
+    },
+    parameters={
+        "badness": {"value": 0, "accessor": BadnessAccessor, "domain": "globals"},
     },
     attributes={
         "readBox": readBox,

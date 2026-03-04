@@ -598,9 +598,24 @@ class DisplayMathList(MList):
             return
         cache = []
         self._typeset_cache = cache
+        if (
+            self.typeset_context.prevgraf is None
+            or self.typeset_context.displaywidth is None
+            or self.typeset_context.displayindent is None
+            or self.typeset_context.predisplaysize is None
+        ):
+            # Ensure display-related paragraph metrics are materialized before
+            # laying out the display.
+            if self.prev_paragraph is not None:
+                self.prev_paragraph.pretypeset(parser)
         if self.typeset_context.prevgraf is None:
-            # the previous paragraph was not typeset. We should pre-typeset it
-            self.prev_paragraph.pretypeset(parser)
+            self.typeset_context.prevgraf = 0
+        if self.typeset_context.displaywidth is None:
+            self.typeset_context.displaywidth = parser.state.layout["hsize"]
+        if self.typeset_context.displayindent is None:
+            self.typeset_context.displayindent = Dimen()
+        if self.typeset_context.predisplaysize is None:
+            self.typeset_context.predisplaysize = NEG_MAX_DIMEN
         # After a display has been read, TEX converts it from a math list to a horizontal
         # list h in display style, as explained in Appendix G. An equation number, if
         # present, is processed in text style and put into an hbox a with its natural width. Now

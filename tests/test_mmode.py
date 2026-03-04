@@ -252,6 +252,15 @@ def test_everydisplay_can_read_prevgraf_from_previous_paragraph(math):
     assert "<PG=1>" in math.logContent()
 
 
+def test_display_metrics_realized_when_prevdepth_is_queried(math):
+    math.parse("$$a$$\\par")
+    mlist = next(node for node in math.lists[0] if isinstance(node, mmode.DisplayMathList))
+    math.parse("\\the\\prevdepth")
+    assert mlist.typeset_context.displaywidth is not None
+    assert mlist.typeset_context.displayindent is not None
+    assert mlist.typeset_context.predisplaysize is not None
+
+
 def test_subformula(parser):
     parser.parse("${ab}")
     top = parser.lists[-1]

@@ -6,6 +6,7 @@ Page breaking for the main vertical list.
 from math import inf
 
 from pytex import box as bx
+from pytex import insert as ins
 from pytex import lexer
 from pytex import node as nd
 from pytex import vmode
@@ -153,6 +154,16 @@ class ShipoutNode(nd.Node):
 
     def __repr__(self):
         return "Shipout"
+
+
+class MainVListBreaker(ins.VListBreaker):
+    def contextFor(self, node):
+        if isinstance(node, PageStateNode):
+            return node.context
+        return None
+
+    def isTransparent(self, node):
+        return isinstance(node, (PageStateNode, ShipoutNode))
 
 
 class MainVList(vmode.VList):
@@ -489,53 +500,55 @@ class MainVList(vmode.VList):
     def pageBreak(self, parser):
         material = []
         self.typesetNodes(parser, material)
+        breaker = MainVListBreaker(material, self.page_initial_context)
         pages = []
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
         start = 0
         while True:
-            start, context = self._prunePageTop(material, start, context)
+            start, context = breaker.pruneTop(start, context)
             if start >= len(material):
                 break
-            end, next_start, break_context, break_penalty = self._bestPageBreak(material, start, context)
+            end, next_start, break_context, break_penalty = breaker.bestBreak(start, context)
             if end <= start:
                 end = min(start + 1, len(material))
                 next_start = end
-                break_context = self._advanceContext(material, start, end, context)
+                break_context = breaker.advanceContext(start, end, context)
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
             # The page material is already fully typeset. Keep it as a plain list so
             # VBox.pretypeset() computes box dimensions without re-running
             # VList.typesetNodes() and duplicating interline penalties/glue.
-            page.list[:] = self._buildPage(parser, material, start, end, context)
+            page.list[:] = breaker.buildSlice(start, end, context, "\\topskip")
             pages.append(page.typeset(parser))
             parser.state.layout["outputpenalty"] = break_penalty
             parser.state.parameters["topmark"] = list(topmark)
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
             topmark = list(botmark)
-            context = self._advanceContext(material, start, next_start, context)
+            context = breaker.advanceContext(start, next_start, context)
             start = next_start
         return pages
 
     def outputPages(self, parser):
         material = []
         self.typesetNodes(parser, material)
+        breaker = MainVListBreaker(material, self.page_initial_context)
         shipped = len(parser.shipout.pages)
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
         start = 0
         while True:
             start, context = self._shipLeading(material, start, context, parser)
-            start, context = self._prunePageTop(material, start, context)
+            start, context = breaker.pruneTop(start, context)
             if start >= len(material):
                 break
-            end, next_start, break_context, break_penalty = self._bestPageBreak(material, start, context)
+            end, next_start, break_context, break_penalty = breaker.bestBreak(start, context)
             if end <= start:
                 end = min(start + 1, len(material))
                 next_start = end
-                break_context = self._advanceContext(material, start, end, context)
+                break_context = breaker.advanceContext(start, end, context)
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
@@ -546,12 +559,12 @@ class MainVList(vmode.VList):
             for box in self._pageShipouts(material, start, end):
                 shipout(parser, box)
             # Keep the built page material as a plain list; it is already packed.
-            page.list[:] = self._buildPage(parser, material, start, end, context)
+            page.list[:] = breaker.buildSlice(start, end, context, "\\topskip")
             carry = self._runOutputRoutine(parser, page.typeset(parser))
             if carry:
                 material[next_start:next_start] = carry
             topmark = list(botmark)
-            context = self._advanceContext(material, start, next_start, context)
+            context = breaker.advanceContext(start, next_start, context)
             start = next_start
         return parser.shipout.pages[shipped:]
 

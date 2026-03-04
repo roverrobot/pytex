@@ -2541,7 +2541,7 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
 
     @classmethod
     def new(cls, parser, **kargs):
-        cls(kargs["name"])
+        return cls(kargs["name"])
 
     def readValue(self, parser):
         return parser.readDimen()

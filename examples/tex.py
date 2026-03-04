@@ -93,7 +93,7 @@ if args.profile:
 else:
     parser.parse(input, jobname=file)
 input.close()
-log = parser.end()
+log = parser.close()
 
 if args.format == "initex":
     parser.dumper(parser.dump())

@@ -56,3 +56,12 @@ def test_showlists_omits_main_vlist_wrapper(cmr10):
     assert "VList(outer)" not in log
     assert "### list 0" not in log
     assert "HList" in log
+
+
+def test_tracingoutput_logs_shipped_box(parser):
+    parser.parse("\\tracingoutput=1\\shipout\\vbox{\\hrule}")
+    parser.outputPages()
+    log = parser.logContent()
+    assert "Completed box being shipped out [" in log
+    assert "\\vbox(" in log
+    assert "\\rule(" in log

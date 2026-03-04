@@ -58,6 +58,25 @@ def _show_list(parser, current):
     _show_items(parser, lines, list(current), "" if is_main_vlist else ".", depth)
     return lines
 
+
+def _format_shipout_number(parser):
+    values = [int(parser.state.count[index]) for index in range(10)]
+    last = 0
+    for index in range(9, 0, -1):
+        if values[index] != 0:
+            last = index
+            break
+    return ".".join(str(value) for value in values[: last + 1])
+
+
+def traceOutputPage(parser, box):
+    if parser.tracingoutput <= 0:
+        return
+    lines = [f"Completed box being shipped out [{_format_shipout_number(parser)}]"]
+    lines.extend(_show_box(parser, box))
+    _diag(parser, lines)
+
+
 def checkRange(parser):
     """
     check whether the current input stack is in the tracing range
@@ -306,6 +325,7 @@ mod = Module("tracing",
     attributes = {
         "checkRange": checkRange,
         "trace": trace,
+        "traceOutputPage": traceOutputPage,
     },
     commands = {
         "tracingsource": TracingSource(),

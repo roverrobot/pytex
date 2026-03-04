@@ -312,7 +312,9 @@ def shipout(parser, box):
             parser.lists[0].append(ShipoutNode(box))
             return
         raise ValueError("no active shipout backend")
-    backend.shipout(box.typeset(parser))
+    shipped_box = box.typeset(parser)
+    parser.traceOutputPage(shipped_box)
+    backend.shipout(shipped_box)
     parser.state.globals["deadcycles"] = 0
 
 

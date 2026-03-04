@@ -220,30 +220,30 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     @return: the unsigned dimension if stretchness is False, otherwise the 
     dimension and the infinity level
     """
+    def dimenValue(t):
+        definition = getattr(t, "definition", None)
+        dimenValue = getattr(definition, "dimenValue", None)
+        if dimenValue is None:
+            parser.input.unread(t)
+            return None
+        return dimenValue(parser)
     # an unsigned dimension
     t = parser.token_expand()
     if t is None:
         raise Exception("dimension expected")
     # an internal dimension or a glue (both have a dimenValue method)
-    try:
-        if stretchness:
-            return t.definition.dimenValue(parser), 0
-        return t.definition.dimenValue(parser)
-    except AttributeError:
-        pass
     # a number
-    parser.input.unread(t)
+    value = dimenValue(t)
+    if value is not None:
+        return (value, 0) if stretchness else value
     f = readUnsignedNumber(parser)
     t = parser.skipSpaces()
     # a unit
     if t is None:
         raise ValueError("dimension unit expected", parser.input.position())
-    try:
-        if stretchness:
-            return f * t.definition.dimenValue(parser), 0
-        return f * t.definition.dimenValue(parser)
-    except AttributeError:
-        parser.input.unread(t)
+    value = dimenValue(t)
+    if value is not None:
+        return (f * value, 0) if stretchness else f * value
     true = False
     if mu:
         units = {"mu"}

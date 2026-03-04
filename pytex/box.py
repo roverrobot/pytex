@@ -10,7 +10,7 @@ from pytex.module import Module
 from pytex.accessor import Accessor, ArrayAccessor, ArrayItemAccessor
 from pytex.state import Array
 from pytex.token import Command, CATCODE
-from pytex.dimen import Dimen, DimenCommand, DimenArrayItemAccessor
+from pytex.dimen import Dimen, DimenCommand, DimenArrayAccessor
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
@@ -600,17 +600,25 @@ class BoxDimenAccessor(ArrayItemAccessor, DimenCommand):
         return parser.readDimen()
 
     def set(self, parser, value):
+        assert self.domain is not None
         setattr(self.domain, self.index, value)
 
     def setGlobal(self, parser, value):
+        assert self.domain is not None
         setattr(self.domain, self.index, value)
 
     def dimenValue(self, parser):
-        d = getattr(self.domain, self.index)
-        return 0 if d is None else d
+        box = self.domain
+        if box is None:
+            return Dimen()
+        d = getattr(box, self.index, None)
+        if d is None:
+            box = box.typeset(parser)
+            d = getattr(box, self.index)
+        return d
 
 
-class BoxDimenCommand(ArrayAccessor, DimenCommand):
+class BoxDimenCommand(DimenArrayAccessor):
     """
     a command that accesses a dimension for a box
     @param domain the attribute of the box dimension
@@ -619,14 +627,7 @@ class BoxDimenCommand(ArrayAccessor, DimenCommand):
         return BoxDimenAccessor(parser.state.box[parser.readInteger()], self.domain)
     
     def dimenValue(self, parser):
-        box = parser.state.box[parser.readInteger()]
-        if box is None:
-            return 0
-        d = getattr(box, self.domain)
-        if d is None:
-            # not typeset yet
-            d = getattr(box.typeset(parser), self.domain)
-        return d
+        return self.getItemAccessor(parser).dimenValue(parser)
 
 
 class UnBox(Command):

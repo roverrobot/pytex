@@ -96,11 +96,21 @@ def test_parser_group_mismatch(parser):
         assert "mismatch" in str(e)
 
 
+def test_insert_runtime_lists(parser):
+    inserts = parser.state.globals["insert"]
+    assert len(inserts) == 256
+    assert inserts[0] == []
+    inserts[0].append("x")
+    assert inserts[0] == ["x"]
+    assert inserts[1] == []
+
+
 def test_dump(parser):
     parser.parse("\\count0=1{\\count0=2}\\def\\a{123}")
     data = parser.state.dump()
     assert "globals" not in data
     assert "count" in data
+    assert "insert" not in data
     assert data["count"][0] == 1
     assert "equitable" in data
     assert "\\a" in data["equitable"]

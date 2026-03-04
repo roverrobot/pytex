@@ -29,7 +29,6 @@ from pytex import mmode
 from pytex import paragraph
 from pytex import align
 from pytex import hyphen
-from pytex import insert
 from pytex import misc
 from pytex import tracing
 from pytex import page

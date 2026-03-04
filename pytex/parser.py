@@ -160,8 +160,15 @@ class Parser:
             self.jobname = os.path.splitext(base)[0]
         self.run = True
         self.loop()
+        self.run = False
         if len(self.ifstack) > 0:
             raise ValueError(f"missing \\fi for {self.ifstack[-1][0].name} at {self.ifstack[-1][1]}")
+        
+    def close(self):
+        self.input.clear()
+        if not self.log.closed:
+            self.log.close()
+        return self.logContent()
         
     def loop(self):
         """
@@ -442,11 +449,6 @@ class Parser:
         # \vfill\penalty-'10000000000
         top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2)), "\\vfill"))
         top.append(node.Penalty(-0x100000))
-        self.input.clear()
-        self.run = False
-        if not self.log.closed:
-            self.log.close()
-        return self.logContent()
 
     def breakPages(self):
         top = self.lists[-1]

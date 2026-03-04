@@ -789,7 +789,7 @@ class AlignmentBuilder:
             # now T is the first meaningful token in a column.
             # in the following loop, we collect the tokens in a column
             while True:
-                if getattr(t, "definition", None) is span:
+                if getattr(t, "definition", None) is span or t.name == "\\span":
                     t = parser.token_expand()
                 if t is None:
                     raise ValueError("expecting a \\cr", parser.input.position())
@@ -799,9 +799,9 @@ class AlignmentBuilder:
                     # end of column, but no crcr
                     t = None
                     break
-                elif t.definition is tabskip:
+                elif t.definition is tabskip or t.name == "\\tabskip":
                     t.definition.execute(parser)
-                elif t.definition is cr or t.definition is crcr:
+                elif t.definition is cr or t.definition is crcr or t.name == "\\cr" or t.name == "\\crcr":
                     break
                 else:
                     template.append(t)

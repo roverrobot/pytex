@@ -297,6 +297,21 @@ class ListEndCallback:
         self.parser.lists.pop()
 
 
+class SetBoxEndCallback:
+    def __init__(self, parser, accessor, value, globally):
+        self.parser = parser
+        self.accessor = accessor
+        self.value = value
+        self.globally = globally
+
+    def __call__(self):
+        self.parser.lists.pop()
+        if self.globally:
+            self.accessor.setGlobal(self.parser, self.value)
+        else:
+            self.accessor.set(self.parser, self.value)
+
+
 class BuildBox(Command):
     """
     the base class for \\hbox, \\vbox and \\vtop commands
@@ -390,11 +405,33 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
     
     def assign(self, parser, prefixes):
         top = parser.lists[-1]
-        super().assign(parser, prefixes)
+        self.readEq(parser)
+        value = self.readValue(parser)
+        globally = parser.globaldefs.value != 0
+        try:
+            for p in prefixes:
+                value, globally = p.modify(value, globally)
+        except ValueError as e:
+            e.args = (e.args[0], parser.input.position())
+            raise e
+        t = parser.state.globals["afterassignment"]
+        if t is not None:
+            parser.input.unread(t)
+            parser.state.globals["afterassignment"] = None
+            if parser.tracingcommands > 0 and parser.checkRange():
+                parser.message(f"afterassignment: {parser.tokenToString(t)}")
         new = parser.lists[-1]
         if new is not top:
             # we are reading a list, but the group has not started yet to accommodate \afterassignment
-            parser.beginGroup(parser.input.position(), new.group_type, ListEndCallback(parser))
+            parser.beginGroup(
+                parser.input.position(),
+                new.group_type,
+                SetBoxEndCallback(parser, self, value, globally),
+            )
+        elif globally:
+            self.setGlobal(parser, value)
+        else:
+            self.set(parser, value)
     
 
 class BoxArray(Array):

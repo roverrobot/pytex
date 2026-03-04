@@ -42,9 +42,9 @@ def test_read_mu(parser):
     assert result == 10
 
 
-def test_dimen_division_rounds_to_nearest_scaled_point():
-    assert Dimen(integer=1) / 2 == Dimen(integer=1)
-    assert Dimen(integer=-1) / 2 == Dimen(integer=-1)
+def test_dimen_division_truncates_toward_zero_scaled_point():
+    assert Dimen(integer=1) / 2 == Dimen(integer=0)
+    assert Dimen(integer=-1) / 2 == Dimen(integer=0)
 
 
 def test_read_dimen_with_invalid_unit(parser):

@@ -1,5 +1,6 @@
 import pytest
 from tests import checkValues
+from pytex.dimen import Dimen
 
 
 def test_advance(parser):
@@ -22,6 +23,12 @@ def test_read_multiply(collector):
     
 def test_dimen_divide(parser):
     checkValues(parser, "\\dimen0 = 10 pt\\divide \\dimen0 by 2 pt", [["dimen", 0, 5]])
+
+
+def test_dimen_divide_truncates_like_tex(parser):
+    parser.parse("\\dimen0=16.71499pt\\divide\\dimen0 by 65536")
+    assert parser.state.dimen[0] == Dimen(integer=16)
+
 
 def test_int_divide(parser):
     checkValues(parser, "\\count0 = 7 \\divide \\count0 by 5 pt", [["count", 0, 1]])

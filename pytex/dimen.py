@@ -138,7 +138,7 @@ class Dimen(serialization.Serializable):
     
     def __truediv__(self, other):
         num, den = self._ratio(other)
-        return Dimen(integer=self._round_div(self.value * den, num))
+        return Dimen(integer=self._trunc_div(self.value * den, num))
     
     def __rtruediv__(self, other):
         return Dimen(integer=self._round_div(self._pt_value(other) * self.scale, self.value))

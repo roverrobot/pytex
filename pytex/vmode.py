@@ -71,6 +71,14 @@ class VList(lists.List):
                 if depth is None:
                     # if there is no depth, we need to pre-typeset it in-place
                     nodes = self._expandNode(self.parser, node)
+                    # Preserve the original vertical-context snapshot on the
+                    # first expanded box so later VList packing still inserts
+                    # the correct interline glue.
+                    for n in nodes:
+                        if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                            if getattr(n, "typeset_context", None) is None:
+                                n.typeset_context = context
+                            break
                     self[i:i+1] = nodes
                     # we search backwards for the first box with a depth
                     for n in reversed(nodes):

@@ -6,6 +6,7 @@ from pytex import lists
 from pytex.node import NODE_TYPE
 from pytex import texlive
 from pytex.dimen import Dimen
+from pytex.expandable import toToks, toksToString
 
 
 @pytest.fixture()
@@ -186,6 +187,12 @@ def _synthetic_hbox(parser, height=6, depth=2, width=0):
     return _LeafHBox(height, depth, width)
 
 
+def _mark_node(text, index=0):
+    node = nd.Mark(toToks(text))
+    node.index = index
+    return node
+
+
 def test_vbox_trailing_glue_zeroes_depth(parser):
     vbox = bx.VBox(parser, None, 0)
     vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
@@ -219,6 +226,8 @@ def test_vsplit_void(parser):
     parser.parse("\\setbox0=\\vsplit1 to 10pt")
     assert parser.state.box[0] is None
     assert parser.state.box[1] is None
+    assert parser.state.globals["splitfirstmark"] == []
+    assert parser.state.globals["splitbotmark"] == []
 
 
 def test_vsplit_splits_box_and_reinserts_splittopskip(parser):
@@ -246,6 +255,44 @@ def test_vsplit_takes_whole_box_when_target_is_large(parser):
     assert parser.state.box[1] is None
     split = parser.state.box[2].typeset(parser)
     assert split.height == 50
+
+
+def test_vsplit_sets_split_marks_from_split_box(parser):
+    source = bx.VBox(parser, None, 0)
+    source.list.append(_mark_node("A"))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source.list.append(nd.Glue(glue.Glue(0), None))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source.list.append(_mark_node("B"))
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 10pt")
+    assert toksToString(parser, parser.state.globals["splitfirstmark"]) == "A"
+    assert toksToString(parser, parser.state.globals["splitbotmark"]) == "A"
+
+
+def test_vsplit_whole_box_sets_splitbotmark_to_last_mark(parser):
+    source = bx.VBox(parser, None, 0)
+    source.list.append(_mark_node("A"))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source.list.append(_mark_node("B"))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 50pt")
+    assert toksToString(parser, parser.state.globals["splitfirstmark"]) == "A"
+    assert toksToString(parser, parser.state.globals["splitbotmark"]) == "B"
+
+
+def test_vsplit_split_marks_ignore_nonzero_mark_classes(parser):
+    source = bx.VBox(parser, None, 0)
+    source.list.append(_mark_node("X", 2))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source.list.append(nd.Glue(glue.Glue(0), None))
+    source.list.append(_mark_node("Y", 2))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 10pt")
+    assert parser.state.globals["splitfirstmark"] == []
+    assert parser.state.globals["splitbotmark"] == []
 
 
 def test_moveright_dispatches_to_vertical_handler(parser):

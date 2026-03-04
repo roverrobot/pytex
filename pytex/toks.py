@@ -349,11 +349,12 @@ class PageMark(Command):
     Expand to the current page mark token list.
     """
 
-    def __init__(self, key):
+    def __init__(self, key, domain="parameters"):
         self.key = key
+        self.domain = domain
 
     def toksValue(self, parser):
-        return parser.state.parameters[self.key]
+        return getattr(parser.state, self.domain)[self.key]
 
     def expand(self, parser):
         toks = self.toksValue(parser)
@@ -376,6 +377,8 @@ mod = Module("toks",
         "topmark": PageMark("topmark"),
         "firstmark": PageMark("firstmark"),
         "botmark": PageMark("botmark"),
+        "splitfirstmark": PageMark("splitfirstmark", "globals"),
+        "splitbotmark": PageMark("splitbotmark", "globals"),
         "toksdef": registerdef("toks", ToksArrayItemAccessor),
     },
     domains = {
@@ -395,5 +398,7 @@ mod = Module("toks",
         "topmark": {"value": [], "accessor": None, "domain": "parameters"},
         "botmark": {"value": [], "accessor": None, "domain": "parameters"},
         "firstmark": {"value": [], "accessor": None, "domain": "parameters"},
+        "splitfirstmark": {"value": [], "accessor": None, "domain": "globals"},
+        "splitbotmark": {"value": [], "accessor": None, "domain": "globals"},
     }
 )

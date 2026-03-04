@@ -663,6 +663,8 @@ class MainVList(vmode.VList):
                 continue
             if node.node_type != nd.NODE_TYPE.MARK:
                 continue
+            if getattr(node, "index", 0) != 0:
+                continue
             mark = list(node.tokens)
             if first is None:
                 first = mark
@@ -855,8 +857,12 @@ class VSplit(Command):
         spec, dim = parser.readBoxSpec(["to"])
         if spec != "to":
             raise ValueError("expecting \\vsplit<number> to <dimen>", parser.input.position())
+        splitfirst = None
+        splitbot = None
         source = parser.state.box[index]
         if source is None:
+            parser.state.globals["splitfirstmark"] = []
+            parser.state.globals["splitbotmark"] = []
             return None
         if source.node_type != nd.NODE_TYPE.VLIST:
             raise ValueError("expecting a vbox", parser.input.position())
@@ -871,12 +877,25 @@ class VSplit(Command):
         start, split_context = breaker.pruneTop(0, split_context)
         if start >= len(nodes):
             parser.state.box[index] = None
+            parser.state.globals["splitfirstmark"] = []
+            parser.state.globals["splitbotmark"] = []
             return None
         end, next_start, break_context, _ = breaker.bestBreak(start, split_context)
         if end <= start:
             end = min(start + 1, len(nodes))
             next_start = end
             break_context = breaker.advanceContext(start, end, split_context)
+        for node in nodes[start:end]:
+            if node.node_type != nd.NODE_TYPE.MARK:
+                continue
+            if getattr(node, "index", 0) != 0:
+                continue
+            mark = list(node.tokens)
+            if splitfirst is None:
+                splitfirst = mark
+            splitbot = mark
+        parser.state.globals["splitfirstmark"] = [] if splitfirst is None else splitfirst
+        parser.state.globals["splitbotmark"] = [] if splitbot is None else splitbot
         result = bx.VBox(parser, break_context.vsize, Dimen())
         result.list[:] = breaker.buildRawSlice(start, end, split_context)
         remainder_context = VSplitContext(

@@ -32,6 +32,7 @@ def readKeyword(parser, keywords: set):
     @param optional: if the keyword is optional
     @return: the keyword or None
     """
+    keywords = set(keywords)
     t = parser.skipSpaces()
     if t is None:
         return None

@@ -849,8 +849,8 @@ class Align(lists.ModeDependentCommand):
     The \\halign command.
     """
     def newAlignment(self, parser, list, cls):
-        to, spread = parser.readToSpread()
-        alignment = cls(to, spread)
+        spec, d = parser.readBoxSpec()
+        alignment = cls(d, None) if spec == "to" else cls(None, d)
         AlignmentBuilder(alignment).run(parser, list)
 
 

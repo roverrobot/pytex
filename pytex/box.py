@@ -274,19 +274,17 @@ class BoxCommand(Command):
         return box.copy()    
 
 
-def readToSpread(parser):
+def readBoxSpec(parser, keywords=["to", "spread"]):
     """
     read the to/spread spec from the input stack
     @param parser: the parser
     @return: a tuple (to, spread)
     """
-    spec = parser.readKeyword(["to", "spread"])
+    spec = parser.readKeyword(keywords)
     if spec is None:
         return None, Dimen()
     dim = parser.readDimen()
-    if spec == "to":
-        return dim, None
-    return None, dim
+    return spec, dim
 
 
 class ListEndCallback:
@@ -327,8 +325,8 @@ class BuildBox(Command):
         top.append(box)
 
     def boxValue(self, parser, setbox):
-        to, spread = readToSpread(parser)
-        box = self.box(parser, to, spread)
+        spec, d = readBoxSpec(parser)
+        box = self.box(parser, d, None) if spec == "to" else self.box(parser, None, d)
         parser.skipFiller()
         t = parser.token_expand()
         t = parser.token_meaning(t)
@@ -861,7 +859,7 @@ mod = Module("hbox",
     },
     attributes={
         "readBox": readBox,
-        "readToSpread": readToSpread,
+        "readBoxSpec": readBoxSpec,
     },
     commands={
         "box": BoxCommand(True),

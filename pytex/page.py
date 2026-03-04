@@ -17,6 +17,16 @@ from pytex.state import GROUP_TYPE
 from pytex.token import Command, Token
 
 
+def _copy_mark_register(register):
+    return [list(mark) for mark in register]
+
+
+def _set_mark_class(register, index, tokens):
+    while len(register) <= index:
+        register.append([])
+    register[index] = list(tokens)
+
+
 class VListBreaker:
     """
     Common vertical-list breaking logic shared by page breaks and \\vsplit.
@@ -675,6 +685,24 @@ class MainVList(vmode.VList):
         return first, bot
 
     @staticmethod
+    def _pageMarksByClass(nodes, start, end, topmarks):
+        firstmarks = _copy_mark_register(topmarks)
+        botmarks = _copy_mark_register(topmarks)
+        seen = set()
+        for node in nodes[start:end]:
+            if isinstance(node, ShipoutNode):
+                continue
+            if node.node_type != nd.NODE_TYPE.MARK:
+                continue
+            index = getattr(node, "index", 0)
+            mark = list(node.tokens)
+            if index not in seen:
+                _set_mark_class(firstmarks, index, mark)
+                seen.add(index)
+            _set_mark_class(botmarks, index, mark)
+        return firstmarks, botmarks
+
+    @staticmethod
     def _shipLeading(nodes, start, context, parser):
         while start < len(nodes):
             node = nodes[start]
@@ -754,6 +782,10 @@ class MainVList(vmode.VList):
         pages = []
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
+        topmarks = parser.state.globals.get("botmarks")
+        if topmarks is not None:
+            topmarks = _copy_mark_register(topmarks)
+            _set_mark_class(topmarks, 0, topmark)
         start = 0
         while True:
             start, context = breaker.pruneTop(start, context)
@@ -767,6 +799,11 @@ class MainVList(vmode.VList):
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
+            if topmarks is not None:
+                firstmarks, botmarks = self._pageMarksByClass(material, start, end, topmarks)
+                parser.state.globals["topmarks"] = _copy_mark_register(topmarks)
+                parser.state.globals["firstmarks"] = firstmarks
+                parser.state.globals["botmarks"] = botmarks
             # The page material is already fully typeset. Keep it as a plain list so
             # VBox.pretypeset() computes box dimensions without re-running
             # VList.typesetNodes() and duplicating interline penalties/glue.
@@ -777,6 +814,8 @@ class MainVList(vmode.VList):
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
             topmark = list(botmark)
+            if topmarks is not None:
+                topmarks = _copy_mark_register(botmarks)
             context = breaker.advanceContext(start, next_start, context)
             start = next_start
         return pages
@@ -788,6 +827,10 @@ class MainVList(vmode.VList):
         shipped = len(parser.shipout.pages)
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
+        topmarks = parser.state.globals.get("botmarks")
+        if topmarks is not None:
+            topmarks = _copy_mark_register(topmarks)
+            _set_mark_class(topmarks, 0, topmark)
         start = 0
         while True:
             start, context = self._shipLeading(material, start, context, parser)
@@ -802,6 +845,11 @@ class MainVList(vmode.VList):
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
+            if topmarks is not None:
+                firstmarks, botmarks = self._pageMarksByClass(material, start, end, topmarks)
+                parser.state.globals["topmarks"] = _copy_mark_register(topmarks)
+                parser.state.globals["firstmarks"] = firstmarks
+                parser.state.globals["botmarks"] = botmarks
             parser.state.parameters["topmark"] = list(topmark)
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
@@ -814,6 +862,8 @@ class MainVList(vmode.VList):
             if carry:
                 material[next_start:next_start] = carry
             topmark = list(botmark)
+            if topmarks is not None:
+                topmarks = _copy_mark_register(botmarks)
             context = breaker.advanceContext(start, next_start, context)
             start = next_start
         return parser.shipout.pages[shipped:]
@@ -859,10 +909,19 @@ class VSplit(Command):
             raise ValueError("expecting \\vsplit<number> to <dimen>", parser.input.position())
         splitfirst = None
         splitbot = None
+        splitfirstmarks = parser.state.globals.get("splitfirstmarks")
+        splitbotmarks = parser.state.globals.get("splitbotmarks")
+        split_seen = set()
+        if splitfirstmarks is not None:
+            splitfirstmarks = [[]]
+            splitbotmarks = [[]]
         source = parser.state.box[index]
         if source is None:
             parser.state.globals["splitfirstmark"] = []
             parser.state.globals["splitbotmark"] = []
+            if splitfirstmarks is not None:
+                parser.state.globals["splitfirstmarks"] = splitfirstmarks
+                parser.state.globals["splitbotmarks"] = splitbotmarks
             return None
         if source.node_type != nd.NODE_TYPE.VLIST:
             raise ValueError("expecting a vbox", parser.input.position())
@@ -879,6 +938,9 @@ class VSplit(Command):
             parser.state.box[index] = None
             parser.state.globals["splitfirstmark"] = []
             parser.state.globals["splitbotmark"] = []
+            if splitfirstmarks is not None:
+                parser.state.globals["splitfirstmarks"] = splitfirstmarks
+                parser.state.globals["splitbotmarks"] = splitbotmarks
             return None
         end, next_start, break_context, _ = breaker.bestBreak(start, split_context)
         if end <= start:
@@ -888,14 +950,23 @@ class VSplit(Command):
         for node in nodes[start:end]:
             if node.node_type != nd.NODE_TYPE.MARK:
                 continue
-            if getattr(node, "index", 0) != 0:
-                continue
+            mark_index = getattr(node, "index", 0)
             mark = list(node.tokens)
+            if splitfirstmarks is not None:
+                if mark_index not in split_seen:
+                    _set_mark_class(splitfirstmarks, mark_index, mark)
+                    split_seen.add(mark_index)
+                _set_mark_class(splitbotmarks, mark_index, mark)
+            if mark_index != 0:
+                continue
             if splitfirst is None:
                 splitfirst = mark
             splitbot = mark
         parser.state.globals["splitfirstmark"] = [] if splitfirst is None else splitfirst
         parser.state.globals["splitbotmark"] = [] if splitbot is None else splitbot
+        if splitfirstmarks is not None:
+            parser.state.globals["splitfirstmarks"] = splitfirstmarks
+            parser.state.globals["splitbotmarks"] = splitbotmarks
         result = bx.VBox(parser, break_context.vsize, Dimen())
         result.list[:] = breaker.buildRawSlice(start, end, split_context)
         remainder_context = VSplitContext(

@@ -28,6 +28,32 @@ from pytex import file
 version = "2.6"
 
 
+def newMarkRegister():
+    return [[]]
+
+
+class MarksValue(token.Command):
+    """
+    Expand to the mark text for a given class.
+    """
+    def __init__(self, key):
+        self.key = key
+
+    def toksValue(self, parser):
+        index = parser.readInteger()
+        if index < 0:
+            raise ValueError("mark class must be non-negative", parser.input.position())
+        register = parser.state.globals[self.key]
+        if index >= len(register):
+            return []
+        return register[index]
+
+    def expand(self, parser):
+        toks = self.toksValue(parser)
+        if toks:
+            parser.input.push(lexer.TokenListScanner(toks))
+
+
 class Expr(ModeDependentCommand):
     """
     The \\numexpr etc commands
@@ -576,6 +602,11 @@ mod = Module("etex",
         "fontcharht": FontCharDimen("height"),
         "fontchardp": FontCharDimen("depth"),
         "middle": Middle(),
+        "topmarks": MarksValue("topmarks"),
+        "firstmarks": MarksValue("firstmarks"),
+        "botmarks": MarksValue("botmarks"),
+        "splitfirstmarks": MarksValue("splitfirstmarks"),
+        "splitbotmarks": MarksValue("splitbotmarks"),
         "ifdefined": IfDefined(),
         "iffontchar": IfFontChar(),
         "ifcsname": IfCSName(),
@@ -599,5 +630,10 @@ mod = Module("etex",
         "savingvdiscards": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
         "savinghyphcodes": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
         "everyeof": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "topmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
+        "botmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
+        "firstmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
+        "splitfirstmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
+        "splitbotmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
     },
 )

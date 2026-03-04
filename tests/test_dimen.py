@@ -89,3 +89,22 @@ def test_em_ex(parser):
     parser.readFrom("1 ex")
     result = parser.readDimen()
     assert result == 4.30554
+
+
+def test_dimen_repr_matches_tex_print_scaled():
+    assert repr(Dimen(integer=65536)) == "1.0"
+    assert repr(Dimen(integer=4736286)) == "72.26999"
+    assert repr(Dimen(integer=40258437)) == "614.295"
+    assert repr(Dimen(integer=30785865)) == "469.75502"
+
+
+def test_pt_and_in_parsing_match_tex_scaled_points(parser):
+    parser.parse("\\dimen0=72.27pt\\dimen1=1in")
+    assert int(parser.state.dimen[0]) == 4736287
+    assert int(parser.state.dimen[1]) == 4736286
+
+
+def test_parsing_print_scaled_pt_round_trips_scaled_value(parser):
+    s = repr(Dimen(integer=30785865))
+    parser.parse(f"\\dimen0={s}pt")
+    assert int(parser.state.dimen[0]) == 30785865

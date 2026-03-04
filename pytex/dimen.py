@@ -25,22 +25,26 @@ class Dimen(serialization.Serializable):
         return Dimen(integer=-self.value)
 
     def __repr__(self):
-        s = "" if self.value >=0 else "-"
-        f = abs(float(self))
-        s += str(int(f)) + "."
-        f -= int(f)
-        if f == 0:
-            return s + "0"
-        for i in range(4):
-            f *= 10
-            d = int(f)
-            s += str(d)
-            f -= d
-            if f == 0:
+        # Mirror TeX's print_scaled routine so dimension-to-string round trips
+        # stay stable when macros re-parse values (for example geometry's
+        # \strip@pt + \setlength flow).
+        s = self.value
+        out = ""
+        if s < 0:
+            out = "-"
+            s = -s
+        out += str(s // self.scale) + "."
+        scaled = 10 * (s % self.scale) + 5
+        delta = 10
+        while True:
+            if delta > self.scale:
+                scaled = scaled + 32768 - 50000
+            out += str(scaled // self.scale)
+            scaled = 10 * (scaled % self.scale)
+            delta *= 10
+            if scaled <= delta:
                 break
-        if f >= 0.05:
-            s += str(int(f*10 + 0.5))
-        return s
+        return out
     
     def __float__(self):
         return self.value / self.scale
@@ -283,10 +287,16 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     else:
         # note that the everything is multiplied by \mag/1000. Thus, to produce 1 true pt,
         # we need to multiply 1 pt by 1000/\mag to cancel the effect of \mag
-        dimen = f * UNITS[unit] * 1000 / parser.state.parameters["mag"]
+        if unit == "pt":
+            num, den = Dimen._ratio(f)
+            mag = parser.state.parameters["mag"]
+            dimen = Dimen(integer=Dimen._round_div(num * Dimen.scale * 1000, den * mag))
+        else:
+            dimen = f * UNITS[unit] * 1000 / parser.state.parameters["mag"]
+    result = dimen if isinstance(dimen, Dimen) else Dimen(dimen)
     if stretchness:
-        return Dimen(dimen), infinity
-    return Dimen(dimen)
+        return result, infinity
+    return result
 
 
 class DimenCommand:

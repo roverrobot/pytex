@@ -297,19 +297,15 @@ class ListEndCallback:
         self.parser.lists.pop()
 
 
-class SetBoxEndCallback:
-    def __init__(self, parser, accessor, value, globally):
-        self.parser = parser
-        self.accessor = accessor
-        self.value = value
-        self.globally = globally
+class ReadBoxEndCallback(ListEndCallback):
+    def __init__(self, parser):
+        super().__init__(parser)
+        self.finished = False
 
     def __call__(self):
-        self.parser.lists.pop()
-        if self.globally:
-            self.accessor.setGlobal(self.parser, self.value)
-        else:
-            self.accessor.set(self.parser, self.value)
+        super().__call__()
+        self.finished = True
+        self.parser.run = False
 
 
 class BuildBox(Command):
@@ -346,7 +342,11 @@ class BuildBox(Command):
             if parser.tracingcommands > 0 and parser.checkRange():
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         if not setbox:
-            parser.beginGroup(parser.input.position(), self.group_type, ListEndCallback(parser))
+            callback = ReadBoxEndCallback(parser)
+            parser.beginGroup(parser.input.position(), self.group_type, callback)
+            parser.loop()
+            if callback.finished:
+                parser.run = True
         return box
 
 
@@ -367,66 +367,55 @@ def readBox(parser, setbox=False):
     @param parser: the parser
     @param setbox: whether the this function is called from setbox
     """
-    command = parser.token_expand().definition
-    if command is None:
-        raise ValueError("expecting a box", parser.input.position())
-    box_value = getattr(command, "boxValue", None)
+    box_value = getattr(parser.token_expand().definition, "boxValue", None)
     if box_value is None:
         raise ValueError("expecting a box", parser.input.position())
-    box = box_value(parser, setbox)
-    box_list = getattr(box, "list", None)
-    if (
-        not setbox
-        and box_list is not None
-        and box_list in parser.lists
-    ):
-        while parser.run and box_list in parser.lists:
-            t = parser.token_expand()
-            if t is None:
-                parser.run = False
-                break
-            if parser.tracingcommands:
-                parser.trace(t, mode="execute")
-            parser.current_token = t
-            t.execute(parser)
-    return box
+    return box_value(parser, setbox)
     
+
+class SetBoxEndCallback:
+    def __init__(self, parser, accessor):
+        self.parser = parser
+        self.accessor = accessor
+
+    def __call__(self):
+        self.parser.lists.pop()
+        self.accessor._set(self.parser)
+
+
 
 class BoxArrayItemAccessor(ArrayItemAccessor):
     def readValue(self, parser):
         return readBox(parser, setbox=True)
     
-    def boxValue(self, parser):
-        """
-        read the box value from the input stack
-        @param parser: the parser
-        """
-        return self.domain[self.index]
-    
+    def set(self, parser, value):
+        # the actualy value setting is done in assign
+        self.value = (value, False)
+
+    def setGlobal(self, parser, value):
+        # the actualy value setting is done in assign
+        self.value = (value, True)
+
+    def _set(self, parser):
+        value, globally = self.value
+        if globally:
+            super().setGlobal(parser, value)
+        else:
+            super().set(parser, value)
+
     def assign(self, parser, prefixes):
         top = parser.lists[-1]
-        self.readEq(parser)
-        value = self.readValue(parser)
-        globally = parser.globaldefs.value != 0
-        try:
-            for p in prefixes:
-                value, globally = p.modify(value, globally)
-        except ValueError as e:
-            e.args = (e.args[0], parser.input.position())
-            raise e
-        self.queueAfterassignment(parser)
+        super().assign(parser, prefixes)
         new = parser.lists[-1]
         if new is not top:
             # we are reading a list, but the group has not started yet to accommodate \afterassignment
             parser.beginGroup(
                 parser.input.position(),
                 new.group_type,
-                SetBoxEndCallback(parser, self, value, globally),
+                SetBoxEndCallback(parser, self),
             )
-        elif globally:
-            self.setGlobal(parser, value)
         else:
-            self.set(parser, value)
+            self._set(parser)
     
 
 class BoxArray(Array):

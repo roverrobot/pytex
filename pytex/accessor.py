@@ -79,23 +79,6 @@ class Accessor(token.Command):
         """
         raise NotImplementedError("setValue method must be implemented in a subclass")
 
-    def queueAfterassignment(self, parser):
-        """
-        Queue \\afterassignment before the actual write happens.
-
-        The token is only read after this command returns, so ordinary assignments are
-        still complete when it executes. This also lets special cases such as \\setbox
-        reuse the same helper while deferring the semantic register update until the
-        box group closes.
-        """
-        t = parser.state.globals["afterassignment"]
-        if t is None:
-            return
-        parser.input.unread(t)
-        parser.state.globals["afterassignment"] = None
-        if parser.tracingcommands > 0 and parser.checkRange():
-            parser.message(f"afterassignment: {parser.tokenToString(t)}")
-    
     def assign(self, parser, prefixes):
         """
         assign the value to the index
@@ -111,7 +94,16 @@ class Accessor(token.Command):
         except ValueError as e:
             e.args = (e.args[0], parser.input.position())
             raise e
-        self.queueAfterassignment(parser)
+        # Queue \\afterassignment before the actual write happens.
+        # The token is only read after this command returns, so ordinary assignments
+        # are still complete when it executes. Special cases such as \\setbox can
+        # still defer the semantic register update until their value is complete.
+        t = parser.state.globals["afterassignment"]
+        if t is not None:
+            parser.input.unread(t)
+            parser.state.globals["afterassignment"] = None
+            if parser.tracingcommands > 0 and parser.checkRange():
+                parser.message(f"afterassignment: {parser.tokenToString(t)}")
         if globally:
             self.setGlobal(parser, value)
         else:

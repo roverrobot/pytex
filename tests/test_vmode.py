@@ -49,6 +49,17 @@ def test_par(parser):
     assert len(vlist) == 0
 
 
+def test_end_stops_processing(parser):
+    parser.parse("\\end\\vskip 1pt")
+    top = parser.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 2
+    assert top[0].node_type == nd.NODE_TYPE.GLUE
+    assert top[0].name == "\\vfill"
+    assert top[1].node_type == nd.NODE_TYPE.PENALTY
+    assert top[1].penalty == -0x100000
+
+
 def test_penalty(cmr10):
     cmr10.parse("\\penalty 10000")
     top = cmr10.lists[-1]

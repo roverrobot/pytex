@@ -212,6 +212,14 @@ def test_vsplit_takes_whole_box_when_target_is_large(parser):
     assert split.height == 50
 
 
+def test_moveright_dispatches_to_vertical_handler(parser):
+    parser.parse("\\moveright1pt\\vbox{}")
+    top = parser.lists[-1]
+    shifted = top[-1]
+    assert shifted.node_type == NODE_TYPE.VLIST
+    assert shifted.shifted == -1
+
+
 def test_vtop(box):
     box.parse("\\vtop{\\copy0\\vskip1em plus 1em\\box0}\\relax")
     top = box.lists[-1]

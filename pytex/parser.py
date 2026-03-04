@@ -435,6 +435,7 @@ class Parser:
         """
         end the parser, and return the log
         """
+        self.run = False
         top = self.lists[-1]
         if top.type == lists.LISTTYPE.HORIZONTAL:
             if top.inner:

@@ -93,12 +93,13 @@ if args.profile:
 else:
     parser.parse(input, jobname=file)
 input.close()
-log = parser.close()
 
 if args.format == "initex":
     parser.dumper(parser.dump())
 else:
     parser.outputPages(args.output)
+
+log = parser.close()
 
 print("log file content")
 print(log)

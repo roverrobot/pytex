@@ -660,21 +660,21 @@ class Shift(ModeDependentCommand):
     and 1 means left or down.
     """
     def __init__(self, vertical: bool, direction: int):
-        self.vertical = vertical
+        self.is_vertical = vertical
         self.direction = direction
-
+    
     def horizontal(self, parser, hlist):
-        if self.vertical:
+        if self.is_vertical:
             super().horizontal(parser, hlist)
         hlist.append(self.shift(parser))
-
+    
     def vertical(self, parser, vlist):
-        if not self.vertical:
+        if not self.is_vertical:
             super().vertical(parser, vlist)
         vlist.append(self.shift(parser))
-
+    
     def math(self, parser, mlist):
-        if self.vertical:
+        if self.is_vertical:
             super().math(parser, mlist)
         box = self.shift(parser)
         mlist.append(box)

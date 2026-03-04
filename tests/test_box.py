@@ -282,7 +282,7 @@ def test_vsplit_whole_box_sets_splitbotmark_to_last_mark(parser):
     assert toksToString(parser, parser.state.globals["splitbotmark"]) == "B"
 
 
-def test_vsplit_split_marks_ignore_nonzero_mark_classes(parser):
+def test_vsplit_nonzero_marks_require_etex(parser):
     source = bx.VBox(parser, None, 0)
     source.list.append(_mark_node("X", 2))
     source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
@@ -290,9 +290,8 @@ def test_vsplit_split_marks_ignore_nonzero_mark_classes(parser):
     source.list.append(_mark_node("Y", 2))
     source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
     parser.state.box[1] = source
-    parser.parse("\\setbox2=\\vsplit1 to 10pt")
-    assert parser.state.globals["splitfirstmark"] == []
-    assert parser.state.globals["splitbotmark"] == []
+    with pytest.raises(AssertionError):
+        parser.parse("\\setbox2=\\vsplit1 to 10pt")
 
 
 def test_moveright_dispatches_to_vertical_handler(parser):

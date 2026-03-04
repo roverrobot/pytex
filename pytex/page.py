@@ -703,6 +703,31 @@ class MainVList(vmode.VList):
         return firstmarks, botmarks
 
     @staticmethod
+    def _pageHasNonZeroMarks(nodes, start, end):
+        for node in nodes[start:end]:
+            if isinstance(node, ShipoutNode):
+                continue
+            if node.node_type != nd.NODE_TYPE.MARK:
+                continue
+            if getattr(node, "index", 0) != 0:
+                return True
+        return False
+
+    def _updatePageMarksByClass(self, parser, nodes, start, end, topmark):
+        topmarks = parser.state.globals.get("botmarks")
+        if topmarks is None:
+            assert not self._pageHasNonZeroMarks(nodes, start, end), \
+                "nonzero mark nodes require the etex module"
+            return None
+        topmarks = _copy_mark_register(topmarks)
+        _set_mark_class(topmarks, 0, topmark)
+        firstmarks, botmarks = self._pageMarksByClass(nodes, start, end, topmarks)
+        parser.state.globals["topmarks"] = _copy_mark_register(topmarks)
+        parser.state.globals["firstmarks"] = firstmarks
+        parser.state.globals["botmarks"] = botmarks
+        return botmarks
+
+    @staticmethod
     def _shipLeading(nodes, start, context, parser):
         while start < len(nodes):
             node = nodes[start]
@@ -782,10 +807,6 @@ class MainVList(vmode.VList):
         pages = []
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
-        topmarks = parser.state.globals.get("botmarks")
-        if topmarks is not None:
-            topmarks = _copy_mark_register(topmarks)
-            _set_mark_class(topmarks, 0, topmark)
         start = 0
         while True:
             start, context = breaker.pruneTop(start, context)
@@ -799,11 +820,7 @@ class MainVList(vmode.VList):
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
-            if topmarks is not None:
-                firstmarks, botmarks = self._pageMarksByClass(material, start, end, topmarks)
-                parser.state.globals["topmarks"] = _copy_mark_register(topmarks)
-                parser.state.globals["firstmarks"] = firstmarks
-                parser.state.globals["botmarks"] = botmarks
+            botmarks = self._updatePageMarksByClass(parser, material, start, end, topmark)
             # The page material is already fully typeset. Keep it as a plain list so
             # VBox.pretypeset() computes box dimensions without re-running
             # VList.typesetNodes() and duplicating interline penalties/glue.
@@ -814,8 +831,6 @@ class MainVList(vmode.VList):
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
             topmark = list(botmark)
-            if topmarks is not None:
-                topmarks = _copy_mark_register(botmarks)
             context = breaker.advanceContext(start, next_start, context)
             start = next_start
         return pages
@@ -827,10 +842,6 @@ class MainVList(vmode.VList):
         shipped = len(parser.shipout.pages)
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
-        topmarks = parser.state.globals.get("botmarks")
-        if topmarks is not None:
-            topmarks = _copy_mark_register(topmarks)
-            _set_mark_class(topmarks, 0, topmark)
         start = 0
         while True:
             start, context = self._shipLeading(material, start, context, parser)
@@ -845,11 +856,7 @@ class MainVList(vmode.VList):
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
-            if topmarks is not None:
-                firstmarks, botmarks = self._pageMarksByClass(material, start, end, topmarks)
-                parser.state.globals["topmarks"] = _copy_mark_register(topmarks)
-                parser.state.globals["firstmarks"] = firstmarks
-                parser.state.globals["botmarks"] = botmarks
+            botmarks = self._updatePageMarksByClass(parser, material, start, end, topmark)
             parser.state.parameters["topmark"] = list(topmark)
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
@@ -862,8 +869,6 @@ class MainVList(vmode.VList):
             if carry:
                 material[next_start:next_start] = carry
             topmark = list(botmark)
-            if topmarks is not None:
-                topmarks = _copy_mark_register(botmarks)
             context = breaker.advanceContext(start, next_start, context)
             start = next_start
         return parser.shipout.pages[shipped:]
@@ -952,7 +957,9 @@ class VSplit(Command):
                 continue
             mark_index = getattr(node, "index", 0)
             mark = list(node.tokens)
-            if splitfirstmarks is not None:
+            if splitfirstmarks is None:
+                assert mark_index == 0, "nonzero mark nodes require the etex module"
+            else:
                 if mark_index not in split_seen:
                     _set_mark_class(splitfirstmarks, mark_index, mark)
                     split_seen.add(mark_index)

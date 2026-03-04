@@ -91,3 +91,14 @@ def test_page_break_updates_marks(parser):
     assert "".join(t.name for t in parser.state.parameters["topmark"]) == "A"
     assert "".join(t.name for t in parser.state.parameters["firstmark"]) == "B"
     assert "".join(t.name for t in parser.state.parameters["botmark"]) == "B"
+
+
+def test_page_break_nonzero_marks_require_etex(parser):
+    parser.parse("\\vsize=10pt\\topskip=0pt")
+    main = parser.lists[0]
+    mark = nd.Mark(toToks("X"))
+    mark.index = 2
+    main.append(_test_hbox(parser, height=6, depth=0))
+    main.append(mark)
+    with pytest.raises(AssertionError):
+        parser.breakPages()

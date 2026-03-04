@@ -288,7 +288,13 @@ class Special(WhatsIt):
         return f"Special({self.text})"
 
     def output(self, parser, device):
-        device.special(self.text)
+        text = self.text
+        if isinstance(text, list):
+            def token_text(token):
+                s = parser.tokenToString(token)
+                return s + " " if token.catcode is None else s
+            text = "".join(token_text(token) for token in text)
+        device.special(text)
 
 
 class VAdjust(Node):

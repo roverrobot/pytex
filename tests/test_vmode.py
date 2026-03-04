@@ -103,6 +103,15 @@ def test_special(cmr10):
     assert toksToString(cmr10, node.text) == "abc"
 
 
+def test_special_outputs_string(parser):
+    parser.parse("\\special{abc}")
+    seen = []
+    node = parser.lists[-1][0]
+    device = types.SimpleNamespace(special=lambda text: seen.append(text))
+    node.output(parser, device)
+    assert seen == ["abc"]
+
+
 @pytest.mark.parametrize("cmd, type", [
     ["\\leaders", LEADERS_TYPE.LEADERS],
     ["\\cleaders", LEADERS_TYPE.CLEADERS],

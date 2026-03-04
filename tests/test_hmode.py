@@ -56,6 +56,15 @@ def test_par(cmr10):
     assert node.node_type == nd.NODE_TYPE.GLUE
 
 
+def test_noindent_par_creates_no_empty_line(cmr10):
+    cmr10.parse("\\noindent\\par")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    packed = []
+    top.typesetNodes(cmr10, packed)
+    assert packed == []
+
+
 def test_vskip(cmr10):
     cmr10.parse("hello\\vskip 1in\nworld\n\n")
     assert len(cmr10.lists) == 1

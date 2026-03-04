@@ -379,6 +379,12 @@ class Parser:
         # \unskip
         if len(hlist) > 0 and hlist[-1].node_type == node.NODE_TYPE.GLUE:
             hlist.pop()
+        # A truly empty paragraph contributes nothing (e.g., \noindent\par).
+        # TeX does not emit a synthetic empty line in this case.
+        if len(hlist) == 0:
+            self.lists.pop()
+            self.clearParagraphSettings()
+            return
         # \penalty10000
         hlist.append(node.Penalty(10000))
         # \hskip\parfillskip

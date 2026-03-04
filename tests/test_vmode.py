@@ -178,6 +178,19 @@ def _test_hbox(parser, height=6, depth=2):
     return _LeafHBox(height, depth)
 
 
+class _ProbeWhatsit(nd.WhatsIt):
+    node_type = nd.NODE_TYPE.WHATSIT
+
+    def __init__(self, seen):
+        self.seen = seen
+
+    def output(self, parser, device):
+        self.seen.append("fired")
+
+    def meaning(self, parser):
+        return "ProbeWhatsit"
+
+
 def test_prevdepth_penalty_does_not_reset(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
     vlist = vmode.VList(parser)
@@ -276,6 +289,42 @@ def test_page_break_uses_topskip_before_first_box(parser):
     assert pages[0].list[0].node_type == nd.NODE_TYPE.GLUE
     assert pages[0].list[0].name == "\\topskip"
     assert pages[0].list[0].glue.dimen == 4
+
+
+def test_page_break_discards_glue_before_first_box_after_whatsit(parser):
+    parser.parse("\\vsize=20pt\\topskip=10pt")
+    main = parser.lists[0]
+    first = _test_hbox(parser, height=6, depth=0)
+    main.append(nd.Special([]))
+    main.append(nd.Glue(glue.Glue(2), None))
+    main.append(first)
+    pages = main.pageBreak(parser)
+    assert len(pages) == 1
+    assert pages[0].list[0].node_type == nd.NODE_TYPE.WHATSIT
+    assert pages[0].list[1].node_type == nd.NODE_TYPE.GLUE
+    assert pages[0].list[1].name == "\\topskip"
+    assert pages[0].list[1].glue.dimen == 4
+    assert pages[0].list[2] is first
+    assert len(pages[0].list) == 3
+
+
+def test_page_break_ignores_void_box_and_forced_penalty_before_start(parser):
+    parser.parse("\\vsize=20pt\\topskip=10pt")
+    main = parser.lists[0]
+    first = _test_hbox(parser, height=6, depth=0)
+    void = bx.VBox(parser, None, None).typeset(parser)
+    main.append(nd.Special([]))
+    main.append(void)
+    main.append(nd.Penalty(-10001))
+    main.append(first)
+    pages = main.pageBreak(parser)
+    assert len(pages) == 1
+    assert all(node is not void for node in pages[0].list)
+    assert pages[0].list[0].node_type == nd.NODE_TYPE.WHATSIT
+    assert pages[0].list[1].node_type == nd.NODE_TYPE.GLUE
+    assert pages[0].list[1].name == "\\topskip"
+    assert pages[0].list[1].glue.dimen == 4
+    assert pages[0].list[2] is first
 
 
 def test_page_break_insert_not_implemented(cmr10):
@@ -410,6 +459,15 @@ def test_output_pages_default_shipout(cmr10):
     assert cmr10.state.box[255] is None
     assert cmr10.state.globals["deadcycles"] == 0
     assert getattr(cmr10, "shipout", None) is None
+
+
+def test_output_pages_skips_empty_page_with_only_whatsits(parser):
+    seen = []
+    parser.parse("")
+    parser.lists[0].append(_ProbeWhatsit(seen))
+    shipout = parser.outputPages()
+    assert len(shipout.pages) == 0
+    assert seen == ["fired"]
 
 
 def test_output_routine_can_carry_material_forward(cmr10):

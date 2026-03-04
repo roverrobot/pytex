@@ -71,6 +71,31 @@ class VListBreaker:
         return Glue(dimen, topskip.stretch, topskip.shrink)
 
     @staticmethod
+    def _isVoidTopBox(node):
+        if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            return False
+        items = getattr(node, "list", None)
+        if items is None or len(items) != 0:
+            return False
+        width = getattr(node, "width", None)
+        height = getattr(node, "height", None)
+        depth = getattr(node, "depth", None)
+        width = 0.0 if width is None else float(width)
+        height = 0.0 if height is None else float(height)
+        depth = 0.0 if depth is None else float(depth)
+        return width == 0.0 and height == 0.0 and depth == 0.0
+
+    @classmethod
+    def _isTopDiscardable(cls, node):
+        if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
+            return True
+        return cls._isVoidTopBox(node)
+
+    @staticmethod
+    def _delaysPageStart(node):
+        return node.node_type in (nd.NODE_TYPE.WHATSIT, nd.NODE_TYPE.MARK)
+
+    @staticmethod
     def badness(total, goal):
         delta = goal - total.dimen
         if delta == 0:
@@ -196,10 +221,16 @@ class VListBreaker:
                 current_context = new_context
                 continue
             if not topskip_added:
+                if self._isTopDiscardable(node):
+                    continue
                 top = self.topskip(current_context.topskip, node)
                 if top is not None:
                     total = total + top
                     topskip_added = True
+                elif not self._delaysPageStart(node):
+                    topskip_added = True
+            if not topskip_added:
+                continue
             if node.node_type == nd.NODE_TYPE.PENALTY:
                 if node.penalty >= 10000:
                     continue
@@ -250,10 +281,17 @@ class VListBreaker:
                 continue
             if self.isTransparent(node):
                 continue
-            if topskip_name is not None and not topskip_added:
-                top = self.topskip(current_context.topskip, node)
-                if top is not None:
-                    built.append(nd.Glue(top, topskip_name))
+            if not topskip_added:
+                if self._isTopDiscardable(node):
+                    continue
+                if topskip_name is not None:
+                    top = self.topskip(current_context.topskip, node)
+                    if top is not None:
+                        built.append(nd.Glue(top, topskip_name))
+                        topskip_added = True
+                    elif not self._delaysPageStart(node):
+                        topskip_added = True
+                elif not self._delaysPageStart(node):
                     topskip_added = True
             built.append(node)
             if self.hasDepth(node):
@@ -749,6 +787,27 @@ class MainVList(vmode.VList):
         return [node.box for node in nodes[start:end] if isinstance(node, ShipoutNode)]
 
     @staticmethod
+    def _hasPageContent(nodes):
+        for node in nodes:
+            if node.node_type == nd.NODE_TYPE.RULE:
+                return True
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                if not VListBreaker._isVoidTopBox(node):
+                    return True
+                continue
+            if node.node_type == nd.NODE_TYPE.INS:
+                return True
+        return False
+
+    @staticmethod
+    def _flushPageWhatsits(parser, nodes):
+        device = getattr(parser, "shipout", None)
+        for node in nodes:
+            if node.node_type != nd.NODE_TYPE.WHATSIT:
+                continue
+            node.output(parser, device)
+
+    @staticmethod
     def _runNestedLoop(parser):
         saved = parser.run
         parser.run = True
@@ -867,6 +926,11 @@ class MainVList(vmode.VList):
                 shipout(parser, box)
             # Keep the built page material as a plain list; it is already packed.
             page.list[:] = breaker.buildSlice(start, end, context, "\\topskip")
+            if not self._hasPageContent(page.list):
+                self._flushPageWhatsits(parser, page.list)
+                context = breaker.advanceContext(start, next_start, context)
+                start = next_start
+                continue
             carry = self._runOutputRoutine(parser, page.typeset(parser))
             if carry:
                 material[next_start:next_start] = carry

@@ -27,6 +27,15 @@ def test_new_paragraph(cmr10):
     assert node.node_type == nd.NODE_TYPE.GLUE
 
 
+def test_everypar_runs_before_first_character(cmr10):
+    cmr10.parse("\\everypar={\\setbox0=\\lastbox}123")
+    hlist = cmr10.lists[-1]
+    assert hlist.type == lists.LISTTYPE.HORIZONTAL
+    assert "".join(node.char for node in hlist if node.node_type == nd.NODE_TYPE.CHAR) == "123"
+    assert not any(isinstance(node, hmode.IndentBox) for node in hlist)
+    assert isinstance(cmr10.state.box[0], hmode.IndentBox)
+
+
 def test_par(cmr10):
     cmr10.parse("hello\n\n")
     assert len(cmr10.lists) == 1

@@ -299,6 +299,14 @@ def test_moveright_dispatches_to_vertical_handler(parser):
     top = parser.lists[-1]
     shifted = top[-1]
     assert shifted.node_type == NODE_TYPE.VLIST
+    assert shifted.shifted == 1
+
+
+def test_moveleft_dispatches_to_vertical_handler(parser):
+    parser.parse("\\moveleft1pt\\vbox{}")
+    top = parser.lists[-1]
+    shifted = top[-1]
+    assert shifted.node_type == NODE_TYPE.VLIST
     assert shifted.shifted == -1
 
 

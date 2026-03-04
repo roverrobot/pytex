@@ -22,8 +22,7 @@ class Dimen(serialization.Serializable):
         return {"init": {"integer": self.value}}
 
     def negate(self):
-        self.value = -self.value
-        return self
+        return Dimen(integer=-self.value)
 
     def __repr__(self):
         s = "" if self.value >=0 else "-"

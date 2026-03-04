@@ -226,7 +226,10 @@ class Parser:
             # command as explained above. This leads into horizontal mode with 
             # the \everypar tokens in the input, after which TeX will see the 
             # horizontal command again. The TeX Book pp.283
+            if self.current_token is not None:
+                self.input.unread(self.current_token)
             self.newParagraph()
+            return
         if self.lists[-1].type == lists.LISTTYPE.HORIZONTAL:
             # The most common commands of all are the character commands that tell 
             # TeX to append a character to the current horizontal list, using the

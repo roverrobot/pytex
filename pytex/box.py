@@ -715,8 +715,8 @@ class Shift(ModeDependentCommand):
     The \\raise, \\lower, \\moveleft, \\moveright command.
     @param vertical whether the command is vertical (\\moveleft, \\moveright) or
     horizontal (\\raise, \\lower)
-    @param direction: the direction of the shift (-1, or 1). Here -1 means right or up,
-    and 1 means left or down.
+    @param direction: the direction of the shift (-1, or 1). Here +1 means right or down,
+    and -1 means left or up.
     """
     def __init__(self, vertical: bool, direction: int):
         self.is_vertical = vertical
@@ -942,8 +942,8 @@ mod = Module("hbox",
         "unvcopy": UnBox(True, False),
         "raise": Shift(False, -1),
         "lower": Shift(False, 1),
-        "moveleft": Shift(True, 1),
-        "moveright": Shift(True, -1),
+        "moveleft": Shift(True, -1),
+        "moveright": Shift(True, 1),
         "leaders": Leaders(LEADERS_TYPE.LEADERS),
         "cleaders": Leaders(LEADERS_TYPE.CLEADERS),
         "xleaders": Leaders(LEADERS_TYPE.XLEADERS),

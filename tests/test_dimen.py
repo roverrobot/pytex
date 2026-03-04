@@ -69,6 +69,12 @@ def test_dimen_array(parser):
     checkValues(parser, "}", [["dimen", 0, 10]])
 
 
+def test_negated_internal_dimen_does_not_mutate_source(parser):
+    parser.parse("\\dimen0=12pt\\dimen1=-\\dimen0")
+    assert parser.state.dimen[0] == 12
+    assert parser.state.dimen[1] == -12
+
+
 def test_dimen_parameter(parser):
     checkValues(parser, "\\hsize = 10 pt", [["layout", "hsize", 10]])
     checkValues(parser, "{\\hsize = 1 pt", [["layout", "hsize", 1]])

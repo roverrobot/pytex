@@ -179,6 +179,39 @@ def test_vbox_uses_captured_boxmaxdepth(parser):
     assert typed.depth == 1
 
 
+def test_vsplit_void(parser):
+    parser.parse("\\setbox0=\\vsplit1 to 10pt")
+    assert parser.state.box[0] is None
+    assert parser.state.box[1] is None
+
+
+def test_vsplit_splits_box_and_reinserts_splittopskip(parser):
+    parser.state.layout["splittopskip"] = glue.Glue(10)
+    source = bx.VBox(parser, None, 0)
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 10pt")
+    split = parser.state.box[2].typeset(parser)
+    remainder = parser.state.box[1].typeset(parser)
+    assert split.height == 10
+    assert split.list[0].node_type == NODE_TYPE.HLIST
+    assert remainder.list[0].node_type == NODE_TYPE.GLUE
+    assert remainder.list[0].glue.dimen == 4
+    assert remainder.list[1].node_type == NODE_TYPE.HLIST
+
+
+def test_vsplit_takes_whole_box_when_target_is_large(parser):
+    source = bx.VBox(parser, None, 0)
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 50pt")
+    assert parser.state.box[1] is None
+    split = parser.state.box[2].typeset(parser)
+    assert split.height == 50
+
+
 def test_vtop(box):
     box.parse("\\vtop{\\copy0\\vskip1em plus 1em\\box0}\\relax")
     top = box.lists[-1]

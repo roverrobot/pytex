@@ -4,6 +4,7 @@ parse and wrap up an hbox
 
 from pytex import node as nd
 from pytex import hmode
+from pytex import insert as ins
 from pytex import vmode
 from pytex.glue import Glue
 from pytex.module import Module
@@ -272,6 +273,81 @@ class BoxCommand(Command):
             parser.state.box[index] = None
             return box
         return box.copy()    
+
+
+class VSplitContext:
+    """
+    Context used by the generic vertical-list breaker for \\vsplit.
+    """
+
+    def __init__(self, vsize, topskip, maxdepth):
+        self.vsize = Dimen(vsize)
+        self.topskip = topskip
+        self.maxdepth = maxdepth
+
+
+class VSplitBreaker(ins.VListBreaker):
+    """
+    Vertical-list breaker for \\vsplit. Unlike page breaking, the end of the
+    source list acts as an implicit \\penalty-10000 breakpoint.
+    """
+
+    def finalPenalty(self):
+        return -10000
+
+
+class VSplit(Command):
+    """
+    The \\vsplit command.
+    """
+
+    def boxValue(self, parser, setbox):
+        index = parser.readInteger()
+        spec, dim = readBoxSpec(parser, ["to"])
+        if spec != "to":
+            raise ValueError("expecting \\vsplit<number> to <dimen>", parser.input.position())
+        source = parser.state.box[index]
+        if source is None:
+            return None
+        if source.node_type != nd.NODE_TYPE.VLIST:
+            raise ValueError("expecting a vbox", parser.input.position())
+        source = source.typeset(parser)
+        nodes = list(source.list)
+        split_context = VSplitContext(
+            dim,
+            Glue(),
+            parser.state.layout["splitmaxdepth"],
+        )
+        breaker = VSplitBreaker(nodes, split_context)
+        start, split_context = breaker.pruneTop(0, split_context)
+        if start >= len(nodes):
+            parser.state.box[index] = None
+            return None
+        end, next_start, break_context, _ = breaker.bestBreak(start, split_context)
+        if end <= start:
+            end = min(start + 1, len(nodes))
+            next_start = end
+            break_context = breaker.advanceContext(start, end, split_context)
+        result = VBox(parser, break_context.vsize, Dimen())
+        result.list[:] = breaker.buildRawSlice(start, end, split_context)
+        remainder_context = VSplitContext(
+            Dimen(),
+            parser.state.layout["splittopskip"],
+            parser.state.layout["boxmaxdepth"],
+        )
+        next_start, _ = breaker.pruneTop(next_start, remainder_context)
+        if next_start >= len(nodes):
+            parser.state.box[index] = None
+        else:
+            remainder = VBox(parser, None, Dimen())
+            remainder.list[:] = breaker.buildSlice(next_start, len(nodes), remainder_context, "\\splittopskip")
+            parser.state.box[index] = remainder.typeset(parser)
+        return result
+
+    def execute(self, parser):
+        box = self.boxValue(parser, False)
+        if box is not None:
+            parser.lists[-1].append(box)
 
 
 def readBoxSpec(parser, keywords=["to", "spread"]):
@@ -885,5 +961,6 @@ mod = Module("hbox",
         "cleaders": Leaders(LEADERS_TYPE.CLEADERS),
         "xleaders": Leaders(LEADERS_TYPE.XLEADERS),
         "lastbox": LastBox(),
+        "vsplit": VSplit(),
     }
 )

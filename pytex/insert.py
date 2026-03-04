@@ -25,6 +25,9 @@ class VListBreaker:
     def isTransparent(self, node):
         return False
 
+    def finalPenalty(self):
+        return None
+
     @staticmethod
     def measure(total, node):
         if node.node_type == nd.NODE_TYPE.GLUE:
@@ -157,6 +160,8 @@ class VListBreaker:
 
     @staticmethod
     def candidateBreak(index, kind):
+        if kind == "end":
+            return index, index
         if kind == "kern":
             return index + 1, index + 1
         return index, index + 1
@@ -204,13 +209,19 @@ class VListBreaker:
                 current_context.vsize,
             ) == inf and best is not None:
                 break
+        final_penalty = self.finalPenalty()
+        if final_penalty is not None:
+            effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+            cost = self.cost(effective, current_context.vsize, final_penalty)
+            if best is None or cost <= best[0]:
+                best = (cost, len(self.nodes), "end", current_context, final_penalty)
         if best is None:
             return len(self.nodes), len(self.nodes), current_context, 0
         _, index, kind, best_context, best_penalty = best
         end, next_start = self.candidateBreak(index, kind)
         return end, next_start, best_context, best_penalty
 
-    def buildSlice(self, start, end, context, topskip_name):
+    def _buildSlice(self, start, end, context, topskip_name):
         built = []
         topskip_added = False
         last_box = None
@@ -222,7 +233,7 @@ class VListBreaker:
                 continue
             if self.isTransparent(node):
                 continue
-            if not topskip_added:
+            if topskip_name is not None and not topskip_added:
                 top = self.topskip(current_context.topskip, node)
                 if top is not None:
                     built.append(nd.Glue(top, topskip_name))
@@ -233,6 +244,12 @@ class VListBreaker:
         if last_box is not None and last_box.depth > current_context.maxdepth:
             last_box.depth = current_context.maxdepth
         return built
+
+    def buildSlice(self, start, end, context, topskip_name):
+        return self._buildSlice(start, end, context, topskip_name)
+
+    def buildRawSlice(self, start, end, context):
+        return self._buildSlice(start, end, context, None)
 
     def advanceContext(self, start, end, context):
         for node in self.nodes[start:end]:

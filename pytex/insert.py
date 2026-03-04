@@ -9,6 +9,7 @@ from pytex import node as nd
 from pytex.dimen import Dimen
 from pytex.glue import Glue
 from pytex.module import Module
+from pytex.state import GROUP_TYPE
 from pytex.token import Command
 
 
@@ -336,9 +337,24 @@ class VSplit(Command):
             parser.lists[-1].append(box)
 
 
+class Insert(Command):
+    """
+    The \\insert command.
+    """
+
+    def execute(self, parser):
+        index = parser.readInteger()
+        if index < 0 or index == 255:
+            raise ValueError(f"invalid insert number {index}", parser.input.position())
+        top = parser.lists[-1]
+        vlist = parser.readVList(GROUP_TYPE.INSERT)
+        top.append(nd.Insert(index, vlist))
+
+
 mod = Module(
     "insert",
     commands={
+        "insert": Insert(),
         "vsplit": VSplit(),
     },
 )

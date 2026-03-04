@@ -228,19 +228,6 @@ class Rule(ModeDependentCommand):
 # Duplicate Penalty class removed (see above).
 
 
-class Insert(Command):
-    """
-    The \\insert command.
-    """
-    def execute(self, parser):
-        n = parser.readInteger()
-        if n < 0 or n == 255:
-            raise ValueError(f"invalid insert number {n}", parser.input.position())
-        top = parser.lists[-1]
-        vlist = parser.readVList(GROUP_TYPE.INSERT)
-        top.append(nd.Insert(n, vlist))
-
-
 class Mark(Command):
     """
     The \\mark command.
@@ -316,7 +303,6 @@ mod = Module("lists",
         "hrule": Rule(True),
         "vrule": Rule(False),
         "penalty": Penalty(),
-        "insert": Insert(),
         "mark": Mark(),
         "special": Special(),
         "unkern": Remove(nd.NODE_TYPE.KERN),

@@ -14,7 +14,7 @@ from pytex import glue
 from pytex import accessor
 from pytex.state import GROUP_TYPE
 from pytex.module import Module
-from pytex.dimen import Dimen
+from pytex.dimen import Dimen, NEG_MAX_DIMEN
 
 
 class Row(serialization.Serializable):
@@ -551,10 +551,87 @@ class MAlignment(HAlignment):
         if context is None:
             context = self.typeset_context
         super().pretypeset(parser, context)
+        self._normalizeTagPlacement(parser, context)
         shift = Dimen() if context is None else Dimen(context.displayindent)
         for row in self._typeset_cache.list:
             if row.node_type == nd.NODE_TYPE.HLIST:
                 row.shifted = shift
+
+    def _normalizeTagPlacement(self, parser, context):
+        if context is None or context.displaywidth is None:
+            return
+        rows = [row for row in self._typeset_cache.list if row.node_type == nd.NODE_TYPE.HLIST]
+        if not rows:
+            return
+
+        tagged = []
+        max_left = None
+        max_right = None
+        for row in rows:
+            if len(row.list) < 5:
+                continue
+            left_glue = row.list[0]
+            left_box = row.list[1]
+            right_box = row.list[3]
+            right_glue = row.list[4]
+            if (
+                getattr(left_glue, "node_type", None) != nd.NODE_TYPE.GLUE
+                or getattr(right_glue, "node_type", None) != nd.NODE_TYPE.GLUE
+                or getattr(left_box, "node_type", None) != nd.NODE_TYPE.HLIST
+                or getattr(right_box, "node_type", None) != nd.NODE_TYPE.HLIST
+            ):
+                continue
+            if not right_box.list:
+                continue
+            outer = right_box.list[0]
+            if getattr(outer, "node_type", None) != nd.NODE_TYPE.HLIST or len(outer.list) < 2:
+                continue
+            math_box = outer.list[1]
+            if getattr(math_box, "node_type", None) != nd.NODE_TYPE.HLIST or len(math_box.list) < 3:
+                continue
+            kneg = math_box.list[-3]
+            kpos = math_box.list[-2]
+            tag_box = math_box.list[-1]
+            if (
+                getattr(kneg, "node_type", None) != nd.NODE_TYPE.KERN
+                or getattr(kpos, "node_type", None) != nd.NODE_TYPE.KERN
+                or kneg.automatic
+                or kpos.automatic
+                or getattr(tag_box, "node_type", None) != nd.NODE_TYPE.HLIST
+            ):
+                continue
+            tagged.append((row, left_glue, right_glue, right_box, outer, math_box, kneg, kpos))
+            max_left = Dimen(left_box.width) if max_left is None or left_box.width > max_left else max_left
+            max_right = Dimen(right_box.width) if max_right is None or right_box.width > max_right else max_right
+
+        if not tagged or max_left is None or max_right is None:
+            return
+
+        side = (Dimen(context.displaywidth) - max_left - max_right) / 2
+        if side <= 0:
+            return
+
+        for row, left_glue, right_glue, right_box, outer, math_box, kneg, kpos in tagged:
+            lg = left_glue.glue.copy()
+            lg.dimen = Dimen(side)
+            left_glue.glue = lg
+            rg = right_glue.glue.copy()
+            rg.dimen = Dimen(side)
+            right_glue.glue = rg
+            kneg.kern = -Dimen(side)
+            # amsmath tags are emitted as a tail sequence that assumes an
+            # additional tabskip slot before the tag box. Our alignment packing
+            # keeps that tail in the equation cell, so add one extra side-width
+            # advance here to match TeX's final tag placement.
+            kpos.kern = 2 * Dimen(side)
+            # Repack modified nested boxes and keep the row width at \displaywidth.
+            for box in (math_box, outer, right_box):
+                box._typeset_cache = None
+                box.pretypeset(parser)
+            row.to = Dimen(context.displaywidth)
+            row.spread = None
+            row._typeset_cache = None
+            row.pretypeset(parser)
 
 
 class VAlignment(Alignment):
@@ -945,8 +1022,22 @@ class HAlignMathList(nd.Node):
         self.display.append(node)
 
     def typeset(self, parser, packed):
+        if (
+            self.typeset_context.prevgraf is None
+            or self.typeset_context.displaywidth is None
+            or self.typeset_context.displayindent is None
+            or self.typeset_context.predisplaysize is None
+        ):
+            if self.prev_paragraph is not None:
+                self.prev_paragraph.pretypeset(parser)
         if self.typeset_context.prevgraf is None:
-            self.prev_paragraph.pretypeset(parser)
+            self.typeset_context.prevgraf = 0
+        if self.typeset_context.displaywidth is None:
+            self.typeset_context.displaywidth = parser.state.layout["hsize"]
+        if self.typeset_context.displayindent is None:
+            self.typeset_context.displayindent = Dimen()
+        if self.typeset_context.predisplaysize is None:
+            self.typeset_context.predisplaysize = NEG_MAX_DIMEN
         alignment = self.display[0]
         packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
         packed.append(nd.Glue(self.typeset_context.abovedisplayskip, "\\abovedisplayskip"))
@@ -959,6 +1050,11 @@ class HAlignMathList(nd.Node):
             next_context = getattr(self.next_paragraph, "typeset_context", None)
             if next_context is not None:
                 next_context.prevgraf = next_prevgraf
+
+    def materialize_box_nodes(self, parser):
+        packed = []
+        self.typeset(parser, packed)
+        return packed
 
 
 def init(parser):

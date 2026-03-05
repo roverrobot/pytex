@@ -23,6 +23,7 @@ from pytex.hmode import HList, Ligature
 from pytex.ligature import ligature_step, run_ligature_program
 from pytex.vmode import VNodeContext, init_prevdepth
 import enum
+import inspect
 from math import inf, ceil
 
 
@@ -131,6 +132,8 @@ class MathTypesetContext:
         self.predisplaypenalty = layout["predisplaypenalty"]
         self.displaywidth = volatile["displaywidth"]
         self.displayindent = volatile["displayindent"]
+        self.predisplaysize = volatile["predisplaysize"]
+        self.prevgraf = parser.state.globals["prevgraf"]
         self.postdisplaypenalty = layout["postdisplaypenalty"]
         self.abovedisplayskip = layout["abovedisplayskip"]
         self.belowdisplayskip = layout["belowdisplayskip"]
@@ -285,6 +288,33 @@ class MList(lists.List):
             node = n
         super().append(node)
 
+    @staticmethod
+    def _typesetWithAvailableSignature(typeset, parser, packed, context, style):
+        """
+        Call node.typeset with the richest signature that the node supports.
+        """
+        try:
+            params = list(inspect.signature(typeset).parameters.values())
+        except (TypeError, ValueError):
+            params = None
+        if params is None:
+            typeset(parser, packed, context, style)
+            return
+        positional = [
+            p for p in params
+            if p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+        has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+        if has_varargs or len(positional) >= 4:
+            typeset(parser, packed, context, style)
+        elif len(positional) == 3:
+            typeset(parser, packed, context)
+        else:
+            typeset(parser, packed)
+
     def _pass1Collect(self, parser, context, style):
         """
         Pass 1 of math typesetting.
@@ -337,7 +367,9 @@ class MList(lists.List):
                         continue
                 elif getattr(node, "mu", False):
                     expanded = []
-                    node.typeset(parser, expanded, context, style)
+                    self._typesetWithAvailableSignature(
+                        node.typeset, parser, expanded, context, style
+                    )
                     for n in expanded:
                         if n is node:
                             continue
@@ -368,7 +400,9 @@ class MList(lists.List):
                 collected.append(node)
                 continue
             expanded = []
-            typeset(parser, expanded, context, style)
+            self._typesetWithAvailableSignature(
+                typeset, parser, expanded, context, style
+            )
             if not expanded:
                 collected.append(node)
                 continue
@@ -1409,10 +1443,13 @@ class MathShitfEndGroupCallback(MathEndGroupCallback):
             top.append(mlist)
             return
         # top is the enclosing vlist
-        mlist.typeset_context.prevgraf = 0
-        mlist.typeset_context.predisplaysize = NEG_MAX_DIMEN
+        if mlist.typeset_context.prevgraf is None:
+            mlist.typeset_context.prevgraf = 0
+        if mlist.typeset_context.predisplaysize is None:
+            mlist.typeset_context.predisplaysize = NEG_MAX_DIMEN
         top.append(mlist)
         new_par = parser.newParagraph(indent=False, parskip=False) # the new paragraph after the display math
+        new_par.keep_empty = True
         mlist.next_paragraph = new_par
         new_par.prev_paragraph = mlist
 
@@ -1474,18 +1511,25 @@ def mathShift(parser):
             parser.endParagraph()
             prev_par = top
             parser.paragraph_before_last_display_math = top
-            volatile["displaywidth"] = None
-            volatile["displayindent"] = None
-            volatile["predisplaysize"] = None
-            parser.state.globals["prevgraf"] = None
+            prev_par.pretypeset(parser)
+            context = prev_par.typeset_context
+            line_count = context.line_count
+            displayindent, displaywidth = context.lineShape(line_count + 1)
+            volatile["displaywidth"] = displaywidth
+            volatile["displayindent"] = displayindent
+            if prev_par._typeset_cache:
+                volatile["predisplaysize"] = prev_par._typeset_cache[-1].rightmost() + 2 * context.em
+            else:
+                volatile["predisplaysize"] = NEG_MAX_DIMEN
+            parser.state.globals["prevgraf"] = line_count
         else:
             # Drop empty paragraph and keep default display metrics for no previous line.
             parser.lists.pop()
             parser.clearParagraphSettings()
             parser.paragraph_before_last_display_math = None
-            volatile["displaywidth"] = Dimen()
+            volatile["displaywidth"] = parser.state.layout["hsize"]
             volatile["displayindent"] = Dimen()
-            volatile["predisplaysize"] = Dimen()
+            volatile["predisplaysize"] = NEG_MAX_DIMEN
             parser.state.globals["prevgraf"] = 0
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1

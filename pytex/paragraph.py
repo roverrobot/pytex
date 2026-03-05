@@ -108,7 +108,7 @@ class LineContext:
         self.lineskiplimit = context.lineskiplimit
 
 
-class Paragraph(hmode.HList):
+class Paragraph(hmode.HListNode):
     """
     A paragraph.
     @param parser: the parser

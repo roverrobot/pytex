@@ -19,7 +19,7 @@ from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
 from pytex import box
-from pytex.hmode import HList, Ligature
+from pytex.hmode import Ligature
 from pytex.ligature import ligature_step, run_ligature_program
 from pytex.vmode import VNodeContext, init_prevdepth
 import enum
@@ -548,7 +548,7 @@ class MList(lists.List):
         wrapper.node_type, i.e., the effective class computed in pass 1.
         """
         if packed is None:
-            packed = HList(parser)
+            packed = []
         atom_context = AtomTypesetContext(context, None)
         atom_context.paragraph_math = isinstance(self, InlineMathList)
         items = iter(collected)

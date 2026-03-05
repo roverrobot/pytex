@@ -51,6 +51,13 @@ class AlignmentBuildStack(list):
         return row_state.current_cell
 
 
+class CellList(list):
+    """
+    Plain list payload for horizontal alignment cells with a span marker.
+    """
+    pass
+
+
 class CellBuildState:
     """
     Wrapper around the list holding a cell being built.
@@ -61,33 +68,49 @@ class CellBuildState:
     @param row_build_state: the build state of the row this cell is in
     @param templates: remaining template parts to inject, in reverse push order
     """
-    def __init__(self, node, column_no, row_build_state, templates):
+    def __init__(self, parser, node, column_no, row_build_state, templates):
         object.__setattr__(self, "node", node)
         object.__setattr__(self, "list", node.list)
+        if node.node_type == nd.NODE_TYPE.HLIST:
+            build = hmode.HList(parser, inner=True, node=node.list)
+        else:
+            build = parser.wrapBuildState(node.list)
+        object.__setattr__(self, "build", build)
         object.__setattr__(self, "column_no", column_no)
         object.__setattr__(self, "row_build_state", row_build_state)
         object.__setattr__(self, "templates", templates)
 
     def __getattr__(self, name):
-        return getattr(self.list, name)
+        if name == "span":
+            return getattr(self.node.list, "span", False)
+        try:
+            return getattr(self.build, name)
+        except AttributeError:
+            return getattr(self.node, name)
 
     def __setattr__(self, name, value):
-        setattr(self.list, name, value)
+        if name == "span":
+            try:
+                setattr(self.node.list, name, value)
+            except AttributeError:
+                setattr(self.node, name, value)
+            return
+        setattr(self.build, name, value)
 
     def __getitem__(self, index):
-        return self.list[index]
+        return self.build[index]
 
     def __setitem__(self, index, value):
-        self.list[index] = value
+        self.build[index] = value
 
     def __delitem__(self, key):
-        del self.list[key]
+        del self.build[key]
 
     def __len__(self):
-        return len(self.list)
+        return len(self.build)
 
     def __iter__(self):
-        return iter(self.list)
+        return iter(self.build)
 
     def pushTemplate(self, parser):
         if self.templates:
@@ -121,6 +144,10 @@ class RowBuildState:
 
     def newCell(self, parser, column_no, omit=False):
         cell = self.alignment.newBox(parser)
+        if cell.node_type == nd.NODE_TYPE.HLIST and type(cell.list) is list:
+            content = CellList(cell.list)
+            content.span = False
+            cell.list = content
         self.row.cells.append(cell)
         template = self.template if self.template is not None else self.builder.preamble
         if omit:
@@ -133,7 +160,7 @@ class RowBuildState:
             else:
                 raise ValueError("extra alignment tab has been changed to \\cr", parser.input.position())
             templates = [column.v, column.u]
-        self.current_cell = CellBuildState(cell, column_no, self, templates)
+        self.current_cell = CellBuildState(parser, cell, column_no, self, templates)
         return self.current_cell
 
     def _startNextRow(self, parser):
@@ -905,7 +932,7 @@ class AlignmentBuilder:
         self.current_row_state = row_state
         cell = self.alignment.newBox(parser)
         row.cells.append(cell)
-        row_state.current_cell = CellBuildState(cell, 0, row_state, [])
+        row_state.current_cell = CellBuildState(parser, cell, 0, row_state, [])
         parser.lists.append(row_state.current_cell)
         # we start a new group, which will be terminated by \cr or \crcr
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)

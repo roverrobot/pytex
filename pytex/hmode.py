@@ -9,7 +9,6 @@ from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command, CATCODE, relax
 from pytex.state import GROUP_TYPE
-from pytex.box import SetBox, AccentNode, IndentBox
 from pytex.accessor import Accessor
 from pytex.ligature import ligature_step, run_ligature_program
 import types
@@ -35,28 +34,44 @@ class Ligature(nd.CharNode):
         return f"Ligature({s})"
 
 
-class HList(lists.List):
+class HListHolder:
     """
-    A horizontal list.
+    Common holder for horizontal node lists.
+
+    This helper stays in hmode because it provides horizontal list
+    typesetting behavior.
     """
-    def __init__(self, parser, inner=True, nodes=[]):
-        super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner, nodes=nodes)
-        self.spacefactor = 1000
-        self.sfcode = parser.state.sfcode
+    def __init__(self, nodes=None):
+        self.list = [] if nodes is None else nodes
+
+    def __len__(self):
+        return len(self.list)
+
+    def __iter__(self):
+        return iter(self.list)
+
+    def __getitem__(self, index):
+        return self.list[index]
 
     def append(self, node):
-        # The stored list keeps raw characters. Ligatures are formed later when
-        # the list is typeset.
-        if node.node_type != nd.NODE_TYPE.CHAR:
-            self.spacefactor = 1000
-            list.append(self, node)
-            return
-        sf = self.sfcode[ord(node.char)]
-        if sf != 0:
-            if self.spacefactor < 1000 < sf:
-                sf = 1000
-            self.spacefactor = sf
-        list.append(self, node)
+        self.list.append(node)
+
+    def extend(self, nodes):
+        self.list.extend(nodes)
+
+    def typesetNodes(self, parser, packed):
+        return typesetHorizontalNodes(parser, self.list, packed)
+
+
+from pytex.box import SetBox, AccentNode, IndentBox
+
+
+class HListNode(lists.List):
+    """
+    A horizontal-list node container.
+    """
+    def __init__(self, parser, inner=True, nodes=None):
+        super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner, nodes=nodes)
 
     def typesetNode(self, parser, node, packed):
         """
@@ -195,6 +210,46 @@ class HList(lists.List):
         if state["in_word"]:
             self._applyRightBoundary(packed, state)
         return packed
+
+
+class HList(lists.ListBuildState):
+    """
+    Horizontal list build-state wrapper.
+
+    This is what lives on parser.lists while horizontal material is scanned.
+    It serves a concrete horizontal list node and updates \\spacefactor.
+    """
+    _local_attrs = lists.ListBuildState._local_attrs | {"spacefactor", "sfcode", "type", "inner"}
+
+    def __init__(self, parser, inner=True, nodes=None, node=None):
+        if node is None:
+            node = HListNode(parser, inner=inner, nodes=nodes)
+        if hasattr(node, "inner"):
+            inner = node.inner
+        super().__init__(parser, node)
+        object.__setattr__(self, "spacefactor", 1000)
+        object.__setattr__(self, "sfcode", parser.state.sfcode)
+        object.__setattr__(self, "type", lists.LISTTYPE.HORIZONTAL)
+        object.__setattr__(self, "inner", inner)
+
+    def append(self, node):
+        if node.node_type != nd.NODE_TYPE.CHAR:
+            self.spacefactor = 1000
+            self._raw_append(node)
+            return
+        sf = self.sfcode[ord(node.char)]
+        if sf != 0:
+            if self.spacefactor < 1000 < sf:
+                sf = 1000
+            self.spacefactor = sf
+        self._raw_append(node)
+
+
+def typesetHorizontalNodes(parser, nodes, packed):
+    """
+    Typeset a raw horizontal node list into packed output.
+    """
+    return HListNode(parser, inner=True, nodes=nodes).typesetNodes(parser, packed)
     
 class HorizontalCommand(lists.ModeDependentCommand):
     """
@@ -351,9 +406,9 @@ class Discretionary(HorizontalCommand):
     The \\discretionary command.
     """
     def _readParts(self, parser, out, math):
-        pre = HList(parser)
-        post = HList(parser)
-        replace = HList(parser)
+        pre = HListNode(parser)
+        post = HListNode(parser)
+        replace = HListNode(parser)
         
         def finish():
             # we need to handle ligatures and boxes so their width are fixed.
@@ -465,7 +520,7 @@ class SpaceFactor(Accessor):
         top = parser.lists[-1]
         if top.type != lists.LISTTYPE.HORIZONTAL:
             raise ValueError("\\spacefactor can only be used in horizontal mode")
-        return top.spacefactor
+        return getattr(top, "spacefactor", 1000)
     
     def readValue(self, parser):
         return parser.readInteger()

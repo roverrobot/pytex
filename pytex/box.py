@@ -233,14 +233,15 @@ class BadnessAccessor(IntegerArrayItemAccessor):
         super().setGlobal(parser, value)
 
 
-class HBox(Box):
+class HBox(Box, hmode.HListHolder):
     """
     A horizontal box.
     @param to: the target width
     @param spread: the spread
     """
     def __init__(self, parser, to, spread):
-        super().__init__(parser, to, spread, hmode.HList(parser, True))
+        super().__init__(parser, to, spread, [])
+        hmode.HListHolder.__init__(self, self.list)
 
     @classmethod
     def new(cls, parser, **kwargs):
@@ -255,8 +256,7 @@ class HBox(Box):
         content = []
         typeset_nodes = getattr(self.list, "typesetNodes", None)
         if typeset_nodes is None:
-            for n in self.list:
-                self._expand(parser, content, n)
+            self.typesetNodes(parser, content)
         else:
             typeset_nodes(parser, content)
         glues = []
@@ -457,7 +457,10 @@ class BuildBox(Command):
         t = parser.token_meaning(t)
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
-        state = parser.wrapBuildState(box.list)
+        if self.vertical:
+            state = parser.wrapBuildState(box.list)
+        else:
+            state = hmode.HList(parser, inner=True, node=box.list)
         parser.lists.append(state)
         state.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value

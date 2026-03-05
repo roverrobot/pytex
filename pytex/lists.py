@@ -143,28 +143,6 @@ class ListBuildState:
         self.node.clear()
 
 
-class HorizontalListBuildState(ListBuildState):
-    _local_attrs = ListBuildState._local_attrs | {"spacefactor", "sfcode"}
-
-    def __init__(self, parser, node):
-        super().__init__(parser, node)
-        # TeX starts horizontal scanning with spacefactor=1000.
-        object.__setattr__(self, "spacefactor", 1000)
-        object.__setattr__(self, "sfcode", parser.state.sfcode)
-
-    def append(self, node):
-        if node.node_type != nd.NODE_TYPE.CHAR:
-            self.spacefactor = 1000
-            self._raw_append(node)
-            return
-        sf = self.sfcode[ord(node.char)]
-        if sf != 0:
-            if self.spacefactor < 1000 < sf:
-                sf = 1000
-            self.spacefactor = sf
-        self._raw_append(node)
-
-
 class MathListBuildState(ListBuildState):
     _local_attrs = ListBuildState._local_attrs | {"building_atom"}
 
@@ -287,7 +265,9 @@ def wrapBuildState(parser, node):
         return node
     mode = getattr(node, "type", None)
     if mode == LISTTYPE.HORIZONTAL:
-        return HorizontalListBuildState(parser, node)
+        from pytex import hmode
+
+        return hmode.HList(parser, node=node)
     if mode == LISTTYPE.VERTICAL:
         return VerticalListBuildState(parser, node)
     if mode == LISTTYPE.MATH:

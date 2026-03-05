@@ -282,7 +282,7 @@ class Parser:
             return
         # In horizontal mode, a space token appends glue to the current list,
         # see the TeX Book pp.76 for more details.
-        f = top.spacefactor
+        f = getattr(top, "spacefactor", 1000)
         # If the space factor f is diﬀerent from 1000, the interword glue is 
         # computed as follows: Take the normal space glue for the current font, 
         # and add the extra space if f ≥ 2000. (Each font specifies a normal space, 

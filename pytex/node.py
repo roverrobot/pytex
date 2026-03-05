@@ -257,6 +257,7 @@ class Disc(Node):
         self.pre = pre
         self.post = post
         self.replace = replace
+        self.list = self.replace
         self.pre_width = self._fixedWidth(pre, "pre")
         self.post_width = self._fixedWidth(post, "post")
         self.replace_width = self._fixedWidth(replace, "replace")

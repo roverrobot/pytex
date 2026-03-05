@@ -542,18 +542,19 @@ class HAlignment(Alignment):
             W += self.spread
         out = bx.VBox(parser, None, Dimen())
         out.typeset_context = context
+        vbuild = parser.wrapBuildState(out.list)
         if self.noalign is not None:
-            self._appendVerticalMaterial(parser, out.list, self.noalign)
+            self._appendVerticalMaterial(parser, vbuild, self.noalign)
         for row, rowbox, row_total, row_width in prepared:
             rowbox.to = W
             rowbox.spread = W - row_width
             rowbox = rowbox.typeset(parser)
-            row_context = self._rowContext(out.list.prevdepth, context)
+            row_context = self._rowContext(vbuild.prevdepth, context)
             if row_context is not None:
                 rowbox.typeset_context = row_context
-            out.list.append(rowbox)
+            vbuild.append(rowbox)
             if row.noalign is not None:
-                self._appendVerticalMaterial(parser, out.list, row.noalign)
+                self._appendVerticalMaterial(parser, vbuild, row.noalign)
         self._typeset_cache = out.typeset(parser)
 
     def _prepareExpandedRows(self, context=None):

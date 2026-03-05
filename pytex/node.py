@@ -317,7 +317,15 @@ class VAdjust(Node):
     A vadjust node.
     """
     def __init__(self, vlist):
-        self.vlist = vlist
+        self.list = vlist
+
+    @property
+    def vlist(self):
+        return self.list
+
+    @vlist.setter
+    def vlist(self, value):
+        self.list = value
 
     def saveInfo(self):
         return {"init": {"vlist": self.vlist}}
@@ -344,7 +352,15 @@ class Insert(Node):
     """
     def __init__(self, index, vlist):
         self.index = index
-        self.vlist = vlist
+        self.list = vlist
+
+    @property
+    def vlist(self):
+        return self.list
+
+    @vlist.setter
+    def vlist(self, value):
+        self.list = value
 
     def saveInfo(self):
         return {"init": {"index": self.index, "vlist": self.vlist}}

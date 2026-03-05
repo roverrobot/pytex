@@ -28,18 +28,18 @@ class VNodeContext:
         self.prevdepth = prevdepth
 
 
-class VList(lists.List):
+class VListNode(lists.List):
     """
-    A vertical list.
+    A vertical-list node container.
     @param parser: the parser that created the list
     @param inner: whether the list is in internal mode
     """
-    def __init__(self, parser, inner=True):
-        super().__init__(parser, lists.LISTTYPE.VERTICAL, inner=inner)
-        # Explicit override set by \prevdepth, or init_prevdepth after glue/kern/rule.
-        # None means "derive from the last contextual node lazily".
+    def __init__(self, parser, inner=True, nodes=None):
+        super().__init__(parser, lists.LISTTYPE.VERTICAL, inner=inner, nodes=nodes)
+        # Compatibility state for direct programmatic appends to a VListNode
+        # (for example, box.list.append(...)). Parser stack state remains on
+        # VList build-state wrappers.
         self.prevdepth = init_prevdepth
-        # TeX allows \lastbox in main vertical mode after \unvbox/\unvcopy.
         self.can_lastbox = False
 
     def _expandNode(self, parser, node):
@@ -77,44 +77,30 @@ class VList(lists.List):
     def resolvePrevDepth(self):
         if self.prevdepth is not None:
             return self.prevdepth
-        for i in range(len(self)-1, -1, -1):
+        for i in range(len(self) - 1, -1, -1):
             node = self[i]
-            # if it has a typeset_context, then it is either a box or can be expanded into a box
             context = getattr(node, "typeset_context", None)
             if context is not None:
-                # we return the depth of the node
                 depth = getattr(node, "depth", None)
                 if depth is None:
-                    # if there is no depth, we need to pre-typeset it in-place
                     nodes = self._expandNode(self.parser, node)
-                    # Preserve the original vertical-context snapshot on the
-                    # first expanded box so later VList packing still inserts
-                    # the correct interline glue.
                     for n in nodes:
                         if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                             if getattr(n, "typeset_context", None) is None:
                                 n.typeset_context = context
                             break
-                    self[i:i+1] = nodes
-                    # we search backwards for the first box with a depth
+                    self[i:i + 1] = nodes
                     for n in reversed(nodes):
                         depth = getattr(n, "depth", None)
                         if depth is not None:
                             return depth
-                    # this contextual node did not realize to a box; continue
-                    # scanning earlier vertical material.
                     continue
                 return depth
             elif node.node_type == nd.NODE_TYPE.RULE:
-                # rules reset the prevdepth to init_prevdepth
                 break
         return init_prevdepth
 
     def append(self, node):
-        """
-        Append a node to the list.
-        @param node: the node to append
-        """
         self.can_lastbox = False
         context = getattr(node, "typeset_context", None)
         if context is None and getattr(node, "needs_vcontext", False):
@@ -125,10 +111,8 @@ class VList(lists.List):
             node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)
             context = node.typeset_context
         if is_box:
-            # if the box has a depth, we capture it. Otherwise, we will resolve it lazily when needed.
             self.prevdepth = getattr(node, "depth", None)
         elif node.node_type == nd.NODE_TYPE.RULE:
-            # rules reset the prevdepth to init_prevdepth
             self.prevdepth = init_prevdepth
         elif context is not None:
             self.prevdepth = None
@@ -173,6 +157,62 @@ class VList(lists.List):
                 # other nodes do not change the prevdepth
                 packed.append(item)
         return packed
+
+
+class VList(lists.VerticalListBuildState):
+    """
+    Vertical list build-state wrapper.
+
+    This is what lives on parser.lists while vertical material is scanned.
+    It serves a concrete vertical list node and tracks \\prevdepth/\\lastbox
+    build-time state.
+    """
+    _local_attrs = lists.VerticalListBuildState._local_attrs | {"type", "inner"}
+
+    def __init__(self, parser, inner=True, node=None):
+        if node is None:
+            node = VListNode(parser, inner=inner)
+        if hasattr(node, "inner"):
+            inner = node.inner
+        super().__init__(parser, node)
+        object.__setattr__(self, "type", lists.LISTTYPE.VERTICAL)
+        object.__setattr__(self, "inner", inner)
+
+
+def typesetVerticalNodes(parser, nodes, packed):
+    """
+    Typeset a raw vertical node list into packed output.
+    """
+    return VListNode(parser, inner=True, nodes=nodes).typesetNodes(parser, packed)
+
+
+class VListHolder:
+    """
+    Common holder for vertical node lists.
+
+    This helper stays in vmode because it provides vertical list
+    typesetting behavior.
+    """
+    def __init__(self, nodes=None):
+        self.list = [] if nodes is None else nodes
+
+    def __len__(self):
+        return len(self.list)
+
+    def __iter__(self):
+        return iter(self.list)
+
+    def __getitem__(self, index):
+        return self.list[index]
+
+    def append(self, node):
+        self.list.append(node)
+
+    def extend(self, nodes):
+        self.list.extend(nodes)
+
+    def typesetNodes(self, parser, packed):
+        return typesetVerticalNodes(parser, self.list, packed)
 
 class PrevDepth(Accessor, DimenCommand):
     """
@@ -241,7 +281,7 @@ def readVList(parser, reason, ended=None):
     @param reason: the reason for reading the list
     @param ended: called after the list group closes
     """
-    vlist = VList(parser)
+    vlist = VListNode(parser)
     parser.clearParagraphSettings()
     return parser.readList(vlist, reason, ended)
 

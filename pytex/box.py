@@ -589,7 +589,7 @@ class IfBox(conditional.Conditional):
         return 0 if isinstance(box, self.type) else 1
 
 
-class VBox(Box):
+class VBox(Box, vmode.VListHolder):
     """
     A vertical box.
     @param to: the target height
@@ -597,7 +597,8 @@ class VBox(Box):
     @param vtop: whether the box is a vtop
     """
     def __init__(self, parser, to, spread):
-        super().__init__(parser, to, spread, vmode.VList(parser))
+        super().__init__(parser, to, spread, vmode.VListNode(parser))
+        vmode.VListHolder.__init__(self, self.list)
         self.box_typeset_context = VBoxTypesetContext(parser.state.layout)
 
     @classmethod

@@ -269,7 +269,9 @@ def wrapBuildState(parser, node):
 
         return hmode.HList(parser, node=node)
     if mode == LISTTYPE.VERTICAL:
-        return VerticalListBuildState(parser, node)
+        from pytex import vmode
+
+        return vmode.VList(parser, node=node)
     if mode == LISTTYPE.MATH:
         return MathListBuildState(parser, node)
     return node

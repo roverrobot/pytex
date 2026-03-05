@@ -83,7 +83,21 @@ class Box(Node):
         spread = None if natural is None or to is None else to - natural.dimen
         if spread is not None and spread != 0:
             glue = None
-            ratio = getattr(self, "glue_ratio", 0.0)
+            ratio_info = getattr(self, "glue_ratio", (0, 0, 1))
+            if isinstance(ratio_info, tuple):
+                sign, num, den = ratio_info
+                sign = int(sign)
+                num = int(num)
+                den = int(den)
+                if sign == 0 or num == 0 or den == 0:
+                    signed_ratio = Dimen()
+                else:
+                    signed_ratio = Dimen(integer=Dimen._trunc_div(sign * num * Dimen.scale, den))
+            elif isinstance(ratio_info, Dimen):
+                signed_ratio = ratio_info
+            else:
+                signed_ratio = Dimen(ratio_info)
+            ratio = signed_ratio
             if spread > 0:
                 glue = natural.stretch
             elif spread < 0:
@@ -91,8 +105,8 @@ class Box(Node):
                 ratio = -ratio
             if glue is not None and (glue.order != 0 or glue.factor != 0):
                 suffix = "" if glue.order == 0 else f"fi{'l' * glue.order}"
-                sign = "- " if getattr(self, "glue_ratio", Dimen()) < 0 else ""
-                line += f", glue set {sign}{ratio}{suffix}"
+                sign_str = "- " if signed_ratio < 0 else ""
+                line += f", glue set {sign_str}{ratio}{suffix}"
         shifted = getattr(self, "shifted", 0)
         if shifted != 0:
             line += f", shifted {shifted}"

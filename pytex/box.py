@@ -42,7 +42,9 @@ class Box(nd.Box):
         self.list = list
         self.shifted = 0
         self.natural = None
-        self.glue_ratio = Dimen()
+        # (sign, num, den), representing sign * num / den.
+        # sign is -1, 0, or 1; num >= 0; den >= 1.
+        self.glue_ratio = (0, 0, 1)
         self._typeset_cache = None
 
     def saveInfo(self):
@@ -57,6 +59,48 @@ class Box(nd.Box):
                 "glue_ratio": self.glue_ratio,
             }
         }
+
+    @staticmethod
+    def _ratioParts(glue_ratio):
+        if isinstance(glue_ratio, tuple):
+            sign, num, den = glue_ratio
+            sign = int(sign)
+            num = int(num)
+            den = int(den)
+            if sign == 0 or num == 0:
+                return 0, 0, 1
+            if den == 0:
+                return 0, 0, 1
+            return (1 if sign > 0 else -1), abs(num), abs(den)
+        if glue_ratio is None:
+            return 0, 0, 1
+        value = int(glue_ratio)
+        if value == 0:
+            return 0, 0, 1
+        return (1 if value > 0 else -1), abs(value), Dimen.scale
+
+    @classmethod
+    def ratioDimen(cls, glue_ratio):
+        sign, num, den = cls._ratioParts(glue_ratio)
+        if sign == 0:
+            return Dimen()
+        return Dimen(integer=Dimen._trunc_div(sign * num * Dimen.scale, den))
+
+    def _setGlueRatio(self, spread, natural):
+        if spread is None:
+            self.glue_ratio = (0, 0, 1)
+            return
+        if spread > 0:
+            den = int(natural.stretch.factor)
+            if den != 0:
+                self.glue_ratio = (1, int(spread), den)
+                return
+        elif spread < 0:
+            den = int(natural.shrink.factor)
+            if den != 0:
+                self.glue_ratio = (-1, -int(spread), den)
+                return
+        self.glue_ratio = (0, 0, 1)
 
     def typeset(self, parser, packed=None):
         """
@@ -222,16 +266,9 @@ class HBox(Box):
         elif self.to is None:
             self.to = self.spread + natural.dimen
         spread = self.spread
-        if spread is None:
-            self.glue_ratio = Dimen()
         if self.to is None:
             self.to = natural.dimen + self.spread
-        elif spread > 0 and natural.stretch.factor != 0:
-            self.glue_ratio = spread / natural.stretch.factor
-        elif spread < 0 and natural.shrink.factor != 0:
-            self.glue_ratio = spread / natural.shrink.factor
-        else:
-            self.glue_ratio = Dimen()
+        self._setGlueRatio(spread, natural)
         self.natural = natural
         self._set_badness(parser, spread, natural)
         self.width = self.to
@@ -279,22 +316,33 @@ class HBox(Box):
     def rightmost(self):
         # finf the right edge of the rightmost box
         w = self.width
+        sign, num, den = self._ratioParts(self.glue_ratio)
+        use_stretch = False
+        order = 0
         if self.spread > 0:
-            ratio = self.glue_ratio
-            s = self.natural.stretch
+            use_stretch = True
+            order = self.natural.stretch.order
         else:
-            ratio = -self.glue_ratio if self.spread < 0 else Dimen()
-            s = self.natural.shrink
+            order = self.natural.shrink.order
+        if self.spread > 0 and sign <= 0:
+            num = 0
+            den = 1
+        elif self.spread < 0 and sign >= 0:
+            num = 0
+            den = 1
         for node in reversed(self.list):
             node_type = node.node_type
             if node_type == nd.NODE_TYPE.KERN:
                 w -= node.kern
             elif node_type == nd.NODE_TYPE.GLUE:
                 glue = node.glue
-                ss = glue.stretch if ratio > 0 else glue.shrink
-                if ss.order < s.order:
+                ss = glue.stretch if use_stretch else glue.shrink
+                if ss.order < order:
                     continue
-                w -= glue.dimen + ss.factor * ratio
+                extra = Dimen()
+                if num != 0:
+                    extra = Dimen(integer=Dimen._trunc_div(int(ss.factor) * num, den))
+                w -= glue.dimen + extra
             else:
                 nw = getattr(node, "width", None)
                 if nw is not None:
@@ -597,12 +645,7 @@ class VBox(Box):
         elif self.to is None:
             self.to = self.spread + natural.dimen
         spread = self.spread
-        if spread > 0 and natural.stretch.factor != 0:
-            self.glue_ratio = spread / natural.stretch.factor
-        elif spread < 0 and natural.shrink.factor != 0:
-            self.glue_ratio = spread / natural.shrink.factor
-        else:
-            self.glue_ratio = Dimen()
+        self._setGlueRatio(spread, natural)
         self.natural = natural
         self._set_badness(parser, spread, natural)
         self.height = self.to

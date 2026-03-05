@@ -695,11 +695,17 @@ class DisplayMathList(MList):
                 b = box.HBox(parser, to=z-q, spread=None)
                 b.list[:] = h
                 b = b.typeset(parser)
+                ratio = b.glue_ratio
+                if isinstance(ratio, tuple):
+                    sign, num, den = ratio
+                    over_shrink_ratio = int(sign) < 0 and int(num) > int(den)
+                else:
+                    over_shrink_ratio = ratio < -1
                 not_enough_shrink = (
                     b.spread < 0
                     and (
                         int(b.natural.shrink.factor) == 0
-                        or b.glue_ratio < -1
+                        or over_shrink_ratio
                     )
                 )
                 if not_enough_shrink:

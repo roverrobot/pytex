@@ -150,21 +150,79 @@ class DVIShipout(page.Shipout):
         dv = None if v is None else int(v) - self.v
         self._move(dh, dv)
 
-    def _set_glue(self, node, box):
-        amount = node.glue.dimen
-        ratio = box.glue_ratio
-        if ratio > 0:
-            stretch = node.glue.stretch
-            if stretch.order == box.natural.stretch.order:
-                amount += stretch.factor * ratio
-        elif ratio < 0:
-            shrink = node.glue.shrink
-            if shrink.order == box.natural.shrink.order:
-                amount += shrink.factor * ratio
-        if box.node_type == nd.NODE_TYPE.HLIST:
-            self._move(int(amount), None)
+    def _glue_state(self, box):
+        ratio = getattr(box, "glue_ratio", None)
+        if isinstance(ratio, tuple):
+            sign, num, den = ratio
+            sign = int(sign)
+            num = int(num)
+            den = int(den)
+            if sign > 0 and num > 0 and den > 0:
+                return {
+                    "num": num,
+                    "den": den,
+                    "order": box.natural.stretch.order,
+                    "shrink": False,
+                    "factor_sum": 0,
+                    "applied": 0,
+                }
+            if sign < 0 and num > 0 and den > 0:
+                return {
+                    "num": -num,
+                    "den": den,
+                    "order": box.natural.shrink.order,
+                    "shrink": True,
+                    "factor_sum": 0,
+                    "applied": 0,
+                }
+            return None
+
+        spread = int(getattr(box, "spread", Dimen()))
+        if spread > 0 and int(box.natural.stretch.factor) != 0:
+            return {
+                "num": spread,
+                "den": int(box.natural.stretch.factor),
+                "order": box.natural.stretch.order,
+                "shrink": False,
+                "factor_sum": 0,
+                "applied": 0,
+            }
+        if spread < 0 and int(box.natural.shrink.factor) != 0:
+            return {
+                "num": spread,
+                "den": int(box.natural.shrink.factor),
+                "order": box.natural.shrink.order,
+                "shrink": True,
+                "factor_sum": 0,
+                "applied": 0,
+            }
+        return None
+
+    def _set_glue(self, node, box, state=None):
+        amount = int(node.glue.dimen)
+        if state is not None:
+            part = node.glue.shrink if state["shrink"] else node.glue.stretch
+            if part.order == state["order"]:
+                state["factor_sum"] += int(part.factor)
+                target = Dimen._round_div(state["factor_sum"] * state["num"], state["den"])
+                amount += target - state["applied"]
+                state["applied"] = target
         else:
-            self._move(None, int(amount))
+            ratio = box.glue_ratio
+            if isinstance(ratio, tuple):
+                ratio = type(box).ratioDimen(ratio)
+            if ratio > 0:
+                stretch = node.glue.stretch
+                if stretch.order == box.natural.stretch.order:
+                    amount += int(stretch.factor * ratio)
+            elif ratio < 0:
+                shrink = node.glue.shrink
+                if shrink.order == box.natural.shrink.order:
+                    amount += int(shrink.factor * ratio)
+        if box.node_type == nd.NODE_TYPE.HLIST:
+            self._move(amount, None)
+        else:
+            self._move(None, amount)
 
     def _set_char(self, node):
         self._set_font(node.font)
@@ -238,6 +296,7 @@ class DVIShipout(page.Shipout):
     def _ship_hlist(self, box):
         if getattr(box, "list", None) is None:
             return
+        glue_state = self._glue_state(box)
         for node in box.list:
             node_type = node.node_type
             if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
@@ -248,7 +307,7 @@ class DVIShipout(page.Shipout):
                 self._ship_rule(node, box, True)
             elif node_type == nd.NODE_TYPE.GLUE:
                 assert getattr(box, "glue_ratio", None) is not None, "discretionary node contains glue"
-                self._set_glue(node, box)
+                self._set_glue(node, box, glue_state)
             elif node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
                 self._move(int(node.kern), None)
             elif node_type == nd.NODE_TYPE.DISC:
@@ -257,10 +316,11 @@ class DVIShipout(page.Shipout):
                 node.output(self.parser, self)
 
     def _ship_vlist(self, box):
+        glue_state = self._glue_state(box)
         for node in box.list:
             node_type = node.node_type
             if node_type == nd.NODE_TYPE.GLUE:
-                self._set_glue(node, box)
+                self._set_glue(node, box, glue_state)
             elif node_type == nd.NODE_TYPE.KERN:
                 self._move(None, int(node.kern))
             elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):

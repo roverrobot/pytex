@@ -85,6 +85,27 @@ def test_hbox_to(cmr10):
     assert typed.depth == 1.94444
 
 
+def test_hbox_records_glue_ratio_as_rational_tuple(parser):
+    hbox = bx.HBox(parser, Dimen(20), None)
+    hbox.list.append(nd.Glue(glue.Glue(0, glue.Stretchness(1), glue.Stretchness(0)), None))
+    hbox.list.append(nd.Glue(glue.Glue(0, glue.Stretchness(2), glue.Stretchness(0)), None))
+    typed = hbox.typeset(parser)
+    sign, num, den = typed.glue_ratio
+    assert sign == 1
+    assert num == int(typed.spread)
+    assert den == int(typed.natural.stretch.factor)
+
+
+def test_hbox_records_shrink_glue_ratio_as_rational_tuple(parser):
+    hbox = bx.HBox(parser, Dimen(), None)
+    hbox.list.append(nd.Glue(glue.Glue(10, glue.Stretchness(0), glue.Stretchness(2)), None))
+    typed = hbox.typeset(parser)
+    sign, num, den = typed.glue_ratio
+    assert sign == -1
+    assert num == -int(typed.spread)
+    assert den == int(typed.natural.shrink.factor)
+
+
 def test_hbox_spread(cmr10):
     cmr10.parse("\\hbox spread 10pt{Hello, world!}\\relax")
     top = cmr10.lists[-1]

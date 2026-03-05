@@ -1,6 +1,7 @@
 import typing
 import json
 import datetime
+from fractions import Fraction
 from pytex import serialization
 from pytex import token
 from pytex import lexer
@@ -299,10 +300,11 @@ class Parser:
         # \xspaceskip to suppress all stretching and shrinking of interword spaces.
         xspaceskip = self.state.parameters["xspaceskip"]
         spaceskip = self.state.parameters["spaceskip"]
+        scale = Fraction(f, 1000)
         if f >= 2000 and xspaceskip.dimen != 0:
             spaceglue = xspaceskip
         elif spaceskip.dimen != 0:
-            spaceglue = spaceskip.scale(f/1000)
+            spaceglue = spaceskip.scale(scale)
         else:
             font = self.state.parameters["currentfont"]
             if f >= 2000:
@@ -310,7 +312,7 @@ class Parser:
                 spaceglue.dimen += font.param[6] # \fontdimen[7] is the extra space
             else:
                 spaceglue = font.spaceglue
-            spaceglue = spaceglue.scale(f/1000)
+            spaceglue = spaceglue.scale(scale)
         top.append(node.Glue(spaceglue, None))
 
     def lookup(self, name):

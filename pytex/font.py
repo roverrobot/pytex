@@ -3,6 +3,7 @@ The module implements font handling
 """
 
 
+from fractions import Fraction
 from pytex.token import Command
 from pytex.module import Module
 from pytex.tfm import TFM, nullfont as nullfont_tfm
@@ -180,12 +181,14 @@ class FontDefineAccessor(ParameterAccessor):
             raise ValueError("expecting a font name")
         tfm = parser.loadTFM(name)
         keyword = parser.readKeyword({"at", "scaled"})
+        design = Dimen(tfm.header.size)
+        mag = Fraction(parser.mag.value, 1000)
         if keyword == "at":
             at = parser.readDimen()
         elif keyword == "scaled":
-            at = parser.readInteger() / 1000 * tfm.header.size * parser.mag.value / 1000
+            at = design * Fraction(parser.readInteger(), 1000) * mag
         else:
-            at = tfm.header.size * parser.mag.value / 1000
+            at = design * mag
         f = Font(tfm, at)
         f.name = self.entry.name
         f.fontchar["hyphenchar"] = parser.state.parameters["defaulthyphenchar"]

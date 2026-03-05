@@ -304,7 +304,7 @@ def test_unkern(cmr10, cmd):
 
 
 def test_italic_correction(cmr10):
-    cmr10.parse("\\font\it=cmti10 \\it l\\/")
+    cmr10.parse(r"\font\it=cmti10 \it l\/")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
     # the indent box, the char, and the kern, and a (trailing) white space

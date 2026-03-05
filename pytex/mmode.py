@@ -24,7 +24,7 @@ from pytex.ligature import ligature_step, run_ligature_program
 from pytex.vmode import VNodeContext, init_prevdepth
 import enum
 import inspect
-from math import inf, ceil
+from math import inf
 
 
 class MATH_STYLE(enum.IntEnum):
@@ -698,7 +698,7 @@ class DisplayMathList(MList):
                 not_enough_shrink = (
                     b.spread < 0
                     and (
-                        float(b.natural.shrink.factor) == 0
+                        int(b.natural.shrink.factor) == 0
                         or b.glue_ratio < -1
                     )
                 )
@@ -980,9 +980,9 @@ class Atom(nd.Node):
             packed.append(node)
             fontdimen2 = font.param[1] if len(font.param) > 1 else 0
             text_symbol = getattr(context, "text_symbol", False)
-            if (not text_symbol) or float(fontdimen2) == 0:
+            if (not text_symbol) or int(fontdimen2) == 0:
                 delta = Dimen(node.italic)
-            if float(delta) != 0 and self.sub is None:
+            if int(delta) != 0 and self.sub is None:
                 packed.append(nd.Kern(delta, automatic=True))
                 delta = Dimen()
             return delta
@@ -1062,7 +1062,7 @@ class Atom(nd.Node):
             p = Dimen(sigma[14])   # sigma15
         else:
             p = Dimen(sigma[13])   # sigma14
-        lift_limit = x.depth + Dimen(abs(float(sigma5)) / 4)
+        lift_limit = x.depth + abs(sigma5) / 4
         if p > u:
             u = p
         if lift_limit > u:
@@ -1090,7 +1090,7 @@ class Atom(nd.Node):
         if clearance < min_clear:
             v += (min_clear - clearance)
         sigma5 = Dimen(context.sigma(style)[4])  # sigma5 x-height
-        psi = Dimen(abs(float(sigma5)) * 4 / 5) - (u - x.depth)
+        psi = (abs(sigma5) * 4) / 5 - (u - x.depth)
         if psi > 0:
             u += psi
             v -= psi
@@ -1102,7 +1102,7 @@ class Atom(nd.Node):
         """
         delta = Dimen() if delta is None else Dimen(delta)
         top = x
-        if float(delta) != 0:
+        if int(delta) != 0:
             shifted = box.HBox(parser, None, 0)
             shifted.list.append(nd.Kern(delta))
             shifted.list.append(x)
@@ -1131,7 +1131,7 @@ class Atom(nd.Node):
             sigma = context.sigma(style)
             sigma16 = Dimen(sigma[15])  # sigma16
             sigma5 = Dimen(sigma[4])    # sigma5 (x-height)
-            lift_limit = x.height - Dimen(abs(float(sigma5)) * 4 / 5)
+            lift_limit = x.height - (abs(sigma5) * 4) / 5
             shift = v
             if sigma16 > shift:
                 shift = sigma16
@@ -1145,7 +1145,7 @@ class Atom(nd.Node):
         u = self.rule18c(x, context, style, u)
         if self.sub is None:
             # Rule 18d.
-            x.shifted = Dimen(-float(u))
+            x.shifted = -u
             packed.append(x)
             return
         # Rule 18d (both scripts): build subscript and apply v floor.
@@ -1208,7 +1208,7 @@ class Atom(nd.Node):
             right = b.list[-1]
             if right.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 italic = getattr(right, "italic", None)
-        if italic is not None and float(italic) != 0:
+        if italic is not None and int(italic) != 0:
             out.list.append(nd.Kern(italic, automatic=True))
         out.list.append(nd.Glue(hss, None))
         return out.typeset(parser)
@@ -1264,7 +1264,7 @@ class Op(Atom):
         delta = Dimen(node.italic)
         y.list.append(node)
         # Include italic correction in width iff limits are used or there is no subscript.
-        if float(delta) != 0 and (use_limits or self.sub is None):
+        if int(delta) != 0 and (use_limits or self.sub is None):
             y.list.append(nd.Kern(delta, automatic=True))
         y = y.typeset(parser)
         axis = Dimen(context.sigma(style)[21])  # sigma22
@@ -1307,7 +1307,7 @@ class Op(Atom):
             if xi10 > k:
                 k = xi10
             pieces.append(nd.Kern(k))
-            z.shifted = Dimen(-float(half_delta))
+            z.shifted = -half_delta
             pieces.append(z)
             pieces.append(nd.Kern(xi13))
         out = box.VBox(parser, None, 0)
@@ -1927,7 +1927,7 @@ class Delim(serialization.Serializable):
         b = box.HBox(parser, None, 0)
         b.list.append(node)
         italic = getattr(node, "italic", None)
-        if italic is not None and float(italic) != 0:
+        if italic is not None and int(italic) != 0:
             b.list.append(nd.Kern(italic, automatic=True))
         return b.typeset(parser)
 
@@ -1957,17 +1957,17 @@ class Delim(serialization.Serializable):
         mid_total = total(mid)
         bot_total = total(bot)
         rep_total = total(rep)
-        if float(rep_total) <= 0:
+        if int(rep_total) <= 0:
             return self._boxWithItalic(parser, chosen["node"])
 
         base = top_total + mid_total + bot_total
         need = minimum - base
         if mid is not None:
             unit = 2 * rep_total
-            repeat = 0 if need <= 0 else max(0, ceil(float(need) / float(unit)))
+            repeat = 0 if need <= 0 else max(0, (int(need) + int(unit) - 1) // int(unit))
         else:
             unit = rep_total
-            repeat = 0 if need <= 0 else max(0, ceil(float(need) / float(unit)))
+            repeat = 0 if need <= 0 else max(0, (int(need) + int(unit) - 1) // int(unit))
         # Ensure at least one repeatable piece is present in the stack.
         repeat = max(repeat, 1)
 
@@ -2067,14 +2067,14 @@ class Rad(Atom):
             phi = Dimen(context.sigma(style)[4])  # sigma5
         else:
             phi = theta
-        clr = theta + Dimen(abs(float(phi)) / 4)
+        clr = theta + abs(phi) / 4
         y = self.delim.typeset(parser, x.height + x.depth + clr + theta, context, style)
         if y.height <= 0:
             y.height = theta
         delta = y.depth - (x.height + x.depth + clr)
         if delta > 0:
             clr += delta / 2
-        y.shifted = Dimen(-float(x.height + clr))
+        y.shifted = -(x.height + clr)
         out = box.HBox(parser, None, 0)
         out.list[:] = [y, Atom.overbar(parser, x, clr, y.height)]
         packed.append(out.typeset(parser))
@@ -2213,7 +2213,7 @@ class Over(Atom):
             v = Dimen(sigma[10])  # sigma11
         else:
             # C <= T
-            u = Dimen(sigma[8] if float(theta) != 0 else sigma[9])  # sigma9/sigma10
+            u = Dimen(sigma[8] if int(theta) != 0 else sigma[9])  # sigma9/sigma10
             v = Dimen(sigma[11])  # sigma12
         return u, v
 
@@ -2265,7 +2265,7 @@ class Over(Atom):
         x = Atom.rebox(parser, x, target)
         z = Atom.rebox(parser, z, target)
         u, v = self.rule15b(context, style, theta)
-        if float(theta) == 0:
+        if int(theta) == 0:
             # Rule 15c (\atop): enforce minimum clearance with adjusted shifts.
             u, v, k = self.rule15c(x, z, context, style, u, v)
             out = box.VBox(parser, x.height + u, 0)
@@ -2451,13 +2451,13 @@ class Accent(Atom):
         # y is accent character including italic correction.
         y = box.HBox(parser, None, 0)
         y.list.append(y_char)
-        if float(y_char.italic) != 0:
+        if int(y_char.italic) != 0:
             y.list.append(nd.Kern(y_char.italic, automatic=True))
         y = y.typeset(parser)
         y.shifted = s + (u - y.width) / 2
         # z stacks y, kern(-delta), x.
         z = box.VBox(parser, None, 0)
-        z.list[:] = [y, nd.Kern(Dimen(-float(delta))), x]
+        z.list[:] = [y, nd.Kern(-delta), x]
         z = z.typeset(parser)
         if z.height < x.height:
             k = x.height - z.height
@@ -2519,9 +2519,10 @@ class VCent(Box):
     def typesetNucleus(self, parser, packed, context: MathTypesetContext, style):
         box = self.nucleus.copy()
         v = box.height + box.depth
-        a = context.sigma(style)[21]
-        box.height = Dimen(float(v)/2 + a)
-        box.depth = Dimen(float(v)/2 - a)
+        a = Dimen(context.sigma(style)[21])
+        half = v / 2
+        box.height = half + a
+        box.depth = half - a
         packed.append(box)
         return Dimen()
 

@@ -104,6 +104,17 @@ def test_pt_and_in_parsing_match_tex_scaled_points(parser):
     assert int(parser.state.dimen[1]) == 4736286
 
 
+def test_inch_decimal_coefficient_uses_tex_integer_path(parser):
+    parser.parse("\\dimen0=12.3in")
+    assert int(parser.state.dimen[0]) == 58256341
+
+
+def test_read_mu_decimal_uses_scaled_rounding(parser):
+    parser.readFrom("1.5mu")
+    result = parser.readDimen(mu=True)
+    assert int(result) == 98304
+
+
 def test_parsing_print_scaled_pt_round_trips_scaled_value(parser):
     s = repr(Dimen(integer=30785865))
     parser.parse(f"\\dimen0={s}pt")

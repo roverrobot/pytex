@@ -10,6 +10,9 @@ from pytex.state import Array
 from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
 from pytex.define import registerdef
 
+
+DECIMAL_DIGIT_LIMIT = 17
+
 class Dimen(serialization.Serializable):
     scale = 65536
     def __init__(self, dimen=None, integer=0):
@@ -161,26 +164,48 @@ def readUnsignedNumber(parser):
     @param parser: the parser
     @return: the unsigned number
     """
-    # an unsigned number 
+    num, den = readUnsignedNumberRatio(parser)
+    return num / den
+
+
+def _round_decimals(digits: str) -> int:
+    """
+    TeX's round_decimals approximation to 16 binary fractional bits.
+    """
+    a = 0
+    two = 2 * Dimen.scale
+    for c in reversed(digits[:DECIMAL_DIGIT_LIMIT]):
+        a = (a + (ord(c) - ord("0")) * two) // 10
+    return (a + 1) // 2
+
+
+def readUnsignedNumberRatio(parser):
+    """
+    Read an unsigned number as an exact-ish rational pair (num, den).
+
+    Decimal literals follow TeX's round_decimals behavior, so a literal
+    coefficient is represented as n / 2^16.
+    """
+    # an unsigned number
     t = parser.token_expand()
+    if t is None:
+        raise ValueError("expecting a number", parser.input.position())
     if t.catcode != CATCODE.OTHER or t.name != ".":
         if hasattr(t.definition, "intValue"):
-            return float(t.definition.intValue(parser))
+            return int(t.definition.intValue(parser)), 1
         parser.input.unread(t)
-        v = readDigits(parser, 10)
+        int_part = int(readDigits(parser, 10), 10)
         t = parser.token_expand()
         # a decimal point
         if t is None:
-            return float(v)
+            return int_part, 1
         if t.catcode != CATCODE.OTHER or (t.name!= "." and t.name != ","):
             parser.input.unread(t)
-            return float(v)
+            return int_part, 1
     else:
-        v = "0"
-    v += "."
-    # a decimal part
-    v += readDigits(parser, 10, optional=True)
-    return float(v)
+        int_part = 0
+    frac = readDigits(parser, 10, optional=True)
+    return int_part * Dimen.scale + _round_decimals(frac), Dimen.scale
 
 
 def readDimen(parser, mu: bool=False):
@@ -203,15 +228,16 @@ def readDimen(parser, mu: bool=False):
 
 
 UNITS = {
-    "pt" : 1,
-    "pc" : 12,
-    "in" : 72.27,
-    "bp" : 7227.0 / 7200,
-    "dd" : 1238.0 / 1157,
-    "cc" : 14856.0 / 1157,
-    "sp" : 1.0 / 65536,
-    "cm" : 7227.0 / 254,
-    "mm" : 7227.0 / 2540,
+    # values are (numerator, denominator) in pt units
+    "pt": (1, 1),
+    "pc": (12, 1),
+    "in": (7227, 100),
+    "bp": (7227, 7200),
+    "dd": (1238, 1157),
+    "cc": (14856, 1157),
+    "sp": (1, 65536),
+    "cm": (7227, 254),
+    "mm": (7227, 2540),
 }
 
 def readUnsignedDimen(parser, mu: bool, stretchness: bool):
@@ -239,14 +265,15 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     value = dimenValue(t)
     if value is not None:
         return (value, 0) if stretchness else value
-    f = readUnsignedNumber(parser)
+    num, den = readUnsignedNumberRatio(parser)
     t = parser.skipSpaces()
     # a unit
     if t is None:
         raise ValueError("dimension unit expected", parser.input.position())
     value = dimenValue(t)
     if value is not None:
-        return (f * value, 0) if stretchness else f * value
+        dimen = Dimen(integer=Dimen._trunc_div(num * int(value), den))
+        return (dimen, 0) if stretchness else dimen
     true = False
     if mu:
         units = {"mu"}
@@ -269,11 +296,15 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
             raise ValueError("dimension unit expected", parser.input.position())
     infinity = 0
     if unit == "mu":
-        dimen = f
+        dimen = Dimen(integer=Dimen._trunc_div(num * Dimen.scale, den))
     elif unit == "em":
-        dimen = f * parser.state.parameters["currentfont"].param[5] #parameter #6 is quad width
+        # parameter #6 is quad width
+        em = parser.state.parameters["currentfont"].param[5]
+        dimen = Dimen(integer=Dimen._trunc_div(num * int(em), den))
     elif unit == "ex":
-        dimen = f * parser.state.parameters["currentfont"].param[4] #parameter #6 is x height
+        # parameter #5 is x-height
+        ex = parser.state.parameters["currentfont"].param[4]
+        dimen = Dimen(integer=Dimen._trunc_div(num * int(ex), den))
     elif unit == "fil":
         infinity = 1
         # read additional "l"
@@ -283,20 +314,19 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         # maximum infinity is 3 (fil, fill, filll)
         if infinity > 3:
             infinity = 3
-        dimen = f
+        dimen = Dimen(integer=Dimen._trunc_div(num * Dimen.scale, den))
     else:
         # note that the everything is multiplied by \mag/1000. Thus, to produce 1 true pt,
         # we need to multiply 1 pt by 1000/\mag to cancel the effect of \mag
-        if unit == "pt":
-            num, den = Dimen._ratio(f)
-            mag = parser.state.parameters["mag"]
-            dimen = Dimen(integer=Dimen._round_div(num * Dimen.scale * 1000, den * mag))
-        else:
-            dimen = f * UNITS[unit] * 1000 / parser.state.parameters["mag"]
-    result = dimen if isinstance(dimen, Dimen) else Dimen(dimen)
+        unit_num, unit_den = UNITS[unit]
+        mag = parser.state.parameters["mag"]
+        dimen = Dimen(integer=Dimen._trunc_div(
+            num * unit_num * Dimen.scale * 1000,
+            den * unit_den * mag,
+        ))
     if stretchness:
-        return result, infinity
-    return result
+        return dimen, infinity
+    return dimen
 
 
 class DimenCommand:

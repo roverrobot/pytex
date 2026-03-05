@@ -705,9 +705,48 @@ class UnBox(Command):
             raise ValueError("expecting a vbox", parser.input.position())
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
             raise ValueError("expecting an hbox", parser.input.position())
+        # TeX unboxing operates on packed box material. If this register still
+        # holds lazy nodes (for example an ALIGNMENT inside a vbox), realize it
+        # before splicing its list into the current list.
+        if getattr(box, "_typeset_cache", None) is None:
+            box = box.typeset(parser)
         top.extend(box.list)
         if self.vertical and top.type == LISTTYPE.VERTICAL:
             top.can_lastbox = True
+
+
+def _materializeBoxNodes(parser, node):
+    materialize = getattr(node, "materialize_box_nodes", None)
+    if materialize is None:
+        return None
+    nodes = materialize(parser)
+    if nodes is None:
+        return []
+    if isinstance(nodes, list):
+        return nodes
+    try:
+        return list(nodes)
+    except TypeError:
+        return [nodes]
+
+
+def _materializeTailForLastBox(parser, top):
+    while top:
+        tail = top[-1]
+        if isinstance(tail, Box):
+            return True
+        nodes = _materializeBoxNodes(parser, tail)
+        if nodes is None:
+            return False
+        if len(nodes) == 1 and nodes[0] is tail:
+            return False
+        can_lastbox = getattr(top, "can_lastbox", None)
+        top[-1:] = nodes
+        if hasattr(top, "prevdepth"):
+            top.prevdepth = None
+        if can_lastbox is not None:
+            top.can_lastbox = can_lastbox
+    return False
 
 
 class Shift(ModeDependentCommand):
@@ -907,7 +946,9 @@ class LastBox(Command):
             raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
         if top.type == LISTTYPE.MATH:
             raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())
-        return top.pop() if top and isinstance(top[-1], Box) else None
+        if not _materializeTailForLastBox(parser, top):
+            return None
+        return top.pop()
     
     def execute(self, parser):
         self.boxValue(parser, False)

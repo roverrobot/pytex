@@ -135,7 +135,15 @@ class RowBuildState:
         self.current_cell = CellBuildState(cell.list, column_no, self, templates)
         return self.current_cell
 
-    def finishRow(self, parser):
+    def _startNextRow(self, parser):
+        row = Row()
+        self.alignment.rows.append(row)
+        template = self.template if self.template is not None else self.builder.preamble
+        row_state = RowBuildState(row, self.alignment, template, self.builder)
+        self.builder.current_row_state = row_state
+        newCell(parser, row_state, 0)
+
+    def _resumeAfterCr(self, parser):
         t = parser.token_expand()
         if t is None:
             raise ValueError("expecting }", parser.input.position())
@@ -143,21 +151,18 @@ class RowBuildState:
             parser.input.unread(t)
             return
         command = getattr(t, "definition", None)
-        if command != noalign:
-            parser.input.unread(t)
-        noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
-        row = Row()
-        self.alignment.rows.append(row)
-        template = self.template if self.template is not None else self.builder.preamble
-        row_state = RowBuildState(row, self.alignment, template, self.builder)
-        self.builder.current_row_state = row_state
         if command == noalign:
+            noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
             noalign_owner.noalign = parser.readVList(
                 GROUP_TYPE.NO_ALIGN,
-                lambda: newCell(parser, row_state, 0),
+                lambda: self._resumeAfterCr(parser),
             )
-        else:
-            newCell(parser, row_state, 0)
+            return
+        parser.input.unread(t)
+        self._startNextRow(parser)
+
+    def finishRow(self, parser):
+        self._resumeAfterCr(parser)
 
 
 class Alignment(nd.Node):
@@ -175,6 +180,7 @@ class Alignment(nd.Node):
 
     node_type = nd.NODE_TYPE.ALIGNMENT
     needs_vcontext = False
+    box_materializable = True
 
     def saveInfo(self):
         return {
@@ -201,6 +207,19 @@ class Alignment(nd.Node):
 
     def pretypeset(self, parser):
         raise NotImplementedError
+
+    def materialize_box_nodes(self, parser):
+        self.pretypeset(parser)
+        prepare = getattr(self, "_prepareExpandedRows", None)
+        if prepare is not None:
+            prepare(getattr(self, "typeset_context", None))
+        cache = self._typeset_cache
+        if cache is None:
+            return []
+        nodes = getattr(cache, "list", None)
+        if nodes is None:
+            return [cache]
+        return list(nodes)
 
     def _collectEntries(self, parser):
         # TeXBook notation is 1-based; this implementation uses the same names
@@ -528,9 +547,11 @@ class MAlignment(HAlignment):
         self._prepareExpandedRows(context)
         packed.extend(self._typeset_cache.list)
 
-    def pretypeset(self, parser, context):
+    def pretypeset(self, parser, context=None):
+        if context is None:
+            context = self.typeset_context
         super().pretypeset(parser, context)
-        shift = Dimen(context.displayindent)
+        shift = Dimen() if context is None else Dimen(context.displayindent)
         for row in self._typeset_cache.list:
             if row.node_type == nd.NODE_TYPE.HLIST:
                 row.shifted = shift
@@ -694,10 +715,16 @@ class Omit(Command):
     """
     def execute(self, parser):
         """
-        Execute the command. It terminates the current row in an alignment and starts a new one.
+        Switch the current entry to omit mode.
         @param parser: the parser
         """
-        raise ValueError("misplaced \\omit", parser.input.position())
+        cell = parser.alignments.currentCell()
+        if cell is None:
+            raise ValueError("misplaced \\omit", parser.input.position())
+        # Entry-leading \omit is handled in newCell() before template injection.
+        # If \omit appears later in the entry, keep behavior permissive and do not
+        # raise, but do not rewrite template state mid-cell.
+        return
     
 
 class NoAlign(Command):

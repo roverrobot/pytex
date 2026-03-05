@@ -129,6 +129,8 @@ class Paragraph(hmode.HList):
 
     # not a proper node
     node_type = None
+    # This node can be realized into concrete box nodes on demand.
+    box_materializable = True
 
     def saveInfo(self):
         d = super().saveInfo()
@@ -212,6 +214,10 @@ class Paragraph(hmode.HList):
         self.pretypeset(parser)
         for line in self._typeset_cache:
             vlist.append(line)
+
+    def materialize_box_nodes(self, parser):
+        self.pretypeset(parser)
+        return list(self._typeset_cache)
 
     @staticmethod
     def _lineDisc(disc, broken):

@@ -568,6 +568,8 @@ class InlineMathList(MList):
 
 
 class DisplayMathList(MList):
+    box_materializable = True
+
     def __init__(self, parser, nodes=None):
         super().__init__(parser, False, nodes)
         # the equation number. If there is one, this holds a tuple (MList, bool)
@@ -592,6 +594,10 @@ class DisplayMathList(MList):
         self.pretypeset(parser)
         for n in self._typeset_cache:
             packed.append(n)
+
+    def materialize_box_nodes(self, parser):
+        self.pretypeset(parser)
+        return list(self._typeset_cache)
     
     def pretypeset(self, parser):
         if self._typeset_cache is not None:
@@ -945,6 +951,11 @@ class Atom(nd.Node):
             if float(delta) != 0 and self.sub is None:
                 packed.append(nd.Kern(delta, automatic=True))
                 delta = Dimen()
+            return delta
+
+        if isinstance(self.nucleus, nd.Box):
+            # Box atoms carry a prebuilt box nucleus.
+            packed.append(self.nucleus.typeset(parser))
             return delta
 
         self.nucleus.typeset(parser, packed, context, style)

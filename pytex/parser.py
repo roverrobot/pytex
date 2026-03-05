@@ -383,6 +383,13 @@ class Parser:
         # TeX does not emit a synthetic empty line in this case.
         if len(hlist) == 0:
             self.lists.pop()
+            if not getattr(hlist, "keep_empty", False):
+                self.clearParagraphSettings()
+                return
+            top = self.lists[-1]
+            hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist)
+            top.append(hlist)
+            self.last_paragraph = hlist
             self.clearParagraphSettings()
             return
         # \penalty10000

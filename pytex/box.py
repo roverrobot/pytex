@@ -705,12 +705,8 @@ class UnBox(Command):
             raise ValueError("expecting a vbox", parser.input.position())
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
             raise ValueError("expecting an hbox", parser.input.position())
-        # TeX unboxing operates on packed box material. If this register still
-        # holds lazy nodes (for example an ALIGNMENT inside a vbox), realize it
-        # before splicing its list into the current list.
-        if getattr(box, "_typeset_cache", None) is None:
-            box = box.typeset(parser)
-        top.extend(box.list)
+        materialized, changed = _materializeBoxListNodes(parser, box.list)
+        top.extend(materialized if changed else box.list)
         if self.vertical and top.type == LISTTYPE.VERTICAL:
             top.can_lastbox = True
 
@@ -728,6 +724,25 @@ def _materializeBoxNodes(parser, node):
         return list(nodes)
     except TypeError:
         return [nodes]
+
+
+def _materializeBoxListNodes(parser, nodes):
+    expanded = []
+    changed = False
+    for node in nodes:
+        materialized = _materializeBoxNodes(parser, node)
+        if materialized is None:
+            expanded.append(node)
+            continue
+        changed = True
+        for n in materialized:
+            if n is node:
+                expanded.append(n)
+                continue
+            if getattr(n, "source", None) is None:
+                n.source = node
+            expanded.append(n)
+    return expanded, changed
 
 
 def _materializeTailForLastBox(parser, top):

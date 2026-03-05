@@ -1,5 +1,4 @@
 import pytest
-from pytex import etex
 from pytex import box as bx
 from pytex import conditional
 from pytex import glue
@@ -7,8 +6,19 @@ from pytex import texlive
 from pytex import macro
 from pytex import node as nd
 from pytex import token
+from pytex.module import ModuleManager
 from pytex.expandable import toToks, toksToString
 from tests.test_vmode import _test_hbox
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _enable_etex_module():
+    from pytex import etex
+    ModuleManager["etex"] = etex.mod
+    try:
+        yield
+    finally:
+        ModuleManager.pop("etex", None)
 
 
 def _mark(text, index=0):

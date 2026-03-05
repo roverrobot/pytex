@@ -119,6 +119,8 @@ class Paragraph(hmode.HList):
         # \prevgraf for this paragraph (set by display-math machinery when needed).
         self.prevgraf = 0
         self.typeset_context = None
+        # Display math opens a synthetic following paragraph that may remain empty.
+        self.keep_empty = False
         if indent:
             self.append(bx.IndentBox(parser))
         # these two fields are used to link paragraphs together for display math integration,
@@ -145,6 +147,10 @@ class Paragraph(hmode.HList):
         if self._typeset_cache is not None:
             return
         context = self.typeset_context
+        if len(self) == 0:
+            context.line_count = 0
+            self._typeset_cache = []
+            return
         scan = self._typesetNodesWithBreaks(parser, self)
         hlist = scan
         # line break the hlist into lines and pack them into the vlist

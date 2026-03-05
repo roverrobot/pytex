@@ -6,10 +6,9 @@ Minimal DVI shipout support.
 import os
 
 from pytex import node as nd
-from pytex.dimen import Dimen
+from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.module import Module
 from pytex import page
-from math import isinf
 
 
 class DVIShipout(page.Shipout):
@@ -187,16 +186,18 @@ class DVIShipout(page.Shipout):
         self.h += int(node.width)
 
     def _ship_rule(self, node, box, move):
+        def running(d):
+            return int(d) <= int(NEG_MAX_DIMEN)
         if box.node_type == nd.NODE_TYPE.VLIST:
-            w = int(box.width) if isinf(node.width) else int(node.width)
+            w = int(box.width) if running(node.width) else int(node.width)
             h = int(node.height)
             d = int(node.depth)
             if move:
                 self.v += h
         else:
             w = int(node.width)
-            h = int(box.height) if isinf(node.height) else int(node.height)
-            d = int(box.depth) if isinf(node.depth) else int(node.depth)
+            h = int(box.height) if running(node.height) else int(node.height)
+            d = int(box.depth) if running(node.depth) else int(node.depth)
             if move:
                 self.h += w
         self._write_byte(132 if move else 137)

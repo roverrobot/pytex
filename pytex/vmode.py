@@ -44,6 +44,22 @@ class VList(lists.List):
 
     def _expandNode(self, parser, node):
         # expand a node without side effects on this vertical list
+        materialize = getattr(node, "materialize_box_nodes", None)
+        if materialize is not None:
+            packed = materialize(parser)
+            if packed is None:
+                return []
+            if not isinstance(packed, list):
+                try:
+                    packed = list(packed)
+                except TypeError:
+                    packed = [packed]
+            for n in packed:
+                if n is node:
+                    continue
+                if getattr(n, "source", None) is None:
+                    n.source = node
+            return packed
         typeset = getattr(node, "typeset", None)
         if typeset is None:
             return [node]
@@ -85,7 +101,9 @@ class VList(lists.List):
                         depth = getattr(n, "depth", None)
                         if depth is not None:
                             return depth
-                    depth = init_prevdepth
+                    # this contextual node did not realize to a box; continue
+                    # scanning earlier vertical material.
+                    continue
                 return depth
             elif node.node_type == nd.NODE_TYPE.RULE:
                 # rules reset the prevdepth to init_prevdepth

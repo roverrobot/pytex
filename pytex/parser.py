@@ -323,18 +323,25 @@ class Parser:
         """
         return self.state.equitable[name]
 
-    def beginGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE, callback=None):
+    def beginGroup(
+        self,
+        position,
+        group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE,
+        to_end=None,
+        ended=None,
+    ):
         """
         begin a group
         @param position: the position of the begin group token
         @param group_type: the type of the group
-        @param callback: the callback function
+        @param to_end: callback before local values are restored
+        @param ended: callback after group close
         """
         # if we are already in math mode, then we are reading a subformula
         if group_type == state.GROUP_TYPE.SIMPLE and self.lists[-1].type == lists.LISTTYPE.MATH:
             self.lists.append(mmode.MList(self))
-            callback = mmode.SubformulaEndGroupCallBack(self)
-        self.state.beginGroup(position, group_type, callback)
+            ended = mmode.SubformulaEndGroupCallBack(self)
+        self.state.beginGroup(position, group_type, to_end=to_end, ended=ended)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
         """

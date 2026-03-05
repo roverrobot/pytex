@@ -1533,7 +1533,11 @@ def mathShift(parser):
             parser.state.globals["prevgraf"] = 0
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
-    parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT, MathShitfEndGroupCallback(parser))
+    parser.beginGroup(
+        parser.input.position(),
+        GROUP_TYPE.MATH_SHIFT,
+        ended=MathShitfEndGroupCallback(parser),
+    )
     mlist = InlineMathList(parser) if inner else DisplayMathList(parser)
     parser.lists.append(mlist)
     if prev_par is not None:
@@ -1795,7 +1799,7 @@ class MathChoiceEndGroupCallback(MathEndGroupCallback):
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a \"{\"", pos)
         parser.lists.append(MList(parser))
-        parser.beginGroup(pos, GROUP_TYPE.MATH_CHOICE, self)
+        parser.beginGroup(pos, GROUP_TYPE.MATH_CHOICE, ended=self)
 
     def endgroup(self, parser, top, mlist):
         setattr(self.node, self.attr[self.state], mlist)
@@ -2147,7 +2151,11 @@ class Left(lists.ModeDependentCommand):
         atom.left = delim
         mlist.append(atom)
         parser.lists.append(MList(parser))
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_LEFT, MathLeftEndGroupCallBack(parser, atom))
+        parser.beginGroup(
+            parser.input.position(),
+            GROUP_TYPE.MATH_LEFT,
+            ended=MathLeftEndGroupCallBack(parser, atom),
+        )
 
 
 class Right(lists.ModeDependentCommand):
@@ -2502,7 +2510,11 @@ class Eqno(lists.ModeDependentCommand):
         eqno = MList(parser)
         parser.lists.append(eqno)
         mlist.eqno = (eqno, self.left)
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.MATH_SHIFT, callback)
+        parser.beginGroup(
+            parser.input.position(),
+            GROUP_TYPE.MATH_SHIFT,
+            ended=callback,
+        )
 
 
 class VCent(Box):

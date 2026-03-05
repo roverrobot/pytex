@@ -838,7 +838,7 @@ class MainVList(vmode.VList):
         parser.beginGroup(
             parser.input.position(),
             GROUP_TYPE.OUTPUT,
-            OutputRoutineEndCallback(parser, outlist),
+            ended=OutputRoutineEndCallback(parser, outlist),
         )
         parser.input.push(lexer.TokenListScanner([EndOutputRoutineToken()]))
         parser.input.push(lexer.TokenListScanner(output))

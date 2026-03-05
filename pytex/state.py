@@ -39,12 +39,14 @@ class Group:
     are stored in situ. When the group is closed, the old values are restored.
     @param position: the position of the token starting the group
     @param group_type: the type of the group
-    @param callback: a callback to be called when the group
+    @param to_end: callback executed before local values are restored
+    @param ended: callback executed after the group is closed
     """
-    def __init__(self, position, group_type: GROUP_TYPE, callback=None):
+    def __init__(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
         self.group_type = group_type
         self.position = position
-        self.callback = callback
+        self.to_end = to_end
+        self.ended = ended
         # the aftergroup tokens
         self.aftergroup = []
         # values holds the saved values, where the key is the name of a domain, e.g., "catcode", 
@@ -477,16 +479,17 @@ class State:
             for group in self.groups:
                 group.remove(domain, index)
 
-    def beginGroup(self, position, group_type: GROUP_TYPE, callback=None):
+    def beginGroup(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
         """
         begin a group, and push it to the group stack.
         @param position: the position of the token starting the group
         @param group_type: the type of the group
-        @param callback: a callback to be called when the group is closed
+        @param to_end: called before the group values are restored
+        @param ended: called after the group is closed
         """
         if self.current_group:
             self.groups.append(self.current_group)
-        self.current_group = Group(position, group_type, callback)
+        self.current_group = Group(position, group_type, to_end=to_end, ended=ended)
 
     def endGroup(self, position, group_type: GROUP_TYPE):
         """
@@ -499,14 +502,19 @@ class State:
             raise ValueError("no current group")
         group = self.current_group
         aftergroup = group.aftergroup
-        callback = group.callback
+        to_end = group.to_end
+        ended = group.ended
+        if not group.match(group_type):
+            raise ValueError(f"mismatched group type starting at {group.position} and ending at {position}")
+        if to_end:
+            to_end()
         group.end(position, group_type)
         if self.groups:
             self.current_group = self.groups.pop()
         else:
             self.current_group = None
-        if callback:
-            callback()
+        if ended:
+            ended()
         return aftergroup
         
 

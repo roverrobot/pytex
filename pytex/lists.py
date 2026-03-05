@@ -147,25 +147,25 @@ class IfInner(conditional.Conditional):
 
 
 class ListReadEndCallback:
-    def __init__(self, parser, list, callback):
+    def __init__(self, parser, list, ended):
         self.parser = parser
         self.list = list
-        self.callback = callback
+        self.ended = ended
 
     def __call__(self):
         if self.list is not None:
             self.parser.lists.pop()
-        if self.callback is not None:
-            self.callback()
+        if self.ended is not None:
+            self.ended()
 
 
-def readList(parser, list, reason: GROUP_TYPE, callback=None):
+def readList(parser, list, reason: GROUP_TYPE, ended=None):
     """
     Read a list from the input stack.
     @param parser: The parser.
     @param list: The list to read.
     @param reason: The reason for reading the list.
-    @param callback: Called after the list group closes and the list is popped.
+    @param ended: Called after the list group closes and the list is popped.
     """
     parser.skipFiller()
     pos = parser.input.position()
@@ -175,8 +175,8 @@ def readList(parser, list, reason: GROUP_TYPE, callback=None):
         raise ValueError("expecting a {", pos)
     if list is not None:
         parser.lists.append(list)
-        callback = ListReadEndCallback(parser, list, callback)
-    parser.beginGroup(pos, reason, callback)
+        ended = ListReadEndCallback(parser, list, ended)
+    parser.beginGroup(pos, reason, ended=ended)
     return list
 
 

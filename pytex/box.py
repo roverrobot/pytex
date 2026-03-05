@@ -397,7 +397,7 @@ class BuildBox(Command):
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         if not setbox:
             callback = ReadBoxEndCallback(parser, box)
-            parser.beginGroup(parser.input.position(), self.group_type, callback)
+            parser.beginGroup(parser.input.position(), self.group_type, ended=callback)
             parser.loop()
             if callback.finished:
                 parser.run = True
@@ -468,7 +468,7 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
             parser.beginGroup(
                 parser.input.position(),
                 new.group_type,
-                SetBoxEndCallback(parser, self, self.value[0]),
+                ended=SetBoxEndCallback(parser, self, self.value[0]),
             )
         else:
             self._set(parser)
@@ -945,7 +945,11 @@ class Leaders(Command):
         new = parser.lists[-1]
         if new is not top:
             # we are reading a list, but the group has not started yet to accommodate \afterassignment
-            parser.beginGroup(parser.input.position(), new.group_type, LeaderBoxCallback(parser, self.type, box))
+            parser.beginGroup(
+                parser.input.position(),
+                new.group_type,
+                ended=LeaderBoxCallback(parser, self.type, box),
+            )
         else:
             _appendLeader(parser, self.type, box)
  

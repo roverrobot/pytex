@@ -177,6 +177,7 @@ class Alignment(nd.Node):
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
         self._typeset_cache = None
+        self._row_layout = None
 
     node_type = nd.NODE_TYPE.ALIGNMENT
     needs_vcontext = False
@@ -220,6 +221,15 @@ class Alignment(nd.Node):
         if nodes is None:
             return [cache]
         return list(nodes)
+
+    def captureRowLayout(self, parser):
+        layout = parser.state.layout
+        self._row_layout = {
+            "baselineskip": layout["baselineskip"].copy(),
+            "lineskip": layout["lineskip"].copy(),
+            "lineskiplimit": Dimen(layout["lineskiplimit"]),
+            "interlinepenalty": int(layout["interlinepenalty"]),
+        }
 
     def _collectEntries(self, parser):
         # TeXBook notation is 1-based; this implementation uses the same names
@@ -421,18 +431,25 @@ class HAlignment(Alignment):
     def _rowContext(self, prevdepth, context=None):
         if context is None:
             context = self.typeset_context
-        if context is None:
+        source = self._row_layout if self._row_layout is not None else context
+        if source is None:
             return None
 
         class RowContext:
-            def __init__(self, context, prevdepth):
-                self.baselineskip = context.baselineskip
-                self.lineskip = context.lineskip
-                self.lineskiplimit = context.lineskiplimit
-                self.interlinepenalty = context.interlinepenalty
+            def __init__(self, source, prevdepth):
+                if isinstance(source, dict):
+                    self.baselineskip = source["baselineskip"]
+                    self.lineskip = source["lineskip"]
+                    self.lineskiplimit = source["lineskiplimit"]
+                    self.interlinepenalty = source["interlinepenalty"]
+                else:
+                    self.baselineskip = source.baselineskip
+                    self.lineskip = source.lineskip
+                    self.lineskiplimit = source.lineskiplimit
+                    self.interlinepenalty = source.interlinepenalty
                 self.prevdepth = prevdepth
 
-        return RowContext(context, prevdepth)
+        return RowContext(source, prevdepth)
 
     def pretypeset(self, parser, context=None):
         if self._typeset_cache is not None:
@@ -567,6 +584,7 @@ class MAlignment(HAlignment):
         tagged = []
         max_left = None
         max_right = None
+        max_outer = None
         for row in rows:
             if len(row.list) < 5:
                 continue
@@ -603,8 +621,9 @@ class MAlignment(HAlignment):
             tagged.append((row, left_glue, right_glue, right_box, outer, math_box, kneg, kpos))
             max_left = Dimen(left_box.width) if max_left is None or left_box.width > max_left else max_left
             max_right = Dimen(right_box.width) if max_right is None or right_box.width > max_right else max_right
+            max_outer = Dimen(outer.width) if max_outer is None or outer.width > max_outer else max_outer
 
-        if not tagged or max_left is None or max_right is None:
+        if not tagged or max_left is None or max_right is None or max_outer is None:
             return
 
         side = (Dimen(context.displaywidth) - max_left - max_right) / 2
@@ -618,12 +637,16 @@ class MAlignment(HAlignment):
             rg = right_glue.glue.copy()
             rg.dimen = Dimen(side)
             right_glue.glue = rg
+            extra = max_outer - outer.width
+            if extra < 0:
+                extra = Dimen()
             kneg.kern = -Dimen(side)
             # amsmath tags are emitted as a tail sequence that assumes an
             # additional tabskip slot before the tag box. Our alignment packing
             # keeps that tail in the equation cell, so add one extra side-width
-            # advance here to match TeX's final tag placement.
-            kpos.kern = 2 * Dimen(side)
+            # advance here to match TeX's final tag placement. Also normalize
+            # narrower rows so all tags share the same right margin.
+            kpos.kern = 2 * Dimen(side) + extra
             # Repack modified nested boxes and keep the row width at \displaywidth.
             for box in (math_box, outer, right_box):
                 box._typeset_cache = None
@@ -944,7 +967,11 @@ class AlignmentBuilder:
         if t is None or t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
         parser.alignments.append(self)
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN, AlignmentEndCallback(parser, self, target))
+        parser.beginGroup(
+            parser.input.position(),
+            GROUP_TYPE.ALIGN,
+            to_end=AlignmentEndCallback(parser, self, target),
+        )
         self.readPreamble(parser)
 
 
@@ -955,6 +982,7 @@ class Align(lists.ModeDependentCommand):
     def newAlignment(self, parser, list, cls):
         spec, d = parser.readBoxSpec()
         alignment = cls(d, None) if spec == "to" else cls(None, d)
+        alignment.captureRowLayout(parser)
         AlignmentBuilder(alignment).run(parser, list)
 
 

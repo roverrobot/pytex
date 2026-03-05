@@ -75,6 +75,36 @@ def test_group_mismatch(state):
     except Exception as e:
         assert False, "unexpected exception: %s" % e
 
+
+def test_group_to_end_and_ended_order(state):
+    s, d, _ = state
+    d["key1"] = "outer"
+    seen = []
+    s.beginGroup(
+        group_type=st.GROUP_TYPE.SIMPLE,
+        position=0,
+        to_end=lambda: seen.append(("to_end", d["key1"])),
+        ended=lambda: seen.append(("ended", d["key1"])),
+    )
+    d["key1"] = "inner"
+    s.endGroup(group_type=st.GROUP_TYPE.SIMPLE, position=1)
+    assert seen == [("to_end", "inner"), ("ended", "outer")]
+
+
+def test_group_ended_hook_runs_after_restore(state):
+    s, d, _ = state
+    d["key1"] = "outer"
+    seen = []
+    s.beginGroup(
+        group_type=st.GROUP_TYPE.SIMPLE,
+        position=0,
+        ended=lambda: seen.append(d["key1"]),
+    )
+    d["key1"] = "inner"
+    s.endGroup(group_type=st.GROUP_TYPE.SIMPLE, position=1)
+    assert seen == ["outer"]
+
+
 def test_parser_group(parser):
     checkValues(parser, "\\count0=1\\begingroup\\count0=2", [("count", 0, 2)])
     checkValues(parser, "\\endgroup", [("count", 0, 1)])

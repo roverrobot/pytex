@@ -234,16 +234,16 @@ class VFil(VSkip):
         super().__init__()
 
 
-def readVList(parser, reason, callback=None):
+def readVList(parser, reason, ended=None):
     """
     Read a vertical list.
     @param parser: the parser
     @param reason: the reason for reading the list
-    @param callback: called after the list group closes
+    @param ended: called after the list group closes
     """
     vlist = VList(parser)
     parser.clearParagraphSettings()
-    return parser.readList(vlist, reason, callback)
+    return parser.readList(vlist, reason, ended)
 
 
 class End(Command):

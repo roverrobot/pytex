@@ -339,7 +339,7 @@ class Parser:
         """
         # if we are already in math mode, then we are reading a subformula
         if group_type == state.GROUP_TYPE.SIMPLE and self.lists[-1].type == lists.LISTTYPE.MATH:
-            self.lists.append(mmode.MList(self))
+            self.lists.append(self.wrapBuildState(mmode.MList(self)))
             ended = mmode.SubformulaEndGroupCallBack(self)
         self.state.beginGroup(position, group_type, to_end=to_end, ended=ended)
     
@@ -372,7 +372,7 @@ class Parser:
         if top.type == lists.LISTTYPE.VERTICAL and (not top.inner) and len(top) > 0 and parskip:
             top.append(node.Glue(self.state.parameters["parskip"], "\\parskip"))
         hlist = paragraph.Paragraph(self, indent)
-        self.lists.append(hlist)
+        self.lists.append(self.wrapBuildState(hlist))
         everypar = self.everypar.value
         if everypar:
             self.input.push(lexer.TokenListScanner(everypar))
@@ -389,20 +389,21 @@ class Parser:
         hlist = self.lists[-1]
         if hlist.type != lists.LISTTYPE.HORIZONTAL or hlist.inner:
             raise ValueError("cannot end the paragraph here", self.input.pos)
+        para = getattr(hlist, "node", hlist)
         # \unskip
-        if len(hlist) > 0 and hlist[-1].node_type == node.NODE_TYPE.GLUE:
+        if len(para) > 0 and para[-1].node_type == node.NODE_TYPE.GLUE:
             hlist.pop()
         # A truly empty paragraph contributes nothing (e.g., \noindent\par).
         # TeX does not emit a synthetic empty line in this case.
-        if len(hlist) == 0:
+        if len(para) == 0:
             self.lists.pop()
-            if not getattr(hlist, "keep_empty", False):
+            if not getattr(para, "keep_empty", False):
                 self.clearParagraphSettings()
                 return
             top = self.lists[-1]
-            hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist)
-            top.append(hlist)
-            self.last_paragraph = hlist
+            para.typeset_context = paragraph.ParagraphTypesetContext(self, para)
+            top.append(para)
+            self.last_paragraph = para
             self.clearParagraphSettings()
             return
         # \penalty10000
@@ -411,10 +412,10 @@ class Parser:
         hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
         self.lists.pop()
         top = self.lists[-1]
-        hlist.typeset_context = paragraph.ParagraphTypesetContext(self, hlist)
+        para.typeset_context = paragraph.ParagraphTypesetContext(self, para)
         # TeX clears \\looseness after each paragraph.
-        top.append(hlist)
-        self.last_paragraph = hlist
+        top.append(para)
+        self.last_paragraph = para
         self.clearParagraphSettings()
 
     def clearParagraphSettings(self):

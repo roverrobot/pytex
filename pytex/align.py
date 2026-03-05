@@ -56,37 +56,38 @@ class CellBuildState:
     Wrapper around the list holding a cell being built.
     This is pushed onto parser.lists so build-time state does not live on the list.
 
-    @param cell: the list holding the cell content
+    @param node: the box node whose list holds the cell content
     @param column_no: the column number of the cell
     @param row_build_state: the build state of the row this cell is in
     @param templates: remaining template parts to inject, in reverse push order
     """
-    def __init__(self, cell, column_no, row_build_state, templates):
-        object.__setattr__(self, "cell", cell)
+    def __init__(self, node, column_no, row_build_state, templates):
+        object.__setattr__(self, "node", node)
+        object.__setattr__(self, "list", node.list)
         object.__setattr__(self, "column_no", column_no)
         object.__setattr__(self, "row_build_state", row_build_state)
         object.__setattr__(self, "templates", templates)
 
     def __getattr__(self, name):
-        return getattr(self.cell, name)
+        return getattr(self.list, name)
 
     def __setattr__(self, name, value):
-        setattr(self.cell, name, value)
+        setattr(self.list, name, value)
 
     def __getitem__(self, index):
-        return self.cell[index]
+        return self.list[index]
 
     def __setitem__(self, index, value):
-        self.cell[index] = value
+        self.list[index] = value
 
     def __delitem__(self, key):
-        del self.cell[key]
+        del self.list[key]
 
     def __len__(self):
-        return len(self.cell)
+        return len(self.list)
 
     def __iter__(self):
-        return iter(self.cell)
+        return iter(self.list)
 
     def pushTemplate(self, parser):
         if self.templates:
@@ -132,7 +133,7 @@ class RowBuildState:
             else:
                 raise ValueError("extra alignment tab has been changed to \\cr", parser.input.position())
             templates = [column.v, column.u]
-        self.current_cell = CellBuildState(cell.list, column_no, self, templates)
+        self.current_cell = CellBuildState(cell, column_no, self, templates)
         return self.current_cell
 
     def _startNextRow(self, parser):
@@ -904,7 +905,7 @@ class AlignmentBuilder:
         self.current_row_state = row_state
         cell = self.alignment.newBox(parser)
         row.cells.append(cell)
-        row_state.current_cell = CellBuildState(cell.list, 0, row_state, [])
+        row_state.current_cell = CellBuildState(cell, 0, row_state, [])
         parser.lists.append(row_state.current_cell)
         # we start a new group, which will be terminated by \cr or \crcr
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
@@ -992,11 +993,13 @@ class HAlign(Align):
     
     def math(self, parser, mlist):
         from pytex import mmode
-        if not isinstance(mlist, mmode.DisplayMathList) or len(mlist) > 0:
+        display = getattr(mlist, "node", mlist)
+        if not isinstance(display, mmode.DisplayMathList) or len(display) > 0:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
-        mlist = HAlignMathList(mlist)
-        parser.lists[-1] = mlist
-        self.newAlignment(parser, mlist, MAlignment)
+        mlist = HAlignMathList(display)
+        mstate = parser.wrapBuildState(mlist)
+        parser.lists[-1] = mstate
+        self.newAlignment(parser, mstate, MAlignment)
 
 
 class VAlign(Align):

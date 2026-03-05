@@ -1426,16 +1426,17 @@ class MathEndGroupCallback:
         # first we need to check if we are building a general fraction
         parser = self.parser
 
-        def _ensure_atom_complete(mlist):
-            if mlist.building_atom is not None:
+        def _ensure_atom_complete(mlist_state):
+            if getattr(mlist_state, "building_atom", None) is not None:
                 raise ValueError("missing field", parser.input.position())
 
-        mlist = parser.lists.pop()
-        assert mlist.type == lists.LISTTYPE.MATH
-        _ensure_atom_complete(mlist)
-        if getattr(mlist, "is_denominator", False):
-            mlist = parser.lists.pop()
-            _ensure_atom_complete(mlist)
+        mlist_state = parser.lists.pop()
+        assert mlist_state.type == lists.LISTTYPE.MATH
+        _ensure_atom_complete(mlist_state)
+        if getattr(mlist_state, "is_denominator", False):
+            mlist_state = parser.lists.pop()
+            _ensure_atom_complete(mlist_state)
+        mlist = getattr(mlist_state, "node", mlist_state)
         top = parser.lists[-1]
         self.endgroup(parser, top, mlist)
 
@@ -1515,8 +1516,8 @@ def mathShift(parser):
         volatile = parser.state.volatile
         if len(top) > 0:
             parser.endParagraph()
-            prev_par = top
-            parser.paragraph_before_last_display_math = top
+            prev_par = getattr(top, "node", top)
+            parser.paragraph_before_last_display_math = prev_par
             prev_par.pretypeset(parser)
             context = prev_par.typeset_context
             line_count = context.line_count
@@ -1545,7 +1546,7 @@ def mathShift(parser):
         ended=MathShitfEndGroupCallback(parser),
     )
     mlist = InlineMathList(parser) if inner else DisplayMathList(parser)
-    parser.lists.append(mlist)
+    parser.lists.append(parser.wrapBuildState(mlist))
     if prev_par is not None:
         prev_par.next_paragraph = mlist
     mlist.prev_paragraph = prev_par
@@ -1804,7 +1805,7 @@ class MathChoiceEndGroupCallback(MathEndGroupCallback):
         pos = parser.input.position()
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a \"{\"", pos)
-        parser.lists.append(MList(parser))
+        parser.lists.append(parser.wrapBuildState(MList(parser)))
         parser.beginGroup(pos, GROUP_TYPE.MATH_CHOICE, ended=self)
 
     def endgroup(self, parser, top, mlist):
@@ -2156,7 +2157,7 @@ class Left(lists.ModeDependentCommand):
         atom = Atom(ATOM_TYPE.ORD)
         atom.left = delim
         mlist.append(atom)
-        parser.lists.append(MList(parser))
+        parser.lists.append(parser.wrapBuildState(MList(parser)))
         parser.beginGroup(
             parser.input.position(),
             GROUP_TYPE.MATH_LEFT,
@@ -2356,7 +2357,7 @@ class GeneralFraction(lists.ModeDependentCommand):
         if self.thickness:
             fraction.thickness = thickness
         mlist.append(fraction)
-        parser.lists.append(denominator)
+        parser.lists.append(parser.wrapBuildState(denominator))
         denominator.is_denominator = True
 
 
@@ -2503,7 +2504,9 @@ class Eqno(lists.ModeDependentCommand):
 
     def math(self, parser, mlist):
         def callback():
-            assert parser.lists.pop() is getattr(parser.lists[-1], "eqno", [None, None])[0]
+            eq_state = parser.lists.pop()
+            eqno = getattr(parser.lists[-1], "eqno", [None, None])[0]
+            assert getattr(eq_state, "node", eq_state) is eqno
             parser.input.unread(MathShiftToken("$", CATCODE.MATH_SHIFT))
         # we must be at the bottom of the math lists
         enclosing = parser.lists[-2]
@@ -2514,7 +2517,7 @@ class Eqno(lists.ModeDependentCommand):
         # We start a new group, parsing the equation number, then we pop it off during the 
         # mathShift function before ending the math mode.
         eqno = MList(parser)
-        parser.lists.append(eqno)
+        parser.lists.append(parser.wrapBuildState(eqno))
         mlist.eqno = (eqno, self.left)
         parser.beginGroup(
             parser.input.position(),

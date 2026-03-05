@@ -74,6 +74,227 @@ class List(list, serialization.Serializable):
         return cls(parser, **kwargs)
 
 
+class ListBuildState:
+    """
+    Runtime-only parser-stack wrapper around a list node.
+
+    Build-time state (for example, spacefactor while scanning horizontal
+    material) lives here instead of on the node object that will later be
+    typeset/materialized.
+    """
+    _local_attrs = {"parser", "node", "group_type"}
+
+    def __init__(self, parser, node):
+        object.__setattr__(self, "parser", parser)
+        object.__setattr__(self, "node", node)
+        # build commands may stash temporary metadata (e.g., group_type) here
+        object.__setattr__(self, "group_type", None)
+
+    @property
+    def list_node(self):
+        # Backward-compatible alias during the transition to node-oriented naming.
+        return self.node
+
+    def __repr__(self):
+        return repr(self.node)
+
+    def __getattr__(self, name):
+        return getattr(self.node, name)
+
+    def __setattr__(self, name, value):
+        if name in self._local_attrs:
+            object.__setattr__(self, name, value)
+            return
+        setattr(self.node, name, value)
+
+    def __len__(self):
+        return len(self.node)
+
+    def __iter__(self):
+        return iter(self.node)
+
+    def __getitem__(self, index):
+        return self.node[index]
+
+    def __setitem__(self, index, value):
+        self.node[index] = value
+
+    def __delitem__(self, key):
+        del self.node[key]
+
+    def _raw_append(self, node):
+        target = self.node
+        if isinstance(target, list):
+            list.append(target, node)
+            return
+        target.append(node)
+
+    def append(self, node):
+        self.node.append(node)
+
+    def extend(self, values):
+        for value in values:
+            self.append(value)
+
+    def pop(self, *args):
+        return self.node.pop(*args)
+
+    def clear(self):
+        self.node.clear()
+
+
+class HorizontalListBuildState(ListBuildState):
+    _local_attrs = ListBuildState._local_attrs | {"spacefactor", "sfcode"}
+
+    def __init__(self, parser, node):
+        super().__init__(parser, node)
+        # TeX starts horizontal scanning with spacefactor=1000.
+        object.__setattr__(self, "spacefactor", 1000)
+        object.__setattr__(self, "sfcode", parser.state.sfcode)
+
+    def append(self, node):
+        if node.node_type != nd.NODE_TYPE.CHAR:
+            self.spacefactor = 1000
+            self._raw_append(node)
+            return
+        sf = self.sfcode[ord(node.char)]
+        if sf != 0:
+            if self.spacefactor < 1000 < sf:
+                sf = 1000
+            self.spacefactor = sf
+        self._raw_append(node)
+
+
+class MathListBuildState(ListBuildState):
+    _local_attrs = ListBuildState._local_attrs | {"building_atom"}
+
+    def __init__(self, parser, node):
+        super().__init__(parser, node)
+        object.__setattr__(self, "building_atom", None)
+
+    def clear(self):
+        self.building_atom = None
+        target = self.node
+        if isinstance(target, list):
+            list.clear(target)
+            return
+        target.clear()
+
+    def buildAtom(self, field, atom=None):
+        from pytex import mmode
+
+        if atom is None:
+            atom = self[-1] if len(self) > 0 else None
+            if not isinstance(atom, mmode.Atom):
+                atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+                atom.nucleus = mmode.MList(self.parser)
+                self.append(atom)
+        else:
+            self.append(atom)
+        if getattr(atom, field, None) is not None:
+            if field == "sub":
+                raise ValueError("double subscript", self.parser.input.position())
+            if field == "sup":
+                raise ValueError("double superscript", self.parser.input.position())
+            raise ValueError("double field", self.parser.input.position())
+        self.building_atom = (atom, field)
+
+    def append(self, node):
+        from pytex import box
+        from pytex import mmode
+
+        if self.building_atom is not None:
+            atom, field = self.building_atom
+            setattr(atom, field, node)
+            self.building_atom = None
+            return
+        if isinstance(node, box.Box):
+            node = mmode.Box(node)
+        elif isinstance(node, mmode.MList):
+            n = mmode.Atom(mmode.ATOM_TYPE.ORD)
+            n.nucleus = node
+            node = n
+        elif isinstance(node, mmode.MathSymbol):
+            n = mmode.Op() if node.type == mmode.ATOM_TYPE.OP else mmode.Atom(node.type)
+            n.nucleus = node
+            node = n
+        self._raw_append(node)
+
+
+class VerticalListBuildState(ListBuildState):
+    _local_attrs = ListBuildState._local_attrs | {"prevdepth", "can_lastbox"}
+
+    def __init__(self, parser, node):
+        super().__init__(parser, node)
+        from pytex import vmode
+
+        object.__setattr__(self, "prevdepth", vmode.init_prevdepth)
+        object.__setattr__(self, "can_lastbox", False)
+
+    def append(self, node):
+        from pytex import vmode
+
+        self.can_lastbox = False
+        context = getattr(node, "typeset_context", None)
+        if context is None and getattr(node, "needs_vcontext", False):
+            node.typeset_context = vmode.VNodeContext(self.parser.state.layout, self.prevdepth)
+            context = node.typeset_context
+        is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+        if context is None and is_box:
+            node.typeset_context = vmode.VNodeContext(self.parser.state.layout, self.prevdepth)
+            context = node.typeset_context
+        if is_box:
+            self.prevdepth = getattr(node, "depth", None)
+        elif node.node_type == nd.NODE_TYPE.RULE:
+            self.prevdepth = vmode.init_prevdepth
+        elif context is not None:
+            self.prevdepth = None
+        self._raw_append(node)
+
+    def resolvePrevDepth(self):
+        from pytex import vmode
+
+        if self.prevdepth is not None:
+            return self.prevdepth
+        for i in range(len(self) - 1, -1, -1):
+            node = self[i]
+            context = getattr(node, "typeset_context", None)
+            if context is not None:
+                depth = getattr(node, "depth", None)
+                if depth is None:
+                    nodes = self.node._expandNode(self.parser, node)
+                    for n in nodes:
+                        if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                            if getattr(n, "typeset_context", None) is None:
+                                n.typeset_context = context
+                            break
+                    self[i:i + 1] = nodes
+                    for n in reversed(nodes):
+                        depth = getattr(n, "depth", None)
+                        if depth is not None:
+                            return depth
+                    continue
+                return depth
+            elif node.node_type == nd.NODE_TYPE.RULE:
+                break
+        return vmode.init_prevdepth
+
+
+def wrapBuildState(parser, node):
+    if node is None:
+        return None
+    if isinstance(node, ListBuildState):
+        return node
+    mode = getattr(node, "type", None)
+    if mode == LISTTYPE.HORIZONTAL:
+        return HorizontalListBuildState(parser, node)
+    if mode == LISTTYPE.VERTICAL:
+        return VerticalListBuildState(parser, node)
+    if mode == LISTTYPE.MATH:
+        return MathListBuildState(parser, node)
+    return node
+
+
 class ModeDependentCommand(Command):
     """
     A command that behaves differently in different modes.
@@ -174,8 +395,9 @@ def readList(parser, list, reason: GROUP_TYPE, ended=None):
     if t.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting a {", pos)
     if list is not None:
-        parser.lists.append(list)
-        ended = ListReadEndCallback(parser, list, ended)
+        state = wrapBuildState(parser, list)
+        parser.lists.append(state)
+        ended = ListReadEndCallback(parser, state, ended)
     parser.beginGroup(pos, reason, ended=ended)
     return list
 
@@ -312,5 +534,6 @@ mod = Module("lists",
     },
     attributes={
         "readList": readList,
+        "wrapBuildState": wrapBuildState,
     },
 )

@@ -20,6 +20,27 @@ import enum
 import types
 
 
+class GlueRatio(tuple):
+    """
+    Tuple-compatible glue ratio with legacy numeric conversion support.
+    """
+    __slots__ = ()
+
+    def __new__(cls, sign=0, num=0, den=1):
+        sign = int(sign)
+        num = int(num)
+        den = int(den) if int(den) != 0 else 1
+        if sign == 0 or num == 0:
+            sign, num, den = 0, 0, 1
+        return super().__new__(cls, (sign, num, den))
+
+    def __float__(self):
+        sign, num, den = self
+        if sign == 0 or num == 0 or den == 0:
+            return 0.0
+        return (sign * num) / den
+
+
 class VBoxTypesetContext:
     """
     Snapshot of vbox-local layout parameters needed for lazy typesetting.
@@ -44,7 +65,7 @@ class Box(nd.Box):
         self.natural = None
         # (sign, num, den), representing sign * num / den.
         # sign is -1, 0, or 1; num >= 0; den >= 1.
-        self.glue_ratio = (0, 0, 1)
+        self.glue_ratio = GlueRatio(0, 0, 1)
         self._typeset_cache = None
 
     def saveInfo(self):
@@ -88,19 +109,19 @@ class Box(nd.Box):
 
     def _setGlueRatio(self, spread, natural):
         if spread is None:
-            self.glue_ratio = (0, 0, 1)
+            self.glue_ratio = GlueRatio(0, 0, 1)
             return
         if spread > 0:
             den = int(natural.stretch.factor)
             if den != 0:
-                self.glue_ratio = (1, int(spread), den)
+                self.glue_ratio = GlueRatio(1, int(spread), den)
                 return
         elif spread < 0:
             den = int(natural.shrink.factor)
             if den != 0:
-                self.glue_ratio = (-1, -int(spread), den)
+                self.glue_ratio = GlueRatio(-1, -int(spread), den)
                 return
-        self.glue_ratio = (0, 0, 1)
+        self.glue_ratio = GlueRatio(0, 0, 1)
 
     def typeset(self, parser, packed=None):
         """
@@ -436,8 +457,9 @@ class BuildBox(Command):
         t = parser.token_meaning(t)
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
-        parser.lists.append(box.list)
-        box.list.group_type = self.group_type
+        state = parser.wrapBuildState(box.list)
+        parser.lists.append(state)
+        state.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value
         if every:
             parser.input.push(TokenListScanner(every))

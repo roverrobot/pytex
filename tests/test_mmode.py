@@ -354,6 +354,19 @@ def test_active(math):
     math.parse("$")
 
 
+def test_mathcode_active_character_uses_active_entry(math):
+    code = (mmode.ATOM_TYPE.ORD.value << 12) | ord("1")
+    math.state.equitable.entry("a").set(mmode.MathCharValue(code))
+    math.parse("\\mathcode`a=\"8000$a")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Atom)
+    assert isSymbol(node.nucleus, 0, "1")
+    math.parse("$")
+
+
 def test_mkern(math):
     math.parse("$a\\mkern 10mu b")
     top = math.lists[-1]

@@ -251,7 +251,11 @@ class Parser:
             code = self.state.mathcode[ord(c)]
             # code 0x8000 is a special case, making the character active
             if code == 0x8000:
-                token.ActiveToken(c).execute(self)
+                t = token.ActiveToken(c)
+                t.entry = self.state.equitable.entry(c)
+                # Requeue as a command token so it goes through normal
+                # token_expand/execute handling (expandable and non-expandable).
+                self.input.unread(t)
             else:
                 char = self.mathChar(code)
                 self.lists[-1].append(char)

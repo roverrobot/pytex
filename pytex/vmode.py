@@ -164,13 +164,26 @@ class VListHolder:
         return typesetVerticalNodes(parser, self.list, packed)
 
 
-class VerticalListBuildState(lists.ListBuildState):
-    _local_attrs = lists.ListBuildState._local_attrs | {"prevdepth", "can_lastbox"}
+class VList(lists.ListBuildState):
+    """
+    Vertical list build-state wrapper.
 
-    def __init__(self, parser, node):
+    This is what lives on parser.lists while vertical material is scanned.
+    It serves a concrete vertical list node and tracks \\prevdepth/\\lastbox
+    build-time state.
+    """
+    _local_attrs = lists.ListBuildState._local_attrs | {"prevdepth", "can_lastbox", "type", "inner"}
+
+    def __init__(self, parser, inner=True, node=None):
+        if node is None:
+            node = lists.List(parser, lists.LISTTYPE.VERTICAL, inner=inner)
+        if hasattr(node, "inner"):
+            inner = node.inner
         super().__init__(parser, node)
         object.__setattr__(self, "prevdepth", init_prevdepth)
         object.__setattr__(self, "can_lastbox", False)
+        object.__setattr__(self, "type", lists.LISTTYPE.VERTICAL)
+        object.__setattr__(self, "inner", inner)
 
     def append(self, node):
         self.can_lastbox = False
@@ -215,26 +228,6 @@ class VerticalListBuildState(lists.ListBuildState):
             elif node.node_type == nd.NODE_TYPE.RULE:
                 break
         return init_prevdepth
-
-
-class VList(VerticalListBuildState):
-    """
-    Vertical list build-state wrapper.
-
-    This is what lives on parser.lists while vertical material is scanned.
-    It serves a concrete vertical list node and tracks \\prevdepth/\\lastbox
-    build-time state.
-    """
-    _local_attrs = VerticalListBuildState._local_attrs | {"type", "inner"}
-
-    def __init__(self, parser, inner=True, node=None):
-        if node is None:
-            node = lists.List(parser, lists.LISTTYPE.VERTICAL, inner=inner)
-        if hasattr(node, "inner"):
-            inner = node.inner
-        super().__init__(parser, node)
-        object.__setattr__(self, "type", lists.LISTTYPE.VERTICAL)
-        object.__setattr__(self, "inner", inner)
 
     def typesetNodes(self, parser, packed):
         return typesetVerticalNodes(parser, self, packed)

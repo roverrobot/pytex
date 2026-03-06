@@ -409,6 +409,9 @@ class Discretionary(HorizontalCommand):
         pre = HListNode(parser)
         post = HListNode(parser)
         replace = HListNode(parser)
+        pre_state = HList(parser, node=pre)
+        post_state = HList(parser, node=post)
+        replace_state = HList(parser, node=replace)
         
         def finish():
             # we need to handle ligatures and boxes so their width are fixed.
@@ -424,12 +427,12 @@ class Discretionary(HorizontalCommand):
             out.append(node)
 
         def readReplace():
-            parser.readList(replace, GROUP_TYPE.DISC, finish)
+            parser.readList(replace_state, GROUP_TYPE.DISC, finish)
 
         def readPost():
-            parser.readList(post, GROUP_TYPE.DISC, readReplace)
+            parser.readList(post_state, GROUP_TYPE.DISC, readReplace)
 
-        parser.readList(pre, GROUP_TYPE.DISC, readPost)
+        parser.readList(pre_state, GROUP_TYPE.DISC, readPost)
     
     def horizontal(self, parser, hlist):
         self._readParts(parser, hlist, False)
@@ -443,10 +446,12 @@ class VAdjust(HorizontalCommand):
     The \\vadjust command.
     """
     def horizontal(self, parser, hlist):
+        from pytex import vmode
+
         # Read the argument
         vlist = parser.readVList(GROUP_TYPE.VADJUST)
         # Add the vadjust node
-        hlist.append(nd.VAdjust(vlist))
+        hlist.append(vmode.VAdjust(vlist))
 
     def math(self, parser, mlist):
         # In math mode, a vadjust is a no-op

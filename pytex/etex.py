@@ -14,7 +14,6 @@ from pytex.dimen import Dimen, DimenCommand
 from pytex.glue import GlueCommand, MuGlueCommand
 from pytex.toks import The, ToksParameterAccessor
 from pytex import token
-from pytex import node as nd
 from pytex import expandable
 from pytex import lexer
 from pytex import conditional
@@ -228,9 +227,11 @@ class Marks(token.Command):
         return parser.readInteger()
 
     def execute(self, parser):
+        from pytex import vmode
+
         index = self.getIndex(parser)
         text = parser.readGeneralText(expand=True)
-        node = nd.Mark(text)
+        node = vmode.Mark(text)
         node.index = index
         parser.lists[-1].append(node)
 

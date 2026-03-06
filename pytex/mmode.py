@@ -1546,7 +1546,7 @@ def mathShift(parser):
         ended=MathShitfEndGroupCallback(parser),
     )
     mlist = InlineMathList(parser) if inner else DisplayMathList(parser)
-    parser.lists.append(parser.wrapBuildState(mlist))
+    parser.lists.append(lists.MathListBuildState(parser, mlist))
     if prev_par is not None:
         prev_par.next_paragraph = mlist
     mlist.prev_paragraph = prev_par
@@ -1805,7 +1805,7 @@ class MathChoiceEndGroupCallback(MathEndGroupCallback):
         pos = parser.input.position()
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a \"{\"", pos)
-        parser.lists.append(parser.wrapBuildState(MList(parser)))
+        parser.lists.append(lists.MathListBuildState(parser, MList(parser)))
         parser.beginGroup(pos, GROUP_TYPE.MATH_CHOICE, ended=self)
 
     def endgroup(self, parser, top, mlist):
@@ -2157,7 +2157,7 @@ class Left(lists.ModeDependentCommand):
         atom = Atom(ATOM_TYPE.ORD)
         atom.left = delim
         mlist.append(atom)
-        parser.lists.append(parser.wrapBuildState(MList(parser)))
+        parser.lists.append(lists.MathListBuildState(parser, MList(parser)))
         parser.beginGroup(
             parser.input.position(),
             GROUP_TYPE.MATH_LEFT,
@@ -2357,7 +2357,7 @@ class GeneralFraction(lists.ModeDependentCommand):
         if self.thickness:
             fraction.thickness = thickness
         mlist.append(fraction)
-        parser.lists.append(parser.wrapBuildState(denominator))
+        parser.lists.append(lists.MathListBuildState(parser, denominator))
         denominator.is_denominator = True
 
 
@@ -2517,7 +2517,7 @@ class Eqno(lists.ModeDependentCommand):
         # We start a new group, parsing the equation number, then we pop it off during the 
         # mathShift function before ending the math mode.
         eqno = MList(parser)
-        parser.lists.append(parser.wrapBuildState(eqno))
+        parser.lists.append(lists.MathListBuildState(parser, eqno))
         mlist.eqno = (eqno, self.left)
         parser.beginGroup(
             parser.input.position(),

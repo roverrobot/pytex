@@ -199,84 +199,6 @@ class MathListBuildState(ListBuildState):
         self._raw_append(node)
 
 
-class VerticalListBuildState(ListBuildState):
-    _local_attrs = ListBuildState._local_attrs | {"prevdepth", "can_lastbox"}
-
-    def __init__(self, parser, node):
-        super().__init__(parser, node)
-        from pytex import vmode
-
-        object.__setattr__(self, "prevdepth", vmode.init_prevdepth)
-        object.__setattr__(self, "can_lastbox", False)
-
-    def append(self, node):
-        from pytex import vmode
-
-        self.can_lastbox = False
-        context = getattr(node, "typeset_context", None)
-        if context is None and getattr(node, "needs_vcontext", False):
-            node.typeset_context = vmode.VNodeContext(self.parser.state.layout, self.prevdepth)
-            context = node.typeset_context
-        is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
-        if context is None and is_box:
-            node.typeset_context = vmode.VNodeContext(self.parser.state.layout, self.prevdepth)
-            context = node.typeset_context
-        if is_box:
-            self.prevdepth = getattr(node, "depth", None)
-        elif node.node_type == nd.NODE_TYPE.RULE:
-            self.prevdepth = vmode.init_prevdepth
-        elif context is not None:
-            self.prevdepth = None
-        self._raw_append(node)
-
-    def resolvePrevDepth(self):
-        from pytex import vmode
-
-        if self.prevdepth is not None:
-            return self.prevdepth
-        for i in range(len(self) - 1, -1, -1):
-            node = self[i]
-            context = getattr(node, "typeset_context", None)
-            if context is not None:
-                depth = getattr(node, "depth", None)
-                if depth is None:
-                    nodes = self.node._expandNode(self.parser, node)
-                    for n in nodes:
-                        if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                            if getattr(n, "typeset_context", None) is None:
-                                n.typeset_context = context
-                            break
-                    self[i:i + 1] = nodes
-                    for n in reversed(nodes):
-                        depth = getattr(n, "depth", None)
-                        if depth is not None:
-                            return depth
-                    continue
-                return depth
-            elif node.node_type == nd.NODE_TYPE.RULE:
-                break
-        return vmode.init_prevdepth
-
-
-def wrapBuildState(parser, node):
-    if node is None:
-        return None
-    if isinstance(node, ListBuildState):
-        return node
-    mode = getattr(node, "type", None)
-    if mode == LISTTYPE.HORIZONTAL:
-        from pytex import hmode
-
-        return hmode.HList(parser, node=node)
-    if mode == LISTTYPE.VERTICAL:
-        from pytex import vmode
-
-        return vmode.VList(parser, node=node)
-    if mode == LISTTYPE.MATH:
-        return MathListBuildState(parser, node)
-    return node
-
-
 class ModeDependentCommand(Command):
     """
     A command that behaves differently in different modes.
@@ -350,23 +272,23 @@ class IfInner(conditional.Conditional):
 
 
 class ListReadEndCallback:
-    def __init__(self, parser, list, ended):
+    def __init__(self, parser, state, ended):
         self.parser = parser
-        self.list = list
+        self.state = state
         self.ended = ended
 
     def __call__(self):
-        if self.list is not None:
+        if self.state is not None:
             self.parser.lists.pop()
         if self.ended is not None:
             self.ended()
 
 
-def readList(parser, list, reason: GROUP_TYPE, ended=None):
+def readList(parser, state, reason: GROUP_TYPE, ended=None):
     """
     Read a list from the input stack.
     @param parser: The parser.
-    @param list: The list to read.
+    @param state: The list build-state to read into.
     @param reason: The reason for reading the list.
     @param ended: Called after the list group closes and the list is popped.
     """
@@ -376,12 +298,13 @@ def readList(parser, list, reason: GROUP_TYPE, ended=None):
     t = parser.token_meaning(t)
     if t.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting a {", pos)
-    if list is not None:
-        state = wrapBuildState(parser, list)
+    if state is not None:
+        if not isinstance(state, ListBuildState):
+            raise TypeError("readList expects a ListBuildState")
         parser.lists.append(state)
         ended = ListReadEndCallback(parser, state, ended)
     parser.beginGroup(pos, reason, ended=ended)
-    return list
+    return None if state is None else state.node
 
 
 class Rule(ModeDependentCommand):
@@ -437,8 +360,10 @@ class Mark(Command):
     The \\mark command.
     """
     def execute(self, parser):
+        from pytex import vmode
+
         text = parser.readGeneralText(expand=True)
-        parser.lists[-1].append(nd.Mark(text))
+        parser.lists[-1].append(vmode.Mark(text))
 
 
 class Special(Command):
@@ -516,6 +441,5 @@ mod = Module("lists",
     },
     attributes={
         "readList": readList,
-        "wrapBuildState": wrapBuildState,
     },
 )

@@ -458,7 +458,7 @@ class BuildBox(Command):
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
         if self.vertical:
-            state = parser.wrapBuildState(box.list)
+            state = vmode.VList(parser, inner=True, node=box)
         else:
             state = hmode.HList(parser, inner=True, node=box.list)
         parser.lists.append(state)
@@ -597,7 +597,7 @@ class VBox(Box, vmode.VListHolder):
     @param vtop: whether the box is a vtop
     """
     def __init__(self, parser, to, spread):
-        super().__init__(parser, to, spread, vmode.VListNode(parser))
+        super().__init__(parser, to, spread, [])
         vmode.VListHolder.__init__(self, self.list)
         self.box_typeset_context = VBoxTypesetContext(parser.state.layout)
 
@@ -621,8 +621,7 @@ class VBox(Box, vmode.VListHolder):
         content = []
         typeset_nodes = getattr(self.list, "typesetNodes", None)
         if typeset_nodes is None:
-            for n in self.list:
-                self._expand(parser, content, n)
+            self.typesetNodes(parser, content)
         else:
             typeset_nodes(parser, content)
         natural = Glue()

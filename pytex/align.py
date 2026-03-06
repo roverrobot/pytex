@@ -74,7 +74,7 @@ class CellBuildState:
         if node.node_type == nd.NODE_TYPE.HLIST:
             build = hmode.HList(parser, inner=True, node=node.list)
         else:
-            build = parser.wrapBuildState(node.list)
+            build = vmode.VList(parser, inner=True, node=node)
         object.__setattr__(self, "build", build)
         object.__setattr__(self, "column_no", column_no)
         object.__setattr__(self, "row_build_state", row_build_state)
@@ -542,7 +542,7 @@ class HAlignment(Alignment):
             W += self.spread
         out = bx.VBox(parser, None, Dimen())
         out.typeset_context = context
-        vbuild = parser.wrapBuildState(out.list)
+        vbuild = vmode.VList(parser, inner=True, node=out)
         if self.noalign is not None:
             self._appendVerticalMaterial(parser, vbuild, self.noalign)
         for row, rowbox, row_total, row_width in prepared:
@@ -1025,7 +1025,7 @@ class HAlign(Align):
         if not isinstance(display, mmode.DisplayMathList) or len(display) > 0:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
         mlist = HAlignMathList(display)
-        mstate = parser.wrapBuildState(mlist)
+        mstate = lists.MathListBuildState(parser, mlist)
         parser.lists[-1] = mstate
         self.newAlignment(parser, mstate, MAlignment)
 

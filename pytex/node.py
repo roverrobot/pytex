@@ -312,57 +312,12 @@ class Special(WhatsIt):
         device.special(text)
 
 
-class VAdjust(Node):
-    """
-    A vadjust node.
-    """
-    def __init__(self, vlist):
-        self.list = vlist
-
-    @property
-    def vlist(self):
-        return self.list
-
-    @vlist.setter
-    def vlist(self, value):
-        self.list = value
-
-    def saveInfo(self):
-        return {"init": {"vlist": self.vlist}}
-
-    node_type = NODE_TYPE.ADJUST
+# Vertical-mode specific nodes (VAdjust, Mark, Insert) live in pytex.vmode.
 
 
-class Mark(Node):
-    """
-    A \\mark node.
-    """
-    def __init__(self, tokens):
-        self.tokens = tokens
+def __getattr__(name):
+    if name in {"VAdjust", "Mark", "Insert"}:
+        from pytex import vmode
 
-    def saveInfo(self):
-        return {"init": {"tokens": self.tokens}}
-
-    node_type = NODE_TYPE.MARK
-
-
-class Insert(Node):
-    """
-    An insert node.
-    """
-    def __init__(self, index, vlist):
-        self.index = index
-        self.list = vlist
-
-    @property
-    def vlist(self):
-        return self.list
-
-    @vlist.setter
-    def vlist(self, value):
-        self.list = value
-
-    def saveInfo(self):
-        return {"init": {"index": self.index, "vlist": self.vlist}}
-    
-    node_type = NODE_TYPE.INS
+        return getattr(vmode, name)
+    raise AttributeError(name)

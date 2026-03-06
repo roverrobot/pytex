@@ -339,7 +339,7 @@ class Parser:
         """
         # if we are already in math mode, then we are reading a subformula
         if group_type == state.GROUP_TYPE.SIMPLE and self.lists[-1].type == lists.LISTTYPE.MATH:
-            self.lists.append(self.wrapBuildState(mmode.MList(self)))
+            self.lists.append(lists.MathListBuildState(self, mmode.MList(self)))
             ended = mmode.SubformulaEndGroupCallBack(self)
         self.state.beginGroup(position, group_type, to_end=to_end, ended=ended)
     
@@ -372,7 +372,7 @@ class Parser:
         if top.type == lists.LISTTYPE.VERTICAL and (not top.inner) and len(top) > 0 and parskip:
             top.append(node.Glue(self.state.parameters["parskip"], "\\parskip"))
         hlist = paragraph.Paragraph(self, indent)
-        self.lists.append(self.wrapBuildState(hlist))
+        self.lists.append(hmode.HList(self, node=hlist))
         everypar = self.everypar.value
         if everypar:
             self.input.push(lexer.TokenListScanner(everypar))

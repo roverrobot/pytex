@@ -1073,7 +1073,7 @@ class Insert(Command):
             raise ValueError(f"invalid insert number {index}", parser.input.position())
         top = parser.lists[-1]
         vlist = parser.readVList(GROUP_TYPE.INSERT)
-        top.append(nd.Insert(index, vlist))
+        top.append(vmode.Insert(index, vlist))
 
 
 mod = Module(

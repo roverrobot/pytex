@@ -1025,9 +1025,8 @@ class HAlign(Align):
         if not isinstance(display, mmode.DisplayMathList) or len(display) > 0:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
         mlist = HAlignMathList(display)
-        mstate = lists.MathListBuildState(parser, mlist)
-        parser.lists[-1] = mstate
-        self.newAlignment(parser, mstate, MAlignment)
+        parser.lists[-1] = mlist
+        self.newAlignment(parser, mlist, MAlignment)
 
 
 class VAlign(Align):

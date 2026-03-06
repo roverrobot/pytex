@@ -143,62 +143,6 @@ class ListBuildState:
         self.node.clear()
 
 
-class MathListBuildState(ListBuildState):
-    _local_attrs = ListBuildState._local_attrs | {"building_atom"}
-
-    def __init__(self, parser, node):
-        super().__init__(parser, node)
-        object.__setattr__(self, "building_atom", None)
-
-    def clear(self):
-        self.building_atom = None
-        target = self.node
-        if isinstance(target, list):
-            list.clear(target)
-            return
-        target.clear()
-
-    def buildAtom(self, field, atom=None):
-        from pytex import mmode
-
-        if atom is None:
-            atom = self[-1] if len(self) > 0 else None
-            if not isinstance(atom, mmode.Atom):
-                atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
-                atom.nucleus = mmode.MList(self.parser)
-                self.append(atom)
-        else:
-            self.append(atom)
-        if getattr(atom, field, None) is not None:
-            if field == "sub":
-                raise ValueError("double subscript", self.parser.input.position())
-            if field == "sup":
-                raise ValueError("double superscript", self.parser.input.position())
-            raise ValueError("double field", self.parser.input.position())
-        self.building_atom = (atom, field)
-
-    def append(self, node):
-        from pytex import box
-        from pytex import mmode
-
-        if self.building_atom is not None:
-            atom, field = self.building_atom
-            setattr(atom, field, node)
-            self.building_atom = None
-            return
-        if isinstance(node, box.Box):
-            node = mmode.Box(node)
-        elif isinstance(node, mmode.MList):
-            n = mmode.Atom(mmode.ATOM_TYPE.ORD)
-            n.nucleus = node
-            node = n
-        elif isinstance(node, mmode.MathSymbol):
-            n = mmode.Op() if node.type == mmode.ATOM_TYPE.OP else mmode.Atom(node.type)
-            n.nucleus = node
-            node = n
-        self._raw_append(node)
-
-
 class ModeDependentCommand(Command):
     """
     A command that behaves differently in different modes.

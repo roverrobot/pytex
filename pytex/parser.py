@@ -339,7 +339,7 @@ class Parser:
         """
         # if we are already in math mode, then we are reading a subformula
         if group_type == state.GROUP_TYPE.SIMPLE and self.lists[-1].type == lists.LISTTYPE.MATH:
-            self.lists.append(lists.MathListBuildState(self, mmode.MList(self)))
+            self.lists.append(mmode.MList(self))
             ended = mmode.SubformulaEndGroupCallBack(self)
         self.state.beginGroup(position, group_type, to_end=to_end, ended=ended)
     

@@ -332,7 +332,7 @@ def test_page_break_discards_glue_before_first_box_after_whatsit(parser):
     assert len(pages[0].list) == 3
 
 
-def test_page_break_ignores_void_box_and_forced_penalty_before_start(parser):
+def test_page_break_keeps_void_box_and_forced_penalty_before_start(parser):
     parser.parse("\\vsize=20pt\\topskip=10pt")
     main = parser.lists[0]
     first = _test_hbox(parser, height=6, depth=0)
@@ -342,13 +342,16 @@ def test_page_break_ignores_void_box_and_forced_penalty_before_start(parser):
     main.append(nd.Penalty(-10001))
     main.append(first)
     pages = main.pageBreak(parser)
-    assert len(pages) == 1
-    assert all(node is not void for node in pages[0].list)
+    assert len(pages) == 2
     assert pages[0].list[0].node_type == nd.NODE_TYPE.WHATSIT
     assert pages[0].list[1].node_type == nd.NODE_TYPE.GLUE
     assert pages[0].list[1].name == "\\topskip"
-    assert pages[0].list[1].glue.dimen == 4
-    assert pages[0].list[2] is first
+    assert pages[0].list[1].glue.dimen == 10
+    assert pages[0].list[2] is void
+    assert pages[1].list[0].node_type == nd.NODE_TYPE.GLUE
+    assert pages[1].list[0].name == "\\topskip"
+    assert pages[1].list[0].glue.dimen == 4
+    assert pages[1].list[1] is first
 
 
 def test_page_break_extracts_insert_into_class_box(parser):
@@ -573,6 +576,29 @@ def test_output_routine_can_carry_material_forward(cmr10):
     second_chars = [n.char for n in second.list if n.node_type == nd.NODE_TYPE.CHAR]
     assert "A" in first_chars
     assert "X" in second_chars
+
+
+def test_output_routine_replays_currlist_state_by_page(cmr10):
+    cmr10.parse(
+        "\\catcode`@=11"
+        "\\def\\emptymacro{}"
+        "\\def\\@currlist{}"
+        "\\count9=0"
+        "\\output={"
+        "\\global\\advance\\count9 by1"
+        "\\ifx\\@currlist\\emptymacro\\count8=1\\else\\count8=2\\fi"
+        "\\ifnum\\count9=1\\global\\count0=\\count8\\fi"
+        "\\ifnum\\count9=2\\global\\count1=\\count8\\fi"
+        "\\shipout\\box255}"
+        "\\vsize=20pt\\topskip=0pt"
+        "\\hbox{A}\\penalty-10000"
+        "\\def\\@currlist{X}"
+        "\\hbox{B}\\penalty-10000"
+    )
+    shipout = cmr10.outputPages()
+    assert len(shipout.pages) == 2
+    assert cmr10.state.count[0] == 1
+    assert cmr10.state.count[1] == 2
 
 
 def test_output_routine_sees_outputpenalty(cmr10):

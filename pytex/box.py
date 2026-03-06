@@ -755,6 +755,15 @@ class UnBox(Command):
         self.wipe = wipe
 
     def execute(self, parser):
+        top = parser.lists[-1]
+        if (not self.vertical) and top.type == LISTTYPE.VERTICAL:
+            # Horizontal unboxing commands in vertical mode start a paragraph.
+            # This is required for \leavevmode, which LaTeX defines as
+            # \unhbox\voidb@x.
+            if parser.current_token is not None:
+                parser.input.unread(parser.current_token)
+            parser.newParagraph(indent=False)
+            return
         index = parser.readInteger()
         if not (0 <= index < parser.state.box.size):
             raise ValueError("box index out of range", parser.input.position())

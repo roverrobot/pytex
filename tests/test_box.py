@@ -3,6 +3,7 @@ from pytex import box as bx
 from pytex import glue
 from pytex import node as nd
 from pytex import lists
+from pytex import paragraph
 from pytex.node import NODE_TYPE
 from pytex import texlive
 from pytex.dimen import Dimen
@@ -394,12 +395,12 @@ def test_unhbox(box):
     assert box.state.box[0] is None
 
 
-def test_unhbox_wrongmode(box):
-    try:
-        box.parse("\\unhbox0")
-        assert False
-    except ValueError as e:
-        assert "wrong mode" in str(e)
+def test_unhbox_enters_horizontal_mode_from_vmode(box):
+    box.parse("\\unhbox0\\par")
+    top = box.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert box.state.box[0] is None
+    assert any(isinstance(node, paragraph.Paragraph) for node in top)
 
 
 def test_unvbox_wrongbox(box):

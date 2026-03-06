@@ -164,6 +164,30 @@ def test_unkern(cmr10, cmd):
     assert len(top) == 0
 
 
+def test_last_item_quantities_vmode(cmr10):
+    cmr10.parse(
+        "\\vskip 5pt plus 1pt minus 1pt"
+        "\\skip0=\\lastskip"
+        "\\dimen0=\\lastkern"
+        "\\count0=\\lastpenalty"
+        "\\kern2pt"
+        "\\dimen1=\\lastkern"
+        "\\count1=\\lastpenalty"
+        "\\penalty77"
+        "\\count2=\\lastpenalty"
+        "\\skip1=\\lastskip"
+        "\\count3=\\lastpennalty"
+    )
+    assert cmr10.state.skip[0] == glue.Glue(5, glue.Stretchness(1), glue.Stretchness(1))
+    assert cmr10.state.dimen[0] == 0
+    assert cmr10.state.count[0] == 0
+    assert cmr10.state.dimen[1] == 2
+    assert cmr10.state.count[1] == 0
+    assert cmr10.state.count[2] == 77
+    assert cmr10.state.skip[1] == glue.Glue()
+    assert cmr10.state.count[3] == 77
+
+
 class _LeafHBox(nd.Box):
     node_type = nd.NODE_TYPE.HLIST
     typeset = None

@@ -308,6 +308,31 @@ def test_unkern(cmr10, cmd):
     assert node.node_type == nd.NODE_TYPE.CHAR
 
 
+def test_last_item_quantities_hmode(cmr10):
+    cmr10.parse(
+        "\\noindent"
+        "\\hskip 3pt plus 2pt minus 1pt"
+        "\\skip0=\\lastskip"
+        "\\count0=\\lastpenalty"
+        "\\dimen0=\\lastkern"
+        "\\kern4pt"
+        "\\dimen1=\\lastkern"
+        "\\count1=\\lastpenalty"
+        "\\penalty123"
+        "\\count2=\\lastpenalty"
+        "\\skip1=\\lastskip"
+        "\\count3=\\lastpennalty"
+    )
+    assert cmr10.state.skip[0] == glue.Glue(3, glue.Stretchness(2), glue.Stretchness(1))
+    assert cmr10.state.count[0] == 0
+    assert cmr10.state.dimen[0] == 0
+    assert cmr10.state.dimen[1] == 4
+    assert cmr10.state.count[1] == 0
+    assert cmr10.state.count[2] == 123
+    assert cmr10.state.skip[1] == glue.Glue()
+    assert cmr10.state.count[3] == 123
+
+
 def test_italic_correction(cmr10):
     cmr10.parse(r"\font\it=cmti10 \it l\/")
     top = cmr10.lists[-1]

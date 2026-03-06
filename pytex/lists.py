@@ -7,7 +7,9 @@ from pytex import serialization
 from pytex import node as nd
 from pytex.token import Command, CATCODE
 from math import inf
-from pytex.dimen import Dimen, NEG_MAX_DIMEN
+from copy import deepcopy
+from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
+from pytex.glue import Glue, GlueCommand as GlueValueCommand
 import enum
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
@@ -344,6 +346,39 @@ class Remove(Command):
                 top.pop()
 
 
+class LastPenalty(Command):
+    """
+    The \\lastpenalty command.
+    """
+    def intValue(self, parser):
+        top = parser.lists[-1]
+        if len(top) == 0 or top[-1].node_type != nd.NODE_TYPE.PENALTY:
+            return 0
+        return top[-1].penalty
+
+
+class LastKern(Command, DimenCommand):
+    """
+    The \\lastkern command.
+    """
+    def dimenValue(self, parser):
+        top = parser.lists[-1]
+        if len(top) == 0 or top[-1].node_type != nd.NODE_TYPE.KERN:
+            return Dimen()
+        return top[-1].kern
+
+
+class LastSkip(Command, GlueValueCommand):
+    """
+    The \\lastskip command.
+    """
+    def glueValue(self, parser):
+        top = parser.lists[-1]
+        if len(top) == 0 or top[-1].node_type != nd.NODE_TYPE.GLUE:
+            return Glue()
+        return deepcopy(top[-1].glue)
+
+
 class ItalicCorrection(ModeDependentCommand):
     """
     The \\/ command.
@@ -375,6 +410,11 @@ mod = Module("lists",
         "unkern": Remove(nd.NODE_TYPE.KERN),
         "unpenalty": Remove(nd.NODE_TYPE.PENALTY),
         "unskip": Remove(nd.NODE_TYPE.GLUE),
+        "lastskip": LastSkip(),
+        "lastkern": LastKern(),
+        "lastpenalty": LastPenalty(),
+        # Compatibility alias for misspelling seen in legacy test input.
+        "lastpennalty": LastPenalty(),
         "/" : ItalicCorrection(),
     },
     attributes={

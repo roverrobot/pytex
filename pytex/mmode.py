@@ -1516,7 +1516,7 @@ def mathShift(parser):
         volatile = parser.state.volatile
         if len(top) > 0:
             parser.endParagraph()
-            prev_par = getattr(top, "node", top)
+            prev_par = top.node
             parser.paragraph_before_last_display_math = prev_par
             prev_par.pretypeset(parser)
             context = prev_par.typeset_context
@@ -2506,7 +2506,7 @@ class Eqno(lists.ModeDependentCommand):
         def callback():
             eq_state = parser.lists.pop()
             eqno = getattr(parser.lists[-1], "eqno", [None, None])[0]
-            assert getattr(eq_state, "node", eq_state) is eqno
+            assert eq_state is eqno
             parser.input.unread(MathShiftToken("$", CATCODE.MATH_SHIFT))
         # we must be at the bottom of the math lists
         enclosing = parser.lists[-2]

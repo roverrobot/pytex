@@ -90,11 +90,6 @@ class ListBuildState:
         # build commands may stash temporary metadata (e.g., group_type) here
         object.__setattr__(self, "group_type", None)
 
-    @property
-    def list_node(self):
-        # Backward-compatible alias during the transition to node-oriented naming.
-        return self.node
-
     def __repr__(self):
         return repr(self.node)
 

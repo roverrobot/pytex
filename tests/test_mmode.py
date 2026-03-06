@@ -1860,6 +1860,14 @@ def test_vcenter(math):
     math.parse("$")
 
 
+def test_vcenter_typesets_without_none_dimensions(math):
+    math.parse("$\\vcenter{\\vskip 10pt}$")
+    mlist = math.lists[-1][1]
+    packed = []
+    mlist.typeset(math, packed)
+    assert len(packed) == 3
+
+
 def test_vcenter_wrongmode(parser):
     try:
         parser.parse("\\vcenter{a}")

@@ -2538,8 +2538,12 @@ class VCent(Box):
         return super().saveInfo() | {"init": {"box": self.nucleus}}
 
     def typesetNucleus(self, parser, packed, context: MathTypesetContext, style):
-        box = self.nucleus.copy()
-        v = box.height + box.depth
+        # \vcenter is built as a raw vbox; ensure dimensions are realized
+        # before centering around the math axis.
+        box = self.nucleus.typeset(parser)
+        height = box.height if box.height is not None else Dimen()
+        depth = box.depth if box.depth is not None else Dimen()
+        v = height + depth
         a = Dimen(context.sigma(style)[21])
         half = v / 2
         box.height = half + a

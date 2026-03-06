@@ -1419,7 +1419,7 @@ class MathEndGroupCallback:
     def __init__(self, parser):
         self.parser = parser
 
-    def endgroup(self, parser, top, mlist):
+    def endgroup(self, parser, top, mlist_state):
         raise NotImplementedError("subclasses should implement it")
 
     def __call__(self):
@@ -1436,13 +1436,13 @@ class MathEndGroupCallback:
         if getattr(mlist_state, "is_denominator", False):
             mlist_state = parser.lists.pop()
             _ensure_atom_complete(mlist_state)
-        mlist = getattr(mlist_state, "node", mlist_state)
         top = parser.lists[-1]
-        self.endgroup(parser, top, mlist)
+        self.endgroup(parser, top, mlist_state)
 
 
 class MathShitfEndGroupCallback(MathEndGroupCallback):
-    def endgroup(self, parser, top, mlist):
+    def endgroup(self, parser, top, mlist_state):
+        mlist = mlist_state
         mlist.typeset_context.snapshot(parser)
         # here top points to the enclosing horizontal list
         # if mlist is inline math, then we simply add it to the enclosing list
@@ -1461,8 +1461,8 @@ class MathShitfEndGroupCallback(MathEndGroupCallback):
         new_par.prev_paragraph = mlist
 
 class SubformulaEndGroupCallBack(MathEndGroupCallback):
-    def endgroup(self, parser, top, mlist):
-        top.append(mlist)
+    def endgroup(self, parser, top, mlist_state):
+        top.append(mlist_state)
 
 def mathShift(parser):
     """
@@ -1808,8 +1808,8 @@ class MathChoiceEndGroupCallback(MathEndGroupCallback):
         parser.lists.append(MList(parser))
         parser.beginGroup(pos, GROUP_TYPE.MATH_CHOICE, ended=self)
 
-    def endgroup(self, parser, top, mlist):
-        setattr(self.node, self.attr[self.state], mlist)
+    def endgroup(self, parser, top, mlist_state):
+        setattr(self.node, self.attr[self.state], mlist_state)
         self.state += 1
         if self.state < 4:
             self.beginGroup(parser)
@@ -2144,8 +2144,8 @@ class MathLeftEndGroupCallBack(MathEndGroupCallback):
         super().__init__(parser)
         self.atom = atom
 
-    def endgroup(self, parser, top, mlist):
-        self.atom.nucleus = mlist
+    def endgroup(self, parser, top, mlist_state):
+        self.atom.nucleus = mlist_state
         self.atom.right = readDelimiter(parser)
 
 class Left(lists.ModeDependentCommand):

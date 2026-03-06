@@ -1021,7 +1021,7 @@ class HAlign(Align):
     
     def math(self, parser, mlist):
         from pytex import mmode
-        display = getattr(mlist, "node", mlist)
+        display = mlist
         if not isinstance(display, mmode.DisplayMathList) or len(display) > 0:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
         mlist = HAlignMathList(display)

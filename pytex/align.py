@@ -172,10 +172,13 @@ class RowBuildState:
         newCell(parser, row_state, 0)
 
     def _resumeAfterCr(self, parser):
-        t = parser.token_expand()
+        # TeX ignores spaces after \cr before deciding whether \noalign
+        # (or the next row) follows.
+        t = parser.skipSpaces(True)
         if t is None:
             raise ValueError("expecting }", parser.input.position())
-        if parser.token_meaning(t).catcode == CATCODE.END_GROUP:
+        t = parser.token_meaning(t)
+        if t.catcode == CATCODE.END_GROUP:
             parser.input.unread(t)
             return
         command = getattr(t, "definition", None)
@@ -941,12 +944,17 @@ class AlignmentBuilder:
             template = [] # the tokans in the column template
             # we collect all the columns in the outer loop
             # the leading spaces in a column are ignored
-            t = parser.skipSpaces(False)
+            # TeX expands tokens while scanning alignment templates; this is
+            # required for LaTeX-style preambles where the placeholder comes
+            # from a macro (for example \@sharp).
+            t = parser.skipSpaces(True)
+            t = parser.token_meaning(t)
             # now T is the first meaningful token in a column.
             # in the following loop, we collect the tokens in a column
             while True:
                 if getattr(t, "definition", None) is span or t.name == "\\span":
                     t = parser.token_expand()
+                    t = parser.token_meaning(t)
                 if t is None:
                     raise ValueError("expecting a \\cr", parser.input.position())
                 if t.catcode == CATCODE.BEGIN_GROUP:
@@ -961,12 +969,14 @@ class AlignmentBuilder:
                     break
                 else:
                     template.append(t)
-                t = parser.token()
+                t = parser.token_expand()
+                t = parser.token_meaning(t)
             # now a column is read in template. We look for the # token
             if not template and not self.preamble and t is None:
                 # we have a leading &, this is not a column, but tells us the columns are reused
                 self.repeat_start = True
                 continue
+            template = [parser.token_meaning(x) for x in template]
             catcodes = [x.catcode for x in template]
             try:
                 i = catcodes.index(CATCODE.PARAMETER)

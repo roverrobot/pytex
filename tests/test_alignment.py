@@ -60,6 +60,13 @@ def test_noalign(cmr10):
     assert row.noalign[0].glue == glue.Glue(2)
 
 
+def test_noalign_allows_leading_spaces_after_cr(cmr10):
+    cmr10.parse("\\halign{#\\cr   \\noalign{\\vskip1pt} a\\cr}")
+    node = cmr10.lists[-1][0]
+    assert node.noalign is not None
+    assert len(node.rows) == 1
+
+
 def test_span(cmr10):
     cmr10.parse("\\halign{1 # & 2 #\\cr a \\span b\\cr}")
     top = cmr10.lists[-1]
@@ -109,6 +116,13 @@ def test_preamble_hash_inside_group_is_valid_placeholder(cmr10):
     node = cmr10.lists[-1][0]
     row = node.rows[0]
     assert len(row.cells) == 3
+
+
+def test_preamble_placeholder_from_macro_expansion(cmr10):
+    cmr10.parse("\\def\\cellfmt{\\hfil##\\hfil}\\halign{\\cellfmt\\cr a\\cr}")
+    node = cmr10.lists[-1][0]
+    row = node.rows[0]
+    assert len(row.cells) == 1
 
 
 def test_preamble_multiple_hash_tokens_fail(cmr10):

@@ -102,10 +102,9 @@ class ListBuildState:
         return getattr(self.node, name)
 
     def __setattr__(self, name, value):
-        if name in self._local_attrs:
-            object.__setattr__(self, name, value)
-            return
-        setattr(self.node, name, value)
+        # Build-state attributes are always local to the runtime wrapper.
+        # The wrapped node/list payload should not receive parser-stack state.
+        object.__setattr__(self, name, value)
 
     def __len__(self):
         return len(self.node)

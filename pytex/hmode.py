@@ -53,25 +53,23 @@ class HListHolder:
     def __getitem__(self, index):
         return self.list[index]
 
+    def __setitem__(self, index, value):
+        self.list[index] = value
+
+    def __delitem__(self, key):
+        del self.list[key]
+
     def append(self, node):
         self.list.append(node)
 
     def extend(self, nodes):
         self.list.extend(nodes)
 
-    def typesetNodes(self, parser, packed):
-        return typesetHorizontalNodes(parser, self.list, packed)
+    def pop(self, *args):
+        return self.list.pop(*args)
 
-
-from pytex.box import SetBox, AccentNode, IndentBox
-
-
-class HListNode(lists.List):
-    """
-    A horizontal-list node container.
-    """
-    def __init__(self, parser, inner=True, nodes=None):
-        super().__init__(parser, lists.LISTTYPE.HORIZONTAL, inner=inner, nodes=nodes)
+    def clear(self):
+        self.list.clear()
 
     def typesetNode(self, parser, node, packed):
         """
@@ -168,7 +166,7 @@ class HListNode(lists.List):
             state["lig_base"] = None
             self.typesetNode(parser, node, packed)
             return
-        is_word = self.parser.state.lccode[ord(node.char)] != 0
+        is_word = parser.state.lccode[ord(node.char)] != 0
         if is_word:
             if not state["in_word"]:
                 state["in_word"] = True
@@ -201,15 +199,15 @@ class HListNode(lists.List):
         state["lig_base"] = working[-1]
 
     def typesetNodes(self, parser, packed):
-        """
-        Typeset/expand nodes into packed output.
-        """
         state = {"lig_base": None, "in_word": False}
-        for node in self:
+        for node in self.list:
             self.typesetNodeWithLigatures(parser, node, packed, state)
         if state["in_word"]:
             self._applyRightBoundary(packed, state)
         return packed
+
+
+from pytex.box import SetBox, AccentNode, IndentBox
 
 
 class HList(lists.ListBuildState):
@@ -223,7 +221,7 @@ class HList(lists.ListBuildState):
 
     def __init__(self, parser, inner=True, nodes=None, node=None):
         if node is None:
-            node = HListNode(parser, inner=inner, nodes=nodes)
+            node = [] if nodes is None else nodes
         if hasattr(node, "inner"):
             inner = node.inner
         super().__init__(parser, node)
@@ -244,12 +242,15 @@ class HList(lists.ListBuildState):
             self.spacefactor = sf
         self._raw_append(node)
 
+    def typesetNodes(self, parser, packed):
+        return typesetHorizontalNodes(parser, self, packed)
+
 
 def typesetHorizontalNodes(parser, nodes, packed):
     """
     Typeset a raw horizontal node list into packed output.
     """
-    return HListNode(parser, inner=True, nodes=nodes).typesetNodes(parser, packed)
+    return HListHolder(nodes).typesetNodes(parser, packed)
     
 class HorizontalCommand(lists.ModeDependentCommand):
     """
@@ -406,9 +407,9 @@ class Discretionary(HorizontalCommand):
     The \\discretionary command.
     """
     def _readParts(self, parser, out, math):
-        pre = HListNode(parser)
-        post = HListNode(parser)
-        replace = HListNode(parser)
+        pre = []
+        post = []
+        replace = []
         pre_state = HList(parser, node=pre)
         post_state = HList(parser, node=post)
         replace_state = HList(parser, node=replace)
@@ -416,11 +417,11 @@ class Discretionary(HorizontalCommand):
         def finish():
             # we need to handle ligatures and boxes so their width are fixed.
             packed_pre = []
-            pre.typesetNodes(parser, packed_pre)
+            typesetHorizontalNodes(parser, pre, packed_pre)
             packed_post = []
-            post.typesetNodes(parser, packed_post)
+            typesetHorizontalNodes(parser, post, packed_post)
             packed_replace = []
-            replace.typesetNodes(parser, packed_replace)
+            typesetHorizontalNodes(parser, replace, packed_replace)
             node = nd.Disc(packed_pre, packed_post, packed_replace)
             if math and len(node.replace) > 0:
                 raise ValueError("replace part of discretionary must be empty in math mode")

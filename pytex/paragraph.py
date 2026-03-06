@@ -108,20 +108,21 @@ class LineContext:
         self.lineskiplimit = context.lineskiplimit
 
 
-class Paragraph(hmode.HListNode):
+class Paragraph(nd.Node, hmode.HListHolder):
     """
     A paragraph.
     @param parser: the parser
     @param indent: whether to indent the paragraph
     """
-    def __init__(self, parser, indent: bool):
-        super().__init__(parser, inner=False)
+    def __init__(self, parser, indent: bool, nodes=None):
+        hmode.HListHolder.__init__(self, nodes if nodes is not None else [])
+        self.indent = indent
         # \prevgraf for this paragraph (set by display-math machinery when needed).
         self.prevgraf = 0
         self.typeset_context = None
         # Display math opens a synthetic following paragraph that may remain empty.
         self.keep_empty = False
-        if indent:
+        if indent and nodes is None:
             self.append(bx.IndentBox(parser))
         # these two fields are used to link paragraphs together for display math integration,
         self.next_paragraph = None
@@ -131,14 +132,31 @@ class Paragraph(hmode.HListNode):
 
     # not a proper node
     node_type = None
+    type = lists.LISTTYPE.HORIZONTAL
+    inner = False
     # This node can be realized into concrete box nodes on demand.
     box_materializable = True
 
     def saveInfo(self):
-        d = super().saveInfo()
-        d["init"]["indent"] = self.inner
-        del d["init"]["inner"]
-        return d | {"extra": {"disc": self.disc}}
+        return {
+            "init": {
+                "indent": self.indent,
+                "nodes": [x for x in self],
+            },
+            "extra": {
+                "disc": getattr(self, "disc", None),
+            },
+        }
+
+    @classmethod
+    def new(cls, parser, indent=False, nodes=None):
+        return cls(parser, indent, nodes=nodes)
+
+    def __repr__(self):
+        return f'HList([{", ".join(repr(node) for node in self)}])'
+
+    def meaning(self, parser):
+        return "HList"
     
     def pretypeset(self, parser): 
         """

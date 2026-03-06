@@ -372,7 +372,7 @@ class Parser:
         if top.type == lists.LISTTYPE.VERTICAL and (not top.inner) and len(top) > 0 and parskip:
             top.append(node.Glue(self.state.parameters["parskip"], "\\parskip"))
         hlist = paragraph.Paragraph(self, indent)
-        self.lists.append(hmode.HList(self, node=hlist))
+        self.lists.append(hmode.HList(self, inner=False, node=hlist))
         everypar = self.everypar.value
         if everypar:
             self.input.push(lexer.TokenListScanner(everypar))
@@ -389,13 +389,13 @@ class Parser:
         hlist = self.lists[-1]
         if hlist.type != lists.LISTTYPE.HORIZONTAL or hlist.inner:
             raise ValueError("cannot end the paragraph here", self.input.pos)
-        para = getattr(hlist, "node", hlist)
+        para = hlist.node
         # \unskip
-        if len(para) > 0 and para[-1].node_type == node.NODE_TYPE.GLUE:
+        if len(hlist) > 0 and hlist[-1].node_type == node.NODE_TYPE.GLUE:
             hlist.pop()
         # A truly empty paragraph contributes nothing (e.g., \noindent\par).
         # TeX does not emit a synthetic empty line in this case.
-        if len(para) == 0:
+        if len(hlist) == 0:
             self.lists.pop()
             if not getattr(para, "keep_empty", False):
                 self.clearParagraphSettings()

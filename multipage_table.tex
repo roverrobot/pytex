@@ -1,0 +1,59 @@
+\documentclass[12pt]{article}
+
+\title{Multi-Page Sample with Table}
+\author{PyTeX Workspace}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Introduction}
+This document is a simple multi-page LaTeX sample.
+It includes regular prose and a table float.
+The explicit page breaks ensure the output spans multiple pages.
+
+A workflow often begins with rough planning text.
+This paragraph is intentionally plain and repetitive so the sample stays
+portable and easy to compile in minimal LaTeX setups.
+
+When drafting reports, teams often sketch assumptions, list constraints,
+and write short status notes before converting everything into polished
+technical sections.
+
+\newpage
+
+\section*{Data Snapshot}
+The table below summarizes example milestones across three quarters.
+
+\begin{table}[htbp]
+\centering
+\caption{Quarterly Milestones}
+\begin{tabular}{|l|c|c|c|}
+\hline
+Item & Q1 & Q2 & Q3 \\
+\hline
+Prototype builds & 3 & 5 & 7 \\
+Integration tests & 12 & 18 & 26 \\
+Bug fixes merged & 9 & 14 & 21 \\
+Documentation updates & 4 & 8 & 11 \\
+\hline
+\end{tabular}
+\end{table}
+
+The remaining text keeps this document realistic as a page-layout test.
+It demonstrates that the same source can combine narrative sections and
+floating material without any special packages.
+
+Additional body text is included here to represent commentary around the
+numbers in the table: trends, risks, and planned next actions.
+
+\newpage
+
+\section*{Conclusion}
+This final page confirms that the file spans multiple pages.
+It also serves as a minimal regression input for table placement behavior.
+
+If needed, you can extend this sample by adding more rows to the table,
+more sections, or bibliography entries.
+
+\end{document}

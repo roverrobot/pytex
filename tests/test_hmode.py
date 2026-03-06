@@ -199,6 +199,11 @@ def test_insert_invalid(cmr10):
         assert False
     except ValueError as e:
         assert "invalid" in str(e)
+    try:
+        cmr10.parse("\\insert 256{\\vskip 1in}")
+        assert False
+    except ValueError as e:
+        assert "invalid" in str(e)
 
 
 def test_insert_migrate(cmr10):

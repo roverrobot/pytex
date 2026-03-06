@@ -3,6 +3,7 @@ Page breaking for the main vertical list.
 """
 
 
+from fractions import Fraction
 from math import inf
 
 from pytex import box as bx
@@ -44,6 +45,9 @@ class VListBreaker:
 
     def finalPenalty(self):
         return None
+
+    def measureBeforeTopskip(self, node):
+        return False
 
     @staticmethod
     def measure(total, node):
@@ -230,6 +234,8 @@ class VListBreaker:
                 elif not self._delaysPageStart(node):
                     topskip_added = True
             if not topskip_added:
+                if self.measureBeforeTopskip(node):
+                    self.measure(total, node)
                 continue
             if node.node_type == nd.NODE_TYPE.PENALTY:
                 if node.penalty >= 10000:
@@ -455,6 +461,14 @@ class ShipoutNode(nd.Node):
 
 
 class MainVListBreaker(VListBreaker):
+    def __init__(self, parser, nodes, initial_context):
+        super().__init__(nodes, initial_context)
+        self.parser = parser
+        self._insert_boxes = {}
+        self._register_box_heights = {}
+        self._insert_actions = {}
+        self.last_insert_penalties = 0
+
     def contextFor(self, node):
         if isinstance(node, PageStateNode):
             return node.context
@@ -462,6 +476,288 @@ class MainVListBreaker(VListBreaker):
 
     def isTransparent(self, node):
         return isinstance(node, (PageStateNode, ShipoutNode))
+
+    @staticmethod
+    def _delaysPageStart(node):
+        return node.node_type in (nd.NODE_TYPE.WHATSIT, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS)
+
+    def insertBox(self, node):
+        cache_key = id(node)
+        box = self._insert_boxes.get(cache_key)
+        if box is not None:
+            return box
+        box = bx.VBox(self.parser, None, Dimen())
+        box.list[:] = list(node.vlist)
+        box = box.typeset(self.parser)
+        self._insert_boxes[cache_key] = box
+        return box
+
+    def _registerBoxHeight(self, index):
+        cached = self._register_box_heights.get(index)
+        if cached is not None:
+            return cached
+        box = self.parser.state.box[index]
+        if box is None:
+            h = Dimen()
+        else:
+            box = box.typeset(self.parser)
+            if box.node_type != nd.NODE_TYPE.VLIST:
+                raise ValueError(f"insert box {index} must be a vbox", self.parser.input.position())
+            h = box.height + box.depth
+        self._register_box_heights[index] = h
+        return h
+
+    @staticmethod
+    def _insertNatural(box):
+        return box.height + box.depth
+
+    @staticmethod
+    def _fitsWithShrink(goal, total_dimen, shrink, delta):
+        if delta <= 0:
+            return True
+        if total_dimen + delta <= goal:
+            return True
+        shortfall = total_dimen + delta - goal
+        if shrink.order > 0 and shrink.factor > 0:
+            return True
+        if shrink.order == 0 and shortfall <= shrink.factor:
+            return True
+        return False
+
+    def _splitInsertion(self, node, target):
+        source = self.insertBox(node)
+        nodes = list(source.list)
+        split_context = VSplitContext(
+            target,
+            Glue(),
+            self.parser.state.layout["splitmaxdepth"],
+        )
+        breaker = VSplitBreaker(nodes, split_context)
+        start, split_context = breaker.pruneTop(0, split_context)
+        if start >= len(nodes):
+            return None, [], Dimen(), 0
+        end, next_start, break_context, break_penalty = breaker.bestBreak(start, split_context)
+        if end <= start:
+            end = min(start + 1, len(nodes))
+            next_start = end
+            break_context = breaker.advanceContext(start, end, split_context)
+            break_penalty = 0
+        head = bx.VBox(self.parser, None, Dimen())
+        head.list[:] = breaker.buildRawSlice(start, end, split_context)
+        head = head.typeset(self.parser)
+        used = self._insertNatural(head)
+        tail = [] if next_start >= len(nodes) else list(nodes[next_start:])
+        return head, tail, used, break_penalty
+
+    def _classState(self, index, class_states):
+        state = class_states.get(index)
+        if state is not None:
+            return state
+        state = {
+            "seen": False,
+            "split": False,
+            "base": self._registerBoxHeight(index),
+            "inserted": Dimen(),
+        }
+        class_states[index] = state
+        return state
+
+    def _processInsert(
+        self,
+        node,
+        total,
+        bottom_depth,
+        goal,
+        goal_adjust,
+        insert_penalties,
+        class_states,
+        context,
+    ):
+        index = node.index
+        state = self._classState(index, class_states)
+        f_count = int(self.parser.state.count[index])
+        f = Fraction(f_count, 1000)
+        limit = self.parser.state.dimen[index]
+        skip = self.parser.state.skip[index]
+        if not state["seen"]:
+            # Step 1: reserve existing insert box and insertion skip glue.
+            delta = state["base"] * f + skip.dimen
+            goal_adjust += delta
+            goal = context.vsize - goal_adjust
+            total.stretch = total.stretch + skip.stretch
+            total.shrink = total.shrink + skip.shrink
+            state["seen"] = True
+        if state["split"]:
+            # Step 2: once split, later inserts of the same class defer and
+            # contribute floatingpenalty to insert penalties.
+            insert_penalties += int(self.parser.state.layout["floatingpenalty"])
+            action = {"kind": "defer", "index": index}
+            return goal, goal_adjust, insert_penalties, action
+
+        insert_box = self.insertBox(node)
+        x = self._insertNatural(insert_box)
+        xf = x * f
+        fits_box = state["base"] + state["inserted"] + x <= limit
+        effective = self.effectiveTotal(total, bottom_depth, context.maxdepth)
+        fits_page = self._fitsWithShrink(goal, effective.dimen, effective.shrink, xf)
+        if fits_box and fits_page:
+            # Step 3: full insertion fits.
+            goal_adjust += xf
+            goal = context.vsize - goal_adjust
+            state["inserted"] += x
+            action = {
+                "kind": "full",
+                "index": index,
+                "head": insert_box,
+                "tail": [],
+                "used": x,
+                "penalty": 0,
+            }
+            return goal, goal_adjust, insert_penalties, action
+
+        # Step 4: split insertion tentatively.
+        available_box = limit - (state["base"] + state["inserted"])
+        if available_box < 0:
+            available_box = Dimen()
+        if f > 0:
+            available_page = goal - effective.dimen
+            available_page = available_page / f
+            v = available_box if available_box <= available_page else available_page
+        else:
+            v = available_box
+        if v < 0:
+            v = Dimen()
+        head, tail, used, split_penalty = self._splitInsertion(node, v)
+        goal_adjust += used * f
+        goal = context.vsize - goal_adjust
+        insert_penalties += split_penalty
+        state["inserted"] += used
+        state["split"] = len(tail) > 0
+        action = {
+            "kind": "split",
+            "index": index,
+            "head": head,
+            "tail": tail,
+            "used": used,
+            "penalty": split_penalty,
+        }
+        return goal, goal_adjust, insert_penalties, action
+
+    def actionFor(self, node):
+        return self._insert_actions.get(id(node))
+
+    def bestBreak(self, start, context):
+        total = Glue()
+        topskip_added = False
+        best = None
+        bottom_depth = None
+        current_context = context
+        goal_adjust = Dimen()
+        goal = current_context.vsize
+        insert_penalties = 0
+        class_states = {}
+        actions = {}
+
+        for i in range(start, len(self.nodes)):
+            node = self.nodes[i]
+            new_context = self.contextFor(node)
+            if new_context is not None:
+                current_context = new_context
+                goal = current_context.vsize - goal_adjust
+                continue
+            if not topskip_added:
+                if self._isTopDiscardable(node):
+                    continue
+                top = self.topskip(current_context.topskip, node)
+                if top is not None:
+                    total = total + top
+                    topskip_added = True
+                elif not self._delaysPageStart(node):
+                    topskip_added = True
+            if node.node_type == nd.NODE_TYPE.INS:
+                goal, goal_adjust, insert_penalties, action = self._processInsert(
+                    node,
+                    total,
+                    bottom_depth,
+                    goal,
+                    goal_adjust,
+                    insert_penalties,
+                    class_states,
+                    current_context,
+                )
+                actions[id(node)] = action
+                continue
+            if not topskip_added:
+                continue
+            if node.node_type == nd.NODE_TYPE.PENALTY:
+                if node.penalty >= 10000:
+                    continue
+                effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                cost = self.cost(effective, goal, node.penalty, insert_penalties)
+                current = (
+                    cost,
+                    i,
+                    "penalty",
+                    current_context,
+                    node.penalty,
+                    insert_penalties,
+                )
+                if best is None or cost <= best[0]:
+                    best = current
+                if cost == inf or node.penalty <= -10000:
+                    self._insert_actions = actions
+                    if best is None:
+                        self.last_insert_penalties = insert_penalties
+                        end, next_start = self.candidateBreak(i, "penalty")
+                        return end, next_start, current_context, node.penalty
+                    _, index, kind, best_context, best_penalty, best_q = best
+                    self.last_insert_penalties = best_q
+                    end, next_start = self.candidateBreak(index, kind)
+                    return end, next_start, best_context, best_penalty
+                continue
+            self.measure(total, node)
+            if self.hasDepth(node):
+                bottom_depth = node.depth
+            if self.isLegalBreak(start, i):
+                effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                cost = self.cost(effective, goal, 0, insert_penalties)
+                if best is None or cost <= best[0]:
+                    best = (
+                        cost,
+                        i,
+                        node.node_type.name.lower(),
+                        current_context,
+                        0,
+                        insert_penalties,
+                    )
+            if self.badness(
+                self.effectiveTotal(total, bottom_depth, current_context.maxdepth),
+                goal,
+            ) == inf and best is not None:
+                break
+
+        final_penalty = self.finalPenalty()
+        if final_penalty is not None:
+            effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+            cost = self.cost(effective, goal, final_penalty, insert_penalties)
+            if best is None or cost <= best[0]:
+                best = (
+                    cost,
+                    len(self.nodes),
+                    "end",
+                    current_context,
+                    final_penalty,
+                    insert_penalties,
+                )
+
+        self._insert_actions = actions
+        if best is None:
+            self.last_insert_penalties = insert_penalties
+            return len(self.nodes), len(self.nodes), current_context, 0
+        _, index, kind, best_context, best_penalty, best_q = best
+        self.last_insert_penalties = best_q
+        end, next_start = self.candidateBreak(index, kind)
+        return end, next_start, best_context, best_penalty
 
 
 class MainVList(vmode.VList):
@@ -495,7 +791,16 @@ class MainVList(vmode.VList):
         elif node.node_type == nd.NODE_TYPE.RULE:
             total.dimen += node.height + node.depth
         elif node.node_type == nd.NODE_TYPE.INS:
-            raise NotImplementedError("page breaking with \\insert is not implemented yet")
+            parser = getattr(getattr(node, "vlist", None), "parser", None)
+            if parser is None:
+                return total
+            box = getattr(node, "_legacy_insert_box", None)
+            if box is None:
+                box = bx.VBox(parser, None, Dimen())
+                box.list[:] = list(node.vlist)
+                box = box.typeset(parser)
+                node._legacy_insert_box = box
+            total.dimen += box.height + box.depth
         return total
 
     @staticmethod
@@ -800,6 +1105,74 @@ class MainVList(vmode.VList):
         return False
 
     @staticmethod
+    def _ensureInsertScratch(parser):
+        scratch = parser.state.globals.get("insert")
+        if not isinstance(scratch, list):
+            scratch = [[] for _ in range(256)]
+            parser.state.globals["insert"] = scratch
+            return scratch
+        if len(scratch) < 256:
+            scratch.extend([] for _ in range(256 - len(scratch)))
+        return scratch
+
+    @classmethod
+    def _clearInsertScratch(cls, parser):
+        scratch = cls._ensureInsertScratch(parser)
+        for items in scratch:
+            items.clear()
+        parser.state.globals["insertpenalties"] = 0
+        return scratch
+
+    @staticmethod
+    def _appendInsertToBoxRegister(parser, index, insert_box):
+        current = parser.state.box[index]
+        if current is None:
+            parser.state.box[index] = insert_box.copy()
+            return
+        current = current.typeset(parser)
+        if current.node_type != nd.NODE_TYPE.VLIST:
+            raise ValueError(f"insert box {index} must be a vbox", parser.input.position())
+        merged = bx.VBox(parser, None, Dimen())
+        merged.list[:] = list(current.list)
+        merged.list.extend(list(insert_box.list))
+        parser.state.box[index] = merged.typeset(parser)
+
+    @classmethod
+    def _extractPageInserts(cls, parser, nodes, breaker):
+        scratch = cls._ensureInsertScratch(parser)
+        kept = []
+        carry = []
+        for node in nodes:
+            if node.node_type != nd.NODE_TYPE.INS:
+                kept.append(node)
+                continue
+            action = breaker.actionFor(node)
+            if action is None:
+                insert_box = breaker.insertBox(node)
+                action = {
+                    "kind": "full",
+                    "index": node.index,
+                    "head": insert_box,
+                    "tail": [],
+                    "used": breaker._insertNatural(insert_box),
+                }
+            index = action["index"]
+            if action["kind"] == "defer":
+                carry.append(vmode.Insert(index, list(node.vlist)))
+                continue
+            head = action.get("head")
+            used = action.get("used", Dimen())
+            if head is not None and (used > 0 or len(head.list) > 0):
+                while len(scratch) <= index:
+                    scratch.append([])
+                scratch[index].append(head.copy())
+                cls._appendInsertToBoxRegister(parser, index, head)
+            tail = action.get("tail") or []
+            if tail:
+                carry.append(vmode.Insert(index, list(tail)))
+        return kept, carry
+
+    @staticmethod
     def _flushPageWhatsits(parser, nodes):
         device = getattr(parser, "shipout", None)
         for node in nodes:
@@ -864,10 +1237,11 @@ class MainVList(vmode.VList):
     def pageBreak(self, parser):
         material = []
         self.typesetNodes(parser, material)
-        breaker = MainVListBreaker(material, self.page_initial_context)
+        breaker = MainVListBreaker(parser, material, self.page_initial_context)
         pages = []
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
+        self._clearInsertScratch(parser)
         start = 0
         while True:
             start, context = breaker.pruneTop(start, context)
@@ -885,24 +1259,30 @@ class MainVList(vmode.VList):
             # The page material is already fully typeset. Keep it as a plain list so
             # VBox.pretypeset() computes box dimensions without re-running
             # VList.typesetNodes() and duplicating interline penalties/glue.
-            page.list[:] = breaker.buildSlice(start, end, context, "\\topskip")
+            page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
+            self._clearInsertScratch(parser)
+            page.list[:], carry = self._extractPageInserts(parser, page_nodes, breaker)
             pages.append(page.typeset(parser))
             parser.state.layout["outputpenalty"] = break_penalty
+            parser.state.globals["insertpenalties"] = breaker.last_insert_penalties
             parser.state.parameters["topmark"] = list(topmark)
             parser.state.parameters["firstmark"] = list(firstmark)
             parser.state.parameters["botmark"] = list(botmark)
             topmark = list(botmark)
             context = breaker.advanceContext(start, next_start, context)
+            if carry:
+                material[next_start:next_start] = carry
             start = next_start
         return pages
 
     def outputPages(self, parser):
         material = []
         self.typesetNodes(parser, material)
-        breaker = MainVListBreaker(material, self.page_initial_context)
+        breaker = MainVListBreaker(parser, material, self.page_initial_context)
         shipped = len(parser.shipout.pages)
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
+        self._clearInsertScratch(parser)
         start = 0
         while True:
             start, context = self._shipLeading(material, start, context, parser)
@@ -925,17 +1305,28 @@ class MainVList(vmode.VList):
             for box in self._pageShipouts(material, start, end):
                 shipout(parser, box)
             # Keep the built page material as a plain list; it is already packed.
-            page.list[:] = breaker.buildSlice(start, end, context, "\\topskip")
-            if not self._hasPageContent(page.list):
+            page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
+            has_content = self._hasPageContent(page_nodes)
+            self._clearInsertScratch(parser)
+            page.list[:], insert_carry = self._extractPageInserts(parser, page_nodes, breaker)
+            parser.state.globals["insertpenalties"] = breaker.last_insert_penalties
+            if not has_content:
                 self._flushPageWhatsits(parser, page.list)
                 context = breaker.advanceContext(start, next_start, context)
+                if insert_carry:
+                    material[next_start:next_start] = insert_carry
                 start = next_start
                 continue
-            carry = self._runOutputRoutine(parser, page.typeset(parser))
-            if carry:
-                material[next_start:next_start] = carry
+            out_carry = self._runOutputRoutine(parser, page.typeset(parser))
+            pending = []
+            if insert_carry:
+                pending.extend(insert_carry)
+            if out_carry:
+                pending.extend(out_carry)
             topmark = list(botmark)
             context = breaker.advanceContext(start, next_start, context)
+            if pending:
+                material[next_start:next_start] = pending
             start = next_start
         return parser.shipout.pages[shipped:]
 
@@ -1069,7 +1460,7 @@ class Insert(Command):
 
     def execute(self, parser):
         index = parser.readInteger()
-        if index < 0 or index == 255:
+        if index < 0 or index >= 255:
             raise ValueError(f"invalid insert number {index}", parser.input.position())
         top = parser.lists[-1]
         vlist = parser.readVList(GROUP_TYPE.INSERT)

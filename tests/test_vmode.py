@@ -327,10 +327,72 @@ def test_page_break_ignores_void_box_and_forced_penalty_before_start(parser):
     assert pages[0].list[2] is first
 
 
-def test_page_break_insert_not_implemented(cmr10):
-    cmr10.parse("\\insert 2{\\vskip 1in}")
-    with pytest.raises(NotImplementedError):
-        cmr10.breakPages()
+def test_page_break_extracts_insert_into_class_box(parser):
+    parser.parse("\\vsize=200pt\\topskip=0pt\\count2=1000\\dimen2=200pt")
+    main = parser.lists[0]
+    main.append(vmode.Insert(2, [nd.Glue(glue.Glue(72.26999), None)]))
+    main.append(_test_hbox(parser, height=6, depth=0))
+    pages = main.pageBreak(parser)
+    assert len(pages) == 1
+    assert all(node.node_type != nd.NODE_TYPE.INS for node in pages[0].list)
+    assert parser.state.globals["insertpenalties"] == 0
+    ins = parser.state.box[2]
+    assert ins is not None
+    assert ins.node_type == nd.NODE_TYPE.VLIST
+    assert len(ins.list) == 1
+    assert ins.list[0].node_type == nd.NODE_TYPE.GLUE
+    assert ins.list[0].glue == glue.Glue(72.26999)
+    scratch = parser.state.globals["insert"][2]
+    assert len(scratch) == 1
+    assert scratch[0].node_type == nd.NODE_TYPE.VLIST
+
+
+def test_insert_step1_skip_reduces_page_goal(parser):
+    parser.parse("\\vsize=20pt\\topskip=0pt\\count2=1000\\dimen2=1000pt\\skip2=6pt\\insert2{}")
+    main = parser.lists[0]
+    main.append(_test_hbox(parser, height=8, depth=0))
+    main.append(nd.Glue(glue.Glue(2), None))
+    main.append(_test_hbox(parser, height=8, depth=0))
+    pages = main.pageBreak(parser)
+    assert len(pages) == 2
+
+
+def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
+    parser.parse("\\vsize=100pt\\topskip=0pt\\count2=1000\\dimen2=5pt\\floatingpenalty=123")
+    parser.parse(
+        "\\insert2{\\hrule height4pt depth0pt\\penalty0\\hrule height4pt depth0pt}"
+        "\\insert2{\\hrule height2pt depth0pt}"
+    )
+    main = parser.lists[0]
+    main.append(_test_hbox(parser, height=1, depth=0))
+    material = []
+    main.typesetNodes(parser, material)
+    breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
+    start, context = breaker.pruneTop(0, main.page_initial_context)
+    end, _, _, _ = breaker.bestBreak(start, context)
+    assert end > start
+    ins_nodes = [node for node in material if node.node_type == nd.NODE_TYPE.INS]
+    assert len(ins_nodes) == 2
+    first = breaker.actionFor(ins_nodes[0])
+    second = breaker.actionFor(ins_nodes[1])
+    assert first["kind"] == "split"
+    assert len(first["tail"]) > 0
+    assert second["kind"] == "defer"
+    assert breaker.last_insert_penalties == 123
+    page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
+    page.MainVList._clearInsertScratch(parser)
+    kept, carry = page.MainVList._extractPageInserts(parser, page_nodes, breaker)
+    assert all(node.node_type != nd.NODE_TYPE.INS for node in kept)
+    assert len(carry) == 2
+    assert carry[0].node_type == nd.NODE_TYPE.INS
+    assert carry[1].node_type == nd.NODE_TYPE.INS
+    ins = parser.state.box[2]
+    assert ins is not None
+    assert ins.node_type == nd.NODE_TYPE.VLIST
+    assert len(ins.list) == 1
+    assert ins.list[0].node_type == nd.NODE_TYPE.RULE
+    assert ins.list[0].height == 4
+    assert ins.list[0].depth == 0
 
 
 def test_page_cost_matches_tex_formula(parser):

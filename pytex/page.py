@@ -446,27 +446,6 @@ class PageStateNode(nd.Node):
         return "PageState"
 
 
-class OutputStateNode(nd.Node):
-    """
-    Transparent marker that restores selected output-routine macro state.
-    """
-
-    node_type = nd.NODE_TYPE.WHATSIT
-
-    def __init__(self, snapshot):
-        self.snapshot = snapshot
-
-    def saveInfo(self):
-        return {"init": {"snapshot": self.snapshot}}
-
-    @classmethod
-    def new(cls, parser, snapshot):
-        return cls(snapshot)
-
-    def __repr__(self):
-        return "OutputState"
-
-
 class ShipoutNode(nd.Node):
     """
     Transparent marker for a deferred \\shipout in the main vertical list.
@@ -503,7 +482,7 @@ class MainVListBreaker(VListBreaker):
         return None
 
     def isTransparent(self, node):
-        return isinstance(node, (PageStateNode, OutputStateNode, ShipoutNode))
+        return isinstance(node, (PageStateNode, ShipoutNode))
 
     @staticmethod
     def _delaysPageStart(node):
@@ -795,85 +774,18 @@ class MainVList(vmode.VList):
 
     list_type_name = "MainVList"
 
-    _OUTPUT_STATE_MACROS = (
-        "\\@currlist",
-        "\\@deferlist",
-        "\\@toplist",
-        "\\@botlist",
-        "\\@dbltoplist",
-        "\\@dbldeferlist",
-    )
-
     def __init__(self, parser):
         super().__init__(parser, [], inner=False)
         self.page_initial_context = PageBuilderContext(parser.state.layout)
         self.page_context = self.page_initial_context
-        snapshot, signature = self._captureOutputSnapshot()
-        self.page_initial_output_snapshot = snapshot
-        self.page_output_signature = signature
 
     def append(self, node):
-        if not isinstance(node, (PageStateNode, OutputStateNode)):
+        if not isinstance(node, PageStateNode):
             context = PageBuilderContext(self.parser.state.layout)
             if not self.page_context.sameLayout(self.parser.state.layout):
                 super().append(PageStateNode(context))
                 self.page_context = context
-            snapshot, signature = self._captureOutputSnapshot()
-            if signature != self.page_output_signature:
-                super().append(OutputStateNode(snapshot))
-                self.page_output_signature = signature
         super().append(node)
-
-    @staticmethod
-    def _tokenSignature(token):
-        return (
-            type(token).__name__,
-            getattr(token, "name", None),
-            getattr(token, "char", None),
-            getattr(token, "catcode", None),
-            getattr(token, "parameter", None),
-        )
-
-    def _captureOutputSnapshot(self):
-        lookup = getattr(self.parser, "lookup", None)
-        if lookup is None:
-            return {}, {}
-        snapshot = {}
-        signature = {}
-        for name in self._OUTPUT_STATE_MACROS:
-            try:
-                command = lookup(name)
-            except Exception:
-                continue
-            if command is None:
-                continue
-            replacement = getattr(command, "replacement", None)
-            if replacement is None:
-                continue
-            copied = list(replacement)
-            snapshot[name] = copied
-            signature[name] = tuple(self._tokenSignature(token) for token in copied)
-        return snapshot, signature
-
-    @staticmethod
-    def _applyOutputSnapshot(parser, snapshot):
-        lookup = getattr(parser, "lookup", None)
-        if lookup is None:
-            return
-        for name, replacement in snapshot.items():
-            try:
-                command = lookup(name)
-            except Exception:
-                continue
-            if command is None or not hasattr(command, "replacement"):
-                continue
-            command.replacement = list(replacement)
-
-    @classmethod
-    def _applyOutputStateNodes(cls, parser, nodes, start, end):
-        for node in nodes[start:end]:
-            if isinstance(node, OutputStateNode):
-                cls._applyOutputSnapshot(parser, node.snapshot)
 
     @staticmethod
     def _pageMeasure(total, node):
@@ -1177,10 +1089,6 @@ class MainVList(vmode.VList):
                 context = node.context
                 start += 1
                 continue
-            if isinstance(node, OutputStateNode):
-                MainVList._applyOutputSnapshot(parser, node.snapshot)
-                start += 1
-                continue
             if isinstance(node, ShipoutNode):
                 shipout(parser, node.box)
                 start += 1
@@ -1341,12 +1249,8 @@ class MainVList(vmode.VList):
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
         self._clearInsertScratch(parser)
-        self._applyOutputSnapshot(parser, self.page_initial_output_snapshot)
         start = 0
         while True:
-            while start < len(material) and isinstance(material[start], OutputStateNode):
-                self._applyOutputSnapshot(parser, material[start].snapshot)
-                start += 1
             start, context = breaker.pruneTop(start, context)
             if start >= len(material):
                 break
@@ -1357,7 +1261,6 @@ class MainVList(vmode.VList):
                 break_context = breaker.advanceContext(start, end, context)
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
-            self._applyOutputStateNodes(parser, material, start, end)
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
             botmarks = self._updatePageMarksByClass(parser, material, start, end, topmark)
             # The page material is already fully typeset. Keep it as a plain list so
@@ -1387,7 +1290,6 @@ class MainVList(vmode.VList):
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
         self._clearInsertScratch(parser)
-        self._applyOutputSnapshot(parser, self.page_initial_output_snapshot)
         start = 0
         while True:
             start, context = self._shipLeading(material, start, context, parser)
@@ -1401,7 +1303,6 @@ class MainVList(vmode.VList):
                 break_context = breaker.advanceContext(start, end, context)
                 break_penalty = 0
             page = bx.VBox(parser, break_context.vsize, Dimen())
-            self._applyOutputStateNodes(parser, material, start, end)
             firstmark, botmark = self._pageMarks(material, start, end, topmark)
             botmarks = self._updatePageMarksByClass(parser, material, start, end, topmark)
             parser.state.parameters["topmark"] = list(topmark)

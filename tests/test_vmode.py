@@ -577,30 +577,6 @@ def test_output_routine_can_carry_material_forward(cmr10):
     assert "A" in first_chars
     assert "X" in second_chars
 
-
-def test_output_routine_replays_currlist_state_by_page(cmr10):
-    cmr10.parse(
-        "\\catcode`@=11"
-        "\\def\\emptymacro{}"
-        "\\def\\@currlist{}"
-        "\\count9=0"
-        "\\output={"
-        "\\global\\advance\\count9 by1"
-        "\\ifx\\@currlist\\emptymacro\\count8=1\\else\\count8=2\\fi"
-        "\\ifnum\\count9=1\\global\\count0=\\count8\\fi"
-        "\\ifnum\\count9=2\\global\\count1=\\count8\\fi"
-        "\\shipout\\box255}"
-        "\\vsize=20pt\\topskip=0pt"
-        "\\hbox{A}\\penalty-10000"
-        "\\def\\@currlist{X}"
-        "\\hbox{B}\\penalty-10000"
-    )
-    shipout = cmr10.outputPages()
-    assert len(shipout.pages) == 2
-    assert cmr10.state.count[0] == 1
-    assert cmr10.state.count[1] == 2
-
-
 def test_output_routine_sees_outputpenalty(cmr10):
     cmr10.parse(
         "\\output={\\global\\count0=\\outputpenalty\\shipout\\box255}"

@@ -196,12 +196,14 @@ class VListBreaker:
         return index, index + 1
 
     def bestBreak(self, start, context):
+        self.last_triggered = False
         total = Glue()
         topskip_added = False
         delayed_start = False
         best = None
         bottom_depth = None
         current_context = context
+        triggered = False
         for i in range(start, len(self.nodes)):
             node = self.nodes[i]
             new_context = self.contextFor(node)
@@ -228,6 +230,7 @@ class VListBreaker:
                         ):
                             _, index, kind, best_context, best_penalty = current
                             end, next_start = self.candidateBreak(index, kind)
+                            self.last_triggered = True
                             return end, next_start, best_context, best_penalty
                     if delayed_start and node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
                         self.measure(total, node)
@@ -255,6 +258,7 @@ class VListBreaker:
                 if cost == inf or node.penalty <= -10000:
                     _, index, kind, best_context, best_penalty = best if best is not None else current
                     end, next_start = self.candidateBreak(index, kind)
+                    self.last_triggered = True
                     return end, next_start, best_context, best_penalty
                 continue
             self.measure(total, node)
@@ -269,6 +273,7 @@ class VListBreaker:
                 self.effectiveTotal(total, bottom_depth, current_context.maxdepth),
                 current_context.vsize,
             ) == inf and best is not None:
+                triggered = True
                 break
         final_penalty = self.finalPenalty()
         if final_penalty is not None:
@@ -280,6 +285,7 @@ class VListBreaker:
             return len(self.nodes), len(self.nodes), current_context, 0
         _, index, kind, best_context, best_penalty = best
         end, next_start = self.candidateBreak(index, kind)
+        self.last_triggered = triggered
         return end, next_start, best_context, best_penalty
 
     def _buildSlice(self, start, end, context, topskip_name):
@@ -360,7 +366,10 @@ def shipout(parser, box):
     backend = getattr(parser, "shipout", None)
     if backend is None:
         if parser.lists and isinstance(parser.lists[0], MainVList):
-            parser.lists[0].append(ShipoutNode(box))
+            shipped_box = box.typeset(parser)
+            parser.lists[0]._flushDeferredFileOps(shipped_box)
+            parser.lists[0].deferShipout(shipped_box)
+            parser.state.globals["deadcycles"] = 0
             return
         raise ValueError("no active shipout backend")
     shipped_box = box.typeset(parser)
@@ -465,6 +474,19 @@ class ShipoutNode(nd.Node):
 
     def __repr__(self):
         return "Shipout"
+
+
+class _PendingPageEntry:
+    """
+    One raw main-vlist node and the page-builder material currently derived from it.
+    """
+
+    __slots__ = ("node", "ready", "material")
+
+    def __init__(self, node):
+        self.node = node
+        self.ready = False
+        self.material = []
 
 
 class MainVListBreaker(VListBreaker):
@@ -654,6 +676,7 @@ class MainVListBreaker(VListBreaker):
         return self._insert_actions.get(id(node))
 
     def bestBreak(self, start, context):
+        self.last_triggered = False
         total = Glue()
         topskip_added = False
         best = None
@@ -664,6 +687,7 @@ class MainVListBreaker(VListBreaker):
         insert_penalties = 0
         class_states = {}
         actions = {}
+        triggered = False
 
         for i in range(start, len(self.nodes)):
             node = self.nodes[i]
@@ -716,10 +740,12 @@ class MainVListBreaker(VListBreaker):
                     if best is None:
                         self.last_insert_penalties = insert_penalties
                         end, next_start = self.candidateBreak(i, "penalty")
+                        self.last_triggered = True
                         return end, next_start, current_context, node.penalty
                     _, index, kind, best_context, best_penalty, best_q = best
                     self.last_insert_penalties = best_q
                     end, next_start = self.candidateBreak(index, kind)
+                    self.last_triggered = True
                     return end, next_start, best_context, best_penalty
                 continue
             self.measure(total, node)
@@ -741,6 +767,7 @@ class MainVListBreaker(VListBreaker):
                 self.effectiveTotal(total, bottom_depth, current_context.maxdepth),
                 goal,
             ) == inf and best is not None:
+                triggered = True
                 break
 
         final_penalty = self.finalPenalty()
@@ -764,6 +791,7 @@ class MainVListBreaker(VListBreaker):
         _, index, kind, best_context, best_penalty, best_q = best
         self.last_insert_penalties = best_q
         end, next_start = self.candidateBreak(index, kind)
+        self.last_triggered = triggered
         return end, next_start, best_context, best_penalty
 
 
@@ -778,14 +806,291 @@ class MainVList(vmode.VList):
         super().__init__(parser, [], inner=False)
         self.page_initial_context = PageBuilderContext(parser.state.layout)
         self.page_context = self.page_initial_context
+        self._page_nodes = []
+        self._pending_entries = []
+        self._page_seen_box = False
+        self._page_prevdepth = vmode.init_prevdepth
+        self._processing_pages = False
+        self.deferred_shipouts = []
+
+    def deferShipout(self, box):
+        self.deferred_shipouts.append(box)
+
+    @staticmethod
+    def _entryReadyForPageBuilder(node):
+        if isinstance(node, PageStateNode):
+            return True
+        if isinstance(node, ShipoutNode):
+            return False
+        if getattr(node, "page_builder_ready", True) is False:
+            return False
+        if getattr(node, "box_materializable", False) and node.node_type is None:
+            return getattr(node, "typeset_context", None) is not None
+        next_paragraph = getattr(node, "next_paragraph", None)
+        if next_paragraph is not None and getattr(next_paragraph, "typeset_context", None) is None:
+            return False
+        return True
+
+    def _appendPageNode(self, node):
+        entry = _PendingPageEntry(node)
+        self._pending_entries.append(entry)
+        if self._entryReadyForPageBuilder(node):
+            self._realizePendingEntry(entry)
+
+    def _materializePageEntry(self, node):
+        generated = []
+        context = getattr(node, "typeset_context", None)
+        if context is None and getattr(node, "needs_vcontext", False):
+            node.typeset_context = vmode.VNodeContext(self.parser.state.layout, self._page_prevdepth)
+            context = node.typeset_context
+        is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+        if context is None and is_box:
+            node.typeset_context = vmode.VNodeContext(self.parser.state.layout, self._page_prevdepth)
+            context = node.typeset_context
+        expanded = vmode.expandVerticalNode(self.parser, node)
+        node_context = context
+        for item in expanded:
+            if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                item_context = getattr(item, "typeset_context", None)
+                if item_context is None:
+                    item_context = node_context
+                    node_context = None
+                else:
+                    item.typeset_context = None
+                if item_context is None:
+                    if self._page_seen_box:
+                        prev = self._page_nodes[-1] if self._page_nodes else None
+                        if prev is not None and prev.node_type in (
+                            nd.NODE_TYPE.HLIST,
+                            nd.NODE_TYPE.VLIST,
+                            nd.NODE_TYPE.RULE,
+                        ):
+                            interlinepenalty = self.parser.state.layout["interlinepenalty"]
+                            if interlinepenalty != 0:
+                                penalty = nd.Penalty(interlinepenalty)
+                                self._page_nodes.append(penalty)
+                                generated.append(penalty)
+                            if float(self._page_prevdepth) > float(vmode.init_prevdepth):
+                                baselineskip = self.parser.state.layout["baselineskip"]
+                                diff = baselineskip.dimen - self._page_prevdepth - item.height
+                                if diff < self.parser.state.layout["lineskiplimit"]:
+                                    glue = nd.Glue(
+                                        self.parser.state.layout["lineskip"], "\\lineskip"
+                                    )
+                                else:
+                                    glue = nd.Glue(
+                                        Glue(diff, baselineskip.stretch, baselineskip.shrink),
+                                        "\\baselineskip",
+                                    )
+                                self._page_nodes.append(glue)
+                                generated.append(glue)
+                else:
+                    if item_context.interlinepenalty != 0 and self._page_seen_box:
+                        penalty = nd.Penalty(item_context.interlinepenalty)
+                        self._page_nodes.append(penalty)
+                        generated.append(penalty)
+                    prevdepth = getattr(item_context, "prevdepth", None)
+                    if prevdepth is None:
+                        prevdepth = self._page_prevdepth
+                    if float(prevdepth) > float(vmode.init_prevdepth) and self._page_seen_box:
+                        baselineskip = item_context.baselineskip
+                        diff = baselineskip.dimen - prevdepth - item.height
+                        if diff < item_context.lineskiplimit:
+                            glue = nd.Glue(item_context.lineskip, "\\lineskip")
+                        else:
+                            glue = nd.Glue(
+                                Glue(diff, baselineskip.stretch, baselineskip.shrink),
+                                "\\baselineskip",
+                            )
+                        self._page_nodes.append(glue)
+                        generated.append(glue)
+                self._page_nodes.append(item)
+                generated.append(item)
+                self._page_prevdepth = item.depth
+                self._page_seen_box = True
+                continue
+            if item.node_type == nd.NODE_TYPE.RULE:
+                self._page_prevdepth = vmode.init_prevdepth
+            self._page_nodes.append(item)
+            generated.append(item)
+        return generated
+
+    def _realizePendingEntry(self, entry):
+        if entry.ready:
+            return
+        entry.material = self._materializePageEntry(entry.node)
+        entry.ready = True
+
+    def finalizePendingNode(self, node):
+        for entry in reversed(self._pending_entries):
+            if entry.node is node:
+                self._realizePendingEntry(entry)
+                return
+        raise ValueError("cannot finalize missing main-vlist node")
+
+    def _realizeReadyTailEntries(self):
+        start = len(self._pending_entries)
+        while start > 0:
+            entry = self._pending_entries[start - 1]
+            if entry.ready:
+                start -= 1
+                continue
+            if not self._entryReadyForPageBuilder(entry.node):
+                break
+            start -= 1
+        for entry in self._pending_entries[start:]:
+            if not entry.ready:
+                self._realizePendingEntry(entry)
+
+    def _rebuildRawState(self):
+        self.prevdepth = self._page_prevdepth if self._page_nodes else vmode.init_prevdepth
+        context = self.page_initial_context
+        for node in self.list:
+            if isinstance(node, PageStateNode):
+                context = node.context
+        if not self.list:
+            self.can_lastbox = False
+        self.page_context = context
+
+    def _rebuildPageState(self):
+        self._page_prevdepth = vmode.init_prevdepth
+        self._page_seen_box = False
+        for node in self._page_nodes:
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                self._page_prevdepth = node.depth
+                self._page_seen_box = True
+            elif node.node_type == nd.NODE_TYPE.RULE:
+                self._page_prevdepth = vmode.init_prevdepth
+
+    def _consumePagePrefix(self, count):
+        if count <= 0:
+            return
+        remaining = count
+        raw_remove = 0
+        while remaining > 0:
+            entry = self._pending_entries[0]
+            if not entry.ready:
+                raise AssertionError("page builder reached an unrealized main-vlist node")
+            material_len = len(entry.material)
+            if remaining < material_len:
+                entry.material = entry.material[remaining:]
+                remaining = 0
+                break
+            remaining -= material_len
+            self._pending_entries.pop(0)
+            raw_remove += 1
+        del self._page_nodes[:count]
+        if raw_remove:
+            del self.list[:raw_remove]
+        self._rebuildPageState()
+        self._rebuildRawState()
+
+    def _prependCarryNodes(self, nodes):
+        if not nodes:
+            return
+        entries = []
+        for node in nodes:
+            entry = _PendingPageEntry(node)
+            entry.ready = True
+            entry.material = [node]
+            entries.append(entry)
+        self.list[:0] = list(nodes)
+        self._pending_entries[:0] = entries
+        self._page_nodes[:0] = list(nodes)
+        self._rebuildPageState()
+        self._rebuildRawState()
+
+    def _flushDeferredFileOps(self, box):
+        from pytex import file as filemod
+
+        items = getattr(box, "list", None)
+        if items is None:
+            return
+        kept = []
+        for node in items:
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                self._flushDeferredFileOps(node)
+                kept.append(node)
+                continue
+            if isinstance(node, filemod.FileOpNode):
+                node.output(self.parser, None)
+                continue
+            kept.append(node)
+        box.list[:] = kept
+
+    def _processPendingPages(self):
+        if self._processing_pages:
+            return
+        if float(self.parser.state.layout["vsize"]) <= 0:
+            return
+        self._processing_pages = True
+        try:
+            while True:
+                if not self._page_nodes:
+                    return
+                breaker = MainVListBreaker(self.parser, self._page_nodes, self.page_initial_context)
+                start, _ = breaker.pruneTop(0, self.page_initial_context)
+                end, next_start, break_context, break_penalty = breaker.bestBreak(start, self.page_initial_context)
+                if not getattr(breaker, "last_triggered", False):
+                    return
+                if end <= start:
+                    end = min(start + 1, len(self._page_nodes))
+                    next_start = end
+                    break_context = breaker.advanceContext(start, end, self.page_initial_context)
+                    break_penalty = 0
+                page = bx.VBox(self.parser, break_context.vsize, Dimen())
+                topmark = list(self.parser.state.parameters["botmark"])
+                firstmark, botmark = self._pageMarks(self._page_nodes, start, end, topmark)
+                self._updatePageMarksByClass(self.parser, self._page_nodes, start, end, topmark)
+                self.parser.state.parameters["topmark"] = list(topmark)
+                self.parser.state.parameters["firstmark"] = list(firstmark)
+                self.parser.state.parameters["botmark"] = list(botmark)
+                self.parser.state.layout["outputpenalty"] = break_penalty
+                page_nodes = breaker.buildSlice(start, end, self.page_initial_context, "\\topskip")
+                has_content = self._hasPageContent(page_nodes)
+                self._clearInsertScratch(self.parser)
+                page.list[:], insert_carry = self._extractPageInserts(self.parser, page_nodes, breaker)
+                self.parser.state.globals["insertpenalties"] = breaker.last_insert_penalties
+                pending = list(insert_carry)
+                if not has_content:
+                    self._flushPageWhatsits(self.parser, page.list)
+                else:
+                    out_carry = self._runOutputRoutine(self.parser, page.typeset(self.parser))
+                    if out_carry:
+                        pending.extend(out_carry)
+                self.page_initial_context = breaker.advanceContext(0, next_start, self.page_initial_context)
+                self._consumePagePrefix(next_start)
+                if pending:
+                    self._prependCarryNodes(pending)
+        finally:
+            self._processing_pages = False
 
     def append(self, node):
+        self._realizeReadyTailEntries()
         if not isinstance(node, PageStateNode):
             context = PageBuilderContext(self.parser.state.layout)
             if not self.page_context.sameLayout(self.parser.state.layout):
-                super().append(PageStateNode(context))
+                marker = PageStateNode(context)
+                super().append(marker)
+                self._appendPageNode(marker)
                 self.page_context = context
         super().append(node)
+        self._appendPageNode(node)
+        if self.parser.run:
+            self._processPendingPages()
+
+    def pop(self, *args):
+        index = args[0] if args else -1
+        if index not in (-1, len(self.list) - 1):
+            raise NotImplementedError("MainVList.pop only supports removing the tail")
+        node = super().pop(*args)
+        entry = self._pending_entries.pop()
+        assert entry.node is node
+        if entry.ready and entry.material:
+            del self._page_nodes[-len(entry.material):]
+            self._rebuildPageState()
+        self._rebuildRawState()
+        return node
 
     @staticmethod
     def _pageMeasure(total, node):
@@ -1242,10 +1547,10 @@ class MainVList(vmode.VList):
         return carry
 
     def pageBreak(self, parser):
-        material = []
-        vmode.typesetVerticalNodes(parser, self.list, material)
+        self._realizeReadyTailEntries()
+        material = list(self._page_nodes)
         breaker = MainVListBreaker(parser, material, self.page_initial_context)
-        pages = []
+        pages = [box.typeset(parser) for box in self.deferred_shipouts]
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
         self._clearInsertScratch(parser)
@@ -1283,10 +1588,13 @@ class MainVList(vmode.VList):
         return pages
 
     def outputPages(self, parser):
-        material = []
-        vmode.typesetVerticalNodes(parser, self.list, material)
+        self._realizeReadyTailEntries()
+        material = list(self._page_nodes)
         breaker = MainVListBreaker(parser, material, self.page_initial_context)
         shipped = len(parser.shipout.pages)
+        for box in self.deferred_shipouts:
+            shipout(parser, box)
+        self.deferred_shipouts.clear()
         context = self.page_initial_context
         topmark = list(parser.state.parameters["botmark"])
         self._clearInsertScratch(parser)

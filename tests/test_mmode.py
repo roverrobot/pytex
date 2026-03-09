@@ -117,7 +117,7 @@ def test_mlist_typeset_display(math):
     assert len(top.list) == 2
     packed = []
     vmode.typesetVerticalNodes(math, top, packed)
-    assert len(packed) == 7
+    assert len(packed) == 5
 
 
 def test_display_halign_replaces_display_math_list(math):

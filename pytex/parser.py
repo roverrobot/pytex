@@ -400,10 +400,14 @@ class Parser:
         # A truly empty paragraph contributes nothing (e.g., \noindent\par).
         # TeX does not emit a synthetic empty line in this case.
         if len(hlist) == 0:
-            para = top.pop() # paragraph is the last node that we added
-            if para.prev_paragraph:
-                para.prev_paragraph.next_paragraph = None
-            para = None
+            para = top[-1]
+            if para.keep_empty:
+                para.typeset_context = paragraph.ParagraphTypesetContext(self, para)
+            else:
+                para = top.pop() # paragraph is the last node that we added
+                if para.prev_paragraph:
+                    para.prev_paragraph.next_paragraph = None
+                para = None
         else:
             # \penalty10000
             hlist.append(node.Penalty(10000))

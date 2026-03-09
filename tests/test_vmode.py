@@ -535,9 +535,9 @@ def test_page_break_uses_marker_context(parser):
 
 def test_shipout_collects_box(parser):
     parser.parse("\\shipout\\hbox{A}")
-    assert len(parser.lists[0]) == 1
-    assert isinstance(parser.lists[0][0], page.ShipoutNode)
-    shipped = parser.lists[0][0].box
+    assert len(parser.lists[0]) == 0
+    assert len(parser.lists[0].deferred_shipouts) == 1
+    shipped = parser.lists[0].deferred_shipouts[0]
     assert shipped.node_type == nd.NODE_TYPE.HLIST
 
 

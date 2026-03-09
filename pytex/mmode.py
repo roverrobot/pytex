@@ -654,6 +654,7 @@ class DisplayMathNode(MathListHolder):
         # whether the equation number is on the left
         self.eqno = None
         self.typeset_context = MathTypesetContext(False)
+        self.page_builder_ready = False
         # these point to the unrestricted hlists before and after the display math
         self.prev_paragraph = None
         self.next_paragraph = None
@@ -1475,18 +1476,20 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
     def finalize(self, parser, top, mlist):
         # here top points to the enclosing horizontal list
         # if mlist is inline math, then we simply add it to the enclosing list
-        top.append(self.node)
         eqno = getattr(mlist, "eqno", None)
         if eqno is not None:
             self.node.eqno = eqno
         self.node.typeset_context.snapshot(parser)
         if mlist.inner:
+            top.append(self.node)
             return
+        top.append(self.node)
         # top is the enclosing vlist
         new_par = parser.newParagraph(indent=False, parskip=False) # the new paragraph after the display math
         new_par.keep_empty = True
         self.node.next_paragraph = new_par
         new_par.prev_paragraph = self.node
+        self.node.page_builder_ready = True
 
 
 def mathShift(parser):
@@ -1516,14 +1519,23 @@ def mathShift(parser):
     # otherwise, we are starting a new math mode
     # if we are current in a vertical mode, unread the token, enter the horizontal mode,
     # and then the $ token is encountered again
+    started_in_vmode = False
     if top.type == lists.LISTTYPE.VERTICAL:
-        parser.input.unread(parser.current_token)
-        parser.newParagraph()
-        return
+        t = parser.token()
+        if t is None or t.catcode != CATCODE.MATH_SHIFT:
+            if t is not None:
+                parser.input.unread(t)
+            parser.input.unread(parser.current_token)
+            parser.newParagraph()
+            return
+        inner = False
+        started_in_vmode = True
     # if we are in restricted horizontal mode, only inline math is allowed. So we do not 
     # need to check for a second $ token
     prev_par = None
-    if top.inner:
+    if top.type == lists.LISTTYPE.VERTICAL:
+        pass
+    elif top.inner:
         inner = True
     else:
         # first, we check for inline or display math
@@ -1538,9 +1550,10 @@ def mathShift(parser):
     node = InlineMathNode() if inner else DisplayMathNode()
     if not inner:
         volatile = parser.state.volatile
-        prev_par = parser.endParagraph()
-        if prev_par is not None:
-            prev_par.next_paragraph = node
+        if not started_in_vmode:
+            prev_par = parser.endParagraph()
+            if prev_par is not None:
+                prev_par.next_paragraph = node
         node.prev_paragraph = prev_par
         parser.paragraph_before_last_display_math = prev_par
 #            prev_par.pretypeset(parser)

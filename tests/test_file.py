@@ -73,6 +73,13 @@ def test_openout(parser):
     assert file.content == "123xyz\n"
 
 
+def test_deferred_shipout_flushes_write_before_closeout(parser, tmp_path):
+    parser.parse("\\immediate\\openout 1=output2.tex\\shipout\\vbox{\\write1{abc}}\\closeout 1")
+    parser.outputPages(str(tmp_path / "shipwrite"))
+    file = parser.resolver.in_memory_files["output2.tex"]
+    assert file.content == "abc\n"
+
+
 def test_read(read_tex):
     read_tex.parse("\\openin 0=read.tex \\read 0 to \\a\\closein 0")
     a = read_tex.state.equitable["\\a"]

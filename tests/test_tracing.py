@@ -91,8 +91,8 @@ def test_showlists_expands_display_math_nodes(cmr10):
     _init_math_fonts(cmr10)
     cmr10.parse("$$a$$\\showlists")
     log = cmr10.logContent()
-    assert "\\glue(\\abovedisplayskip)" in log
-    assert "\\glue(\\belowdisplayskip)" in log
+    assert "\\glue(\\abovedisplayshortskip)" in log
+    assert "\\glue(\\belowdisplayshortskip)" in log
     assert ", display" in log
     assert "\\teni a" in log
 

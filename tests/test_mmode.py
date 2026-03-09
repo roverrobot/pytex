@@ -1,10 +1,12 @@
 import pytest
 from pytex import align
 from pytex import mmode
+from pytex import vmode
 from pytex import lists
 from pytex import node as nd
 from pytex import paragraph
 from pytex import texlive
+from pytex import hmode
 from pytex import box
 from pytex.dimen import Dimen
 
@@ -67,17 +69,18 @@ def test_mlist(math, inner):
         assert top.type == lists.LISTTYPE.HORIZONTAL
         assert len(top) == 3
         node = top[1]
-    else:
-        assert top.type == lists.LISTTYPE.HORIZONTAL
-        vtop = math.lists[0]
-        assert vtop.type == lists.LISTTYPE.VERTICAL
-        node = next(n for n in vtop if isinstance(n, mmode.MList))
-        math.parse("\\par")
-        packed = []
-        math.lists[-1].typesetNodes(math, packed)
-        glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
-        assert len(glues) >= 2
-    assert node.node_type == nd.NODE_TYPE.MATH
+        assert isinstance(node, mmode.InlineMathNode)
+        return
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    vtop = math.lists[0]
+    assert vtop.type == lists.LISTTYPE.VERTICAL
+    node = next(n for n in vtop if isinstance(n, mmode.MathListHolder))
+    assert isinstance(node, mmode.DisplayMathNode)
+    math.parse("\\par")
+    packed = []
+    vmode.typesetVerticalNodes(math, vtop, packed)
+    glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
+    assert len(glues) >= 2
 
 
 def test_mlist_mismatch(math):
@@ -110,25 +113,27 @@ def test_mlist_typeset_inline(math):
 def test_mlist_typeset_display(math):
     math.parse("$$a$$\\par")
     top = math.lists[0]
-    assert len(top) == 3
+    # the empty paragrph trailing the display math list is not added
+    assert len(top.list) == 2
     packed = []
-    top.typesetNodes(math, packed)
+    vmode.typesetVerticalNodes(math, top, packed)
+    assert len(packed) == 7
 
 
 def test_display_halign_replaces_display_math_list(math):
     math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$")
     top = math.lists[0]
-    node = next(n for n in top if isinstance(n, align.HAlignMathList))
-    assert len(node) == 1
-    assert isinstance(node[0], align.MAlignment)
+    node = next(n for n in top if isinstance(n, mmode.DisplayMathNode))
+    assert len(node.list) == 1
+    assert isinstance(node.list[0], align.MAlignment)
 
 
 def test_display_halign_typesets_with_display_wrapper(math):
     math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$\\par")
     top = math.lists[0]
-    node = next(n for n in top if isinstance(n, align.HAlignMathList))
+    node = next(n for n in top if isinstance(n, mmode.DisplayMathNode))
     packed = []
-    top.typesetNodes(math, packed)
+    vmode.typesetVerticalNodes(math, top.list, packed)
     display = [n for n in packed if getattr(n, "source", None) is node]
     assert len(display) == 5
     assert display[0].node_type == nd.NODE_TYPE.PENALTY
@@ -160,28 +165,32 @@ def test_mlist_typeset_single_box_drops_outer_hbox(math):
     vb = box.VBox(math, None, 0)
     vb.list.append(nd.Rule(1, 1, 0))
     vb.typeset(math, [])
-    sub = mmode.MList(math, inner=True, nodes=[mmode.VCent(vb)])
+    subformula = mmode.Subformula()
+    sub = mmode.MList(math, subformula.list, inner=True)
+    sub.append(mmode.VCent(vb))
     packed = []
-    sub.typeset(math, packed, context, mmode.Style(mmode.MATH_STYLE.T))
+    subformula.typeset(math, packed, context, mmode.Style(mmode.MATH_STYLE.T))
     assert len(packed) == 1
     assert packed[0].node_type == nd.NODE_TYPE.VLIST
 
 
 def test_display_noindent_has_no_synthetic_previous_paragraph(math):
-    math.parse("\\noindent$$a$$\\par")
+    math.parse("\\noindent$$a$$1\\par")
     top = math.lists[0]
-    assert isinstance(top[0], mmode.DisplayMathList)
+    assert len(top) ==2
+    assert isinstance(top[0], mmode.DisplayMathNode)
     assert isinstance(top[1], paragraph.Paragraph)
     packed = []
-    top.typesetNodes(math, packed)
+    vmode.typesetVerticalNodes(math, top, packed)
     assert top[1].typeset_context.prevgraf == 3
 
 
 def test_mlist_typeset_display_without_closing_paragraph(math):
     math.parse("$$a$$")
+    math.endParagraph()
     top = math.lists[0]
     packed = []
-    top.typesetNodes(math, packed)
+    vmode.typesetVerticalNodes(math, top, packed)
     assert len(packed) > 0
 
 
@@ -196,9 +205,9 @@ def _display_box_for_mlist(packed, mlist):
 def test_display_centering_uses_half_remaining_width(math):
     math.parse("$$a$$\\par")
     top = math.lists[0]
-    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathList))
+    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathNode))
     packed = []
-    top.typesetNodes(math, packed)
+    vmode.typesetVerticalNodes(math, top, packed)
     b = _display_box_for_mlist(packed, mlist)
     z = mlist.typeset_context.displaywidth
     s = mlist.typeset_context.displayindent
@@ -210,9 +219,9 @@ def test_display_predisplaysize_adds_two_ems(math):
     math.parse("\\noindent abc$$a$$\\par")
     top = math.lists[0]
     prev_par = next(node for node in top if isinstance(node, paragraph.Paragraph))
-    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathList))
+    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathNode))
     packed = []
-    top.typesetNodes(math, packed)
+    vmode.typesetVerticalNodes(math, top, packed)
     last_prev_line = [n for n in packed if n.node_type == nd.NODE_TYPE.HLIST and getattr(n, "source", None) is prev_par][-1]
     expected = last_prev_line.rightmost() + 2 * prev_par.typeset_context.em
     assert float(mlist.typeset_context.predisplaysize) == pytest.approx(float(expected), abs=1e-4)
@@ -231,9 +240,9 @@ def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
     z = wa + e + (quad / 2)
     math.parse(f"\\displaywidth={float(z):.5f}pt $$a\\eqno1$$\\par")
     top = math.lists[0]
-    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathList))
+    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathNode))
     packed = []
-    top.typesetNodes(math, packed)
+    vmode.typesetVerticalNodes(math, top, packed)
     display_index = next(
         i
         for i, node in enumerate(packed)
@@ -254,7 +263,7 @@ def test_everydisplay_can_read_prevgraf_from_previous_paragraph(math):
 
 def test_display_metrics_realized_when_prevdepth_is_queried(math):
     math.parse("$$a$$\\par")
-    mlist = next(node for node in math.lists[0] if isinstance(node, mmode.DisplayMathList))
+    mlist = next(node for node in math.lists[0] if isinstance(node, mmode.DisplayMathNode))
     math.parse("\\the\\prevdepth")
     assert mlist.typeset_context.displaywidth is not None
     assert mlist.typeset_context.displayindent is not None
@@ -270,7 +279,7 @@ def test_subformula(parser):
     assert isinstance(node, mmode.Atom)
     assert node.sub is None
     assert node.sup is None
-    assert len(node.nucleus) == 2
+    assert len(node.nucleus.list) == 2
 
 
 def test_subformula_unclosed(parser):
@@ -284,8 +293,8 @@ def test_subformula_unclosed(parser):
 @pytest.mark.parametrize("field, value, type", [
     ["sub", "b", mmode.MathSymbol],
     ["sup", "b", mmode.MathSymbol],
-    ["sub", "{ab}", mmode.MList],
-    ["sup", "{ab}", mmode.MList],
+    ["sub", "{ab}", mmode.Subformula],
+    ["sup", "{ab}", mmode.Subformula],
 ])
 def test_scripts(math, field, value, type):
     if field == "sub":
@@ -443,7 +452,7 @@ def test_nested_mathchoice_expands_without_mutating_list(math):
     assert len(kerns) == 1
     mu = mu_unit(mlist.typeset_context, mmode.Style(mmode.MATH_STYLE.T))
     assert kerns[0].kern == 36 * mu
-    assert any(isinstance(n, mmode.ChoiceNode) for n in mlist)
+    assert any(isinstance(n, mmode.ChoiceNode) for n in mlist.list)
 
 
 def test_rule5_bin_conversion_uses_effective_previous_atom_type(math):
@@ -462,12 +471,13 @@ def test_rule5_bin_conversion_uses_effective_previous_atom_type(math):
 
     first = ProbeAtom(mmode.ATOM_TYPE.BIN)
     second = ProbeAtom(mmode.ATOM_TYPE.BIN)
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.extend([first, second])
     packed = []
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
 
     assert first.observed_prev is None
     assert first.observed_type == mmode.ATOM_TYPE.ORD
@@ -498,7 +508,7 @@ def test_rule5_bin_after_rel_becomes_ord(math):
     packed = []
     ctx = mmode.MathTypesetContext(True)
     ctx.snapshot(math)
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    mmode.MathListHolder(mlist).typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
 
     assert rel.observed_type == mmode.ATOM_TYPE.REL
     assert bin_atom.observed_type == mmode.ATOM_TYPE.ORD
@@ -525,15 +535,16 @@ def test_atom_wrapper_shadows_wrapped_atom_fields_and_methods(math):
 def test_rule14_ord_op_ligature_collapses_pair(math):
     # Put text fonts in family 0 so CMR ligatures/kerns are available.
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
         _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
     ])
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    mlist._pass1AdjustAtoms(math, ctx, collected)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
     assert len(wrappers) == 1
     w = wrappers[0]
@@ -545,15 +556,16 @@ def test_rule14_ord_op_ligature_collapses_pair(math):
 
 def test_rule14_ord_op_kern_inserts_kern_and_keeps_op(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "T"),
         _mk_atom(mmode.ATOM_TYPE.OP, 0, "o"),
     ])
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    mlist._pass1AdjustAtoms(math, ctx, collected)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
     kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
     assert len(wrappers) == 2
@@ -564,7 +576,8 @@ def test_rule14_ord_op_kern_inserts_kern_and_keeps_op(math):
 
 def test_rule14_not_applied_across_explicit_kern(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
         nd.Kern(0),
@@ -572,8 +585,8 @@ def test_rule14_not_applied_across_explicit_kern(math):
     ])
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    mlist._pass1AdjustAtoms(math, ctx, collected)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
     auto_kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
     assert len(wrappers) == 2
@@ -585,7 +598,8 @@ def test_rule14_not_applied_across_explicit_kern(math):
 
 def test_rule14_applies_across_removed_style_node(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
         mmode.StyleNode(mmode.MATH_STYLE.T),
@@ -593,8 +607,8 @@ def test_rule14_applies_across_removed_style_node(math):
     ])
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    mlist._pass1AdjustAtoms(math, ctx, collected)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
     assert len(wrappers) == 1
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
@@ -602,8 +616,9 @@ def test_rule14_applies_across_removed_style_node(math):
 
 def test_rule14_applies_across_removed_choice_node(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
-    mlist = mmode.MList(math)
-    empty = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
+    empty = []
     choice = mmode.ChoiceNode(empty, empty, empty, empty)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
@@ -612,8 +627,8 @@ def test_rule14_applies_across_removed_choice_node(math):
     ])
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    mlist._pass1AdjustAtoms(math, ctx, collected)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
     assert len(wrappers) == 1
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
@@ -621,7 +636,8 @@ def test_rule14_applies_across_removed_choice_node(math):
 
 def test_rule14_applies_when_nonscript_removes_following_kern(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
         mmode.NonscriptGlue(),
@@ -630,8 +646,8 @@ def test_rule14_applies_when_nonscript_removes_following_kern(math):
     ])
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    mlist._pass1AdjustAtoms(math, ctx, collected)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
     assert len(wrappers) == 1
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
@@ -639,15 +655,16 @@ def test_rule14_applies_when_nonscript_removes_following_kern(math):
 
 def test_rule14_marks_text_symbol_for_rule17(math):
     math.parse("\\textfont0=\\tenit \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
         _mk_atom(mmode.ATOM_TYPE.REL, 0, "x"),
     ])
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    mlist._pass1AdjustAtoms(math, ctx, collected)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
     assert len(wrappers) == 2
     assert wrappers[0].text_symbol
@@ -656,19 +673,21 @@ def test_rule14_marks_text_symbol_for_rule17(math):
 
 def test_rule17_cases(math):
     # Rule 17: math-list nucleus is typeset to a box.
-    inner = mmode.MList(math)
+    subformula = mmode.Subformula()
+    inner = mmode.MList(math, subformula.list)
     inner.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
         _mk_atom(mmode.ATOM_TYPE.ORD, 1, "b"),
     ])
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom.nucleus = inner
-    mlist = mmode.MList(math)
+    atom.nucleus = subformula
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.append(atom)
     packed = []
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert any(n.node_type == nd.NODE_TYPE.HLIST for n in packed), "rule17 math-list nucleus should typeset to a box"
 
     # Rule 17: text-symbol mark suppresses italic correction kern.
@@ -726,7 +745,7 @@ def test_rule20_spacing_cases(math):
     ]
     for expr, expected_count, predicate, label in cases:
         math.parse(expr)
-        mlist = next(n for n in reversed(math.lists[-1]) if isinstance(n, mmode.InlineMathList))
+        mlist = next(n for n in reversed(math.lists[-1]) if isinstance(n, mmode.InlineMathNode))
         packed = []
         mlist.typeset(math, packed)
         glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
@@ -734,92 +753,93 @@ def test_rule20_spacing_cases(math):
         assert predicate(mlist, glues), label
 
 
-def test_rule21_penalty_cases(math):
-    cases = [
-        (
-            "bin inserted in paragraph math",
-            mmode.InlineMathList,
-            lambda: [
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-                _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
-            ],
-            {"binoppenalty": 123},
-            [123],
-        ),
-        (
-            "rel not inserted before rel",
-            mmode.InlineMathList,
-            lambda: [
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-                _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
-                _mk_atom(mmode.ATOM_TYPE.REL, 1, "c"),
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "d"),
-            ],
-            {"relpenalty": 234},
-            [234],
-        ),
-        (
-            "skip when next item is penalty",
-            mmode.InlineMathList,
-            lambda: [
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-                _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
-                nd.Penalty(50),
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
-            ],
-            {"relpenalty": 345},
-            [50],
-        ),
-        (
-            "skip when configured penalty >= 10000",
-            mmode.InlineMathList,
-            lambda: [
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-                _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
-            ],
-            {"binoppenalty": 10000},
-            [],
-        ),
-        (
-            "disabled outside paragraph math",
-            mmode.MList,
-            lambda: [
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-                _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
-            ],
-            {"binoppenalty": 123},
-            [],
-        ),
-        (
-            "skip after final item",
-            mmode.InlineMathList,
-            lambda: [
-                _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
-                _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
-            ],
-            {"relpenalty": 123},
-            [],
-        ),
-    ]
-    for label, list_type, nodes, ctx_overrides, expected in cases:
-        mlist = list_type(math)
-        mlist.extend(nodes())
-        ctx = mmode.MathTypesetContext(False)
-        ctx.snapshot(math)
-        for key, value in ctx_overrides.items():
-            setattr(ctx, key, value)
-        packed = []
-        mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
-        penalties = [n.penalty for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
-        assert penalties == expected, label
+@pytest.mark.parametrize("label, node_type, nodes, ctx_overrides, expected", [
+    (
+        "bin inserted in paragraph math",
+        mmode.InlineMathNode,
+        lambda: [
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+            _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+        ],
+        {"binoppenalty": 123},
+        [123],
+    ),
+    (
+        "rel not inserted before rel",
+        mmode.InlineMathNode,
+        lambda: [
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+            _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+            _mk_atom(mmode.ATOM_TYPE.REL, 1, "c"),
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "d"),
+        ],
+        {"relpenalty": 234},
+        [234],
+    ),
+    (
+        "skip when next item is penalty",
+        mmode.InlineMathNode,
+        lambda: [
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+            _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+            nd.Penalty(50),
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+        ],
+        {"relpenalty": 345},
+        [50],
+    ),
+    (
+        "skip when configured penalty >= 10000",
+        mmode.InlineMathNode,
+        lambda: [
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+            _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+        ],
+        {"binoppenalty": 10000},
+        [],
+    ),
+    (
+        "disabled outside paragraph math",
+        mmode.Subformula,
+        lambda: [
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+            _mk_atom(mmode.ATOM_TYPE.BIN, 1, "b"),
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "c"),
+        ],
+        {"binoppenalty": 123},
+        [],
+    ),
+    (
+        "skip after final item",
+        mmode.InlineMathNode,
+        lambda: [
+            _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+            _mk_atom(mmode.ATOM_TYPE.REL, 1, "b"),
+        ],
+        {"relpenalty": 123},
+        [],
+    ),
+])
+def test_rule21_penalty_cases(math, label, node_type, nodes, ctx_overrides, expected):
+    node = node_type()
+    mlist = mmode.MList(math, node.list)
+    mlist.extend(nodes())
+    ctx = mmode.MathTypesetContext(False)
+    ctx.snapshot(math)
+    for key, value in ctx_overrides.items():
+        setattr(ctx, key, value)
+    packed = []
+    node.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    penalties = [n.penalty for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert penalties == expected, label
 
 
 def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
     math.parse("\\textfont0=\\tenrm \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     mlist.extend([
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "a"),
         _mk_atom(mmode.ATOM_TYPE.BIN, 0, "f"),
@@ -827,8 +847,8 @@ def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
     ])
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    collected = mlist._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    mlist._pass1AdjustAtoms(math, ctx, collected)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
     auto_kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
     assert len(wrappers) == 3
@@ -866,11 +886,12 @@ def test_rule18_substeps(math):
     assert u == 0 and v == 0, "rule18a char+kern should set u=v=0"
 
     # 18a: box nucleus uses sigma18/sigma19
-    inner = mmode.MList(math)
+    subformula = mmode.Subformula()
+    inner = mmode.MList(math, subformula.list)
     inner.append(_mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"))
     inner.append(_mk_atom(mmode.ATOM_TYPE.ORD, 1, "b"))
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom.nucleus = inner
+    atom.nucleus = subformula
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
@@ -1226,16 +1247,17 @@ def test_typesetnodes_rule1_passthrough_nodes(math):
         def typeset(self, parser, packed, context, style):
             raise AssertionError("Rule 1 nodes should not be typeset")
 
-    mlist = mmode.MList(math)
+    subformula = mmode.Subformula()
+    mlist = mmode.MList(math, subformula.list)
     rule = nd.Rule(1, 1, 0)
-    disc = nd.Disc([], [], [])
+    disc = hmode.Disc([], [], [])
     penalty = nd.Penalty(50)
     whatsit = DummyWhatsit()
     mlist.extend([rule, disc, penalty, whatsit])
     packed = []
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
-    mlist.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    subformula.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert packed == [rule, disc, penalty, whatsit]
 
 
@@ -1351,8 +1373,9 @@ def test_rule12_accent_cases(math):
 
     # Non-single base keeps rule16 script attachment outside accent nucleus.
     accent = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | ord("b"), -1)
-    base = mmode.MList(math)
-    base.append(mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
+    base = mmode.Subformula()
+    base_builder = mmode.MList(math, base.list)
+    base_builder.append(mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
     atom = mmode.Accent(accent, base)
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
     b = atom.assemble(math, ctx, style)
@@ -1382,8 +1405,8 @@ def test_delimiter(math):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert isinstance(node.nucleus, mmode.MList)
-    assert len(node.nucleus) == 3
+    assert isinstance(node.nucleus, mmode.Subformula)
+    assert len(node.nucleus.list) == 3
     assert isSymbol(node.left.small, 0, chr(0x28))
     assert isSymbol(node.right.small, 0, chr(0x29))
     math.parse("$")
@@ -1487,9 +1510,9 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 1
-    assert top[0].node_type == nd.NODE_TYPE.MATH
-    assert len(top[0]) == 1
-    frac = top[0][0]
+    assert isinstance(top[0], mmode.InlineMathNode)
+    assert len(top[0].list) == 1
+    frac = top[0].list[0]
     assert isinstance(frac, mmode.Over)
     if left is None:
         assert frac.delims is None
@@ -1498,6 +1521,8 @@ def test_fractions(math, cmd, bar, thickness, left, right):
         assert isSymbol(frac.delims[0].small, left[0], left[1])
         assert isSymbol(frac.delims[1].small, right[0], right[1])
     num, den, bar, thickness = frac.nucleus
+    num = num.list
+    den = den.list
     assert len(num) == 1
     assert isSymbol(num[0].nucleus, 1, "a")
     assert len(den) == 1
@@ -1512,8 +1537,8 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     assert isinstance(node, mmode.Atom)
     assert isSymbol(node.left.small, 0, chr(0x28))
     assert isSymbol(node.right.small, 0, chr(0x29))
-    assert len(node.nucleus) == 1
-    frac = node.nucleus[0]
+    assert len(node.nucleus.list) == 1
+    frac = node.nucleus.list[0]
     assert isinstance(frac, mmode.Over)
     if left is None:
         assert frac.delims is None
@@ -1533,7 +1558,7 @@ def test_fractions(math, cmd, bar, thickness, left, right):
 ])
 def test_fraction_rule15_theta(math, cmd, expected_theta):
     math.parse(f"\\noindent$a{cmd} b$\\relax")
-    frac = math.lists[-1][0][0]
+    frac = math.lists[-1][0].list[0]
     assert isinstance(frac, mmode.Over)
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
@@ -1547,7 +1572,7 @@ def test_fraction_rule15_theta(math, cmd, expected_theta):
 
 def test_fraction_rule15_delimiters(math):
     math.parse("\\noindent$a\\overwithdelims() b$\\relax")
-    frac = math.lists[-1][0][0]
+    frac = math.lists[-1][0].list[0]
     assert isinstance(frac, mmode.Over)
     assert frac.delims is not None
     left, right = frac.delims
@@ -1562,14 +1587,14 @@ def test_fraction_rule15b_uv_text_over_vs_atop(math):
     sigma = ctx.sigma(style)
 
     math.parse("\\noindent$a\\over b$\\relax")
-    over = math.lists[-1][-1][0]
+    over = math.lists[-1][-1].list[0]
     _, _, theta_over = over.rule15(ctx, style)
     u_over, v_over = over.rule15b(ctx, style, theta_over)
     assert float(u_over) == pytest.approx(sigma[8], abs=1e-4)   # sigma9
     assert float(v_over) == pytest.approx(sigma[11], abs=1e-4)  # sigma12
 
     math.parse("\\noindent$a\\atop b$\\relax")
-    atop = math.lists[-1][-1][0]
+    atop = math.lists[-1][-1].list[0]
     _, _, theta_atop = atop.rule15(ctx, style)
     u_atop, v_atop = atop.rule15b(ctx, style, theta_atop)
     assert float(theta_atop) == pytest.approx(0, abs=1e-8)
@@ -1583,7 +1608,7 @@ def test_fraction_rule15b_uv_script(math):
     ctx.snapshot(math)
     sigma = ctx.sigma(style)
     math.parse("\\noindent$a\\over b$\\relax")
-    frac = math.lists[-1][-1][0]
+    frac = math.lists[-1][-1].list[0]
     _, _, theta = frac.rule15(ctx, style)
     u, v = frac.rule15b(ctx, style, theta)
     assert float(u) == pytest.approx(sigma[8], abs=1e-4)   # sigma9
@@ -1595,7 +1620,7 @@ def test_fraction_rule15c_atop_construction(math):
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
     math.parse("\\noindent$a\\atop b$\\relax")
-    frac = math.lists[-1][-1][0]
+    frac = math.lists[-1][-1].list[0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
     assert len(packed) == 1
@@ -1629,7 +1654,7 @@ def test_fraction_rule15d_over_construction(math):
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
     math.parse("\\noindent$a\\over b$\\relax")
-    frac = math.lists[-1][-1][0]
+    frac = math.lists[-1][-1].list[0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
     assert len(packed) == 1
@@ -1667,7 +1692,7 @@ def test_fraction_rule15d_over_min_clearance_script(math):
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
     math.parse("\\noindent$a\\over b$\\relax")
-    frac = math.lists[-1][-1][0]
+    frac = math.lists[-1][-1].list[0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
     assert len(packed) == 1
@@ -1686,7 +1711,7 @@ def test_fraction_rule15e_with_delims_builds_three_boxes(math):
     ctx = mmode.MathTypesetContext(False)
     ctx.snapshot(math)
     math.parse("\\noindent$a\\overwithdelims() b$\\relax")
-    frac = math.lists[-1][-1][0]
+    frac = math.lists[-1][-1].list[0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
     assert len(packed) == 1
@@ -1746,18 +1771,18 @@ def test_eqno(math, left):
     math.parse(f"$$a{cmd}1$$")
     top = math.lists[0]
     assert top.type == lists.LISTTYPE.VERTICAL
-    mlist = next(n for n in top if isinstance(n, mmode.MList))
+    mlist = next(n for n in top if isinstance(n, mmode.DisplayMathNode))
     assert mlist.node_type == nd.NODE_TYPE.MATH
-    assert len(mlist) == 1
-    atom = mlist[0]
+    assert len(mlist.list) == 1
+    atom = mlist.list[0]
     assert isinstance(atom, mmode.Atom)
     assert isSymbol(atom.nucleus, 1, "a")
     assert mlist.eqno is not None
     eqno, eqno_left = mlist.eqno
     assert eqno_left == left
-    assert isinstance(eqno, mmode.MList)
-    assert len(eqno) == 1
-    node = eqno[0]
+    assert isinstance(eqno, mmode.Subformula)
+    assert len(eqno.list) == 1
+    node = eqno.list[0]
     assert isinstance(node, mmode.Atom)
     assert isSymbol(node.nucleus, 0, "1")
 

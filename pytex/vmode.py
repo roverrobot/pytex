@@ -164,7 +164,7 @@ class VListHolder:
         return typesetVerticalNodes(parser, self.list, packed)
 
 
-class VList(lists.ListBuildState):
+class VList(lists.List):
     """
     Vertical list build-state wrapper.
 
@@ -172,19 +172,17 @@ class VList(lists.ListBuildState):
     It serves a concrete vertical list node and tracks \\prevdepth/\\lastbox
     build-time state.
     """
-    _local_attrs = lists.ListBuildState._local_attrs | {"prevdepth", "can_lastbox", "type", "inner"}
 
-    def __init__(self, parser, inner=True, node=None):
-        if node is None:
-            node = lists.List(parser, lists.LISTTYPE.VERTICAL, inner=inner)
-        if hasattr(node, "inner"):
-            inner = node.inner
-        super().__init__(parser, node)
-        object.__setattr__(self, "prevdepth", init_prevdepth)
-        object.__setattr__(self, "can_lastbox", False)
-        object.__setattr__(self, "type", lists.LISTTYPE.VERTICAL)
-        object.__setattr__(self, "inner", inner)
+    def __init__(self, parser, nodes, inner=True):
+        self.parser = parser
+        self.list = nodes
+        self.inner = inner
+        self.prevdepth = init_prevdepth
+        self.can_lastbox = False
+        self.type = lists.LISTTYPE.VERTICAL
 
+    list_type_name = "VList"
+    
     def append(self, node):
         self.can_lastbox = False
         context = getattr(node, "typeset_context", None)
@@ -201,7 +199,7 @@ class VList(lists.ListBuildState):
             self.prevdepth = init_prevdepth
         elif context is not None:
             self.prevdepth = None
-        self._raw_append(node)
+        self.list.append(node)
 
     def resolvePrevDepth(self):
         if self.prevdepth is not None:
@@ -228,9 +226,6 @@ class VList(lists.ListBuildState):
             elif node.node_type == nd.NODE_TYPE.RULE:
                 break
         return init_prevdepth
-
-    def typesetNodes(self, parser, packed):
-        return typesetVerticalNodes(parser, self, packed)
 
 
 class VAdjust(nd.Node, VListHolder):
@@ -365,8 +360,7 @@ def readVList(parser, reason, ended=None):
     @param reason: the reason for reading the list
     @param ended: called after the list group closes
     """
-    vlist = lists.List(parser, lists.LISTTYPE.VERTICAL)
-    vstate = VList(parser, node=vlist)
+    vstate = VList(parser, [])
     parser.clearParagraphSettings()
     return parser.readList(vstate, reason, ended)
 

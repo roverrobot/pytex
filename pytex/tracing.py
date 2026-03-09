@@ -53,7 +53,7 @@ def _show_list(parser, current):
         getattr(current, "type", None) == lists.LISTTYPE.VERTICAL
         and not getattr(current, "inner", True)
     )
-    lines = [] if is_main_vlist else [current.meaning(parser)]
+    lines = [] if is_main_vlist else [current.list_type_name]
     depth = _show_limit(parser.state.parameters["showboxdepth"])
     _show_items(parser, lines, list(current), "" if is_main_vlist else ".", depth)
     return lines

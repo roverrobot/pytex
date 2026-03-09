@@ -15,6 +15,7 @@ from pytex import accessor
 from pytex.state import GROUP_TYPE
 from pytex.module import Module
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
+from pytex import tracing
 
 
 class Row(serialization.Serializable):
@@ -45,17 +46,10 @@ class AlignmentBuildStack(list):
     def currentCell(self):
         if not self:
             return None
-        row_state = self[-1].current_row_state
+        row_state = self[-1].row_state
         if row_state is None:
             return None
         return row_state.current_cell
-
-
-class CellList(list):
-    """
-    Plain list payload for horizontal alignment cells with a span marker.
-    """
-    pass
 
 
 class CellBuildState:
@@ -65,52 +59,13 @@ class CellBuildState:
 
     @param node: the box node whose list holds the cell content
     @param column_no: the column number of the cell
-    @param row_build_state: the build state of the row this cell is in
     @param templates: remaining template parts to inject, in reverse push order
     """
-    def __init__(self, parser, node, column_no, row_build_state, templates):
-        object.__setattr__(self, "node", node)
-        object.__setattr__(self, "list", node.list)
-        if node.node_type == nd.NODE_TYPE.HLIST:
-            build = hmode.HList(parser, inner=True, node=node.list)
-        else:
-            build = vmode.VList(parser, inner=True, node=node)
-        object.__setattr__(self, "build", build)
-        object.__setattr__(self, "column_no", column_no)
-        object.__setattr__(self, "row_build_state", row_build_state)
-        object.__setattr__(self, "templates", templates)
-
-    def __getattr__(self, name):
-        if name == "span":
-            return getattr(self.node.list, "span", False)
-        try:
-            return getattr(self.build, name)
-        except AttributeError:
-            return getattr(self.node, name)
-
-    def __setattr__(self, name, value):
-        if name == "span":
-            try:
-                setattr(self.node.list, name, value)
-            except AttributeError:
-                setattr(self.node, name, value)
-            return
-        setattr(self.build, name, value)
-
-    def __getitem__(self, index):
-        return self.build[index]
-
-    def __setitem__(self, index, value):
-        self.build[index] = value
-
-    def __delitem__(self, key):
-        del self.build[key]
-
-    def __len__(self):
-        return len(self.build)
-
-    def __iter__(self):
-        return iter(self.build)
+    def __init__(self, cell_box, column_no, templates):
+        self.node = cell_box
+        self.node.span = False
+        self.column_no = column_no
+        self.templates = templates
 
     def pushTemplate(self, parser):
         if self.templates:
@@ -127,73 +82,66 @@ class CellBuildState:
             break
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         parser.lists.pop()
-        self.row_build_state.current_cell = None
 
 
 class RowBuildState:
     """
     Runtime-only row parsing state.
-    Keeps parser details (alignment/preamble template) off Row.
+    Keeps parser details (alignment/preamble) off Row.
     """
-    def __init__(self, row, alignment, template, builder):
-        self.row = row
+    def __init__(self, alignment, builder):
+        self.row = None
         self.alignment = alignment
-        self.template = template
+        self.preamble = builder.preamble
         self.builder = builder
         self.current_cell = None
 
-    def newCell(self, parser, column_no, omit=False):
+    def newCell(self, parser, column_no):
         cell = self.alignment.newBox(parser)
-        if cell.node_type == nd.NODE_TYPE.HLIST and type(cell.list) is list:
-            content = CellList(cell.list)
-            content.span = False
-            cell.list = content
-        self.row.cells.append(cell)
-        template = self.template if self.template is not None else self.builder.preamble
-        if omit:
+        preamble = self.preamble
+        t = parser.skipSpaces(True)
+        if t is None:
+            raise ValueError("expecting \\cr", parser.input.position())
+        if getattr(t, "definition", None) is omit:
             templates = []
         else:
-            if column_no < len(template):
-                column = template[column_no]
-            elif self.builder.repeat_start:
-                column = template[column_no % len(template)]
-            else:
-                raise ValueError("extra alignment tab has been changed to \\cr", parser.input.position())
+            parser.input.unread(t)        
+            if column_no >= len(preamble):
+                if not self.builder.repeat_start:
+                    raise ValueError("extra alignment tab", parser.input.position())
+                column_no %= len(preamble)
+            column = preamble[column_no]
             templates = [column.v, column.u]
-        self.current_cell = CellBuildState(parser, cell, column_no, self, templates)
-        return self.current_cell
+        self.current_cell = CellBuildState(cell, column_no, templates)
+        if cell.node_type == nd.NODE_TYPE.HLIST:
+            parser.lists.append(hmode.HList(parser, cell.list, inner=True))
+        else:
+            parser.lists.append(vmode.VList(parser, cell.list, inner=True))
+        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+        self.current_cell.pushTemplate(parser)
 
-    def _startNextRow(self, parser):
-        row = Row()
-        self.alignment.rows.append(row)
-        template = self.template if self.template is not None else self.builder.preamble
-        row_state = RowBuildState(row, self.alignment, template, self.builder)
-        self.builder.current_row_state = row_state
-        newCell(parser, row_state, 0)
+    def startNextRow(self, parser):
+        self.row = Row()
+        self.alignment.rows.append(self.row)
+        self.current_cell = None
+        self.newCell(parser, 0)
 
-    def _resumeAfterCr(self, parser):
-        # TeX ignores spaces after \cr before deciding whether \noalign
-        # (or the next row) follows.
-        t = parser.skipSpaces(True)
+    def finishRow(self, parser):
+        t = parser.skipSpaces()
         if t is None:
             raise ValueError("expecting }", parser.input.position())
         t = parser.token_meaning(t)
-        if t.catcode == CATCODE.END_GROUP:
-            parser.input.unread(t)
-            return
         command = getattr(t, "definition", None)
         if command == noalign:
             noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
             noalign_owner.noalign = parser.readVList(
                 GROUP_TYPE.NO_ALIGN,
-                lambda: self._resumeAfterCr(parser),
+                lambda: self.finishRow(parser),
             )
             return
         parser.input.unread(t)
-        self._startNextRow(parser)
-
-    def finishRow(self, parser):
-        self._resumeAfterCr(parser)
+        if t.catcode != CATCODE.END_GROUP:
+            self.startNextRow(parser)
 
 
 class Alignment(nd.Node):
@@ -279,7 +227,7 @@ class Alignment(nd.Node):
                     cell = row.cells[i]
                     cells.append(cell.typeset(parser))
                     column += 1
-                    if not getattr(cell.list, "span", 0):
+                    if not getattr(cell, "span"):
                         break
                     i += 1
                     if i >= len(row.cells):
@@ -545,7 +493,7 @@ class HAlignment(Alignment):
             W += self.spread
         out = bx.VBox(parser, None, Dimen())
         out.typeset_context = context
-        vbuild = vmode.VList(parser, inner=True, node=out)
+        vbuild = vmode.VList(parser, out.list, inner=True)
         if self.noalign is not None:
             self._appendVerticalMaterial(parser, vbuild, self.noalign)
         for row, rowbox, row_total, row_width in prepared:
@@ -749,43 +697,21 @@ class VAlignment(Alignment):
         self.pretypeset(parser)
         packed.extend(self._typeset_cache.list)
 
+
 class EndCellToken(Token):
-    def __init__(self, cell, is_last):
+    def __init__(self, is_last: bool):
         super().__init__("\\endcell", None)
-        self.cell = cell
         self.is_last = is_last
 
     def execute(self, parser):
-        row = self.cell.row_build_state
-        self.cell.close(parser)
-        if self.is_last:
-            row.finishRow(parser)
+        row: RowBuildState = parser.alignments[-1].row_state
+        row.current_cell.close(parser)
+        row.row.cells.append(row.current_cell.node)
+        row.current_cell = None
+        if not self.is_last:
+            row.newCell(parser, len(row.row.cells))
         else:
-            newCell(parser, row, self.cell.column_no + 1)
-
-
-def newCell(parser, row_state, column_no):
-    alignment = row_state.alignment
-    row = row_state.row
-    has_omit = False
-    t = parser.skipSpaces(True)
-    if t is None:
-        raise ValueError("expecting \\cr", parser.input.position())
-    if getattr(t, "definition", None) is omit:
-        has_omit = True
-    else:
-        if parser.token_meaning(t).catcode == CATCODE.END_GROUP:
-            if column_no != 0:
-                raise ValueError("expecting \\cr", parser.input.position())
-            if not row.cells and alignment.rows and alignment.rows[-1] is row:
-                alignment.rows.pop()
-            parser.input.unread(t)
-            return
-        parser.input.unread(t)
-    cell = row_state.newCell(parser, column_no, has_omit)
-    parser.lists.append(cell)
-    parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-    cell.pushTemplate(parser)
+            row.finishRow(parser)
 
 
 def endCell(parser, is_last):
@@ -793,7 +719,7 @@ def endCell(parser, is_last):
     if cell is None:
         message = "unexpected \\cr" if is_last else "expecting \\cr"
         raise ValueError(message, parser.input.position())
-    parser.input.push(lexer.TokenListScanner([EndCellToken(cell, is_last)]))
+    parser.input.push(lexer.TokenListScanner([EndCellToken(is_last)]))
     cell.pushTemplate(parser)
 
 
@@ -807,9 +733,17 @@ class CrCr(Command):
         Execute the command. It terminates the current row in an alignment.
         @param parser: the parser
         """
-        endCell(parser, is_last=True)
-
-
+        alignments = parser.alignments
+        if not alignments:
+            raise ValueError("unexpected \\cr", parser.input.position())
+        builder: AlignmentBuilder = alignments[-1]
+        if builder.row_state is not None:
+            endCell(parser, is_last=True)
+        else:
+            parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+            builder.row_state = RowBuildState(builder.alignment, builder)
+            builder.row_state.finishRow(parser)
+        
 
 class Cr(CrCr):
     """
@@ -836,7 +770,7 @@ class Span(Command):
         cell = parser.alignments.currentCell()
         if cell is None:
             raise ValueError("unexpected \\span", parser.input.position())
-        cell.span = True
+        cell.node.span = True
         endCell(parser, is_last=False)
 
 
@@ -911,7 +845,7 @@ class AlignmentBuilder:
     def __init__(self, alignment):
         self.alignment = alignment
         # the current row being built
-        self.current_row_state = None
+        self.row_state = None
         # the preamble for the alignment, whiich is a list of templates
         # each template is a tuple of two lists, the tokens to the left and right of the # token
         self.preamble = []
@@ -930,15 +864,7 @@ class AlignmentBuilder:
         # we first remember the current \tabskip settings        
         self.alignment.tabskips.append(parser.state.parameters["tabskip"])
         tabskip = parser.builtin["\\tabskip"]
-        # Build the preamble against a synthetic row that seeds the first real row.
-        row = Row()
-        row_state = RowBuildState(row, self.alignment, self.preamble, self)
-        self.current_row_state = row_state
-        cell = self.alignment.newBox(parser)
-        row.cells.append(cell)
-        row_state.current_cell = CellBuildState(parser, cell, 0, row_state, [])
-        parser.lists.append(row_state.current_cell)
-        # we start a new group, which will be terminated by \cr or \crcr
+        # Build the preamble. We start a new group, which will be terminated by \cr or \crcr
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         while True:
             template = [] # the tokans in the column template
@@ -1031,10 +957,9 @@ class HAlign(Align):
     
     def math(self, parser, mlist):
         from pytex import mmode
-        display = mlist
-        if not isinstance(display, mmode.DisplayMathList) or len(display) > 0:
+        if mlist.inner or len(mlist) > 0:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
-        mlist = HAlignMathList(display)
+        mlist = HAlignMathList(mlist)
         parser.lists[-1] = mlist
         self.newAlignment(parser, mlist, MAlignment)
 
@@ -1053,6 +978,7 @@ class HAlignMathList(nd.Node):
     """
     node_type = nd.NODE_TYPE.MATH
     type = lists.LISTTYPE.MATH
+    list_type_name = "MLIST"
 
     def __init__(self, display):
         object.__setattr__(self, "display", display)
@@ -1076,18 +1002,18 @@ class HAlignMathList(nd.Node):
         setattr(self.display, name, value)
 
     def __len__(self):
-        return len(self.display)
+        return len(self.display.list)
 
     def __iter__(self):
-        return iter(self.display)
+        return iter(self.display.list)
 
     def __getitem__(self, index):
-        return self.display[index]
+        return self.display.list[index]
 
     def append(self, node):
-        if len(self.display) > 0 or not isinstance(node, MAlignment):
+        if len(self.display.list) > 0 or not isinstance(node, MAlignment):
             raise ValueError("only assignments can follow \\halign in display math", self.display.parser.input.position())
-        self.display.append(node)
+        self.display.list.append(node)
 
     def typeset(self, parser, packed):
         if (

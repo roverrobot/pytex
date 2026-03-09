@@ -241,13 +241,16 @@ class MList(lists.List):
     """
     a math list
     @param parser: the parser that created the list
-    @param inner: whether the list is in internal mode (inline or subformula)
+    @
     """
-    def __init__(self, parser, inner=True, nodes=None):
-        super().__init__(parser, lists.LISTTYPE.MATH, inner, nodes)
+    def __init__(self, parser, list=None, inner=True):
+        super().__init__(parser, [] if list is None else list, inner=inner)
         self.building_atom = None
+        self.type = lists.LISTTYPE.MATH
     
     node_type = nd.NODE_TYPE.MATH
+
+    list_type_name = "MLIST"
 
     def clear(self):
         super().clear()
@@ -278,7 +281,7 @@ class MList(lists.List):
             return
         if isinstance(node, box.Box):
             node = Box(node)
-        elif isinstance(node, MList):
+        elif isinstance(node, Subformula):
             n = Atom(ATOM_TYPE.ORD)
             n.nucleus = node
             node = n
@@ -287,6 +290,14 @@ class MList(lists.List):
             n.nucleus = node
             node = n
         super().append(node)
+
+
+class MathListHolder:
+    def __init__(self, list=None, paragraph_math=False):
+        self.list = [] if list is None else list
+        self.paragraph_math = paragraph_math
+    
+    node_type = None # not a standard node. Needs to be expanded into boxes
 
     @staticmethod
     def _typesetWithAvailableSignature(typeset, parser, packed, context, style):
@@ -332,7 +343,7 @@ class MList(lists.List):
             nd.NODE_TYPE.WHATSIT,
         }
         collected = []
-        current = iter(self)
+        current = iter(self.list)
         stack = []
         while current is not None:
             node = next(current, None)
@@ -550,7 +561,7 @@ class MList(lists.List):
         if packed is None:
             packed = []
         atom_context = AtomTypesetContext(context, None)
-        atom_context.paragraph_math = isinstance(self, InlineMathList)
+        atom_context.paragraph_math = self.paragraph_math
         items = iter(collected)
         item = next(items, None)
         while item is not None:
@@ -580,13 +591,43 @@ class MList(lists.List):
         packed.append(_drop_redundant_wrapper(hbox.typeset(parser), allow_char=True))
 
 
-class InlineMathList(MList):
-    def __init__(self, parser, nodes=None):
-        super().__init__(parser, True, nodes)
-        self.typeset_context = MathTypesetContext(True)
+class Subformula(MathListHolder):
+    def __init__(self):
+        super().__init__(list=[], paragraph_math=False)
 
     def saveInfo(self):
-        return {"init": [x for x in self], "extra": { "fraction": self.fraction}}
+        return {
+            "init": {},
+            "extra": {
+                "list": self.list,
+            }
+        }
+
+    def typeset(self, parser, packed, context, style):
+        temp = []
+        super().typeset(parser, temp, context, style)
+        if len(temp) == 1:
+            packed.append(temp[0])
+        else:
+            hbox = box.HBox(parser, None, 0)
+            hbox.list = temp
+            hbox.typeset(parser, packed)
+
+
+class InlineMathNode(MathListHolder):
+    def __init__(self, nodes=None):
+        super().__init__(list=nodes, paragraph_math=True)
+        self.typeset_context = MathTypesetContext(True)
+
+    node_type = nd.NODE_TYPE.MATH
+
+    def saveInfo(self):
+        return {
+            "init": {},
+            "extra": {
+                "list": self.list,
+            }
+        }
 
     def typeset(self, parser, packed):
         # Appendix G Rule 22: inline math translation is enclosed by
@@ -601,11 +642,13 @@ class InlineMathList(MList):
         packed.append(math_shift)
 
 
-class DisplayMathList(MList):
+class DisplayMathNode(MathListHolder):
     box_materializable = True
+    
+    node_type = nd.NODE_TYPE.MATH
 
-    def __init__(self, parser, nodes=None):
-        super().__init__(parser, False, nodes)
+    def __init__(self):
+        super().__init__(list=[], paragraph_math=True)
         # the equation number. If there is one, this holds a tuple (MList, bool)
         # where the MList points to the equation number material, and the bool indicates
         # whether the equation number is on the left
@@ -618,8 +661,9 @@ class DisplayMathList(MList):
 
     def saveInfo(self):
         return {
-            "init": [x for x in self], 
+            "init": {},
             "extra": {
+                "list": self.list,
                 "eqno": self.eqno,
             }
         }
@@ -973,17 +1017,11 @@ class Atom(nd.Node):
             packed.append(b)
             return delta
 
-        if isinstance(self.nucleus, MList):
-            # Rule 17 (first sentence): a math-list nucleus is translated in
-            # current style and replaced by the resulting box.
-            self.nucleus.typeset(parser, packed, context, style)
-            return delta
-
+        self.nucleus.typeset(parser, packed, context, style)
         if isinstance(self.nucleus, MathSymbol):
             # Rule 17 (common symbol case).
-            font = context.font(style, self.nucleus.fam)
-            node = font[self.nucleus.char]
-            packed.append(node)
+            node = packed[-1]
+            font = node.font
             fontdimen2 = font.param[1] if len(font.param) > 1 else 0
             text_symbol = getattr(context, "text_symbol", False)
             if (not text_symbol) or int(fontdimen2) == 0:
@@ -991,14 +1029,6 @@ class Atom(nd.Node):
             if int(delta) != 0 and self.sub is None:
                 packed.append(nd.Kern(delta, automatic=True))
                 delta = Dimen()
-            return delta
-
-        if isinstance(self.nucleus, nd.Box):
-            # Box atoms carry a prebuilt box nucleus.
-            packed.append(self.nucleus.typeset(parser))
-            return delta
-
-        self.nucleus.typeset(parser, packed, context, style)
         return delta
 
     def _rule18aIsCharTranslation(self, translated):
@@ -1414,55 +1444,50 @@ class Box(Atom):
     def saveInfo(self):
         return super().saveInfo() | {"init": {"box": self.nucleus}}
 
+    def typesetNucleus(self, parser, packed, context, style):
+        # Box atoms carry a prebuilt box nucleus.
+        packed.append(self.nucleus.typeset(parser))
+        return Dimen()
+
 
 class MathEndGroupCallback:
-    def __init__(self, parser):
+    def __init__(self, parser, node):
         self.parser = parser
+        self.node = node
 
-    def endgroup(self, parser, top, mlist_state):
-        raise NotImplementedError("subclasses should implement it")
+    def finalize(self, parser, top, mlist):
+        top.append(self.node)
 
     def __call__(self):
-        # first we need to check if we are building a general fraction
         parser = self.parser
-
-        def _ensure_atom_complete(mlist_state):
-            if getattr(mlist_state, "building_atom", None) is not None:
-                raise ValueError("missing field", parser.input.position())
-
-        mlist_state = parser.lists.pop()
-        assert mlist_state.type == lists.LISTTYPE.MATH
-        _ensure_atom_complete(mlist_state)
-        if getattr(mlist_state, "is_denominator", False):
-            mlist_state = parser.lists.pop()
-            _ensure_atom_complete(mlist_state)
+        mlist = parser.lists.pop()
+        assert mlist.type == lists.LISTTYPE.MATH
+        # we need to check if we are building a general fraction
+        if getattr(mlist, "building_atom", None) is not None:
+            raise ValueError("missing field", self.parser.input.position())
+        if getattr(mlist, "is_denominator", False):
+            mlist= parser.lists.pop()
         top = parser.lists[-1]
-        self.endgroup(parser, top, mlist_state)
+        self.finalize(parser, top, mlist)
 
 
-class MathShitfEndGroupCallback(MathEndGroupCallback):
-    def endgroup(self, parser, top, mlist_state):
-        mlist = mlist_state
-        mlist.typeset_context.snapshot(parser)
+class MathShiftEndGroupCallback(MathEndGroupCallback):    
+    def finalize(self, parser, top, mlist):
         # here top points to the enclosing horizontal list
         # if mlist is inline math, then we simply add it to the enclosing list
+        top.append(self.node)
+        eqno = getattr(mlist, "eqno", None)
+        if eqno is not None:
+            self.node.eqno = eqno
+        self.node.typeset_context.snapshot(parser)
         if mlist.inner:
-            top.append(mlist)
             return
         # top is the enclosing vlist
-        if mlist.typeset_context.prevgraf is None:
-            mlist.typeset_context.prevgraf = 0
-        if mlist.typeset_context.predisplaysize is None:
-            mlist.typeset_context.predisplaysize = NEG_MAX_DIMEN
-        top.append(mlist)
         new_par = parser.newParagraph(indent=False, parskip=False) # the new paragraph after the display math
         new_par.keep_empty = True
-        mlist.next_paragraph = new_par
-        new_par.prev_paragraph = mlist
+        self.node.next_paragraph = new_par
+        new_par.prev_paragraph = self.node
 
-class SubformulaEndGroupCallBack(MathEndGroupCallback):
-    def endgroup(self, parser, top, mlist_state):
-        top.append(mlist_state)
 
 def mathShift(parser):
     """
@@ -1476,14 +1501,12 @@ def mathShift(parser):
     # if so, we are terminating the math mode
     if top.type == lists.LISTTYPE.MATH:
         # Now we are in math mode. We are terminating the math mode.
-        t = parser.token()
         # are we in display math or inline math?
-        if top.inner:
-            if t:
-                parser.input.unread(t)
-        elif t is None or t.catcode != CATCODE.MATH_SHIFT:
-            # we are in display math mode. We should match $$, i.e., an additional $
-            raise ValueError("missing $", parser.input.position())
+        if not top.inner:
+            t = parser.token()
+            if t is None or t.catcode != CATCODE.MATH_SHIFT:
+                # we are in display math mode. We should match $$, i.e., an additional $
+                raise ValueError("missing $", parser.input.position())
         pos = parser.input.position()
         # We first terminates the current group.
         # if the current math list is not the base math list started by a math shift,
@@ -1512,44 +1535,27 @@ def mathShift(parser):
         else:
             inner = True
             parser.input.unread(t)
+    node = InlineMathNode() if inner else DisplayMathNode()
     if not inner:
         volatile = parser.state.volatile
-        if len(top) > 0:
-            parser.endParagraph()
-            prev_par = top.node
-            parser.paragraph_before_last_display_math = prev_par
-            prev_par.pretypeset(parser)
-            context = prev_par.typeset_context
-            line_count = context.line_count
-            displayindent, displaywidth = context.lineShape(line_count + 1)
-            volatile["displaywidth"] = displaywidth
-            volatile["displayindent"] = displayindent
-            if prev_par._typeset_cache:
-                volatile["predisplaysize"] = prev_par._typeset_cache[-1].rightmost() + 2 * context.em
-            else:
-                volatile["predisplaysize"] = NEG_MAX_DIMEN
-            parser.state.globals["prevgraf"] = line_count
-        else:
-            # Drop empty paragraph and keep default display metrics for no previous line.
-            parser.lists.pop()
-            parser.clearParagraphSettings()
-            parser.paragraph_before_last_display_math = None
-            volatile["displaywidth"] = parser.state.layout["hsize"]
-            volatile["displayindent"] = Dimen()
-            volatile["predisplaysize"] = NEG_MAX_DIMEN
-            parser.state.globals["prevgraf"] = 0
+        prev_par = parser.endParagraph()
+        if prev_par is not None:
+            prev_par.next_paragraph = node
+        node.prev_paragraph = prev_par
+        parser.paragraph_before_last_display_math = prev_par
+#            prev_par.pretypeset(parser)
+        volatile["displaywidth"] = None
+        volatile["displayindent"] = None
+        volatile["predisplaysize"] = None
+        parser.state.globals["prevgraf"] = None
+    parser.lists.append(MList(parser, node.list, inner=inner))
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
     parser.beginGroup(
         parser.input.position(),
         GROUP_TYPE.MATH_SHIFT,
-        ended=MathShitfEndGroupCallback(parser),
+        ended=MathShiftEndGroupCallback(parser, node),
     )
-    mlist = InlineMathList(parser) if inner else DisplayMathList(parser)
-    parser.lists.append(mlist)
-    if prev_par is not None:
-        prev_par.next_paragraph = mlist
-    mlist.prev_paragraph = prev_par
     every = parser.everymath.value if inner else parser.everydisplay.value
     if every:
         parser.input.push(TokenListScanner(every))
@@ -1794,8 +1800,7 @@ class ChoiceNode(nd.Node):
 
 class MathChoiceEndGroupCallback(MathEndGroupCallback):
     def __init__(self, parser, node):
-        super().__init__(parser)
-        self.node = node
+        super().__init__(parser, node)
         self.state = 0
         self.attr = ["display", "text", "script", "scriptscript"]
 
@@ -1808,8 +1813,8 @@ class MathChoiceEndGroupCallback(MathEndGroupCallback):
         parser.lists.append(MList(parser))
         parser.beginGroup(pos, GROUP_TYPE.MATH_CHOICE, ended=self)
 
-    def endgroup(self, parser, top, mlist_state):
-        setattr(self.node, self.attr[self.state], mlist_state)
+    def finalize(self, parser, top, mlist):
+        setattr(self.node, self.attr[self.state], mlist)
         self.state += 1
         if self.state < 4:
             self.beginGroup(parser)
@@ -2006,16 +2011,11 @@ class Delim(serialization.Serializable):
         v.width = rep.width
         return v
 
-    def typeset(self, parser, total, context=None, style=None, axis=None):
+    def typeset(self, parser, total, context, style, axis=None):
         """
         return a box containing the delimiter that fits a requested total
         height+depth.
         """
-        if context is None:
-            context = MathTypesetContext(True)
-            context.snapshot(parser)
-        if style is None:
-            style = Style(MATH_STYLE.T)
         if axis is None:
             axis = Dimen(context.sigma(style)[21])
         if self._isNull():
@@ -2140,12 +2140,12 @@ class Radical(lists.ModeDependentCommand):
 
 
 class MathLeftEndGroupCallBack(MathEndGroupCallback):
-    def __init__(self, parser, atom):
-        super().__init__(parser)
+    def __init__(self, parser, node, atom):
+        super().__init__(parser, node)
         self.atom = atom
 
-    def endgroup(self, parser, top, mlist_state):
-        self.atom.nucleus = mlist_state
+    def finalize(self, parser, top, mlist):
+        self.atom.nucleus = self.node
         self.atom.right = readDelimiter(parser)
 
 class Left(lists.ModeDependentCommand):
@@ -2157,11 +2157,12 @@ class Left(lists.ModeDependentCommand):
         atom = Atom(ATOM_TYPE.ORD)
         atom.left = delim
         mlist.append(atom)
-        parser.lists.append(MList(parser))
+        subformula = Subformula()
+        parser.lists.append(MList(parser, subformula.list))
         parser.beginGroup(
             parser.input.position(),
             GROUP_TYPE.MATH_LEFT,
-            ended=MathLeftEndGroupCallBack(parser, atom),
+            ended=MathLeftEndGroupCallBack(parser, subformula, atom),
         )
 
 
@@ -2345,20 +2346,20 @@ class GeneralFraction(lists.ModeDependentCommand):
             right = readDelimiter(parser)
         thickness = parser.readDimen() if self.thickness else None
         # replace the current MList with a new one
-        numerator = MList(mlist.parser, mlist.inner)
-        numerator[:] = mlist
-        numerator.inner = True
-        mlist.clear()
+        numerator = Subformula()
+        numerator.list = mlist.list.copy()
+        mlist.list.clear()
         # mlist becomes the numerator
-        denominator = MList(mlist.parser, mlist.inner)
+        denominator = Subformula()
         fraction = Over(numerator, denominator, self.bar, thickness)
         if self.delim:
             fraction.delims = (left, right)
         if self.thickness:
             fraction.thickness = thickness
         mlist.append(fraction)
-        parser.lists.append(denominator)
-        denominator.is_denominator = True
+        den_builder = MList(parser, denominator.list, mlist.inner)
+        den_builder.is_denominator = True
+        parser.lists.append(den_builder)
 
 
 class Accent(Atom):
@@ -2506,7 +2507,7 @@ class Eqno(lists.ModeDependentCommand):
         def callback():
             eq_state = parser.lists.pop()
             eqno = getattr(parser.lists[-1], "eqno", [None, None])[0]
-            assert eq_state is eqno
+            assert eq_state is eqno_builder
             parser.input.unread(MathShiftToken("$", CATCODE.MATH_SHIFT))
         # we must be at the bottom of the math lists
         enclosing = parser.lists[-2]
@@ -2516,8 +2517,9 @@ class Eqno(lists.ModeDependentCommand):
             raise ValueError("only display math can have an equation number", parser.input.position())
         # We start a new group, parsing the equation number, then we pop it off during the 
         # mathShift function before ending the math mode.
-        eqno = MList(parser)
-        parser.lists.append(eqno)
+        eqno = Subformula()
+        eqno_builder = MList(parser, eqno.list)
+        parser.lists.append(eqno_builder)
         mlist.eqno = (eqno, self.left)
         parser.beginGroup(
             parser.input.position(),

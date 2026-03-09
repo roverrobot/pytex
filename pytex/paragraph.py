@@ -114,16 +114,19 @@ class Paragraph(nd.Node, hmode.HListHolder):
     @param parser: the parser
     @param indent: whether to indent the paragraph
     """
-    def __init__(self, parser, indent: bool, nodes=None):
-        hmode.HListHolder.__init__(self, nodes if nodes is not None else [])
+    def __init__(self, parser, indent: bool):
+        hmode.HListHolder.__init__(self, [])
         self.indent = indent
+        # the parskip that is appended before the paragraph
+        self.parskip = None
         # \prevgraf for this paragraph (set by display-math machinery when needed).
         self.prevgraf = 0
         self.typeset_context = None
         # Display math opens a synthetic following paragraph that may remain empty.
         self.keep_empty = False
-        if indent and nodes is None:
-            self.append(bx.IndentBox(parser))
+        if indent:
+            self.list.append(bx.IndentBox(parser))
+        self.parskip
         # these two fields are used to link paragraphs together for display math integration,
         self.next_paragraph = None
         self.prev_paragraph = None
@@ -132,8 +135,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     # not a proper node
     node_type = None
-    type = lists.LISTTYPE.HORIZONTAL
-    inner = False
     # This node can be realized into concrete box nodes on demand.
     box_materializable = True
 
@@ -141,19 +142,19 @@ class Paragraph(nd.Node, hmode.HListHolder):
         return {
             "init": {
                 "indent": self.indent,
-                "nodes": [x for x in self],
             },
             "extra": {
                 "disc": getattr(self, "disc", None),
+                "list": self.list,
             },
         }
 
     @classmethod
-    def new(cls, parser, indent=False, nodes=None):
-        return cls(parser, indent, nodes=nodes)
+    def new(cls, parser, indent):
+        return cls(parser, indent)
 
     def __repr__(self):
-        return f'HList([{", ".join(repr(node) for node in self)}])'
+        return f'HList([{", ".join(repr(node) for node in self.list)}])'
 
     def meaning(self, parser):
         return "HList"
@@ -165,11 +166,11 @@ class Paragraph(nd.Node, hmode.HListHolder):
         if self._typeset_cache is not None:
             return
         context = self.typeset_context
-        if len(self) == 0:
+        if len(self.list) == 0:
             context.line_count = 0
             self._typeset_cache = []
             return
-        scan = self._typesetNodesWithBreaks(parser, self)
+        scan = self._typesetNodesWithBreaks(parser, self.list)
         hlist = scan
         # line break the hlist into lines and pack them into the vlist
         hlist, lines = self.lineBreak(parser, hlist, scan.candidates)
@@ -191,7 +192,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
             # for any disc node in between, replace it with the replace list
             for node in hlist[line.begin.line_start_index:line.end.break_index]:
                 if node.node_type == nd.NODE_TYPE.DISC:
-                    packed.append(self._lineDisc(node, broken=False))
+                    packed.append(self._lineDisc(parser, node, broken=False))
                 else:
                     packed.append(node)
             # TeX keeps an explicit breakpoint penalty in the ending line box
@@ -202,7 +203,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
                     packed.append(end_node)
             # if the line ends at a ligature, append the pre nodes
             if line.end.disc is not None:
-                packed.append(self._lineDisc(line.end.disc, broken=True))
+                packed.append(self._lineDisc(parser, line.end.disc, broken=True))
             packed.append(nd.Glue(context.rightskip, "\\rightskip"))
             hbox = bx.HBox(parser, measure, None)
             hbox.list[:] = packed
@@ -244,9 +245,9 @@ class Paragraph(nd.Node, hmode.HListHolder):
         return list(self._typeset_cache)
 
     @staticmethod
-    def _lineDisc(disc, broken):
+    def _lineDisc(parser, disc, broken):
         rendered = disc.pre if broken else disc.replace
-        out = nd.Disc(disc.pre, disc.post, rendered)
+        out = hmode.Disc(disc.pre, disc.post, rendered).typeset(parser)
         out.list = list(rendered)
         out.source = getattr(disc, "source", None)
         return out
@@ -318,7 +319,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
         """
         context = self.typeset_context
         if hlist is None or scan is None:
-            expanded = self._typesetNodesWithBreaks(parser, self)
+            expanded = self._typesetNodesWithBreaks(parser, self.list)
             hlist = expanded
             scan = expanded.candidates
         extras = self._hyphenBreakCandidates(parser, hlist)
@@ -363,8 +364,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
             self.typesetNodeWithLigatures(parser, node, packed, state)
         return packed
 
-    def _virtualDisc(self, pre, post):
-        out = nd.Disc(pre, post, [])
+    def _virtualDisc(self, parser, pre, post):
+        out = hmode.Disc(pre, post, []).typeset(parser)
         out.list = []
         return out
 
@@ -562,10 +563,11 @@ class Paragraph(nd.Node, hmode.HListHolder):
                         candidate.penalty = context.hyphenpenalty
                         candidate.hyphenated = True
                         if split == len(letters):
-                            candidate.disc = self._virtualDisc([hyphen], [])
+                            candidate.disc = self._virtualDisc(parser, [hyphen], [])
                             candidate.disc_skip = 0
                         else:
                             candidate.disc = self._virtualDisc(
+                                parser,
                                 self._typesetFragment(parser, letters[:split]) + [hyphen],
                                 self._typesetFragment(parser, letters[split:]),
                             )
@@ -864,7 +866,7 @@ class _BreakCandidateScan(list):
             candidate.penalty = self.context.exhyphenpenalty
 
     def extend(self, nodes):
-        for node in nodes:
+        for node in nodes.list:
             self.append(node)
 
     def finish(self):
@@ -1114,10 +1116,16 @@ class PrevGraf(IntegerArrayItemAccessor):
             return value
         # when this is accessed here, we are in building a list. So we use parser.paragraph_before_last_display_math
         # if this paragraph does not exist, then the value has not been changed. we should have returned early
-        para = parser.last_paragraph
-        assert para is not None
-        para.pretypeset(parser)
-        return para.line_count
+        # we look for a paragraph
+        for vlist in reversed(parser.lists):
+            if vlist.type == lists.LISTTYPE.VERTICAL:
+                break
+        for para in reversed(vlist):
+            if isinstance(para, Paragraph):
+                para.pretypeset(parser)
+                return para.line_count
+        return 0
+
 
 mod = Module("paragraph",
     commands={
@@ -1126,7 +1134,4 @@ mod = Module("paragraph",
     parameters={
         "prevgraf": {"value": 0, "accessor": PrevGraf, "domain": "globals"},
     },
-    attributes={
-        "last_paragraph": None,
-    }
 )

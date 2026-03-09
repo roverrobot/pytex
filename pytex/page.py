@@ -769,6 +769,8 @@ class MainVList(vmode.VList):
     The document's main vertical list.
     """
 
+    list_type_name = "MainVList"
+
     _OUTPUT_STATE_MACROS = (
         "\\@currlist",
         "\\@deferlist",
@@ -779,7 +781,7 @@ class MainVList(vmode.VList):
     )
 
     def __init__(self, parser):
-        super().__init__(parser, inner=False)
+        super().__init__(parser, [], inner=False)
         self.page_initial_context = PageBuilderContext(parser.state.layout)
         self.page_context = self.page_initial_context
         snapshot, signature = self._captureOutputSnapshot()
@@ -1279,7 +1281,7 @@ class MainVList(vmode.VList):
             parser.state.box[255] = None
             return []
         parser.state.globals["deadcycles"] += 1
-        outlist = vmode.VList(parser)
+        outlist = vmode.VList(parser, [])
         parser.lists.append(outlist)
         parser.beginGroup(
             parser.input.position(),
@@ -1304,12 +1306,12 @@ class MainVList(vmode.VList):
         parser.endGroup(parser.input.position(), GROUP_TYPE.OUTPUT)
         parser.state.box[255] = None
         carry = []
-        outlist.typesetNodes(parser, carry)
+        vmode.typesetVerticalNodes(parser, outlist.list, carry)
         return carry
 
     def pageBreak(self, parser):
         material = []
-        self.typesetNodes(parser, material)
+        vmode.typesetVerticalNodes(parser, self.list, material)
         breaker = MainVListBreaker(parser, material, self.page_initial_context)
         pages = []
         context = self.page_initial_context
@@ -1355,7 +1357,7 @@ class MainVList(vmode.VList):
 
     def outputPages(self, parser):
         material = []
-        self.typesetNodes(parser, material)
+        vmode.typesetVerticalNodes(parser, self.list, material)
         breaker = MainVListBreaker(parser, material, self.page_initial_context)
         shipped = len(parser.shipout.pages)
         context = self.page_initial_context

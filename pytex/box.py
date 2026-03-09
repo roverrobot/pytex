@@ -458,9 +458,9 @@ class BuildBox(Command):
         if t.catcode != CATCODE.BEGIN_GROUP:
             raise ValueError("expecting a {", parser.input.position())
         if self.vertical:
-            state = vmode.VList(parser, inner=True, node=box)
+            state = vmode.VList(parser, box.list, inner=True)
         else:
-            state = hmode.HList(parser, inner=True, node=box.list)
+            state = hmode.HList(parser, box.list, inner=True)
         parser.lists.append(state)
         state.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value
@@ -629,19 +629,16 @@ class VBox(Box, vmode.VListHolder):
         self.height = Dimen()
         self.depth = Dimen()
         last_depth = Dimen()
-        have_box = False
-        trailing_glue = False
         for n in content:
             node_type = n.node_type
             if node_type == nd.NODE_TYPE.GLUE:
                 natural += n.glue
-                if have_box:
-                    trailing_glue = True
+                natural.dimen += last_depth
+                last_depth = Dimen()
                 continue
             if node_type == nd.NODE_TYPE.KERN:
-                natural.dimen += n.kern
-                if have_box:
-                    trailing_glue = True
+                natural.dimen += n.kern + last_depth
+                last_depth = Dimen()
                 continue
             if isinstance(n, nd.Box):
                 shifted = n.shifted if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) else 0
@@ -651,14 +648,9 @@ class VBox(Box, vmode.VListHolder):
                 natural = self.calculate(n, natural, (w, h, d))
                 natural.dimen += h + last_depth
                 last_depth = d
-                have_box = True
-                trailing_glue = False
                 continue
             self.calculate(n, natural, None)
-        if have_box and not trailing_glue:
-            self.depth = last_depth
-        else:
-            self.depth = Dimen()
+        self.depth = last_depth
         maxdepth = self.box_typeset_context.boxmaxdepth
         if self.depth > maxdepth:
             natural.dimen += self.depth - maxdepth

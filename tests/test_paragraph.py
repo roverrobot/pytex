@@ -64,7 +64,7 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
     parser.parse("a\\par")
     para = next(node for node in parser.lists[-1] if isinstance(node, paragraph.Paragraph))
     parser.parse("b")
-    out = vmode.VList(parser)
+    out = []
     para.typeset(parser, out)
     assert len(out) == 1
     assert out[0].node_type == nd.NODE_TYPE.HLIST
@@ -83,7 +83,7 @@ def test_implicit_paragraph_adds_parskip(parser):
 def test_linebreak_discards_leading_discardables(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
     para = cmr10.lists[-1][-1]
-    out = vmode.VList(cmr10)
+    out = []
     para.typeset(cmr10, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
@@ -95,7 +95,7 @@ def test_linebreak_discards_leading_discardables(cmr10):
 def test_linebreak_typesets_mlist_before_breaking(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent$a$\\par")
     para = next(n for n in cmr10.lists[-1] if isinstance(n, paragraph.Paragraph))
-    out = vmode.VList(cmr10)
+    out = []
     para.typeset(cmr10, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
@@ -219,7 +219,7 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
     cmr10.parse("\\hsize=6.5in\\parindent=0pt\\pretolerance=100\\tolerance=200 ")
     cmr10.parse(text + "\\par")
     para = cmr10.lists[-1][-1]
-    out = vmode.VList(cmr10)
+    out = []
     para.typeset(cmr10, out)
     lines = _lineBoxes(out)
     assert len(lines) == 4
@@ -244,7 +244,7 @@ def test_linebreak_plain_paragraph_cases(parser):
     parser.parse("\\looseness=-1 ")
     parser.parse(text + "\\par")
     para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
-    out = vmode.VList(parser)
+    out = []
     para.typeset(parser, out)
     lines = _lineBoxes(out)
     assert len(lines) == 4
@@ -259,7 +259,7 @@ def test_linebreak_plain_paragraph_cases(parser):
         " second-last letter of a word.\\par"
     )
     para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
-    out = vmode.VList(parser)
+    out = []
     para.typeset(parser, out)
     lines = _lineBoxes(out)
     assert len(lines) == 3
@@ -272,7 +272,7 @@ def test_linebreak_plain_paragraph_cases(parser):
         " $from\\;this\\;f(x)=y\\;we\\;test$ this line break thing.\\par"
     )
     para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
-    out = vmode.VList(parser)
+    out = []
     para.typeset(parser, out)
     lines = _lineBoxes(out)
     assert len(lines) == 2
@@ -285,9 +285,9 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     cmr10.parse("\\hsize=20pt\\parindent=0pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt ")
     cmr10.parse("a a a a a\\par")
     para = cmr10.lists[-1][-1]
-    out = vmode.VList(cmr10)
+    out = []
     para.typeset(cmr10, out)
-    packed = out.typesetNodes(cmr10, [])
+    packed = vmode.typesetVerticalNodes(cmr10, out, [])
     lines = _lineBoxes(packed)
     assert len(lines) > 1
     interline = [node for node in packed if node.node_type == nd.NODE_TYPE.GLUE]

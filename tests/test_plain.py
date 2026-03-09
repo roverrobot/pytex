@@ -36,10 +36,9 @@ def test_plain(plain):
     top = plain.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     hlist = next(node for node in top if isinstance(node, paragraph.Paragraph))
-    assert hlist.type == lists.LISTTYPE.HORIZONTAL
     # The stored paragraph keeps raw characters; ligatures/kerns are formed later.
-    assert len(hlist) == 18
-    assert hlist[-3].node_type == nd.NODE_TYPE.MATH
+    assert len(hlist.list) == 18
+    assert hlist.list[-3].node_type == nd.NODE_TYPE.MATH
 
 
 def test_plain_preserves_fontchar(plain):

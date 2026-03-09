@@ -23,7 +23,7 @@ def test_ligatures(cmr10, input, char):
     top = cmr10.lists[-1]
     assert len(top) == len(input) + 2
     packed = []
-    top.typesetNodes(cmr10, packed)
+    hmode.typesetHorizontalNodes(cmr10, top, packed)
     assert len(packed) == 3
     assert packed[2].node_type == nd.NODE_TYPE.GLUE
     lig = packed[1]
@@ -43,7 +43,7 @@ def test_kern(cmr10, input):
     top = cmr10.lists[-1]
     assert len(top) == len(input) + 2
     packed = []
-    top.typesetNodes(cmr10, packed)
+    hmode.typesetHorizontalNodes(cmr10, top, packed)
     assert len(packed) == 5
     assert packed[4].node_type == nd.NODE_TYPE.GLUE
     knode = packed[2]
@@ -108,10 +108,10 @@ def test_left_boundary_ligature_is_applied(parser):
     font = _FakeFont(left_boundary=left)
     a = font.add("a", {})
     font.add("b", {})
-    hlist = hmode.HList(parser, inner=True)
+    hlist = hmode.HList(parser, [], inner=True)
     hlist.append(a)
     packed = []
-    hlist.typesetNodes(parser, packed)
+    hmode.typesetHorizontalNodes(parser, hlist.list, packed)
     assert len(packed) == 1
     lig = packed[0]
     assert isinstance(lig, hmode.Ligature)
@@ -124,10 +124,10 @@ def test_right_boundary_kern_is_applied(parser):
     bchar = types.SimpleNamespace(next_char=ord("#"))
     font = _FakeFont(right_boundary=bchar)
     a = font.add("a", {ord("#"): tfm.KernOp(ord("#"), 2)})
-    hlist = hmode.HList(parser, inner=True)
+    hlist = hmode.HList(parser, [], inner=True)
     hlist.append(a)
     packed = []
-    hlist.typesetNodes(parser, packed)
+    hmode.typesetHorizontalNodes(parser, hlist.list, packed)
     assert len(packed) == 2
     assert packed[0] is a
     kern = packed[1]

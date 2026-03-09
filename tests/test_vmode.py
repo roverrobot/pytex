@@ -217,18 +217,18 @@ class _ProbeWhatsit(nd.WhatsIt):
 
 def test_prevdepth_penalty_does_not_reset(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
-    vlist = vmode.VList(parser)
+    vlist = vmode.VList(parser, [])
     vlist.append(_test_hbox(parser))
     vlist.append(nd.Penalty(0))
     vlist.append(_test_hbox(parser))
-    packed = vlist.typesetNodes(parser, [])
+    packed = vmode.typesetVerticalNodes(parser, vlist, [])
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 1
     assert glues[0].glue.dimen == 4
 
 
 def test_prevdepth_kept_across_glue_kern_penalty(parser):
-    vlist = vmode.VList(parser)
+    vlist = vmode.VList(parser, [])
     vlist.append(_test_hbox(parser, depth=3))
     vlist.append(nd.Glue(glue.Glue(1), None))
     vlist.append(nd.Kern(1))
@@ -238,17 +238,17 @@ def test_prevdepth_kept_across_glue_kern_penalty(parser):
 
 def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
-    vlist = vmode.VList(parser)
+    vlist = vmode.VList(parser, [])
     vlist.append(_test_hbox(parser))
     vlist.append(nd.Rule(0, 4, 0))
     vlist.append(_test_hbox(parser))
-    packed = vlist.typesetNodes(parser, [])
+    packed = vmode.typesetVerticalNodes(parser, vlist, [])
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 0
 
 
 def test_rule_resets_resolved_prevdepth(parser):
-    vlist = vmode.VList(parser)
+    vlist = vmode.VList(parser, [])
     vlist.append(_test_hbox(parser, depth=3))
     vlist.append(nd.Rule(0, 4, 0))
     assert vlist.resolvePrevDepth() == vmode.init_prevdepth
@@ -256,14 +256,14 @@ def test_rule_resets_resolved_prevdepth(parser):
 
 def test_box_context_keeps_interlinepenalty(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt\\interlinepenalty=0")
-    vlist = vmode.VList(parser)
+    vlist = vmode.VList(parser, [])
     first = _test_hbox(parser)
     second = _test_hbox(parser)
     second.typeset_context = vmode.VNodeContext(parser.state.layout, vmode.init_prevdepth)
     second.typeset_context.interlinepenalty = 123
     vlist.append(first)
     vlist.append(second)
-    packed = vlist.typesetNodes(parser, [])
+    packed = vmode.typesetVerticalNodes(parser, vlist, [])
     penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
     assert len(penalties) == 1
     assert penalties[0].penalty == 123
@@ -393,7 +393,7 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     main = parser.lists[0]
     main.append(_test_hbox(parser, height=1, depth=0))
     material = []
-    main.typesetNodes(parser, material)
+    vmode.typesetVerticalNodes(parser, main.list, material)
     breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
     start, context = breaker.pruneTop(0, main.page_initial_context)
     end, _, _, _ = breaker.bestBreak(start, context)
@@ -631,3 +631,38 @@ def test_output_pages_ships_deferred_shipouts_before_page(cmr10):
     second = shipout.pages[1]
     assert first.node_type == nd.NODE_TYPE.HLIST
     assert second.node_type == nd.NODE_TYPE.VLIST
+
+
+def test_mark(cmr10):
+    cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
+    box = top[0]
+    assert box.node_type == nd.NODE_TYPE.HLIST
+    assert len(box.list) == 1
+    packed = []
+    vmode.typesetVerticalNodes(cmr10, top.list, packed)
+    assert len(packed) == 2
+    migrate = packed[1]
+    assert migrate.node_type == nd.NODE_TYPE.MARK
+    assert toksToString(cmr10, migrate.tokens) == "123"
+
+
+def test_insert_migrate(cmr10):
+    cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.VERTICAL
+    assert len(top) == 1
+    box = top[0]
+    assert box.node_type == nd.NODE_TYPE.HLIST
+    assert len(box.list) == 2
+    packed = []
+    vmode.typesetVerticalNodes(cmr10, top.list, packed)
+    assert len(packed) == 2
+    node = packed[1]
+    assert node.node_type == nd.NODE_TYPE.INS
+    assert node.index == 2
+    assert len(node.vlist) == 1
+    assert node.vlist[0].node_type == nd.NODE_TYPE.GLUE
+    assert node.vlist[0].glue == glue.Glue(72.26999)

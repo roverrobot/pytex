@@ -6,6 +6,7 @@ Implementation of horizontal commands and hlist handling.
 from pytex import node as nd
 from pytex import lists
 from pytex.glue import Glue, Stretchness
+from pytex.dimen import Dimen
 from pytex.module import Module
 from pytex.token import Command, CATCODE, relax
 from pytex.state import GROUP_TYPE
@@ -43,33 +44,6 @@ class HListHolder:
     """
     def __init__(self, nodes=None):
         self.list = [] if nodes is None else nodes
-
-    def __len__(self):
-        return len(self.list)
-
-    def __iter__(self):
-        return iter(self.list)
-
-    def __getitem__(self, index):
-        return self.list[index]
-
-    def __setitem__(self, index, value):
-        self.list[index] = value
-
-    def __delitem__(self, key):
-        del self.list[key]
-
-    def append(self, node):
-        self.list.append(node)
-
-    def extend(self, nodes):
-        self.list.extend(nodes)
-
-    def pop(self, *args):
-        return self.list.pop(*args)
-
-    def clear(self):
-        self.list.clear()
 
     def typesetNode(self, parser, node, packed):
         """
@@ -210,40 +184,34 @@ class HListHolder:
 from pytex.box import SetBox, AccentNode, IndentBox
 
 
-class HList(lists.ListBuildState):
+class HList(lists.List):
     """
-    Horizontal list build-state wrapper.
+    Horizontal list wrapper.
 
     This is what lives on parser.lists while horizontal material is scanned.
     It serves a concrete horizontal list node and updates \\spacefactor.
     """
-    _local_attrs = lists.ListBuildState._local_attrs | {"spacefactor", "sfcode", "type", "inner"}
+    def __init__(self, parser, list, inner=True):
+        super().__init__(parser, list, inner)
+        self.spacefactor = 1000
+        self.sfcode = parser.state.sfcode
+        self.type = lists.LISTTYPE.HORIZONTAL
 
-    def __init__(self, parser, inner=True, nodes=None, node=None):
-        if node is None:
-            node = [] if nodes is None else nodes
-        if hasattr(node, "inner"):
-            inner = node.inner
-        super().__init__(parser, node)
-        object.__setattr__(self, "spacefactor", 1000)
-        object.__setattr__(self, "sfcode", parser.state.sfcode)
-        object.__setattr__(self, "type", lists.LISTTYPE.HORIZONTAL)
-        object.__setattr__(self, "inner", inner)
+    @property
+    def list_type_name(self):
+        return "HList" if self.inner else "Paragraph"
 
     def append(self, node):
         if node.node_type != nd.NODE_TYPE.CHAR:
             self.spacefactor = 1000
-            self._raw_append(node)
+            self.list.append(node)
             return
         sf = self.sfcode[ord(node.char)]
         if sf != 0:
             if self.spacefactor < 1000 < sf:
                 sf = 1000
             self.spacefactor = sf
-        self._raw_append(node)
-
-    def typesetNodes(self, parser, packed):
-        return typesetHorizontalNodes(parser, self, packed)
+        self.list.append(node)
 
 
 def typesetHorizontalNodes(parser, nodes, packed):
@@ -402,6 +370,77 @@ class ControlledSpace(HorizontalCommand):
         # In math mode, a space is a no-op
         self.horizontal(parser, mlist)
 
+
+class TypesetDisc(nd.Node):
+    """
+    a typeset discretionary node
+    """
+    def __init__(self, pre, post, replace):
+        def sum(nodes):
+            width = Dimen()
+            for node in nodes:
+                width += node.kern if node.node_type == nd.NODE_TYPE.KERN else node.width
+            return width
+
+        self.pre = pre
+        self.pre_width = sum(pre)
+        self.post = post
+        self.post_width = sum(post)
+        self.replace = replace
+        self.replace_width = sum(replace)
+        self.list = self.replace
+
+    node_type = nd.NODE_TYPE.DISC
+
+
+class Disc(nd.Node):
+    """
+    A discretionary node.
+    """
+    def __init__(self, pre, post, replace):
+        self.pre = pre
+        self.post = post
+        self.replace = replace
+        self._typeset_cache = None
+
+    def pretypeset(self, parser):
+        
+        if self._typeset_cache is not None:
+            return
+        pre = []
+        HListHolder(self.pre).typesetNodes(parser, pre)
+        post = []
+        HListHolder(self.post).typesetNodes(parser, post)
+        replace = []
+        HListHolder(self.replace).typesetNodes(parser, replace)
+        self._typeset_cache = TypesetDisc(pre, post, replace)
+    
+    def typeset(self, parser):
+        self.pretypeset(parser)
+        return self._typeset_cache
+        
+    def saveInfo(self):
+        return {"init": {"pre": self.pre, "post": self.post, "replace": self.replace}}
+    
+    def __repr__(self):
+        return f"Disc({self.pre}, {self.post}, {self.replace})"
+
+    def meaning(self, parser):
+        pre = "{" + "".join([x.meaning(parser) for x in self.pre]) + "}"
+        post = "{" + "".join([x.meaning(parser) for x in self.post]) + "}"
+        replace = "{" + "".join([x.meaning(parser) for x in self.replace]) + "}"
+        return f"\\discretionary{pre}{post}{replace}"
+
+    node_type = nd.NODE_TYPE.DISC
+   
+   
+class DiscHList(HList):
+    def append(self, node):
+        if not isinstance(node, nd.Box) and node.node_type != nd.NODE_TYPE.KERN:
+            raise ValueError(f"not valid in \\discretionary lists: {node}", self.parser.input.position())
+        self.list.append(node)
+
+
 class Discretionary(HorizontalCommand):
     """
     The \\discretionary command.
@@ -410,19 +449,13 @@ class Discretionary(HorizontalCommand):
         pre = []
         post = []
         replace = []
-        pre_state = HList(parser, node=pre)
-        post_state = HList(parser, node=post)
-        replace_state = HList(parser, node=replace)
+        pre_state = DiscHList(parser, pre)
+        post_state = DiscHList(parser, post)
+        replace_state = DiscHList(parser, replace)
         
         def finish():
             # we need to handle ligatures and boxes so their width are fixed.
-            packed_pre = []
-            typesetHorizontalNodes(parser, pre, packed_pre)
-            packed_post = []
-            typesetHorizontalNodes(parser, post, packed_post)
-            packed_replace = []
-            typesetHorizontalNodes(parser, replace, packed_replace)
-            node = nd.Disc(packed_pre, packed_post, packed_replace)
+            node = Disc(pre, post, replace)
             if math and len(node.replace) > 0:
                 raise ValueError("replace part of discretionary must be empty in math mode")
             out.append(node)

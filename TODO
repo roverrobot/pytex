@@ -1,12 +1,5 @@
 * layout
-  * main vlist
-    * inserts
   * leader packaging
-* Output routine
-  * DVI shipout
 * eTex
   * \mid
   * \currentifbranch
-  * generalized mark classes.
-  * marks commands
-* minimal pdftex that properly support latex

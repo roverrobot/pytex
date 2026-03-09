@@ -41,8 +41,7 @@ def test_par(cmr10):
     assert len(cmr10.lists) == 1
     vlist = cmr10.lists[-1]
     assert vlist.type == lists.LISTTYPE.VERTICAL
-    hlist = next(node for node in vlist if isinstance(node, paragraph.Paragraph))
-    assert hlist.type == lists.LISTTYPE.HORIZONTAL
+    hlist = vlist[0].list
     assert len(hlist) == 8 # indent, h, e, l, l, o, penalty(10000), glue,
     node = hlist[0]
     assert isinstance(node, hmode.IndentBox)
@@ -60,9 +59,7 @@ def test_noindent_par_creates_no_empty_line(cmr10):
     cmr10.parse("\\noindent\\par")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    packed = []
-    top.typesetNodes(cmr10, packed)
-    assert packed == []
+    assert not top
 
 
 def test_vskip(cmr10):
@@ -72,7 +69,7 @@ def test_vskip(cmr10):
     assert vlist.type == lists.LISTTYPE.VERTICAL
     hlists = [node for node in vlist if isinstance(node, paragraph.Paragraph)]
     assert len(hlists) == 2
-    assert len(hlists[0]) == 8
+    assert len(hlists[0].list) == 8
     vs = [node for node in vlist if node.node_type == nd.NODE_TYPE.GLUE and node.glue.dimen == 72.26999]
     assert len(vs) == 1
 
@@ -177,7 +174,7 @@ def test_discretionary_invalid_node(cmr10):
         cmr10.parse("\\discretionary{a}{b }{c}")
         assert False
     except ValueError as e:
-        assert "fixed width" in str(e)
+        assert "valid" in str(e)
 
 
 def test_insert(cmr10):
@@ -206,42 +203,8 @@ def test_insert_invalid(cmr10):
         assert "invalid" in str(e)
 
 
-def test_insert_migrate(cmr10):
-    cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
-    top = cmr10.lists[-1]
-    assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    box = top[0]
-    assert box.node_type == nd.NODE_TYPE.HLIST
-    assert len(box.list) == 2
-    packed = []
-    top.typesetNodes(cmr10, packed)
-    assert len(packed) == 2
-    node = packed[1]
-    assert node.node_type == nd.NODE_TYPE.INS
-    assert node.index == 2
-    assert len(node.vlist) == 1
-    assert node.vlist[0].node_type == nd.NODE_TYPE.GLUE
-    assert node.vlist[0].glue == glue.Glue(72.26999)
-
-
 def string(token_list):
     return "".join([t.char for t in token_list])
-
-def test_mark(cmr10):
-    cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
-    top = cmr10.lists[-1]
-    assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    box = top[0]
-    assert box.node_type == nd.NODE_TYPE.HLIST
-    assert len(box.list) == 1
-    packed = []
-    top.typesetNodes(cmr10, packed)
-    assert len(packed) == 2
-    migrate = packed[1]
-    assert migrate.node_type == nd.NODE_TYPE.MARK
-    assert toksToString(cmr10, migrate.tokens) == "123"
 
 
 def test_special(cmr10):

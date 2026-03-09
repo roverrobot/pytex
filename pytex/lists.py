@@ -22,61 +22,7 @@ class LISTTYPE(enum.Enum):
     MATH = 2
 
 
-class List(list, serialization.Serializable):
-    """
-    A list of nodes.
-    @param parser: The parser the created the list
-    @param type: The type of list.
-    @param inner: Whether the list is in internal mode.
-
-    The internal mode means an internal vlist, or restricted hlist, or nondisplay mlist.
-    """
-    def __init__(self, parser, type: LISTTYPE, inner: bool=True, nodes=None):
-        super().__init__([] if nodes is None else nodes)
-        self.parser = parser
-        self.type = type
-        self.inner = inner
-
-    def __repr__(self):
-        if self.type == LISTTYPE.VERTICAL:
-            type = "VList"
-        elif self.type == LISTTYPE.HORIZONTAL:
-            type = "HList"
-        else:
-            type = "MList"
-        inner = "inner" if self.inner else ""
-        return f'{type}({inner}, [{", ".join(repr(node) for node in self)}])'
-
-    def meaning(self, parser):
-        if self.type == LISTTYPE.VERTICAL:
-            return "VList" if self.inner else "VList(outer)"
-        if self.type == LISTTYPE.HORIZONTAL:
-            return "HList(inner)" if self.inner else "HList"
-        return "MList(inner)" if self.inner else "DisplayMathList"
-
-    def append(self, node):
-        # A raw horizontal list must not become a node in another list.
-        # Paragraph is the only horizontal-list-like value allowed on a list,
-        # and it marks itself with node_type = None.
-        if isinstance(node, List) and node.type == LISTTYPE.HORIZONTAL:
-            if getattr(node, "node_type", nd.NODE_TYPE.HLIST) == nd.NODE_TYPE.HLIST:
-                raise ValueError("HList cannot be added directly to a list")
-        super().append(node)
-    
-    def saveInfo(self):
-        return {
-            "init": {
-                "inner": self.inner,
-                "nodes": [x for x in self],
-            }
-        }
-    
-    @classmethod
-    def new(cls, parser, **kwargs):
-        return cls(parser, **kwargs)
-
-
-class ListBuildState:
+class List:
     """
     Runtime-only parser-stack wrapper around a list node.
 
@@ -84,59 +30,43 @@ class ListBuildState:
     material) lives here instead of on the node object that will later be
     typeset/materialized.
     """
-    _local_attrs = {"parser", "node", "group_type"}
+    def __init__(self, parser, nodes: list, inner: bool):
+        self.parser = parser
+        self.list = nodes
+        self.inner = inner
 
-    def __init__(self, parser, node):
-        object.__setattr__(self, "parser", parser)
-        object.__setattr__(self, "node", node)
-        # build commands may stash temporary metadata (e.g., group_type) here
-        object.__setattr__(self, "group_type", None)
+    list_type_name = None
 
     def __repr__(self):
-        return repr(self.node)
-
-    def __getattr__(self, name):
-        return getattr(self.node, name)
-
-    def __setattr__(self, name, value):
-        # Build-state attributes are always local to the runtime wrapper.
-        # The wrapped node/list payload should not receive parser-stack state.
-        object.__setattr__(self, name, value)
+        return f"{self.list_type_name}{repr(self.list)}"
 
     def __len__(self):
-        return len(self.node)
+        return len(self.list)
 
     def __iter__(self):
-        return iter(self.node)
+        return iter(self.list)
 
     def __getitem__(self, index):
-        return self.node[index]
+        return self.list[index]
 
     def __setitem__(self, index, value):
-        self.node[index] = value
+        self.list[index] = value
 
     def __delitem__(self, key):
-        del self.node[key]
-
-    def _raw_append(self, node):
-        target = self.node
-        if isinstance(target, list):
-            list.append(target, node)
-            return
-        target.append(node)
+        del self.list[key]
 
     def append(self, node):
-        self.node.append(node)
+        self.list.append(node)
 
-    def extend(self, values):
-        for value in values:
-            self.append(value)
+    def extend(self, nodes):
+        for node in nodes:
+            self.append(node)
 
     def pop(self, *args):
-        return self.node.pop(*args)
+        return self.list.pop(*args)
 
     def clear(self):
-        self.node.clear()
+        self.list.clear()
 
 
 class ModeDependentCommand(Command):
@@ -239,12 +169,11 @@ def readList(parser, state, reason: GROUP_TYPE, ended=None):
     if t.catcode != CATCODE.BEGIN_GROUP:
         raise ValueError("expecting a {", pos)
     if state is not None:
-        if not isinstance(state, ListBuildState):
-            raise TypeError("readList expects a ListBuildState")
+        assert isinstance(state, List)
         parser.lists.append(state)
         ended = ListReadEndCallback(parser, state, ended)
     parser.beginGroup(pos, reason, ended=ended)
-    return None if state is None else state.node
+    return None if state is None else state.list
 
 
 class Rule(ModeDependentCommand):

@@ -231,49 +231,6 @@ class Penalty(Node):
         return f"\\penalty {self.penalty}"
 
 
-class Disc(Node):
-    """
-    A discretionary node.
-    """
-    @staticmethod
-    def _fixedWidth(nodes, name):
-        """
-        Compute fixed width of a discretionary pre/post/replace list.
-
-        TeX restricts these lists to fixed-width material (no glue/disc).
-        """
-        width = Dimen()
-        for node in nodes:
-            if node.node_type == NODE_TYPE.KERN:
-                width += node.kern
-                continue
-            w = getattr(node, "width", None)
-            if w is None:
-                raise ValueError(f"discretionary nodes in {name} must have a fixed width")
-            width += w
-        return width
-
-    def __init__(self, pre, post, replace):
-        self.pre = pre
-        self.post = post
-        self.replace = replace
-        self.list = self.replace
-        self.pre_width = self._fixedWidth(pre, "pre")
-        self.post_width = self._fixedWidth(post, "post")
-        self.replace_width = self._fixedWidth(replace, "replace")
-
-    def saveInfo(self):
-        return {"init": {"pre": self.pre, "post": self.post, "replace": self.replace}}
-    
-    def __repr__(self):
-        return f"Disc({self.pre}, {self.post}, {self.replace})"
-
-    def meaning(self, parser):
-        return "\\discretionary"
-
-    node_type = NODE_TYPE.DISC
-   
-
 class WhatsIt(Node):
     """
     A whatsit node.
@@ -310,14 +267,3 @@ class Special(WhatsIt):
                 return s + " " if token.catcode is None else s
             text = "".join(token_text(token) for token in text)
         device.special(text)
-
-
-# Vertical-mode specific nodes (VAdjust, Mark, Insert) live in pytex.vmode.
-
-
-def __getattr__(name):
-    if name in {"VAdjust", "Mark", "Insert"}:
-        from pytex import vmode
-
-        return getattr(vmode, name)
-    raise AttributeError(name)

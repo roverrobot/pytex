@@ -221,7 +221,7 @@ def test_vbox_trailing_glue_zeroes_depth(parser):
     vbox.list.append(nd.Penalty(0))
     vbox.list.append(nd.Glue(glue.Glue(4), None))
     typed = vbox.typeset(parser)
-    assert typed.height == 10
+    assert typed.height == 13
     assert typed.depth == 0
 
 

@@ -339,8 +339,9 @@ class Parser:
         """
         # if we are already in math mode, then we are reading a subformula
         if group_type == state.GROUP_TYPE.SIMPLE and self.lists[-1].type == lists.LISTTYPE.MATH:
-            self.lists.append(mmode.MList(self))
-            ended = mmode.SubformulaEndGroupCallBack(self)
+            subformula = mmode.Subformula()
+            self.lists.append(mmode.MList(self, subformula.list))
+            ended = mmode.MathEndGroupCallback(self, subformula)
         self.state.beginGroup(position, group_type, to_end=to_end, ended=ended)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
@@ -369,10 +370,12 @@ class Parser:
         # eventually completed, horizontal mode will come to an end as described 
         # in Chapter 25. (The TeX Book pp.282)        """
         top = self.lists[-1]
-        if top.type == lists.LISTTYPE.VERTICAL and (not top.inner) and len(top) > 0 and parskip:
-            top.append(node.Glue(self.state.parameters["parskip"], "\\parskip"))
         hlist = paragraph.Paragraph(self, indent)
-        self.lists.append(hmode.HList(self, inner=False, node=hlist))
+        if parskip and top:
+            hlist.parskip = node.Glue(self.state.parameters["parskip"], "\\parskip")
+            top.append(hlist.parskip)
+        top.append(hlist)
+        self.lists.append(hmode.HList(self, hlist.list, inner=False))
         everypar = self.everypar.value
         if everypar:
             self.input.push(lexer.TokenListScanner(everypar))
@@ -388,35 +391,29 @@ class Parser:
         """
         hlist = self.lists[-1]
         if hlist.type != lists.LISTTYPE.HORIZONTAL or hlist.inner:
-            raise ValueError("cannot end the paragraph here", self.input.pos)
-        para = hlist.node
+            raise ValueError("cannot end the paragraph here", self.input.position())
         # \unskip
+        self.lists.pop()
         if len(hlist) > 0 and hlist[-1].node_type == node.NODE_TYPE.GLUE:
             hlist.pop()
+        top = self.lists[-1]
         # A truly empty paragraph contributes nothing (e.g., \noindent\par).
         # TeX does not emit a synthetic empty line in this case.
         if len(hlist) == 0:
-            self.lists.pop()
-            if not getattr(para, "keep_empty", False):
-                self.clearParagraphSettings()
-                return
-            top = self.lists[-1]
+            para = top.pop() # paragraph is the last node that we added
+            if para.prev_paragraph:
+                para.prev_paragraph.next_paragraph = None
+            para = None
+        else:
+            # \penalty10000
+            hlist.append(node.Penalty(10000))
+            # \hskip\parfillskip
+            hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
+            para = top[-1]
             para.typeset_context = paragraph.ParagraphTypesetContext(self, para)
-            top.append(para)
-            self.last_paragraph = para
-            self.clearParagraphSettings()
-            return
-        # \penalty10000
-        hlist.append(node.Penalty(10000))
-        # \hskip\parfillskip
-        hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
-        self.lists.pop()
-        top = self.lists[-1]
-        para.typeset_context = paragraph.ParagraphTypesetContext(self, para)
-        # TeX clears \\looseness after each paragraph.
-        top.append(para)
-        self.last_paragraph = para
+        # TeX clears \\looseness etc after each paragraph.
         self.clearParagraphSettings()
+        return para
 
     def clearParagraphSettings(self):
         volatile = self.state.volatile

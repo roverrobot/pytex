@@ -73,7 +73,7 @@ def test_span(cmr10):
     node = top[0]
     row = node.rows[0]
     assert len(row.cells) == 2
-    assert row.cells[0].list.span == 1
+    assert row.cells[0].span == 1
 
 
 def test_omit(cmr10):
@@ -82,7 +82,7 @@ def test_omit(cmr10):
     node = top[0]
     row = node.rows[0]
     assert len(row.cells) == 2
-    assert row.cells[0].list.span == 1
+    assert row.cells[0].span == 1
     assert len(row.cells[1].list) == 1
 
 

@@ -3,6 +3,7 @@ from pytex import box as bx
 from pytex import glue
 from pytex import node as nd
 from pytex import lists
+from pytex import page
 from pytex import paragraph
 from pytex.node import NODE_TYPE
 from pytex import texlive
@@ -351,6 +352,39 @@ def test_vsplit_zero_top_glue_still_takes_empty_box(parser):
     assert split.list[0].node_type == NODE_TYPE.WHATSIT
     assert split.list[1].node_type == NODE_TYPE.HLIST
     assert parser.state.box[1] is None
+
+
+def test_vsplit_waits_for_following_glue_before_triggering_break(parser):
+    source = bx.VBox(parser, None, 0)
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source.list.append(nd.Glue(glue.Glue(2), None))
+    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source.list.append(nd.Glue(glue.Glue(-2), None))
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 16pt")
+    split = parser.state.box[2].typeset(parser)
+    assert len(split.list) == 4
+    assert split.list[0].node_type == NODE_TYPE.HLIST
+    assert split.list[1].node_type == NODE_TYPE.GLUE
+    assert split.list[2].node_type == NODE_TYPE.HLIST
+    assert split.list[3].node_type == NODE_TYPE.GLUE
+    assert parser.state.box[1] is None
+
+
+def test_vsplit_waits_past_overfull_penalty_if_following_glue_can_recover(parser):
+    nodes = [
+        nd.Rule(0, 6, 2),
+        nd.Glue(glue.Glue(2), None),
+        nd.Rule(0, 6, 2),
+        nd.Penalty(100),
+        nd.Glue(glue.Glue(-2), None),
+    ]
+    context = page.VSplitContext(Dimen(16), glue.Glue(), Dimen(4))
+    breaker = page.VSplitBreaker(nodes, context)
+    start, context = breaker.pruneTop(0, context)
+    end, next_start, _, _ = breaker.bestBreak(start, context)
+    assert end == 5
+    assert next_start == 5
 
 
 def test_moveright_dispatches_to_vertical_handler(parser):

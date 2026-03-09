@@ -90,18 +90,17 @@ class Language(nd.WhatsIt):
 
 class LineContext:
     """
-    Context for line-breaking a paragraph.
+    Context for vertical spacing before one broken paragraph line.
     """
     def __init__(self, parser, context, line):
         line_no = line.line_no
+        adjust = 0
         if line_no == 2:
-            adjust = parser.state.layout["clubpenalty"]
-        elif line_no == context.line_count - 1:
-            adjust = parser.state.layout["widowpenalty"]
-        else:
-            adjust = 0
-        if line.hyphenated:
-            adjust += parser.state.layout["hyphenpenalty"]
+            adjust += parser.state.layout["clubpenalty"]
+        if line_no == context.line_count:
+            adjust += parser.state.layout["widowpenalty"]
+        if line.prev is not None and line.prev.hyphenated:
+            adjust += parser.state.layout["brokenpenalty"]
         self.interlinepenalty = context.interlinepenalty + adjust
         self.baselineskip = context.baselineskip
         self.lineskip = context.lineskip

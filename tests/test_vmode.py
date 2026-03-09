@@ -440,7 +440,7 @@ def test_page_badness_underfull_without_stretch_is_finite(parser):
     assert main._pageBadness(glue.Glue(0), Dimen(5)) == 10000
 
 
-def test_page_break_glue_requires_non_discardable_predecessor(parser):
+def test_page_break_glue_requires_immediate_non_discardable_predecessor(parser):
     parser.parse("\\vsize=10pt\\topskip=0pt")
     main = parser.lists[0]
     first = _test_hbox(parser, height=6, depth=0)
@@ -557,6 +557,24 @@ def test_output_pages_skips_empty_page_with_only_whatsits(parser):
     shipout = parser.outputPages()
     assert len(shipout.pages) == 0
     assert seen == ["fired"]
+
+
+def test_page_break_waits_past_overfull_penalty_if_negative_glue_recovers(parser):
+    parser.parse("\\vsize=16pt\\topskip=0pt")
+    main = parser.lists[0]
+    first = _test_hbox(parser, height=6, depth=2)
+    second = _test_hbox(parser, height=6, depth=2)
+    main.append(first)
+    main.append(nd.Glue(glue.Glue(2), None))
+    main.append(second)
+    main.append(nd.Penalty(100))
+    main.append(nd.Glue(glue.Glue(-2), None))
+    pages = main.pageBreak(parser)
+    assert len(pages) == 1
+    assert pages[0].list[1] is first
+    assert pages[0].list[2].node_type == nd.NODE_TYPE.GLUE
+    assert pages[0].list[2].glue.dimen == 2
+    assert pages[0].list[-1].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_output_routine_can_carry_material_forward(cmr10):

@@ -170,6 +170,12 @@ class VListBreaker:
             return total
         return Glue(total.dimen - excess, total.stretch, total.shrink)
 
+    @staticmethod
+    def pendingTotal(total, bottom_depth):
+        if bottom_depth is None:
+            return total
+        return Glue(total.dimen - bottom_depth, total.stretch, total.shrink)
+
     def pruneTop(self, start, context):
         while start < len(self.nodes):
             node = self.nodes[start]
@@ -214,7 +220,7 @@ class VListBreaker:
                 if self._isTopDiscardable(node):
                     if delayed_start and self.isLegalBreak(start, i):
                         penalty = node.penalty if node.node_type == nd.NODE_TYPE.PENALTY else 0
-                        effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                        effective = self.pendingTotal(total, bottom_depth)
                         cost = self.cost(effective, current_context.vsize, penalty)
                         current = (
                             cost,
@@ -250,7 +256,7 @@ class VListBreaker:
             if node.node_type == nd.NODE_TYPE.PENALTY:
                 if node.penalty >= 10000:
                     continue
-                effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                effective = self.pendingTotal(total, bottom_depth)
                 cost = self.cost(effective, current_context.vsize, node.penalty)
                 current = (cost, i, "penalty", current_context, node.penalty)
                 if best is None or cost <= best[0]:
@@ -261,23 +267,22 @@ class VListBreaker:
                     self.last_triggered = True
                     return end, next_start, best_context, best_penalty
                 continue
+            before_total = total.copy()
             self.measure(total, node)
             if self.hasDepth(node):
                 bottom_depth = node.depth
             if self.isLegalBreak(start, i):
-                effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                break_total = before_total if node.node_type == nd.NODE_TYPE.GLUE else total
+                effective = self.pendingTotal(break_total, bottom_depth)
                 cost = self.cost(effective, current_context.vsize, 0)
                 if best is None or cost <= best[0]:
                     best = (cost, i, node.node_type.name.lower(), current_context, 0)
-            if self.badness(
-                self.effectiveTotal(total, bottom_depth, current_context.maxdepth),
-                current_context.vsize,
-            ) == inf and best is not None:
-                triggered = True
-                break
+                if cost == inf:
+                    triggered = True
+                    break
         final_penalty = self.finalPenalty()
         if final_penalty is not None:
-            effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+            effective = self.pendingTotal(total, bottom_depth)
             cost = self.cost(effective, current_context.vsize, final_penalty)
             if best is None or cost <= best[0]:
                 best = (cost, len(self.nodes), "end", current_context, final_penalty)
@@ -723,7 +728,7 @@ class MainVListBreaker(VListBreaker):
             if node.node_type == nd.NODE_TYPE.PENALTY:
                 if node.penalty >= 10000:
                     continue
-                effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                effective = self.pendingTotal(total, bottom_depth)
                 cost = self.cost(effective, goal, node.penalty, insert_penalties)
                 current = (
                     cost,
@@ -748,11 +753,13 @@ class MainVListBreaker(VListBreaker):
                     self.last_triggered = True
                     return end, next_start, best_context, best_penalty
                 continue
+            before_total = total.copy()
             self.measure(total, node)
             if self.hasDepth(node):
                 bottom_depth = node.depth
             if self.isLegalBreak(start, i):
-                effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                break_total = before_total if node.node_type == nd.NODE_TYPE.GLUE else total
+                effective = self.pendingTotal(break_total, bottom_depth)
                 cost = self.cost(effective, goal, 0, insert_penalties)
                 if best is None or cost <= best[0]:
                     best = (
@@ -763,16 +770,13 @@ class MainVListBreaker(VListBreaker):
                         0,
                         insert_penalties,
                     )
-            if self.badness(
-                self.effectiveTotal(total, bottom_depth, current_context.maxdepth),
-                goal,
-            ) == inf and best is not None:
-                triggered = True
-                break
+                if cost == inf:
+                    triggered = True
+                    break
 
         final_penalty = self.finalPenalty()
         if final_penalty is not None:
-            effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+            effective = self.pendingTotal(total, bottom_depth)
             cost = self.cost(effective, goal, final_penalty, insert_penalties)
             if best is None or cost <= best[0]:
                 best = (
@@ -1232,6 +1236,12 @@ class MainVList(vmode.VList):
         return Glue(total.dimen - excess, total.stretch, total.shrink)
 
     @staticmethod
+    def _pendingTotal(total, bottom_depth):
+        if bottom_depth is None:
+            return total
+        return Glue(total.dimen - bottom_depth, total.stretch, total.shrink)
+
+    @staticmethod
     def _prunePageTop(nodes, start, context):
         while start < len(nodes):
             node = nodes[start]
@@ -1273,7 +1283,7 @@ class MainVList(vmode.VList):
             if node.node_type == nd.NODE_TYPE.PENALTY:
                 if node.penalty >= 10000:
                     continue
-                effective = self._effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                effective = self._pendingTotal(total, bottom_depth)
                 cost = self._pageCost(effective, current_context.vsize, node.penalty)
                 current = (cost, i, "penalty", current_context, node.penalty)
                 if best is None or cost <= best[0]:
@@ -1283,19 +1293,18 @@ class MainVList(vmode.VList):
                     end, next_start = self._candidateBreak(index, kind)
                     return end, next_start, best_context, best_penalty
                 continue
+            before_total = total.copy()
             self._pageMeasure(total, node)
             if self._hasDepth(node):
                 bottom_depth = node.depth
             if self._isLegalBreak(nodes, start, i):
-                effective = self._effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                break_total = before_total if node.node_type == nd.NODE_TYPE.GLUE else total
+                effective = self._pendingTotal(break_total, bottom_depth)
                 cost = self._pageCost(effective, current_context.vsize, 0)
                 if best is None or cost <= best[0]:
                     best = (cost, i, node.node_type.name.lower(), current_context, 0)
-            if self._pageBadness(
-                self._effectiveTotal(total, bottom_depth, current_context.maxdepth),
-                current_context.vsize,
-            ) == inf and best is not None:
-                break
+                if cost == inf:
+                    break
         if best is None:
             return len(nodes), len(nodes), current_context, 0
         _, index, kind, best_context, best_penalty = best

@@ -295,6 +295,40 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     assert interline[0].glue.dimen > 0
 
 
+def test_line_context_uses_brokenpenalty_from_previous_line(parser):
+    parser.state.layout["clubpenalty"] = 1000
+    parser.state.layout["widowpenalty"] = 2000
+    parser.state.layout["brokenpenalty"] = 3000
+    ctx = types.SimpleNamespace(
+        line_count=5,
+        interlinepenalty=7,
+        baselineskip=Dimen(12),
+        lineskip=Dimen(),
+        lineskiplimit=Dimen(),
+    )
+    first = types.SimpleNamespace(line_no=1, hyphenated=True, prev=None)
+    second = types.SimpleNamespace(line_no=2, hyphenated=False, prev=first)
+    line_context = paragraph.LineContext(parser, ctx, second)
+    assert line_context.interlinepenalty == 4007
+
+
+def test_line_context_applies_widowpenalty_before_last_line(parser):
+    parser.state.layout["clubpenalty"] = 1000
+    parser.state.layout["widowpenalty"] = 2000
+    parser.state.layout["brokenpenalty"] = 3000
+    ctx = types.SimpleNamespace(
+        line_count=5,
+        interlinepenalty=7,
+        baselineskip=Dimen(12),
+        lineskip=Dimen(),
+        lineskiplimit=Dimen(),
+    )
+    prev = types.SimpleNamespace(line_no=4, hyphenated=False, prev=None)
+    last = types.SimpleNamespace(line_no=5, hyphenated=False, prev=prev)
+    line_context = paragraph.LineContext(parser, ctx, last)
+    assert line_context.interlinepenalty == 2007
+
+
 def test_linebreaker_select_final_positive_looseness():
     finals = [
         types.SimpleNamespace(line_no=4, demerits=10),

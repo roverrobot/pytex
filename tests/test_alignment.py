@@ -67,6 +67,14 @@ def test_noalign_allows_leading_spaces_after_cr(cmr10):
     assert len(node.rows) == 1
 
 
+def test_trailing_crcr_before_endgroup_after_noalign_does_not_create_empty_row(cmr10):
+    cmr10.parse("\\let\\egroup=}\\halign{#\\cr a\\cr\\noalign{\\vskip1pt}\\crcr\\egroup")
+    node = cmr10.lists[-1][0]
+    assert len(node.rows) == 1
+    assert len(node.rows[0].cells) == 1
+    assert node.rows[0].noalign is not None
+
+
 def test_span(cmr10):
     cmr10.parse("\\halign{1 # & 2 #\\cr a \\span b\\cr}")
     top = cmr10.lists[-1]

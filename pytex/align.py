@@ -130,8 +130,8 @@ class RowBuildState:
         t = parser.skipSpaces()
         if t is None:
             raise ValueError("expecting }", parser.input.position())
-        t = parser.token_meaning(t)
-        command = getattr(t, "definition", None)
+        meaning = parser.token_meaning(t)
+        command = getattr(meaning, "definition", None)
         if command == noalign:
             noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
             noalign_owner.noalign = parser.readVList(
@@ -139,8 +139,17 @@ class RowBuildState:
                 lambda: self.finishRow(parser),
             )
             return
+        if command in (cr, crcr):
+            # LaTeX wrappers may leave a trailing \crcr before the final \egroup.
+            # That token should not force an extra empty row.
+            u = parser.skipSpaces()
+            if u is not None:
+                parser.input.unread(u)
+                if parser.token_meaning(u).catcode == CATCODE.END_GROUP:
+                    self.finishRow(parser)
+                    return
         parser.input.unread(t)
-        if t.catcode != CATCODE.END_GROUP:
+        if meaning.catcode != CATCODE.END_GROUP:
             self.startNextRow(parser)
 
 

@@ -256,11 +256,16 @@ class DVIShipout(page.Shipout):
             w = int(node.width)
             h = int(box.height) if running(node.height) else int(node.height)
             d = int(box.depth) if running(node.depth) else int(node.depth)
-            if move:
-                self.h += w
+            if d:
+                self._move(None, d)
         self._write_byte(132 if move else 137)
         self._write_signed(h + d, 4)
         self._write_signed(w, 4)
+        if box.node_type == nd.NODE_TYPE.HLIST:
+            if move:
+                self.h += w
+            if d:
+                self._move(None, -d)
 
     def special(self, text):
         data = text.encode()

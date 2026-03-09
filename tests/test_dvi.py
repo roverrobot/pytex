@@ -4,6 +4,10 @@ from pytex import dvi
 from pytex import texlive
 
 
+def _find_subsequence(data: bytes, needle: bytes) -> int:
+    return data.find(needle)
+
+
 def test_output_pages_uses_dvi_shipout(parser, tmp_path):
     parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="out")
     parser.jobname = str(tmp_path / "out")
@@ -41,3 +45,17 @@ def test_dvi_adjacent_chars_do_not_emit_explicit_move(cmr10, tmp_path):
     cmr10.outputPages()
     data = Path(str(tmp_path / "pair.dvi")).read_bytes()
     assert bytes((ord("a"), ord("b"))) in data
+
+
+def test_dvi_hlist_rule_emits_depth_offset(cmr10, tmp_path):
+    cmr10.parse("\\shipout\\vbox{\\hbox{\\vrule height 10pt depth 2pt width 0.4pt a}}", jobname="vrule")
+    cmr10.jobname = str(tmp_path / "vrule")
+    cmr10.outputPages()
+    data = Path(str(tmp_path / "vrule.dvi")).read_bytes()
+    sequence = bytes((
+        160, 0, 2, 0, 0,      # down4 2pt
+        132, 0, 12, 0, 0,     # set_rule height 12pt
+        0, 0, 102, 102,       # width 0.4pt
+        160, 255, 254, 0, 0,  # down4 -2pt
+    ))
+    assert _find_subsequence(data, sequence) != -1

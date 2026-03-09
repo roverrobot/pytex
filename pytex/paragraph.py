@@ -162,77 +162,82 @@ class Paragraph(nd.Node, hmode.HListHolder):
         """
         pretypeset the paragraph, i.e., break into lines, and set the , using the current typeset context.
         """
-        if self._typeset_cache is not None:
+        context = self.typeset_context
+        if self._typeset_cache is None:
+            if len(self.list) == 0:
+                context.line_count = 0
+                self._typeset_cache = []
+            else:
+                scan = self._typesetNodesWithBreaks(parser, self.list)
+                hlist = scan
+                # line break the hlist into lines and pack them into the vlist
+                hlist, lines = self.lineBreak(parser, hlist, scan.candidates)
+                line_count = len(lines)
+                context.line_count = line_count
+                # add the lines into the vlist
+                self._typeset_cache = []
+                for i, line in enumerate(lines):
+                    packed = []
+                    indent, measure = context.lineShape(i + 1)
+                    if indent != 0:
+                        packed.append(nd.Glue(Glue(indent), "\\parindent"))
+                    if context.leftskip != Glue():
+                        packed.append(nd.Glue(context.leftskip, "\\leftskip"))
+                    # if the line starts with a ligature then add in the post nodes
+                    if line.begin.disc is not None:
+                        packed.extend(line.begin.disc.post)
+                    # for any disc node in between, replace it with the replace list
+                    for node in hlist[line.begin.line_start_index:line.end.break_index]:
+                        if node.node_type == nd.NODE_TYPE.DISC:
+                            packed.append(self._lineDisc(parser, node, broken=False))
+                        else:
+                            packed.append(node)
+                    # TeX keeps an explicit breakpoint penalty in the ending line box
+                    # when the break is chosen at that penalty node.
+                    if line.end.break_index < len(hlist):
+                        end_node = hlist[line.end.break_index]
+                        if line.end.at_penalty:
+                            packed.append(end_node)
+                    # if the line ends at a ligature, append the pre nodes
+                    if line.end.disc is not None:
+                        packed.append(self._lineDisc(parser, line.end.disc, broken=True))
+                    packed.append(nd.Glue(context.rightskip, "\\rightskip"))
+                    hbox = bx.HBox(parser, measure, None)
+                    hbox.list[:] = packed
+                    hbox = hbox.typeset(parser)
+                    hbox.source = self
+                    hbox.typeset_context = LineContext(parser, context, line)
+                    self._typeset_cache.append(hbox)
+        self._refreshLinkedParagraphContext()
+
+    def _refreshLinkedParagraphContext(self):
+        if self.next_paragraph is None:
             return
         context = self.typeset_context
-        if len(self.list) == 0:
-            context.line_count = 0
-            self._typeset_cache = []
-            return
-        scan = self._typesetNodesWithBreaks(parser, self.list)
-        hlist = scan
-        # line break the hlist into lines and pack them into the vlist
-        hlist, lines = self.lineBreak(parser, hlist, scan.candidates)
-        line_count = len(lines)
-        context.line_count = line_count
-        # add the lines into the vlist
-        hbox = None
-        self._typeset_cache = []
-        for i, line in enumerate(lines):
-            packed = []
-            indent, measure = context.lineShape(i + 1)
-            if indent != 0:
-                packed.append(nd.Glue(Glue(indent), "\\parindent"))
-            if context.leftskip != Glue():
-                packed.append(nd.Glue(context.leftskip, "\\leftskip"))
-            # if the line starts with a ligature then add in the post nodes
-            if line.begin.disc is not None:
-                packed.extend(line.begin.disc.post)
-            # for any disc node in between, replace it with the replace list
-            for node in hlist[line.begin.line_start_index:line.end.break_index]:
-                if node.node_type == nd.NODE_TYPE.DISC:
-                    packed.append(self._lineDisc(parser, node, broken=False))
-                else:
-                    packed.append(node)
-            # TeX keeps an explicit breakpoint penalty in the ending line box
-            # when the break is chosen at that penalty node.
-            if line.end.break_index < len(hlist):
-                end_node = hlist[line.end.break_index]
-                if line.end.at_penalty:
-                    packed.append(end_node)
-            # if the line ends at a ligature, append the pre nodes
-            if line.end.disc is not None:
-                packed.append(self._lineDisc(parser, line.end.disc, broken=True))
-            packed.append(nd.Glue(context.rightskip, "\\rightskip"))
-            hbox = bx.HBox(parser, measure, None)
-            hbox.list[:] = packed
-            hbox = hbox.typeset(parser)
-            hbox.source = self
-            hbox.typeset_context = LineContext(parser, context, line)
-            self._typeset_cache.append(hbox)
-        if self.next_paragraph is not None:
-            self.next_paragraph.prevgraf = line_count
-            # For an immediately following display, TeX uses the next line-shape
-            # slot to determine \displayindent and \displaywidth.
-            displayindent, displaywidth = context.lineShape(line_count + 1)
-            next_context = self.next_paragraph.typeset_context
-            next_context.prevgraf = line_count
-            self.line_count = line_count
-            next_context.displayindent = displayindent
-            next_context.displaywidth = displaywidth
-            # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
-            # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
-            # the closing $$ of another display), p is set to -16383.99999 pt (i.e., to the smallest legal
-            # dimension, -\maxdimen). Otherwise TEX looks inside the hbox that was formed by the
-            # previous line, and sets p to the position of the right edge of the rightmost box inside
-            # that hbox, plus the indentation by which the enclosing hbox has been moved right, plus
-            # two ems in the current font.
-            if hbox is None:
-                next_context.predisplaysize = Dimen(-16383.99999)
-                next_context.prevdepth = Dimen()
-            else:
-                next_context.predisplaysize = hbox.rightmost() + 2 * context.em
-                next_context.prevdepth = hbox.depth
+        line_count = len(self._typeset_cache or [])
+        self.next_paragraph.prevgraf = line_count
+        # For an immediately following display, TeX uses the next line-shape
+        # slot to determine \displayindent and \displaywidth.
+        displayindent, displaywidth = context.lineShape(line_count + 1)
+        next_context = self.next_paragraph.typeset_context
+        next_context.prevgraf = line_count
+        self.line_count = line_count
+        next_context.displayindent = displayindent
+        next_context.displaywidth = displaywidth
+        # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
+        # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
+        # the closing $$ of another display), p is set to -16383.99999 pt (i.e., to the smallest legal
+        # dimension, -\maxdimen). Otherwise TEX looks inside the hbox that was formed by the
+        # previous line, and sets p to the position of the right edge of the rightmost box inside
+        # that hbox, plus the indentation by which the enclosing hbox has been moved right, plus
+        # two ems in the current font.
+        hbox = self._typeset_cache[-1] if self._typeset_cache else None
+        if hbox is None:
+            next_context.predisplaysize = Dimen(-16383.99999)
+            next_context.prevdepth = Dimen()
+        else:
+            next_context.predisplaysize = hbox.rightmost() + 2 * context.em
+            next_context.prevdepth = hbox.depth
 
     def typeset(self, parser, vlist):
         self.pretypeset(parser)

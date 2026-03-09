@@ -126,13 +126,12 @@ def test_hbox_sets_badness_before_next_token(cmr10):
     assert cmr10.state.count[0] == 10000
 
 
-def test_setbox_defers_packing_until_badness_is_read(cmr10):
+def test_setbox_packs_hbox_when_the_box_group_closes(cmr10):
     cmr10.parse("\\setbox0=\\hbox to 100pt{a}")
     box0 = cmr10.state.box[0]
-    assert box0._typeset_cache is None
+    assert box0._typeset_cache is not None
     assert cmr10.lastbox is box0
     cmr10.parse("\\count0=\\badness")
-    assert box0._typeset_cache is not None
     assert cmr10.state.count[0] == 10000
 
 
@@ -146,10 +145,10 @@ def test_badness_is_not_grouped(parser):
     assert parser.state.count[0] == 123
 
 
-def test_explicit_badness_assignment_clears_pending_box(cmr10):
+def test_explicit_badness_assignment_overrides_packed_hbox_badness(cmr10):
     cmr10.parse("\\setbox0=\\hbox to 100pt{a}\\badness=7\\count0=\\badness")
     assert cmr10.state.count[0] == 7
-    assert cmr10.state.box[0]._typeset_cache is None
+    assert cmr10.state.box[0]._typeset_cache is not None
 
 
 def test_vbox(box):

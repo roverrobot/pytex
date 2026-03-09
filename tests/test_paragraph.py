@@ -38,6 +38,14 @@ def test_paragraph_typeset_context_snapshot(parser):
     assert p.typeset_context.hsize == 10
 
 
+def test_paragraph_is_pretypeset_when_it_ends(cmr10):
+    cmr10.parse("\\hsize=100pt a\\par")
+    p = next(node for node in cmr10.lists[-1] if isinstance(node, paragraph.Paragraph))
+    assert p._typeset_cache is not None
+    assert len(p._typeset_cache) == 1
+    assert p._typeset_cache[0].node_type == nd.NODE_TYPE.HLIST
+
+
 def test_paragraph_typeset_context_captures_hyphenation_settings(cmr10):
     cmr10.parse("\\hyphenation{Tech-nique}\\lefthyphenmin=2\\righthyphenmin=3\\uchyph=1\\hsize=10pt\\parindent=0pt")
     cmr10.parse("This is a technique\\par")

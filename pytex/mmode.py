@@ -1554,6 +1554,7 @@ def mathShift(parser):
             prev_par = parser.endParagraph()
             if prev_par is not None:
                 prev_par.next_paragraph = node
+                prev_par.pretypeset(parser)
         node.prev_paragraph = prev_par
         parser.paragraph_before_last_display_math = prev_par
 #            prev_par.pretypeset(parser)

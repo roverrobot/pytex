@@ -431,6 +431,15 @@ class ReadBoxEndCallback(ListEndCallback):
         self.parser.run = False
 
 
+class BoxPretypesetCallback:
+    def __init__(self, box):
+        self.box = box
+
+    def __call__(self):
+        if self.box.node_type == nd.NODE_TYPE.HLIST and self.box._typeset_cache is None:
+            self.box.pretypeset(self.box.parser)
+
+
 class BuildBox(Command):
     """
     the base class for \\hbox, \\vbox and \\vtop commands
@@ -452,6 +461,7 @@ class BuildBox(Command):
     def boxValue(self, parser, setbox):
         spec, d = readBoxSpec(parser)
         box = self.box(parser, d, None) if spec == "to" else self.box(parser, None, d)
+        to_end = BoxPretypesetCallback(box) if box.node_type == nd.NODE_TYPE.HLIST else None
         parser.skipFiller()
         t = parser.token_expand()
         t = parser.token_meaning(t)
@@ -470,7 +480,7 @@ class BuildBox(Command):
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         if not setbox:
             callback = ReadBoxEndCallback(parser, box)
-            parser.beginGroup(parser.input.position(), self.group_type, ended=callback)
+            parser.beginGroup(parser.input.position(), self.group_type, to_end=to_end, ended=callback)
             parser.loop()
             if callback.finished:
                 parser.run = True
@@ -538,9 +548,12 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
         new = parser.lists[-1]
         if new is not top:
             # we are reading a list, but the group has not started yet to accommodate \afterassignment
+            value = self.value[0]
+            to_end = BoxPretypesetCallback(value) if value.node_type == nd.NODE_TYPE.HLIST else None
             parser.beginGroup(
                 parser.input.position(),
                 new.group_type,
+                to_end=to_end,
                 ended=SetBoxEndCallback(parser, self, self.value[0]),
             )
         else:

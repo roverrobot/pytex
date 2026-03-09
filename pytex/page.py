@@ -198,6 +198,7 @@ class VListBreaker:
     def bestBreak(self, start, context):
         total = Glue()
         topskip_added = False
+        delayed_start = False
         best = None
         bottom_depth = None
         current_context = context
@@ -209,6 +210,27 @@ class VListBreaker:
                 continue
             if not topskip_added:
                 if self._isTopDiscardable(node):
+                    if delayed_start and self.isLegalBreak(start, i):
+                        penalty = node.penalty if node.node_type == nd.NODE_TYPE.PENALTY else 0
+                        effective = self.effectiveTotal(total, bottom_depth, current_context.maxdepth)
+                        cost = self.cost(effective, current_context.vsize, penalty)
+                        current = (
+                            cost,
+                            i,
+                            node.node_type.name.lower(),
+                            current_context,
+                            penalty,
+                        )
+                        if best is None or cost <= best[0]:
+                            best = current
+                        if node.node_type == nd.NODE_TYPE.PENALTY and (
+                            cost == inf or node.penalty <= -10000
+                        ):
+                            _, index, kind, best_context, best_penalty = current
+                            end, next_start = self.candidateBreak(index, kind)
+                            return end, next_start, best_context, best_penalty
+                    if delayed_start and node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                        self.measure(total, node)
                     continue
                 top = self.topskip(current_context.topskip, node)
                 if top is not None:
@@ -216,6 +238,8 @@ class VListBreaker:
                     topskip_added = True
                 elif not self._delaysPageStart(node):
                     topskip_added = True
+                else:
+                    delayed_start = True
             if not topskip_added:
                 if self.measureBeforeTopskip(node):
                     self.measure(total, node)

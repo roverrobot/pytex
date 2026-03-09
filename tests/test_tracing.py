@@ -1,6 +1,26 @@
 from pytex import texlive
 
 
+def _init_math_fonts(parser):
+    parser.parse(
+        "\\font\\tenrm=cmr10 "
+        "\\font\\sevenrm=cmr7 "
+        "\\font\\fiverm=cmr5 "
+        "\\font\\teni=cmmi10 "
+        "\\font\\seveni=cmmi7 "
+        "\\font\\fivei=cmmi5 "
+        "\\font\\tensy=cmsy10 "
+        "\\font\\sevensy=cmsy7 "
+        "\\font\\fivesy=cmsy5 "
+        "\\font\\tenex=cmex10 "
+        "\\skewchar\\teni='177 \\skewchar\\seveni='177 \\skewchar\\fivei='177 "
+        "\\skewchar\\tensy='60 \\skewchar\\sevensy='60 \\skewchar\\fivesy='60 "
+        "\\textfont1=\\teni \\scriptfont1=\\seveni \\scriptscriptfont1=\\fivei "
+        "\\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy "
+        "\\textfont3=\\tenex \\scriptfont3=\\tenex \\scriptscriptfont3=\\tenex"
+    )
+
+
 def test_show_reports_meaning(parser):
     parser.parse("\\def\\foo{a}\\show\\foo")
     log = parser.logContent()
@@ -56,6 +76,25 @@ def test_showlists_omits_main_vlist_wrapper(cmr10):
     assert "VList(outer)" not in log
     assert "### list 0" not in log
     assert "HList" in log
+
+
+def test_showlists_expands_inline_math_nodes(cmr10):
+    _init_math_fonts(cmr10)
+    cmr10.parse("$a$\\showlists")
+    log = cmr10.logContent()
+    assert "\\mathon" in log
+    assert "\\mathoff" in log
+    assert "\\teni a" in log
+
+
+def test_showlists_expands_display_math_nodes(cmr10):
+    _init_math_fonts(cmr10)
+    cmr10.parse("$$a$$\\showlists")
+    log = cmr10.logContent()
+    assert "\\glue(\\abovedisplayskip)" in log
+    assert "\\glue(\\belowdisplayskip)" in log
+    assert ", display" in log
+    assert "\\teni a" in log
 
 
 def test_tracingoutput_logs_shipped_box(parser):

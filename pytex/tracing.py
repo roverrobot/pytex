@@ -1,3 +1,5 @@
+import inspect
+
 from pytex.module import Module
 from pytex import toks
 from pytex import integer
@@ -17,6 +19,57 @@ def _show_limit(value):
     return None if value <= 0 else value
 
 
+def _normalize_trace_nodes(node, expanded):
+    if expanded is None:
+        return []
+    if isinstance(expanded, list):
+        nodes = expanded
+    else:
+        try:
+            nodes = list(expanded)
+        except TypeError:
+            nodes = [expanded]
+    for item in nodes:
+        if item is node:
+            continue
+        if getattr(item, "source", None) is None:
+            item.source = node
+    return nodes
+
+
+def _trace_expand_node(parser, node):
+    materialize = getattr(node, "materialize_box_nodes", None)
+    if materialize is not None:
+        return _normalize_trace_nodes(node, materialize(parser))
+    typeset = getattr(node, "typeset", None)
+    if typeset is None:
+        return None
+    try:
+        params = list(inspect.signature(typeset).parameters.values())
+    except (TypeError, ValueError):
+        return None
+    positional = [
+        p for p in params
+        if p.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ]
+    has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
+    if (not has_varargs) and len(positional) != 2:
+        return None
+    packed = []
+    typeset(parser, packed)
+    return _normalize_trace_nodes(node, packed)
+
+
+def _trace_label(node):
+    label = getattr(node, "list_type_name", None)
+    if label is not None:
+        return label
+    return type(node).__name__
+
+
 def _show_items(parser, lines, items, prefix, depth):
     if depth is not None and depth < 0:
         lines.append(prefix + "...")
@@ -31,7 +84,15 @@ def _show_items(parser, lines, items, prefix, depth):
 
 
 def _show_node(parser, lines, node, prefix="", depth=None):
-    lines.append(prefix + node.meaning(parser))
+    meaning = getattr(node, "meaning", None)
+    if meaning is None:
+        expanded = _trace_expand_node(parser, node)
+        if expanded is not None:
+            _show_items(parser, lines, expanded, prefix, depth)
+            return
+        lines.append(prefix + _trace_label(node))
+    else:
+        lines.append(prefix + meaning(parser))
     items = getattr(node, "list", None)
     if items:
         _show_items(parser, lines, items, prefix + ".", depth)

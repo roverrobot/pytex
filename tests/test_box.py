@@ -215,6 +215,11 @@ def _mark_node(text, index=0):
     return node
 
 
+class _ProbeWhatsit(nd.WhatsIt):
+    def output(self, parser, device):
+        return
+
+
 def test_vbox_trailing_glue_zeroes_depth(parser):
     vbox = bx.VBox(parser, None, 0)
     vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
@@ -314,6 +319,38 @@ def test_vsplit_nonzero_marks_require_etex(parser):
     parser.state.box[1] = source
     with pytest.raises(AssertionError):
         parser.parse("\\setbox2=\\vsplit1 to 10pt")
+
+
+def test_vsplit_breaks_at_top_glue_after_whatsit(parser):
+    parser.state.layout["splittopskip"] = glue.Glue(10)
+    source = bx.VBox(parser, None, 0)
+    source.list.append(_ProbeWhatsit())
+    source.list.append(nd.Glue(glue.Glue(10), None))
+    source.list.append(_synthetic_hbox(parser, height=0, depth=0, width=0))
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 0pt")
+    split = parser.state.box[2].typeset(parser)
+    remainder = parser.state.box[1].typeset(parser)
+    assert len(split.list) == 1
+    assert split.list[0].node_type == NODE_TYPE.WHATSIT
+    assert remainder.list[0].node_type == NODE_TYPE.GLUE
+    assert remainder.list[0].name == "\\splittopskip"
+    assert remainder.list[0].glue.dimen == 10
+    assert remainder.list[1].node_type == NODE_TYPE.HLIST
+
+
+def test_vsplit_zero_top_glue_still_takes_empty_box(parser):
+    source = bx.VBox(parser, None, 0)
+    source.list.append(_ProbeWhatsit())
+    source.list.append(nd.Glue(glue.Glue(0), None))
+    source.list.append(_synthetic_hbox(parser, height=0, depth=0, width=0))
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 0pt")
+    split = parser.state.box[2].typeset(parser)
+    assert len(split.list) == 2
+    assert split.list[0].node_type == NODE_TYPE.WHATSIT
+    assert split.list[1].node_type == NODE_TYPE.HLIST
+    assert parser.state.box[1] is None
 
 
 def test_moveright_dispatches_to_vertical_handler(parser):

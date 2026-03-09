@@ -849,7 +849,13 @@ class MainVList(vmode.VList):
             context = node.typeset_context
         expanded = vmode.expandVerticalNode(self.parser, node)
         node_context = context
-        for item in expanded:
+
+        def appendItem(item):
+            nonlocal node_context
+            if item.node_type == nd.NODE_TYPE.ADJUST:
+                for sub in vmode.expandVerticalNode(self.parser, item):
+                    appendItem(sub)
+                return
             if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 item_context = getattr(item, "typeset_context", None)
                 if item_context is None:
@@ -908,11 +914,14 @@ class MainVList(vmode.VList):
                 generated.append(item)
                 self._page_prevdepth = item.depth
                 self._page_seen_box = True
-                continue
+                return
             if item.node_type == nd.NODE_TYPE.RULE:
                 self._page_prevdepth = vmode.init_prevdepth
             self._page_nodes.append(item)
             generated.append(item)
+
+        for item in expanded:
+            appendItem(item)
         return generated
 
     def _realizePendingEntry(self, entry):

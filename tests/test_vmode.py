@@ -642,3 +642,24 @@ def test_insert_migrate(cmr10):
     assert len(node.vlist) == 1
     assert node.vlist[0].node_type == nd.NODE_TYPE.GLUE
     assert node.vlist[0].glue == glue.Glue(72.26999)
+
+
+def test_vadjust_merges_into_vertical_material(cmr10):
+    cmr10.parse("\\hsize=100pt\\noindent a\\vadjust{\\hrule height 1pt}b\\par")
+    top = cmr10.lists[-1]
+    packed = []
+    vmode.typesetVerticalNodes(cmr10, top.list, packed)
+    assert packed[0].node_type == nd.NODE_TYPE.HLIST
+    assert packed[1].node_type == nd.NODE_TYPE.RULE
+    assert packed[1].height == 1
+
+
+def test_page_break_merges_vadjust_material(cmr10):
+    cmr10.parse("\\vsize=100pt\\topskip=0pt\\hsize=100pt\\noindent a\\vadjust{\\hrule height 1pt}b\\par")
+    pages = cmr10.breakPages()
+    assert len(pages) == 1
+    page0 = pages[0].list
+    rule_index = next(i for i, node in enumerate(page0) if node.node_type == nd.NODE_TYPE.RULE)
+    assert rule_index > 0
+    assert page0[rule_index - 1].node_type == nd.NODE_TYPE.HLIST
+    assert page0[rule_index].height == 1

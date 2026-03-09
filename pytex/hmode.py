@@ -483,7 +483,7 @@ class VAdjust(HorizontalCommand):
         from pytex import vmode
 
         # Read the argument
-        vlist = parser.readVList(GROUP_TYPE.VADJUST)
+        vlist = parser.readVList(GROUP_TYPE.ADJUSTED_HBOX)
         # Add the vadjust node
         hlist.append(vmode.VAdjust(vlist))
 
@@ -579,6 +579,7 @@ mod = Module("hmode",
         "parshape": ParShape(),
         " ": ControlledSpace(),
         "discretionary": Discretionary(),
+        "vadjust": VAdjust(),
         "accent": Accent(),
         "spacefactor": SpaceFactor(),
     },

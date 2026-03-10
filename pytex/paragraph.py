@@ -13,98 +13,12 @@ from pytex.hmode import HorizontalCommand
 from pytex.integer import IntegerArrayItemAccessor
 
 
-class ParagraphTypesetContext:
-    """
-    Frozen typesetting context for a paragraph.
-    """
-    def __init__(self, parser, paragraph):
-        self.paragraph = paragraph
-        self.line_count = None
-        # In TeX, \prevgraf is usually 0, except after a display.
-        self.prevgraf = paragraph.prevgraf
-        self.hsize = parser.state.layout["hsize"]
-        self.leftskip = parser.state.layout["leftskip"]
-        self.rightskip = parser.state.layout["rightskip"]
-        self.parfillskip = parser.state.parameters["parfillskip"]
-        self.interlinepenalty = parser.state.layout["interlinepenalty"]
-        self.baselineskip = parser.state.layout["baselineskip"]
-        self.lineskip = parser.state.layout["lineskip"]
-        self.lineskiplimit = parser.state.layout["lineskiplimit"]
-        self.pretolerance = parser.state.layout["pretolerance"]
-        self.tolerance = parser.state.layout["tolerance"]
-        self.linepenalty = parser.state.layout["linepenalty"]
-        self.hyphenpenalty = parser.state.layout["hyphenpenalty"]
-        self.exhyphenpenalty = parser.state.layout["exhyphenpenalty"]
-        self.adjdemerits = parser.state.layout["adjdemerits"]
-        self.doublehyphendemerits = parser.state.layout["doublehyphendemerits"]
-        self.finalhyphendemerits = parser.state.layout["finalhyphendemerits"]
-        self.looseness = parser.state.volatile["looseness"]
-        self.hangindent = parser.state.volatile["hangindent"]
-        self.hangafter = parser.state.volatile["hangafter"]
-        self.parshape = parser.state.globals["parshape"]
-        # Current em (fontdimen6) at paragraph typeset snapshot time.
-        self.em = parser.state.parameters["currentfont"].param[5]
-        self.lefthyphenmin = parser.state.layout["lefthyphenmin"]
-        self.righthyphenmin = parser.state.layout["righthyphenmin"]
-        self.uchyph = parser.state.layout["uchyph"] > 0
-        self.actual_looseness = 0
-
-    def lineShape(self, line_no):
-        # TEX provides a special abbreviation
-        # for it in terms of two parameters called \hangindent and \hangafter. The command
-        # ‘\hangindent=⟨dimen⟩’ specifies a so-called hanging indentation, and the command
-        # ‘\hangafter=⟨number⟩’ specifies the duration of that indentation. Let x and n be the
-        # respective values of \hangindent and \hangafter, and let h be the value of \hsize;
-        # then if n≥0, hanging indentation will occur on lines n+1, n+2,...of the paragraph,
-        # but if n<0 it will occur on lines 1, 2,..., |n|. Hanging indentation means that lines will
-        # be of width h−|x|instead of their normal width h; if x≥0, the lines will be indented
-        # at the left margin, otherwise they will be indented at the right margin. If \parshape is present, 
-        # then it takes precedence.
-        if self.parshape:
-            i = line_no - 1
-            if i >= len(self.parshape):
-                i = len(self.parshape) - 1
-            return self.parshape[i]
-        hang = self.hangindent
-        if hang == 0:
-            return Dimen(), self.hsize
-        after = self.hangafter
-        if after >= 0:
-            hanging = line_no > after
-        else:
-            hanging = line_no <= -after
-        if not hanging:
-            return Dimen(), self.hsize
-        if hang > 0:
-            return hang, self.hsize - abs(hang)
-        return Dimen(), self.hsize - abs(hang)
-
-
 class Language(nd.WhatsIt):
     """
     a language node
     """
     def __init__(self, language):
         self.language = language
-
-
-class LineContext:
-    """
-    Context for vertical spacing before one broken paragraph line.
-    """
-    def __init__(self, parser, context, line):
-        line_no = line.line_no
-        adjust = 0
-        if line_no == 2:
-            adjust += parser.state.layout["clubpenalty"]
-        if line_no == context.line_count:
-            adjust += parser.state.layout["widowpenalty"]
-        if line.prev is not None and line.prev.hyphenated:
-            adjust += parser.state.layout["brokenpenalty"]
-        self.interlinepenalty = context.interlinepenalty + adjust
-        self.baselineskip = context.baselineskip
-        self.lineskip = context.lineskip
-        self.lineskiplimit = context.lineskiplimit
 
 
 class Paragraph(nd.Node, hmode.HListHolder):
@@ -120,7 +34,32 @@ class Paragraph(nd.Node, hmode.HListHolder):
         self.parskip = None
         # \prevgraf for this paragraph (set by display-math machinery when needed).
         self.prevgraf = 0
-        self.typeset_context = None
+        self.line_count = 0
+        self.actual_looseness = 0
+        self.hsize = None
+        self.leftskip = Glue()
+        self.rightskip = Glue()
+        self.parfillskip = Glue()
+        self.interlinepenalty = 0
+        self.baselineskip = Glue()
+        self.lineskip = Glue()
+        self.lineskiplimit = Dimen()
+        self.pretolerance = 0
+        self.tolerance = 0
+        self.linepenalty = 0
+        self.hyphenpenalty = 0
+        self.exhyphenpenalty = 0
+        self.adjdemerits = 0
+        self.doublehyphendemerits = 0
+        self.finalhyphendemerits = 0
+        self.looseness = 0
+        self.hangindent = Dimen()
+        self.hangafter = 0
+        self.parshape = []
+        self.em = Dimen()
+        self.lefthyphenmin = 0
+        self.righthyphenmin = 0
+        self.uchyph = False
         # Display math opens a synthetic following paragraph that may remain empty.
         self.keep_empty = False
         if indent:
@@ -130,6 +69,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
         self.next_paragraph = None
         self.prev_paragraph = None
         # if this paragraph has been typeset, then the line boxes are stored in this cache
+        self._line_boxes = None
         self._typeset_cache = None
 
     # not a proper node
@@ -157,32 +97,93 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     def meaning(self, parser):
         return "HList"
+
+    def snapshot(self, parser):
+        if self.hsize is not None:
+            return
+        layout = parser.state.layout
+        self.hsize = Dimen(layout["hsize"])
+        self.leftskip = layout["leftskip"].copy()
+        self.rightskip = layout["rightskip"].copy()
+        self.parfillskip = parser.state.parameters["parfillskip"].copy()
+        self.interlinepenalty = int(layout["interlinepenalty"])
+        self.baselineskip = layout["baselineskip"].copy()
+        self.lineskip = layout["lineskip"].copy()
+        self.lineskiplimit = Dimen(layout["lineskiplimit"])
+        self.pretolerance = int(layout["pretolerance"])
+        self.tolerance = int(layout["tolerance"])
+        self.linepenalty = int(layout["linepenalty"])
+        self.hyphenpenalty = int(layout["hyphenpenalty"])
+        self.exhyphenpenalty = int(layout["exhyphenpenalty"])
+        self.adjdemerits = int(layout["adjdemerits"])
+        self.doublehyphendemerits = int(layout["doublehyphendemerits"])
+        self.finalhyphendemerits = int(layout["finalhyphendemerits"])
+        self.looseness = int(parser.state.volatile["looseness"])
+        self.hangindent = Dimen(parser.state.volatile["hangindent"])
+        self.hangafter = int(parser.state.volatile["hangafter"])
+        self.parshape = list(parser.state.globals["parshape"])
+        self.em = Dimen(parser.state.parameters["currentfont"].param[5])
+        self.lefthyphenmin = int(layout["lefthyphenmin"])
+        self.righthyphenmin = int(layout["righthyphenmin"])
+        self.uchyph = layout["uchyph"] > 0
+
+    def lineShape(self, line_no):
+        # TEX provides a special abbreviation
+        # for it in terms of two parameters called \hangindent and \hangafter. The command
+        # ‘\hangindent=⟨dimen⟩’ specifies a so-called hanging indentation, and the command
+        # ‘\hangafter=⟨number⟩’ specifies the duration of that indentation. Let x and n be the
+        # respective values of \hangindent and \hangafter, and let h be the value of \hsize;
+        # then if n≥0, hanging indentation will occur on lines n+1, n+2,...of the paragraph,
+        # but if n<0 it will occur on lines 1, 2,..., |n|. Hanging indentation means that lines will
+        # be of width h−|x|instead of their normal width h; if x≥0, the lines will be indented
+        # at the left margin, otherwise they will be indented at the right margin. If \parshape is present,
+        # then it takes precedence.
+        if self.parshape:
+            i = line_no - 1
+            if i >= len(self.parshape):
+                i = len(self.parshape) - 1
+            return self.parshape[i]
+        hang = self.hangindent
+        if hang == 0:
+            return Dimen(), self.hsize
+        after = self.hangafter
+        if after >= 0:
+            hanging = line_no > after
+        else:
+            hanging = line_no <= -after
+        if not hanging:
+            return Dimen(), self.hsize
+        if hang > 0:
+            return hang, self.hsize - abs(hang)
+        return Dimen(), self.hsize - abs(hang)
     
     def pretypeset(self, parser): 
         """
         pretypeset the paragraph, i.e., break into lines, and set the , using the current typeset context.
         """
-        context = self.typeset_context
+        self.snapshot(parser)
         if self._typeset_cache is None:
             if len(self.list) == 0:
-                context.line_count = 0
+                self.line_count = 0
+                self._line_boxes = []
                 self._typeset_cache = []
             else:
                 scan = self._typesetNodesWithBreaks(parser, self.list)
                 hlist = scan
                 # line break the hlist into lines and pack them into the vlist
                 hlist, lines = self.lineBreak(parser, hlist, scan.candidates)
-                line_count = len(lines)
-                context.line_count = line_count
+                self.line_count = len(lines)
                 # add the lines into the vlist
+                self._line_boxes = []
                 self._typeset_cache = []
+                prev_box = None
                 for i, line in enumerate(lines):
                     packed = []
-                    indent, measure = context.lineShape(i + 1)
+                    indent, measure = self.lineShape(i + 1)
                     if indent != 0:
                         packed.append(nd.Glue(Glue(indent), "\\parindent"))
-                    if context.leftskip != Glue():
-                        packed.append(nd.Glue(context.leftskip, "\\leftskip"))
+                    if self.leftskip != Glue():
+                        packed.append(nd.Glue(self.leftskip, "\\leftskip"))
                     # if the line starts with a ligature then add in the post nodes
                     if line.begin.disc is not None:
                         packed.extend(line.begin.disc.post)
@@ -201,27 +202,53 @@ class Paragraph(nd.Node, hmode.HListHolder):
                     # if the line ends at a ligature, append the pre nodes
                     if line.end.disc is not None:
                         packed.append(self._lineDisc(parser, line.end.disc, broken=True))
-                    packed.append(nd.Glue(context.rightskip, "\\rightskip"))
+                    packed.append(nd.Glue(self.rightskip, "\\rightskip"))
                     hbox = bx.HBox(parser, measure, None)
                     hbox.list[:] = packed
                     hbox = hbox.typeset(parser)
                     hbox.source = self
-                    hbox.typeset_context = LineContext(parser, context, line)
-                    self._typeset_cache.append(hbox)
+                    self._line_boxes.append(hbox)
+                    if prev_box is not None:
+                        penalty = self._interlinePenalty(parser, line)
+                        if penalty != 0:
+                            self._typeset_cache.append(nd.Penalty(penalty))
+                        self._typeset_cache.append(self._interlineGlue(prev_box, hbox))
+                    hbox.typeset(parser, self._typeset_cache)
+                    prev_box = hbox
         self._refreshLinkedParagraphContext()
+
+    def _interlinePenalty(self, parser, line):
+        penalty = self.interlinepenalty
+        if line.line_no == 2:
+            penalty += parser.state.layout["clubpenalty"]
+        if line.line_no == self.line_count:
+            penalty += parser.state.layout["widowpenalty"]
+        if line.prev is not None and line.prev.hyphenated:
+            penalty += parser.state.layout["brokenpenalty"]
+        return penalty
+
+    def _interlineGlue(self, prev_box, hbox):
+        diff = self.baselineskip.dimen - prev_box.depth - hbox.height
+        if diff < self.lineskiplimit:
+            return nd.Glue(self.lineskip, "\\lineskip")
+        return nd.Glue(
+            Glue(diff, self.baselineskip.stretch, self.baselineskip.shrink),
+            "\\baselineskip",
+        )
 
     def _refreshLinkedParagraphContext(self):
         if self.next_paragraph is None:
             return
-        context = self.typeset_context
-        line_count = len(self._typeset_cache or [])
+        line_count = len(self._line_boxes or [])
         self.next_paragraph.prevgraf = line_count
         # For an immediately following display, TeX uses the next line-shape
         # slot to determine \displayindent and \displaywidth.
-        displayindent, displaywidth = context.lineShape(line_count + 1)
-        next_context = self.next_paragraph.typeset_context
-        next_context.prevgraf = line_count
+        displayindent, displaywidth = self.lineShape(line_count + 1)
         self.line_count = line_count
+        next_context = getattr(self.next_paragraph, "typeset_context", None)
+        if next_context is None:
+            next_context = self.next_paragraph
+        next_context.prevgraf = line_count
         next_context.displayindent = displayindent
         next_context.displaywidth = displaywidth
         # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
@@ -231,25 +258,22 @@ class Paragraph(nd.Node, hmode.HListHolder):
         # previous line, and sets p to the position of the right edge of the rightmost box inside
         # that hbox, plus the indentation by which the enclosing hbox has been moved right, plus
         # two ems in the current font.
-        hbox = self._typeset_cache[-1] if self._typeset_cache else None
+        hbox = self._line_boxes[-1] if self._line_boxes else None
         if hbox is None:
             next_context.predisplaysize = Dimen(-16383.99999)
             next_context.prevdepth = Dimen()
         else:
-            next_context.predisplaysize = hbox.rightmost() + 2 * context.em
+            next_context.predisplaysize = hbox.rightmost() + 2 * self.em
             next_context.prevdepth = hbox.depth
 
     def typeset(self, parser, vlist):
         self.pretypeset(parser)
-        for line in self._typeset_cache:
-            line.typeset(parser, vlist)
+        for node in self._typeset_cache:
+            vlist.append(node)
 
     def materialize_box_nodes(self, parser):
         self.pretypeset(parser)
-        packed = []
-        for line in self._typeset_cache:
-            line.typeset(parser, packed)
-        return packed
+        return list(self._typeset_cache)
 
     @staticmethod
     def _lineDisc(parser, disc, broken):
@@ -263,7 +287,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
         """
         Expand raw horizontal nodes and mark legal breakpoints in one pass.
         """
-        scan = _BreakCandidateScan(self.typeset_context)
+        scan = _BreakCandidateScan(self)
         ligature_state = {"lig_base": None, "in_word": False}
         for node in nodes:
             self.typesetNodeWithLigatures(parser, node, scan, ligature_state)
@@ -285,24 +309,23 @@ class Paragraph(nd.Node, hmode.HListHolder):
         - If still infeasible, run a fallback round that allows overfull forced
         breaks (matching TeX's "always break somehow" behavior).
         """
-        context = self.typeset_context
-        pre_tolerance = context.pretolerance
+        pre_tolerance = self.pretolerance
         if pre_tolerance < 0:
-            pre_tolerance = context.tolerance
+            pre_tolerance = self.tolerance
         if breaks is None:
-            breaks = _BreakCandidateScan(context, hlist).candidates
+            breaks = _BreakCandidateScan(self, hlist).candidates
         breaker = _LineBreaker(self, hlist, breaks, pre_tolerance)
         lines = breaker.run()
         working_hlist = hlist
         working_breaks = breaks
         if lines is None or (
-            context.looseness != 0
-            and breaker.actual_looseness != context.looseness
+            self.looseness != 0
+            and breaker.actual_looseness != self.looseness
         ):
             hyphenated = self._hyphenate(parser, hlist, breaks)
             if hyphenated:
                 working_hlist, working_breaks = hyphenated
-                hyphen_breaker = _LineBreaker(self, working_hlist, working_breaks, context.tolerance)
+                hyphen_breaker = _LineBreaker(self, working_hlist, working_breaks, self.tolerance)
                 hyphen_lines = hyphen_breaker.run()
                 if hyphen_lines is not None:
                     breaker = hyphen_breaker
@@ -312,11 +335,11 @@ class Paragraph(nd.Node, hmode.HListHolder):
                 self,
                 working_hlist,
                 working_breaks,
-                max(context.tolerance, 10000),
+                max(self.tolerance, 10000),
                 allow_overfull=True,
             )
             lines = breaker.run()
-        context.actual_looseness = breaker.actual_looseness
+        self.actual_looseness = breaker.actual_looseness
         return working_hlist, lines
 
     def _hyphenate(self, parser, hlist=None, scan=None):
@@ -324,7 +347,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
         Insert virtual discretionary breakpoints into a copied break chain by
         scanning the already-expanded node list.
         """
-        context = self.typeset_context
         if hlist is None or scan is None:
             expanded = self._typesetNodesWithBreaks(parser, self.list)
             hlist = expanded
@@ -478,8 +500,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
         """
         Check whether a collected trial word is valid for hyphenation.
         """
-        context = self.typeset_context
-        if len(text) < max(1, context.lefthyphenmin) + max(1, context.righthyphenmin):
+        if len(text) < max(1, self.lefthyphenmin) + max(1, self.righthyphenmin):
             return False
         n = len(nodes)
         while tail < n:
@@ -531,7 +552,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
                 nodes,
                 i,
                 current_language,
-                self.typeset_context.uchyph,
+                self.uchyph,
                 lccode,
             )
             if hyphen is None:
@@ -546,9 +567,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
             i = tail
 
     def _hyphenBreakCandidates(self, parser, nodes):
-        context = self.typeset_context
-        lambda_ = max(1, context.lefthyphenmin)
-        rho = max(1, context.righthyphenmin)
+        lambda_ = max(1, self.lefthyphenmin)
+        rho = max(1, self.righthyphenmin)
         extras = []
 
         for language, hyphen, text, parts in self._iterHyphenWords(parser, nodes):
@@ -567,7 +587,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
                             continue
                         split = point - total
                         candidate = _BreakCandidate(index if split < len(letters) else index + 1)
-                        candidate.penalty = context.hyphenpenalty
+                        candidate.penalty = self.hyphenpenalty
                         candidate.hyphenated = True
                         if split == len(letters):
                             candidate.disc = self._virtualDisc(parser, [hyphen], [])
@@ -906,7 +926,7 @@ class _LineBreaker:
     def __init__(self, para, nodes, breaks, tolerance, allow_overfull=False):
         self.para = para
         self.nodes = nodes
-        self.context = para.typeset_context
+        self.context = para
         self.breaks = breaks
         self.start = breaks.head
         self.end = breaks.tail.break_index if breaks.tail is not None else len(nodes)

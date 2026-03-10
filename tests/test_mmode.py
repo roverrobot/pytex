@@ -182,7 +182,7 @@ def test_display_noindent_has_no_synthetic_previous_paragraph(math):
     assert isinstance(top[1], paragraph.Paragraph)
     packed = []
     vmode.typesetVerticalNodes(math, top, packed)
-    assert top[1].typeset_context.prevgraf == 3
+    assert top[1].prevgraf == 3
 
 
 def test_mlist_typeset_display_without_closing_paragraph(math):
@@ -223,7 +223,7 @@ def test_display_predisplaysize_adds_two_ems(math):
     packed = []
     vmode.typesetVerticalNodes(math, top, packed)
     last_prev_line = [n for n in packed if n.node_type == nd.NODE_TYPE.HLIST and getattr(n, "source", None) is prev_par][-1]
-    expected = last_prev_line.rightmost() + 2 * prev_par.typeset_context.em
+    expected = last_prev_line.rightmost() + 2 * prev_par.em
     assert float(mlist.typeset_context.predisplaysize) == pytest.approx(float(expected), abs=1e-4)
 
 

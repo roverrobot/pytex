@@ -12,7 +12,7 @@ from pytex.dimen import Dimen
 
 def simple_context(parshape, hsize, hangindent, hangafter):
     ctx = types.SimpleNamespace(parshape=parshape, hsize=hsize, hangindent=hangindent, hangafter=hangafter)
-    ctx.lineShape = types.MethodType(paragraph.ParagraphTypesetContext.lineShape, ctx)
+    ctx.lineShape = types.MethodType(paragraph.Paragraph.lineShape, ctx)
     return ctx
 
 
@@ -25,17 +25,15 @@ def test_language(cmr10):
     assert isinstance(top[3], paragraph.Language)
 
 
-def test_paragraph_typeset_context_snapshot(parser):
+def test_paragraph_snapshot(parser):
     parser.parse("\\hsize=10pt a\\par")
     vlist = parser.lists[-1]
     p = next(node for node in vlist if isinstance(node, paragraph.Paragraph))
     assert isinstance(p, paragraph.Paragraph)
-    assert p.typeset_context is not None
-    assert p.typeset_context.paragraph is p
-    assert p.typeset_context.hsize == 10
-    assert p.typeset_context.prevgraf == 0
+    assert p.hsize == 10
+    assert p.prevgraf == 0
     parser.parse("\\hsize=20pt")
-    assert p.typeset_context.hsize == 10
+    assert p.hsize == 10
 
 
 def test_paragraph_is_pretypeset_when_it_ends(cmr10):
@@ -46,15 +44,14 @@ def test_paragraph_is_pretypeset_when_it_ends(cmr10):
     assert p._typeset_cache[0].node_type == nd.NODE_TYPE.HLIST
 
 
-def test_paragraph_typeset_context_captures_hyphenation_settings(cmr10):
+def test_paragraph_snapshot_captures_hyphenation_settings(cmr10):
     cmr10.parse("\\hyphenation{Tech-nique}\\lefthyphenmin=2\\righthyphenmin=3\\uchyph=1\\hsize=10pt\\parindent=0pt")
     cmr10.parse("This is a technique\\par")
     p = next(node for node in cmr10.lists[-1] if isinstance(node, paragraph.Paragraph))
     assert isinstance(p, paragraph.Paragraph)
-    ctx = p.typeset_context
-    assert ctx.lefthyphenmin == 2
-    assert ctx.righthyphenmin == 3
-    assert ctx.uchyph is True
+    assert p.lefthyphenmin == 2
+    assert p.righthyphenmin == 3
+    assert p.uchyph is True
 
 
 def test_paragraph_chain_break_on_nonparagraph(parser):
@@ -65,7 +62,7 @@ def test_paragraph_chain_break_on_nonparagraph(parser):
     p2 = ps[1]
     assert isinstance(p1, paragraph.Paragraph)
     assert isinstance(p2, paragraph.Paragraph)
-    assert p2.typeset_context.prevgraf == 0
+    assert p2.prevgraf == 0
 
 
 def test_linebreak_uses_explicit_paragraph_argument(parser):
@@ -76,7 +73,7 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
     para.typeset(parser, out)
     assert len(out) == 1
     assert out[0].node_type == nd.NODE_TYPE.HLIST
-    assert para.typeset_context.line_count == 1
+    assert para.line_count == 1
 
 
 def test_implicit_paragraph_adds_parskip(parser):
@@ -117,7 +114,7 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
 def test_hyphenate_uses_snapshot_words(cmr10):
     cmr10.parse("\\hyphenation{tech-nical}a technical\\par")
     para = cmr10.lists[-1][-1]
-    scan = paragraph._BreakCandidateScan(para.typeset_context, para)
+    scan = paragraph._BreakCandidateScan(para, para)
     assert len(scan.candidates)==3 # begin, space, end
     _, hyphenate_scan = para._hyphenate(cmr10)
     assert len(hyphenate_scan) == 4
@@ -303,38 +300,28 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     assert interline[0].glue.dimen > 0
 
 
-def test_line_context_uses_brokenpenalty_from_previous_line(parser):
+def test_interline_penalty_uses_brokenpenalty_from_previous_line(parser):
     parser.state.layout["clubpenalty"] = 1000
     parser.state.layout["widowpenalty"] = 2000
     parser.state.layout["brokenpenalty"] = 3000
-    ctx = types.SimpleNamespace(
-        line_count=5,
-        interlinepenalty=7,
-        baselineskip=Dimen(12),
-        lineskip=Dimen(),
-        lineskiplimit=Dimen(),
-    )
+    para = paragraph.Paragraph(parser, False)
+    para.line_count = 5
+    para.interlinepenalty = 7
     first = types.SimpleNamespace(line_no=1, hyphenated=True, prev=None)
     second = types.SimpleNamespace(line_no=2, hyphenated=False, prev=first)
-    line_context = paragraph.LineContext(parser, ctx, second)
-    assert line_context.interlinepenalty == 4007
+    assert para._interlinePenalty(parser, second) == 4007
 
 
-def test_line_context_applies_widowpenalty_before_last_line(parser):
+def test_interline_penalty_applies_widowpenalty_before_last_line(parser):
     parser.state.layout["clubpenalty"] = 1000
     parser.state.layout["widowpenalty"] = 2000
     parser.state.layout["brokenpenalty"] = 3000
-    ctx = types.SimpleNamespace(
-        line_count=5,
-        interlinepenalty=7,
-        baselineskip=Dimen(12),
-        lineskip=Dimen(),
-        lineskiplimit=Dimen(),
-    )
+    para = paragraph.Paragraph(parser, False)
+    para.line_count = 5
+    para.interlinepenalty = 7
     prev = types.SimpleNamespace(line_no=4, hyphenated=False, prev=None)
     last = types.SimpleNamespace(line_no=5, hyphenated=False, prev=prev)
-    line_context = paragraph.LineContext(parser, ctx, last)
-    assert line_context.interlinepenalty == 2007
+    assert para._interlinePenalty(parser, last) == 2007
 
 
 def test_linebreaker_select_final_positive_looseness():
@@ -369,5 +356,5 @@ def test_paragraph_looseness_resets_after_paragraph(parser):
     p2 = ps[1]
     assert isinstance(p1, paragraph.Paragraph)
     assert isinstance(p2, paragraph.Paragraph)
-    assert p1.typeset_context.looseness == 2
-    assert p2.typeset_context.looseness == 0
+    assert p1.looseness == 2
+    assert p2.looseness == 0

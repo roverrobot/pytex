@@ -402,7 +402,7 @@ class Parser:
         if len(hlist) == 0:
             para = top[-1]
             if para.keep_empty:
-                para.typeset_context = paragraph.ParagraphTypesetContext(self, para)
+                para.snapshot(self)
                 para.pretypeset(self)
             else:
                 para = top.pop() # paragraph is the last node that we added
@@ -415,7 +415,7 @@ class Parser:
             # \hskip\parfillskip
             hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
             para = top[-1]
-            para.typeset_context = paragraph.ParagraphTypesetContext(self, para)
+            para.snapshot(self)
             para.pretypeset(self)
         finalize_pending = getattr(top, "finalizePendingNode", None)
         if para is not None and finalize_pending is not None:

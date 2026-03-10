@@ -142,7 +142,7 @@ def test_page_break_updates_marks_registers(parser):
     main.append(_test_hbox(parser, height=6, depth=0))
     main.append(_mark("B", 0))
     main.append(_mark("Y", 2))
-    pages = parser.breakPages()
+    pages = parser.outputPages().pages
     assert len(pages) == 2
     assert toksToString(parser, parser.state.globals["topmarks"][0]) == "A"
     assert toksToString(parser, parser.state.globals["firstmarks"][0]) == "B"

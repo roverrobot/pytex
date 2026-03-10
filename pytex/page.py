@@ -371,9 +371,7 @@ def shipout(parser, box):
     backend = getattr(parser, "shipout", None)
     if backend is None:
         if parser.lists and isinstance(parser.lists[0], MainVList):
-            shipped_box = box.typeset(parser)
-            parser.lists[0]._flushDeferredFileOps(shipped_box)
-            parser.lists[0].deferShipout(shipped_box)
+            parser.lists[0].deferShipout(box)
             parser.state.globals["deadcycles"] = 0
             return
         raise ValueError("no active shipout backend")
@@ -1447,25 +1445,6 @@ class MainVList(vmode.VList):
         return botmarks
 
     @staticmethod
-    def _shipLeading(nodes, start, context, parser):
-        while start < len(nodes):
-            node = nodes[start]
-            if isinstance(node, PageStateNode):
-                context = node.context
-                start += 1
-                continue
-            if isinstance(node, ShipoutNode):
-                shipout(parser, node.box)
-                start += 1
-                continue
-            break
-        return start, context
-
-    @staticmethod
-    def _pageShipouts(nodes, start, end):
-        return [node.box for node in nodes[start:end] if isinstance(node, ShipoutNode)]
-
-    @staticmethod
     def _hasPageContent(nodes):
         for node in nodes:
             if node.node_type == nd.NODE_TYPE.RULE:
@@ -1606,103 +1585,16 @@ class MainVList(vmode.VList):
         vmode.typesetVerticalNodes(parser, outlist.list, carry)
         return carry
 
-    def pageBreak(self, parser):
-        self._realizeReadyTailEntries()
-        material = list(self.contributed)
-        breaker = MainVListBreaker(parser, material, self.page_initial_context)
-        pages = [box.typeset(parser) for box in self.deferred_shipouts]
-        context = self.page_initial_context
-        topmark = list(parser.state.parameters["botmark"])
-        self._clearInsertScratch(parser)
-        start = 0
-        while True:
-            start, context = breaker.pruneTop(start, context)
-            if start >= len(material):
-                break
-            end, next_start, break_context, break_penalty = breaker.bestBreak(start, context)
-            if end <= start:
-                end = min(start + 1, len(material))
-                next_start = end
-                break_context = breaker.advanceContext(start, end, context)
-                break_penalty = 0
-            page = bx.VBox(parser, break_context.vsize, Dimen())
-            firstmark, botmark = self._pageMarks(material, start, end, topmark)
-            botmarks = self._updatePageMarksByClass(parser, material, start, end, topmark)
-            # The page material is already fully typeset. Keep it as a plain list so
-            # VBox.pretypeset() computes box dimensions without re-running
-            # VList.typesetNodes() and duplicating interline penalties/glue.
-            page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
-            self._clearInsertScratch(parser)
-            page.list[:], carry = self._extractPageInserts(parser, page_nodes, breaker)
-            pages.append(page.typeset(parser))
-            parser.state.layout["outputpenalty"] = break_penalty
-            parser.state.globals["insertpenalties"] = breaker.last_insert_penalties
-            parser.state.parameters["topmark"] = list(topmark)
-            parser.state.parameters["firstmark"] = list(firstmark)
-            parser.state.parameters["botmark"] = list(botmark)
-            topmark = list(botmark)
-            context = breaker.advanceContext(start, next_start, context)
-            if carry:
-                material[next_start:next_start] = carry
-            start = next_start
-        return pages
-
     def outputPages(self, parser):
         self._realizeReadyTailEntries()
-        material = list(self.contributed)
-        breaker = MainVListBreaker(parser, material, self.page_initial_context)
-        shipped = len(parser.shipout.pages)
         for box in self.deferred_shipouts:
             shipout(parser, box)
         self.deferred_shipouts.clear()
-        context = self.page_initial_context
-        topmark = list(parser.state.parameters["botmark"])
-        self._clearInsertScratch(parser)
-        start = 0
-        while True:
-            start, context = self._shipLeading(material, start, context, parser)
-            start, context = breaker.pruneTop(start, context)
-            if start >= len(material):
-                break
-            end, next_start, break_context, break_penalty = breaker.bestBreak(start, context)
-            if end <= start:
-                end = min(start + 1, len(material))
-                next_start = end
-                break_context = breaker.advanceContext(start, end, context)
-                break_penalty = 0
-            page = bx.VBox(parser, break_context.vsize, Dimen())
-            firstmark, botmark = self._pageMarks(material, start, end, topmark)
-            botmarks = self._updatePageMarksByClass(parser, material, start, end, topmark)
-            parser.state.parameters["topmark"] = list(topmark)
-            parser.state.parameters["firstmark"] = list(firstmark)
-            parser.state.parameters["botmark"] = list(botmark)
-            parser.state.layout["outputpenalty"] = break_penalty
-            for box in self._pageShipouts(material, start, end):
-                shipout(parser, box)
-            # Keep the built page material as a plain list; it is already packed.
-            page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
-            has_content = self._hasPageContent(page_nodes)
-            self._clearInsertScratch(parser)
-            page.list[:], insert_carry = self._extractPageInserts(parser, page_nodes, breaker)
-            parser.state.globals["insertpenalties"] = breaker.last_insert_penalties
-            if not has_content:
-                self._flushPageWhatsits(parser, page.list)
-                context = breaker.advanceContext(start, next_start, context)
-                if insert_carry:
-                    material[next_start:next_start] = insert_carry
-                start = next_start
-                continue
-            out_carry = self._runOutputRoutine(parser, page.typeset(parser))
-            pending = []
-            if insert_carry:
-                pending.extend(insert_carry)
-            if out_carry:
-                pending.extend(out_carry)
-            topmark = list(botmark)
-            context = breaker.advanceContext(start, next_start, context)
-            if pending:
-                material[next_start:next_start] = pending
-            start = next_start
+        shipped = len(parser.shipout.pages)
+        if float(parser.state.layout["vsize"]) <= 0:
+            self._flushPageWhatsits(parser, self.contributed.list)
+            return parser.shipout.pages[shipped:]
+        self._processPendingPages()
         return parser.shipout.pages[shipped:]
 
 

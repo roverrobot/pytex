@@ -68,6 +68,7 @@ class Parser:
         self.current_token = None
         self.jobname = "noname"
         self.lastbox = None
+        self.ended = False
     
     def getLogFile(self):
         """
@@ -472,6 +473,9 @@ class Parser:
         """
         end the parser, and return the log
         """
+        if self.ended:
+            return
+        self.ended = True
         self.run = False
         top = self.lists[-1]
         if top.type == lists.LISTTYPE.HORIZONTAL:
@@ -487,24 +491,21 @@ class Parser:
         top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2)), "\\vfill"))
         top.append(node.Penalty(-0x100000))
 
-    def breakPages(self):
+    def outputPages(self, output=None):
         top = self.lists[-1]
         if top.type == lists.LISTTYPE.HORIZONTAL:
             if top.inner:
-                raise ValueError("cannot break pages in internal horizontal mode")
+                raise ValueError("cannot output pages in internal horizontal mode")
             self.endParagraph()
             top = self.lists[-1]
         if not isinstance(top, page.MainVList) or top is not self.lists[0]:
-            raise ValueError("page breaking requires the main vertical list")
-        self.pages = top.pageBreak(self)
-        return self.pages
-    
-    def outputPages(self, output=None):
-        assert self.lists and isinstance(self.lists[-1], page.MainVList), "main vertical list disappeared. How can that happen?"
+            raise ValueError("page output requires the main vertical list")
         assert self.shipout_class is not None
         with self.shipout_class(self, output) as shipout:
             self.shipout = shipout
             try:
+                if not self.ended:
+                    self.end()
                 self.lists[-1].outputPages(self)
             finally:
                 self.shipout = None

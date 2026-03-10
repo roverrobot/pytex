@@ -202,6 +202,49 @@ def _test_hbox(parser, height=6, depth=2):
     return _LeafHBox(height, depth)
 
 
+def _break_pages(parser):
+    if parser.lists[-1].type == lists.LISTTYPE.HORIZONTAL:
+        parser.endParagraph()
+    main = parser.lists[0]
+    assert isinstance(main, page.MainVList)
+    main._realizeReadyTailEntries()
+    material = list(main.contributed)
+    breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
+    pages = [box.typeset(parser) for box in main.deferred_shipouts]
+    context = main.page_initial_context
+    topmark = list(parser.state.parameters["botmark"])
+    page.MainVList._clearInsertScratch(parser)
+    start = 0
+    while True:
+        start, context = breaker.pruneTop(start, context)
+        if start >= len(material):
+            break
+        end, next_start, break_context, break_penalty = breaker.bestBreak(start, context)
+        if end <= start:
+            end = min(start + 1, len(material))
+            next_start = end
+            break_context = breaker.advanceContext(start, end, context)
+            break_penalty = 0
+        box = bx.VBox(parser, break_context.vsize, Dimen())
+        firstmark, botmark = main._pageMarks(material, start, end, topmark)
+        main._updatePageMarksByClass(parser, material, start, end, topmark)
+        page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
+        page.MainVList._clearInsertScratch(parser)
+        box.list[:], carry = main._extractPageInserts(parser, page_nodes, breaker)
+        pages.append(box.typeset(parser))
+        parser.state.layout["outputpenalty"] = break_penalty
+        parser.state.globals["insertpenalties"] = breaker.last_insert_penalties
+        parser.state.parameters["topmark"] = list(topmark)
+        parser.state.parameters["firstmark"] = list(firstmark)
+        parser.state.parameters["botmark"] = list(botmark)
+        topmark = list(botmark)
+        context = breaker.advanceContext(start, next_start, context)
+        if carry:
+            material[next_start:next_start] = carry
+        start = next_start
+    return pages
+
+
 class _ProbeWhatsit(nd.WhatsIt):
     node_type = nd.NODE_TYPE.WHATSIT
 
@@ -291,7 +334,7 @@ def test_page_break_inserts_topskip_and_splits_pages(parser):
     main.append(first)
     main.append(nd.Glue(glue.Glue(4), None))
     main.append(second)
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert len(pages) == 2
     assert pages[0].height == 10
     assert pages[0].list[0].node_type == nd.NODE_TYPE.GLUE
@@ -308,7 +351,7 @@ def test_page_break_uses_topskip_before_first_box(parser):
     main = parser.lists[0]
     assert isinstance(main, page.MainVList)
     main.append(_test_hbox(parser, height=6, depth=0))
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert len(pages) == 1
     assert pages[0].list[0].node_type == nd.NODE_TYPE.GLUE
     assert pages[0].list[0].name == "\\topskip"
@@ -322,7 +365,7 @@ def test_page_break_discards_glue_before_first_box_after_whatsit(parser):
     main.append(nd.Special([]))
     main.append(nd.Glue(glue.Glue(2), None))
     main.append(first)
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert len(pages) == 1
     assert pages[0].list[0].node_type == nd.NODE_TYPE.WHATSIT
     assert pages[0].list[1].node_type == nd.NODE_TYPE.GLUE
@@ -341,7 +384,7 @@ def test_page_break_keeps_void_box_and_forced_penalty_before_start(parser):
     main.append(void)
     main.append(nd.Penalty(-10001))
     main.append(first)
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert len(pages) == 2
     assert pages[0].list[0].node_type == nd.NODE_TYPE.WHATSIT
     assert pages[0].list[1].node_type == nd.NODE_TYPE.GLUE
@@ -359,7 +402,7 @@ def test_page_break_extracts_insert_into_class_box(parser):
     main = parser.lists[0]
     main.append(vmode.Insert(2, [nd.Glue(glue.Glue(72.26999), None)]))
     main.append(_test_hbox(parser, height=6, depth=0))
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert len(pages) == 1
     assert all(node.node_type != nd.NODE_TYPE.INS for node in pages[0].list)
     assert parser.state.globals["insertpenalties"] == 0
@@ -380,7 +423,7 @@ def test_insert_step1_skip_reduces_page_goal(parser):
     main.append(_test_hbox(parser, height=8, depth=0))
     main.append(nd.Glue(glue.Glue(2), None))
     main.append(_test_hbox(parser, height=8, depth=0))
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert len(pages) == 2
 
 
@@ -500,7 +543,7 @@ def test_page_topskip_includes_rule(parser):
     main = parser.lists[0]
     rule = nd.Rule(0, 6, 0)
     main.append(rule)
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert pages[0].list[0].node_type == nd.NODE_TYPE.GLUE
     assert pages[0].list[0].name == "\\topskip"
     assert pages[0].list[1] is rule
@@ -528,7 +571,7 @@ def test_page_break_uses_marker_context(parser):
     parser.state.layout["vsize"] = Dimen(20)
     main.append(second)
     main.append(nd.Penalty(-10000))
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert len(pages) == 1
     assert pages[0].height == 20
 
@@ -569,7 +612,7 @@ def test_page_break_waits_past_overfull_penalty_if_negative_glue_recovers(parser
     main.append(second)
     main.append(nd.Penalty(100))
     main.append(nd.Glue(glue.Glue(-2), None))
-    pages = main.pageBreak(parser)
+    pages = _break_pages(parser)
     assert len(pages) == 1
     assert pages[0].list[1] is first
     assert pages[0].list[2].node_type == nd.NODE_TYPE.GLUE
@@ -674,7 +717,7 @@ def test_vadjust_merges_into_vertical_material(cmr10):
 
 def test_page_break_merges_vadjust_material(cmr10):
     cmr10.parse("\\vsize=100pt\\topskip=0pt\\hsize=100pt\\noindent a\\vadjust{\\hrule height 1pt}b\\par")
-    pages = cmr10.breakPages()
+    pages = _break_pages(cmr10)
     assert len(pages) == 1
     page0 = pages[0].list
     rule_index = next(i for i, node in enumerate(page0) if node.node_type == nd.NODE_TYPE.RULE)

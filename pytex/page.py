@@ -941,6 +941,9 @@ class MainVList(vmode.VList):
     def finalizePendingNode(self, node):
         for entry in reversed(self._pending_entries):
             if entry.node is node:
+                if getattr(node, "box_materializable", False) and node.node_type is None:
+                    if getattr(node, "_typeset_cache", None) is None:
+                        node.pretypeset(self.parser)
                 self._realizePendingEntry(entry)
                 return
         raise ValueError("cannot finalize missing main-vlist node")

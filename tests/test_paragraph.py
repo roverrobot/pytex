@@ -12,7 +12,9 @@ from pytex.dimen import Dimen
 
 def simple_context(parshape, hsize, hangindent, hangafter):
     ctx = types.SimpleNamespace(parshape=parshape, hsize=hsize, hangindent=hangindent, hangafter=hangafter)
-    ctx.lineShape = types.MethodType(paragraph.Paragraph.lineShape, ctx)
+    ctx.lineShape = lambda line_no: paragraph.Paragraph._lineShape(
+        ctx.parshape, ctx.hsize, ctx.hangindent, ctx.hangafter, line_no
+    )
     return ctx
 
 
@@ -25,15 +27,16 @@ def test_language(cmr10):
     assert isinstance(top[3], paragraph.Language)
 
 
-def test_paragraph_snapshot(parser):
-    parser.parse("\\hsize=10pt a\\par")
-    vlist = parser.lists[-1]
+def test_paragraph_uses_state_when_it_ends(cmr10):
+    cmr10.parse("\\hsize=20pt\\parindent=0pt a a a a a\\par")
+    vlist = cmr10.lists[-1]
     p = next(node for node in vlist if isinstance(node, paragraph.Paragraph))
     assert isinstance(p, paragraph.Paragraph)
-    assert p.hsize == 10
-    assert p.prevgraf == 0
-    parser.parse("\\hsize=20pt")
-    assert p.hsize == 10
+    lines = _lineBoxes(p._typeset_cache)
+    assert len(lines) > 1
+    assert all(line.width == 20 for line in lines)
+    cmr10.parse("\\hsize=100pt")
+    assert all(line.width == 20 for line in lines)
 
 
 def test_paragraph_is_pretypeset_when_it_ends(cmr10):
@@ -42,16 +45,6 @@ def test_paragraph_is_pretypeset_when_it_ends(cmr10):
     assert p._typeset_cache is not None
     assert len(p._typeset_cache) == 1
     assert p._typeset_cache[0].node_type == nd.NODE_TYPE.HLIST
-
-
-def test_paragraph_snapshot_captures_hyphenation_settings(cmr10):
-    cmr10.parse("\\hyphenation{Tech-nique}\\lefthyphenmin=2\\righthyphenmin=3\\uchyph=1\\hsize=10pt\\parindent=0pt")
-    cmr10.parse("This is a technique\\par")
-    p = next(node for node in cmr10.lists[-1] if isinstance(node, paragraph.Paragraph))
-    assert isinstance(p, paragraph.Paragraph)
-    assert p.lefthyphenmin == 2
-    assert p.righthyphenmin == 3
-    assert p.uchyph is True
 
 
 def test_paragraph_chain_break_on_nonparagraph(parser):
@@ -114,7 +107,7 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
 def test_hyphenate_uses_snapshot_words(cmr10):
     cmr10.parse("\\hyphenation{tech-nical}a technical\\par")
     para = cmr10.lists[-1][-1]
-    scan = paragraph._BreakCandidateScan(para, para)
+    scan = paragraph._BreakCandidateScan(cmr10, para)
     assert len(scan.candidates)==3 # begin, space, end
     _, hyphenate_scan = para._hyphenate(cmr10)
     assert len(hyphenate_scan) == 4
@@ -301,24 +294,24 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
 
 
 def test_interline_penalty_uses_brokenpenalty_from_previous_line(parser):
+    parser.state.layout["interlinepenalty"] = 7
     parser.state.layout["clubpenalty"] = 1000
     parser.state.layout["widowpenalty"] = 2000
     parser.state.layout["brokenpenalty"] = 3000
     para = paragraph.Paragraph(parser, False)
     para.line_count = 5
-    para.interlinepenalty = 7
     first = types.SimpleNamespace(line_no=1, hyphenated=True, prev=None)
     second = types.SimpleNamespace(line_no=2, hyphenated=False, prev=first)
     assert para._interlinePenalty(parser, second) == 4007
 
 
 def test_interline_penalty_applies_widowpenalty_before_last_line(parser):
+    parser.state.layout["interlinepenalty"] = 7
     parser.state.layout["clubpenalty"] = 1000
     parser.state.layout["widowpenalty"] = 2000
     parser.state.layout["brokenpenalty"] = 3000
     para = paragraph.Paragraph(parser, False)
     para.line_count = 5
-    para.interlinepenalty = 7
     prev = types.SimpleNamespace(line_no=4, hyphenated=False, prev=None)
     last = types.SimpleNamespace(line_no=5, hyphenated=False, prev=prev)
     assert para._interlinePenalty(parser, last) == 2007
@@ -348,13 +341,6 @@ def test_linebreaker_select_final_negative_looseness():
     assert chosen.line_no == 2
 
 
-def test_paragraph_looseness_resets_after_paragraph(parser):
+def test_paragraph_settings_reset_after_paragraph(parser):
     parser.parse("\\looseness=2 a\\par b\\par")
-    vlist = parser.lists[-1]
-    ps = [node for node in vlist if isinstance(node, paragraph.Paragraph)]
-    p1 = ps[0]
-    p2 = ps[1]
-    assert isinstance(p1, paragraph.Paragraph)
-    assert isinstance(p2, paragraph.Paragraph)
-    assert p1.looseness == 2
-    assert p2.looseness == 0
+    assert parser.state.volatile["looseness"] == 0

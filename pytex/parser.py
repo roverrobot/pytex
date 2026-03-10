@@ -402,8 +402,7 @@ class Parser:
         if len(hlist) == 0:
             para = top[-1]
             if para.keep_empty:
-                para.snapshot(self)
-                para.pretypeset(self)
+                pass
             else:
                 para = top.pop() # paragraph is the last node that we added
                 if para.prev_paragraph:
@@ -415,11 +414,12 @@ class Parser:
             # \hskip\parfillskip
             hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
             para = top[-1]
-            para.snapshot(self)
-            para.pretypeset(self)
         finalize_pending = getattr(top, "finalizePendingNode", None)
-        if para is not None and finalize_pending is not None:
-            finalize_pending(para)
+        if para is not None:
+            if finalize_pending is not None:
+                finalize_pending(para)
+            else:
+                para.pretypeset(self)
         # TeX clears \\looseness etc after each paragraph.
         self.clearParagraphSettings()
         return para

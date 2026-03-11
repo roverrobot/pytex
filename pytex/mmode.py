@@ -816,7 +816,7 @@ class DisplayMathNode(MathListHolder):
             cache.append(nd.Penalty(10000))
             a.shifted = Dimen(s + z) - a.width
             a.interline_penalty = 0
-            a.interline_glue = Glue()
+            a.interline_glue = nd.Glue(None, "\\baselineskip")
             cache.append(a)
             cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
         else:

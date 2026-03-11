@@ -16,18 +16,6 @@ from pytex.accessor import Accessor
 init_prevdepth = Dimen(-1000.0)
 
 
-class VNodeContext:
-    """
-    The context for a node in vertical mode. This is used to store the parameters that affect the typesetting of the node, such as baselineskip, lineskip, etc.
-    """
-    def __init__(self, layout, prevdepth):
-        self.baselineskip = layout["baselineskip"]
-        self.lineskip = layout["lineskip"]
-        self.lineskiplimit = layout["lineskiplimit"]
-        self.interlinepenalty = layout["interlinepenalty"]
-        self.prevdepth = prevdepth
-
-
 def _mark_source(node, source):
     if getattr(node, "source", None) is None:
         node.source = source
@@ -43,15 +31,36 @@ def _append_concrete_vertical(packed, state, node):
         state["prevdepth"] = init_prevdepth
 
 
-def _append_interline_glue(packed, state, source, glue, name, suppress_zero=False):
-    if suppress_zero and glue == Glue():
+def _append_interline_glue(packed, state, source, glue_node):
+    if glue_node.glue is None:
         return
-    node = nd.Glue(glue, name)
+    node = nd.Glue(glue_node.glue, glue_node.name)
     node.source = source
     _append_concrete_vertical(packed, state, node)
 
 
-def _append_expanded_item(parser, packed, state, item, source, node_context=None):
+def _compute_interline_material(layout, prevdepth, height):
+    interline_penalty = layout["interlinepenalty"]
+    if float(prevdepth) <= float(init_prevdepth):
+        return interline_penalty, nd.Glue(None, "\\baselineskip")
+    baselineskip = layout["baselineskip"]
+    diff = baselineskip.dimen - prevdepth - height
+    if diff < layout["lineskiplimit"]:
+        return interline_penalty, nd.Glue(layout["lineskip"], "\\lineskip")
+    return interline_penalty, nd.Glue(
+        Glue(diff, baselineskip.stretch, baselineskip.shrink),
+        "\\baselineskip",
+    )
+
+
+def stampBoxInterline(box, layout, prevdepth):
+    penalty, glue_node = _compute_interline_material(layout, prevdepth, box.height)
+    box.interline_penalty = penalty
+    box.interline_glue = glue_node
+    return box
+
+
+def _append_expanded_item(parser, packed, state, item, source):
     if item.node_type == nd.NODE_TYPE.ADJUST:
         subitems = []
         typesetVerticalNodes(parser, item.vlist, subitems)
@@ -62,100 +71,56 @@ def _append_expanded_item(parser, packed, state, item, source, node_context=None
             _append_expanded_item(parser, packed, state, sub, sub_source)
         return
     if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-        context = getattr(item, "typeset_context", None)
-        if context is None:
-            context = node_context
-        else:
-            item.typeset_context = None
         interline_penalty = getattr(item, "interline_penalty", None)
         interline_glue = getattr(item, "interline_glue", None)
-        if context is None:
-            if interline_penalty is not None or interline_glue is not None:
-                if interline_penalty is None:
-                    interline_penalty = parser.state.layout["interlinepenalty"]
-                if interline_penalty != 0 and state["seen_box"]:
+        if interline_penalty is not None or interline_glue is not None:
+            if interline_penalty is None:
+                interline_penalty = parser.state.layout["interlinepenalty"]
+            if interline_penalty != 0 and state["seen_box"]:
+                penalty = nd.Penalty(interline_penalty)
+                penalty.source = source
+                _append_concrete_vertical(packed, state, penalty)
+            if interline_glue is None:
+                _, interline_glue = _compute_interline_material(
+                    parser.state.layout,
+                    state["prevdepth"],
+                    item.height,
+                )
+            if state["seen_box"]:
+                _append_interline_glue(packed, state, source, interline_glue)
+        elif state["seen_box"]:
+            prev = packed[-1] if packed else None
+            if prev is not None and prev.node_type in (
+                nd.NODE_TYPE.HLIST,
+                nd.NODE_TYPE.VLIST,
+                nd.NODE_TYPE.RULE,
+            ):
+                interline_penalty, interline_glue = _compute_interline_material(
+                    parser.state.layout,
+                    state["prevdepth"],
+                    item.height,
+                )
+                if interline_penalty != 0:
                     penalty = nd.Penalty(interline_penalty)
                     penalty.source = source
                     _append_concrete_vertical(packed, state, penalty)
-                if interline_glue is None and float(state["prevdepth"]) > float(init_prevdepth) and state["seen_box"]:
-                    baselineskip = parser.state.layout["baselineskip"]
-                    diff = baselineskip.dimen - state["prevdepth"] - item.height
-                    if diff < parser.state.layout["lineskiplimit"]:
-                        interline_glue = parser.state.layout["lineskip"]
-                        glue_name = "\\lineskip"
-                    else:
-                        interline_glue = Glue(diff, baselineskip.stretch, baselineskip.shrink)
-                        glue_name = "\\baselineskip"
-                    _append_interline_glue(packed, state, source, interline_glue, glue_name)
-                elif interline_glue is not None and state["seen_box"]:
-                    _append_interline_glue(
-                        packed,
-                        state,
-                        source,
-                        interline_glue,
-                        "\\baselineskip",
-                        suppress_zero=True,
-                    )
-            elif state["seen_box"]:
-                prev = packed[-1] if packed else None
-                if prev is not None and prev.node_type in (
-                    nd.NODE_TYPE.HLIST,
-                    nd.NODE_TYPE.VLIST,
-                    nd.NODE_TYPE.RULE,
-                ):
-                    interlinepenalty = parser.state.layout["interlinepenalty"]
-                    if interlinepenalty != 0:
-                        penalty = nd.Penalty(interlinepenalty)
-                        penalty.source = source
-                        _append_concrete_vertical(packed, state, penalty)
-                    if float(state["prevdepth"]) > float(init_prevdepth):
-                        baselineskip = parser.state.layout["baselineskip"]
-                        diff = baselineskip.dimen - state["prevdepth"] - item.height
-                        if diff < parser.state.layout["lineskiplimit"]:
-                            glue = parser.state.layout["lineskip"]
-                            glue_name = "\\lineskip"
-                        else:
-                            glue = Glue(diff, baselineskip.stretch, baselineskip.shrink)
-                            glue_name = "\\baselineskip"
-                        _append_interline_glue(packed, state, source, glue, glue_name)
-        else:
-            if context.interlinepenalty != 0 and state["seen_box"]:
-                penalty = nd.Penalty(context.interlinepenalty)
-                penalty.source = source
-                _append_concrete_vertical(packed, state, penalty)
-            prevdepth = getattr(context, "prevdepth", None)
-            if prevdepth is None:
-                prevdepth = state["prevdepth"]
-            if float(prevdepth) > float(init_prevdepth) and state["seen_box"]:
-                baselineskip = context.baselineskip
-                diff = baselineskip.dimen - prevdepth - item.height
-                if diff < context.lineskiplimit:
-                    glue = nd.Glue(context.lineskip, "\\lineskip")
-                else:
-                    glue = nd.Glue(
-                        Glue(diff, baselineskip.stretch, baselineskip.shrink),
-                        "\\baselineskip",
-                    )
-                glue.source = source
-                _append_concrete_vertical(packed, state, glue)
+                _append_interline_glue(packed, state, source, interline_glue)
         _append_concrete_vertical(packed, state, _mark_source(item, source))
         return
     _append_concrete_vertical(packed, state, _mark_source(item, source))
 
 
 def _append_expanded_node(parser, packed, state, node):
-    node_context = getattr(node, "typeset_context", None)
-    if node_context is None:
-        first_box_context = getattr(node, "firstBoxContext", None)
-        if first_box_context is not None:
-            node_context = first_box_context(state["prevdepth"])
+    stamp_first_box = getattr(node, "stampFirstBoxInterline", None)
+    first_box_pending = stamp_first_box is not None
     for item in expandVerticalNode(parser, node):
         source = getattr(item, "source", None)
         if source is None:
             source = node
-        _append_expanded_item(parser, packed, state, item, source, node_context)
-        if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            node_context = None
+        if first_box_pending and item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            stamp_first_box(parser, state["prevdepth"])
+            first_box_pending = False
+        _append_expanded_item(parser, packed, state, item, source)
 
 
 def _rebuild_expanded_state(nodes):
@@ -304,46 +269,21 @@ class VList(lists.List):
             return getattr(node, "_typeset_cache", None) is not None
         return True
 
-    def _appendInterlineMaterial(self, node, prior_prevdepth, context=None):
+    def _appendInterlineMaterial(self, node, prior_prevdepth):
         interline_penalty = getattr(node, "interline_penalty", None)
         interline_glue = getattr(node, "interline_glue", None)
-        suppress_zero = interline_glue is not None
-        if interline_penalty is None and interline_glue is None and context is not None:
-            interline_penalty = context.interlinepenalty
-            prevdepth = getattr(context, "prevdepth", None)
-            if prevdepth is None:
-                prevdepth = prior_prevdepth
-            if float(prevdepth) > float(init_prevdepth):
-                baselineskip = context.baselineskip
-                diff = baselineskip.dimen - prevdepth - node.height
-                if diff < context.lineskiplimit:
-                    interline_glue = context.lineskip
-                    glue_name = "\\lineskip"
-                else:
-                    interline_glue = Glue(diff, baselineskip.stretch, baselineskip.shrink)
-                    glue_name = "\\baselineskip"
-            else:
-                interline_glue = Glue()
-                glue_name = "\\baselineskip"
-                suppress_zero = True
-        else:
+        if interline_glue is None:
+            default_penalty, interline_glue = _compute_interline_material(
+                self.parser.state.layout,
+                prior_prevdepth,
+                node.height,
+            )
             if interline_penalty is None:
-                interline_penalty = self.parser.state.layout["interlinepenalty"]
-            if interline_glue is None and float(prior_prevdepth) > float(init_prevdepth):
-                baselineskip = self.parser.state.layout["baselineskip"]
-                diff = baselineskip.dimen - prior_prevdepth - node.height
-                if diff < self.parser.state.layout["lineskiplimit"]:
-                    interline_glue = self.parser.state.layout["lineskip"]
-                    glue_name = "\\lineskip"
-                else:
-                    interline_glue = Glue(diff, baselineskip.stretch, baselineskip.shrink)
-                    glue_name = "\\baselineskip"
-            else:
-                glue_name = "\\baselineskip"
+                interline_penalty = default_penalty
         if interline_penalty != 0 and float(prior_prevdepth) > float(init_prevdepth):
             self.list.append(nd.Penalty(interline_penalty))
-        if (not suppress_zero or interline_glue != Glue()) and float(prior_prevdepth) > float(init_prevdepth):
-            self.list.append(nd.Glue(interline_glue, glue_name))
+        if float(prior_prevdepth) > float(init_prevdepth) and interline_glue.glue is not None:
+            self.list.append(nd.Glue(interline_glue.glue, interline_glue.name))
 
     def _expandedPrevDepth(self):
         for node in reversed(self.expanded):
@@ -413,12 +353,12 @@ class VList(lists.List):
         self.can_lastbox = False
         self._realizeReadyTailNodes()
         base_prevdepth = self.resolvePrevDepth()
-        context = getattr(node, "typeset_context", None)
+        stamp_first_box = getattr(node, "stampFirstBoxInterline", None)
+        if stamp_first_box is not None and getattr(node, "_typeset_cache", None) is None:
+            node.pretypeset(self.parser)
         is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
         if is_box:
-            self._appendInterlineMaterial(node, base_prevdepth, context)
-            if getattr(node, "typeset_context", None) is not None:
-                node.typeset_context = None
+            self._appendInterlineMaterial(node, base_prevdepth)
             if getattr(node, "interline_penalty", None) is not None:
                 node.interline_penalty = None
             if getattr(node, "interline_glue", None) is not None:
@@ -427,12 +367,9 @@ class VList(lists.List):
         elif node.node_type == nd.NODE_TYPE.RULE:
             self.prevdepth = init_prevdepth
         else:
-            if context is None and getattr(node, "needs_vcontext", False):
-                node.typeset_context = VNodeContext(self.parser.state.layout, base_prevdepth)
-                context = node.typeset_context
-        if (not is_box and node.node_type != nd.NODE_TYPE.RULE) and (
-            context is not None or getattr(node, "box_materializable", False)
-        ):
+            if stamp_first_box is not None:
+                stamp_first_box(self.parser, base_prevdepth)
+        if (not is_box and node.node_type != nd.NODE_TYPE.RULE) and getattr(node, "box_materializable", False):
             self.prevdepth = None
         self.list.append(node)
         self._realizeReadyTailNodes()
@@ -447,12 +384,10 @@ class VList(lists.List):
             return self.prevdepth
         for i in range(len(self) - 1, -1, -1):
             node = self[i]
-            context = getattr(node, "typeset_context", None)
-            if context is not None:
-                depth = getattr(node, "depth", None)
-                if depth is None:
-                    return _expanded_tail_depth(self.parser, node)
-                return depth
+            if getattr(node, "box_materializable", False):
+                if getattr(node, "_typeset_cache", None) is None:
+                    node.pretypeset(self.parser)
+                return _expanded_tail_depth(self.parser, node)
             elif node.node_type == nd.NODE_TYPE.RULE:
                 break
         return self._expandedPrevDepth()

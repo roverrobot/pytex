@@ -401,29 +401,14 @@ class HAlignment(Alignment):
         box = bx.HBox(parser, width, None)
         return box.typeset(parser)
 
-    def _rowContext(self, prevdepth, context=None):
-        source = self._row_layout if self._row_layout is not None else context
-        if source is None:
-            return None
-
-        class RowContext:
-            def __init__(self, source, prevdepth):
-                if isinstance(source, dict):
-                    self.baselineskip = source["baselineskip"]
-                    self.lineskip = source["lineskip"]
-                    self.lineskiplimit = source["lineskiplimit"]
-                    self.interlinepenalty = source["interlinepenalty"]
-                else:
-                    self.baselineskip = source.baselineskip
-                    self.lineskip = source.lineskip
-                    self.lineskiplimit = source.lineskiplimit
-                    self.interlinepenalty = source.interlinepenalty
-                self.prevdepth = prevdepth
-
-        return RowContext(source, prevdepth)
-
-    def firstBoxContext(self, prevdepth):
-        return self._rowContext(prevdepth)
+    def stampFirstBoxInterline(self, parser, prevdepth):
+        if self._typeset_cache is None:
+            return
+        for node in self._typeset_cache:
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                layout = self._row_layout if self._row_layout is not None else parser.state.layout
+                vmode.stampBoxInterline(node, layout, prevdepth)
+                return
 
     def pretypeset(self, parser, first_prevdepth=None):
         if self._typeset_cache is not None:
@@ -493,9 +478,6 @@ class HAlignment(Alignment):
             rowbox.to = W
             rowbox.spread = W - row_width
             rowbox = rowbox.typeset(parser)
-            row_context = self._rowContext(vbuild.resolvePrevDepth())
-            if row_context is not None:
-                rowbox.typeset_context = row_context
             vbuild.append(rowbox)
             if row.noalign is not None:
                 self._appendVerticalMaterial(parser, vbuild, row.noalign)

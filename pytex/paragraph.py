@@ -5,6 +5,7 @@ This module implement paragraph handling (unrestricted hlist).
 from pytex import hmode
 from pytex import node as nd
 from pytex import box as bx
+from pytex import vmode
 from pytex import lists
 from pytex.module import Module
 from pytex.dimen import Dimen
@@ -62,7 +63,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
     node_type = None
     # This node can be realized into concrete box nodes on demand.
     box_materializable = True
-    needs_vcontext = True
 
     def saveInfo(self):
         return {
@@ -244,6 +244,10 @@ class Paragraph(nd.Node, hmode.HListHolder):
             self.next_paragraph.predisplaysize = predisplaysize
             self.next_paragraph.prevdepth = hbox.depth
         parser.state.volatile["predisplaysize"] = predisplaysize
+
+    def stampFirstBoxInterline(self, parser, prevdepth):
+        if self._line_boxes:
+            vmode.stampBoxInterline(self._line_boxes[0], parser.state.layout, prevdepth)
 
     def typeset(self, parser, vlist):
         self.pretypeset(parser)

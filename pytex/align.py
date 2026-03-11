@@ -189,7 +189,7 @@ class Alignment(nd.Node):
     def newBox(self, parser):
         raise NotImplementedError
 
-    def typeset(self, parser, packed):
+    def typeset(self, parser, packed, context=None, style=None):
         self.pretypeset(parser)
         packed.append(self._typeset_cache)
 
@@ -482,7 +482,7 @@ class HAlignment(Alignment):
                 self._appendVerticalMaterial(parser, vbuild, row.noalign)
         self._typeset_cache = list(cache)
 
-    def typeset(self, parser, packed):
+    def typeset(self, parser, packed, context=None, style=None):
         self.pretypeset(parser)
         packed.extend(self._typeset_cache)
 
@@ -492,7 +492,7 @@ class MAlignment(HAlignment):
     A \\halign used as a display alignment inside $$...$$.
     """
 
-    def typeset(self, parser, packed):
+    def typeset(self, parser, packed, context=None, style=None):
         self.pretypeset(parser)
         packed.extend(self._typeset_cache)
 
@@ -646,7 +646,7 @@ class VAlignment(Alignment):
             out.list.append(colbox.typeset(parser))
         self._typeset_cache = out.typeset(parser)
 
-    def typeset(self, parser, packed):
+    def typeset(self, parser, packed, context=None, style=None):
         self.pretypeset(parser)
         packed.extend(self._typeset_cache.list)
 
@@ -968,7 +968,7 @@ class HAlignMathList(nd.Node):
             raise ValueError("only assignments can follow \\halign in display math", self.display.parser.input.position())
         self.display.list.append(node)
 
-    def typeset(self, parser, packed):
+    def typeset(self, parser, packed, context=None, style=None):
         volatile = parser.state.volatile
         globals = parser.state.globals
         if (

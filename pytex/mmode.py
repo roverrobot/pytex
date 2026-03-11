@@ -22,7 +22,6 @@ from pytex import box
 from pytex.hmode import Ligature
 from pytex.ligature import ligature_step, run_ligature_program
 import enum
-import inspect
 from math import inf
 
 
@@ -233,33 +232,6 @@ class MathListHolder:
     
     node_type = None # not a standard node. Needs to be expanded into boxes
 
-    @staticmethod
-    def _typesetWithAvailableSignature(typeset, parser, packed, context, style):
-        """
-        Call node.typeset with the richest signature that the node supports.
-        """
-        try:
-            params = list(inspect.signature(typeset).parameters.values())
-        except (TypeError, ValueError):
-            params = None
-        if params is None:
-            typeset(parser, packed, context, style)
-            return
-        positional = [
-            p for p in params
-            if p.kind in (
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            )
-        ]
-        has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
-        if has_varargs or len(positional) >= 4:
-            typeset(parser, packed, context, style)
-        elif len(positional) == 3:
-            typeset(parser, packed, context)
-        else:
-            typeset(parser, packed)
-
     def _pass1Collect(self, parser, context, style):
         """
         Pass 1 of math typesetting.
@@ -312,9 +284,7 @@ class MathListHolder:
                         continue
                 elif getattr(node, "mu", False):
                     expanded = []
-                    self._typesetWithAvailableSignature(
-                        node.typeset, parser, expanded, context, style
-                    )
+                    node.typeset(parser, expanded, context, style)
                     for n in expanded:
                         if n is node:
                             continue
@@ -345,9 +315,7 @@ class MathListHolder:
                 collected.append(node)
                 continue
             expanded = []
-            self._typesetWithAvailableSignature(
-                typeset, parser, expanded, context, style
-            )
+            typeset(parser, expanded, context, style)
             if not expanded:
                 collected.append(node)
                 continue

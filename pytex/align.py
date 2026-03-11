@@ -512,21 +512,23 @@ class MAlignment(HAlignment):
     """
     needs_vcontext = False
 
-    def typeset(self, parser, packed, context):
-        self.pretypeset(parser, context)
+    def typeset(self, parser, packed):
+        self.pretypeset(parser)
         packed.extend(self._typeset_cache)
 
-    def pretypeset(self, parser, context=None):
+    def pretypeset(self, parser):
         if self._typeset_cache is None:
             super().pretypeset(parser, first_prevdepth=vmode.init_prevdepth)
-        self._normalizeTagPlacement(parser, context)
-        shift = Dimen() if context is None else Dimen(context.displayindent)
+        self._normalizeTagPlacement(parser)
+        displayindent = parser.state.volatile["displayindent"]
+        shift = Dimen() if displayindent is None else Dimen(displayindent)
         for row in self._typeset_cache:
             if row.node_type == nd.NODE_TYPE.HLIST:
                 row.shifted = shift
 
-    def _normalizeTagPlacement(self, parser, context):
-        if context is None or context.displaywidth is None:
+    def _normalizeTagPlacement(self, parser):
+        displaywidth = parser.state.volatile["displaywidth"]
+        if displaywidth is None:
             return
         rows = [row for row in self._typeset_cache if row.node_type == nd.NODE_TYPE.HLIST]
         if not rows:
@@ -577,7 +579,7 @@ class MAlignment(HAlignment):
         if not tagged or max_left is None or max_right is None or max_outer is None:
             return
 
-        side = (Dimen(context.displaywidth) - max_left - max_right) / 2
+        side = (Dimen(displaywidth) - max_left - max_right) / 2
         if side <= 0:
             return
 
@@ -602,7 +604,7 @@ class MAlignment(HAlignment):
             for box in (math_box, outer, right_box):
                 box._typeset_cache = None
                 box.pretypeset(parser)
-            row.to = Dimen(context.displaywidth)
+            row.to = Dimen(displaywidth)
             row.spread = None
             row._typeset_cache = None
             row.pretypeset(parser)

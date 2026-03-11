@@ -78,6 +78,19 @@ def test_implicit_paragraph_adds_parskip(parser):
     assert isinstance(top[2], paragraph.Paragraph)
 
 
+def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
+    cmr10.parse("\\parskip=5pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt a\\par b\\par")
+    main = cmr10.lists[-1]
+    names = [getattr(n, "name", None) for n in main.expanded if n.node_type == nd.NODE_TYPE.GLUE]
+    assert names == ["\\parskip", "\\baselineskip"]
+    assert main.expanded[1].glue.dimen == 5
+    assert main.expanded[2].glue.dimen == (
+        cmr10.state.layout["baselineskip"].dimen
+        - main.expanded[0].depth
+        - main.expanded[3].height
+    )
+
+
 def test_linebreak_discards_leading_discardables(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
     para = cmr10.lists[-1][-1]

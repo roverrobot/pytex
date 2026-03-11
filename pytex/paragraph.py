@@ -62,6 +62,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
     node_type = None
     # This node can be realized into concrete box nodes on demand.
     box_materializable = True
+    needs_vcontext = True
 
     def saveInfo(self):
         return {

@@ -168,7 +168,6 @@ class Alignment(nd.Node):
         self._row_layout = None
 
     node_type = nd.NODE_TYPE.ALIGNMENT
-    needs_vcontext = False
     box_materializable = True
 
     def saveInfo(self):
@@ -492,7 +491,6 @@ class MAlignment(HAlignment):
     """
     A \\halign used as a display alignment inside $$...$$.
     """
-    needs_vcontext = False
 
     def typeset(self, parser, packed):
         self.pretypeset(parser)

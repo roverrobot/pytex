@@ -621,7 +621,6 @@ class DisplayMathNode(MathListHolder):
         self.page_builder_ready = False
         self.prevgraf = None
         self.predisplaysize = None
-        self.prevdepth = None
         self.displaywidth = None
         self.displayindent = None
         # these point to the unrestricted hlists before and after the display math

@@ -420,9 +420,11 @@ class Disc(nd.Node):
         HListHolder(self.replace).typesetNodes(parser, replace)
         self._typeset_cache = TypesetDisc(pre, post, replace)
     
-    def typeset(self, parser):
+    def typeset(self, parser, packed=None):
         self.pretypeset(parser)
-        return self._typeset_cache
+        if packed is None:
+            return self._typeset_cache
+        packed.append(self._typeset_cache)
         
     def saveInfo(self):
         return {"init": {"pre": self.pre, "post": self.post, "replace": self.replace}}

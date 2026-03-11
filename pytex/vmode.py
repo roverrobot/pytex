@@ -309,17 +309,13 @@ class VList(lists.List):
         self._syncExpandedTailState()
         return self.expanded[start:]
 
-    def _didRealizeExpandedNode(self, node, material):
-        pass
-
     def _realizeReadyTailNodes(self):
         while self._expanded_raw_count < len(self.list):
             node = self.list[self._expanded_raw_count]
             if not self._entryReadyForExpansion(node):
                 break
-            material = self._materializeExpandedNode(node)
+            self._materializeExpandedNode(node)
             self._expanded_raw_count += 1
-            self._didRealizeExpandedNode(node, material)
 
     def _appendBuiltNode(self, node):
         node.source = node

@@ -169,6 +169,15 @@ def test_discretionary(cmr10):
     assert node.replace[0].char == "c"
 
 
+def test_discretionary_inside_hbox_typesets(cmr10):
+    cmr10.parse("\\setbox0=\\hbox{a\\discretionary{\\hbox{-}}{}{}}")
+    box0 = cmr10.state.box[0].typeset(cmr10)
+    assert len(box0.list) == 2
+    assert box0.list[0].node_type == nd.NODE_TYPE.CHAR
+    assert box0.list[0].char == "a"
+    assert box0.list[1].node_type == nd.NODE_TYPE.DISC
+
+
 def test_discretionary_invalid_node(cmr10):
     try:
         cmr10.parse("\\discretionary{a}{b }{c}")

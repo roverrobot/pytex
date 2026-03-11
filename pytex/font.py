@@ -138,8 +138,33 @@ nullfont = Font(tfm=nullfont_tfm, at=0)
 nullfont.name = "\\nullfont"
 
 
+class MathFontArray(Array):
+    def _validateMathFamily(self, index, font):
+        if index == 2:
+            params = getattr(font, "param", ())
+            if len(params) < 22:
+                raise ValueError(f"{self.name}[2] has {len(params)} fontdimen params; need at least 22 for math typesetting")
+        elif index == 3:
+            params = getattr(font, "param", ())
+            if len(params) < 13:
+                raise ValueError(f"{self.name}[3] has {len(params)} fontdimen params; need at least 13 for math typesetting")
+
+    def __getitem__(self, index):
+        font = list.__getitem__(self, index)
+        self._validateMathFamily(index, font)
+        return font
+
+    def __setitem__(self, index, value):
+        self._validateMathFamily(index, value)
+        super().__setitem__(index, value)
+
+    def setGlobal(self, index, value):
+        self._validateMathFamily(index, value)
+        super().setGlobal(index, value)
+
+
 def fontarray(name): 
-    return lambda state: Array(name, state, default=nullfont, size=256)
+    return lambda state: MathFontArray(name, state, default=nullfont, size=256)
 
 
 class FontCharAccessor(IntegerArrayItemAccessor):

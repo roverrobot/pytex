@@ -82,38 +82,16 @@ class Style(serialization.Serializable):
         return f"Style({self.style}{cramped})"
 
 
-def _validateMathFonts(textfont, scriptfont, scriptscriptfont):
-    # TeX requires symbols/extensible families to expose enough fontdimen values.
-    # family 2 (symbols): at least 22 params; family 3 (extension): at least 13 params.
-    for name, fonts in (
-        ("textfont", textfont),
-        ("scriptfont", scriptfont),
-        ("scriptscriptfont", scriptscriptfont),
-    ):
-        symbol_params = getattr(fonts[2], "param", ())
-        ext_params = getattr(fonts[3], "param", ())
-        if len(symbol_params) < 22:
-            raise ValueError(f"{name}[2] has {len(symbol_params)} fontdimen params; need at least 22 for math typesetting")
-        if len(ext_params) < 13:
-            raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
-
-
 def _math_parser(source):
     parser = getattr(source, "parser", None)
     return parser if parser is not None else source
 
 
-def ensureMathFonts(source):
+def mathfont(source, style, family):
     parser = _math_parser(source)
     textfont = parser.state.textfont
     scriptfont = parser.state.scriptfont
     scriptscriptfont = parser.state.scriptscriptfont
-    _validateMathFonts(textfont, scriptfont, scriptscriptfont)
-    return textfont, scriptfont, scriptscriptfont
-
-
-def mathfont(source, style, family):
-    textfont, scriptfont, scriptscriptfont = ensureMathFonts(source)
     if style.style < MATH_STYLE.S:
         return textfont[family]
     if style.style == MATH_STYLE.S:
@@ -142,6 +120,25 @@ def mathVNodeContext(source, prevdepth):
     context = VNodeContext(_math_parser(source).state.layout, prevdepth)
     context.interlinepenalty = 0
     return context
+
+
+class AtomState:
+    def __init__(self, parser, prev_atom_type=None, atom_type=None, text_symbol=False):
+        self.parser = parser
+        self.prev_atom_type = prev_atom_type
+        self.atom_type = atom_type
+        self.text_symbol = text_symbol
+
+
+def _coerceAtomState(parser, context):
+    if isinstance(context, AtomState):
+        return context
+    return AtomState(
+        parser,
+        prev_atom_type=getattr(context, "prev_atom_type", None),
+        atom_type=getattr(context, "atom_type", None),
+        text_symbol=getattr(context, "text_symbol", False),
+    )
 
 
 class _AtomWrapper:
@@ -546,7 +543,8 @@ class MathListHolder:
     def typesetNodes(self, parser, packed, context, style):
         collected = self._pass1Collect(parser, context, style)
         self._pass1AdjustAtoms(parser, context, collected)
-        return self._pass2Emit(parser, packed, context, collected)
+        atom_state = _coerceAtomState(parser, context)
+        return self._pass2Emit(parser, packed, atom_state, collected)
 
     def typeset(self, parser, packed, context, style):
         # Typeset into an hbox first; if it only wraps one box-like node,
@@ -602,7 +600,6 @@ class InlineMathNode(MathListHolder):
         self.parser = parser
         if self._typeset_cache is not None:
             return
-        ensureMathFonts(parser)
         cache = []
         # Appendix G Rule 22: inline math translation is enclosed by
         # math-on/math-off nodes, each carrying the current \mathsurround.
@@ -663,7 +660,6 @@ class DisplayMathNode(MathListHolder):
         self.parser = parser
         if self._typeset_cache is not None:
             return
-        ensureMathFonts(parser)
         cache = []
         self._typeset_cache = cache
         volatile = parser.state.volatile
@@ -1911,7 +1907,10 @@ class Delim(serialization.Serializable):
 
         if family < 0 or family >= 16:
             return fonts
-        textfont, scriptfont, scriptscriptfont = ensureMathFonts(context)
+        parser = _math_parser(context)
+        textfont = parser.state.textfont
+        scriptfont = parser.state.scriptfont
+        scriptscriptfont = parser.state.scriptscriptfont
         if level >= MATH_STYLE.SS:
             add(scriptscriptfont[family])
         if level >= MATH_STYLE.S:

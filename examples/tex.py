@@ -91,13 +91,14 @@ if args.profile:
     parser.console.close()
     exit(0)
 else:
+    parser.shipout = dvi.DVIShipout(parser, args.output)
     parser.parse(input, jobname=file)
 input.close()
 
 if args.format == "initex":
     parser.dumper(parser.dump())
 else:
-    parser.outputPages(args.output)
+    parser.end()
 
 log = parser.close()
 

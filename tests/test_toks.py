@@ -86,7 +86,8 @@ def test_page_break_updates_marks(parser):
     main.append(nd.Glue(glue.Glue(4), None))
     main.append(_test_hbox(parser, height=6, depth=0))
     main.append(nd.Mark(toToks("B")))
-    pages = parser.outputPages().pages
+    parser.end()
+    pages = parser.shipout.pages
     assert len(pages) == 2
     assert "".join(t.name for t in parser.state.parameters["topmark"]) == "A"
     assert "".join(t.name for t in parser.state.parameters["firstmark"]) == "B"
@@ -101,4 +102,4 @@ def test_page_break_nonzero_marks_require_etex(parser):
     main.append(_test_hbox(parser, height=6, depth=0))
     main.append(mark)
     with pytest.raises(AssertionError):
-        parser.outputPages()
+        parser.end()

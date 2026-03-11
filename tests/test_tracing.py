@@ -66,7 +66,7 @@ def test_showlists_dumps_current_list_stack(cmr10):
     log = cmr10.logContent()
     assert "> \\showlists" in log
     assert "### list 0" in log
-    assert "HList" in log
+    assert "Paragraph" in log
     assert "\\f a" in log
 
 
@@ -99,7 +99,7 @@ def test_showlists_expands_display_math_nodes(cmr10):
 
 def test_tracingoutput_logs_shipped_box(parser):
     parser.parse("\\tracingoutput=1\\shipout\\vbox{\\hrule}")
-    parser.outputPages()
+    parser.end()
     log = parser.logContent()
     assert "Completed box being shipped out [" in log
     assert "\\vbox(" in log

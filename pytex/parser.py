@@ -60,7 +60,6 @@ class Parser:
         #         format.write(content)
         # parser.dumper = dumper
         self.dumper = None
-        self.shipout_class = None
         # for now, characters and spaces are collected in a string
         for name, mod in ModuleManager.items():
             mod.populate(self)
@@ -168,6 +167,9 @@ class Parser:
         
     def close(self):
         self.input.clear()
+        shipout = getattr(self, "shipout", None)
+        if shipout is not None:
+            shipout.close()
         if not self.log.closed:
             self.log.close()
         return self.logContent()
@@ -371,12 +373,10 @@ class Parser:
         # eventually completed, horizontal mode will come to an end as described 
         # in Chapter 25. (The TeX Book pp.282)        """
         top = self.lists[-1]
-        hlist = paragraph.Paragraph(self, indent)
+        para = paragraph.Paragraph(self, indent)
         if parskip and top:
-            hlist.parskip = node.Glue(self.state.parameters["parskip"], "\\parskip")
-            top.append(hlist.parskip)
-        top.append(hlist)
-        self.lists.append(hmode.HList(self, hlist.list, inner=False))
+            para.parskip = node.Glue(self.state.parameters["parskip"], "\\parskip")
+        self.lists.append(paragraph.ParagraphList(self, para))
         everypar = self.everypar.value
         if everypar:
             self.input.push(lexer.TokenListScanner(everypar))
@@ -384,7 +384,7 @@ class Parser:
                 self.message(f"everypar: {self.toksToString(everypar)}")
         # the spacefactor is set to 1000 at the beginning of a paragraph
         self.state.globals["prevgraf"] = 0
-        return hlist
+        return para
 
     def endParagraph(self):
         """
@@ -393,6 +393,9 @@ class Parser:
         hlist = self.lists[-1]
         if hlist.type != lists.LISTTYPE.HORIZONTAL or hlist.inner:
             raise ValueError("cannot end the paragraph here", self.input.position())
+        para = hlist.paragraph
+        if para is None:
+            raise ValueError("missing paragraph node", self.input.position())
         # \unskip
         self.lists.pop()
         if len(hlist) > 0 and hlist[-1].node_type == node.NODE_TYPE.GLUE:
@@ -401,11 +404,11 @@ class Parser:
         # A truly empty paragraph contributes nothing (e.g., \noindent\par).
         # TeX does not emit a synthetic empty line in this case.
         if len(hlist) == 0:
-            para = top[-1]
             if para.keep_empty:
-                pass
+                if para.parskip is not None:
+                    top.append(para.parskip)
+                top.append(para)
             else:
-                para = top.pop() # paragraph is the last node that we added
                 if para.prev_paragraph:
                     para.prev_paragraph.next_paragraph = None
                 para = None
@@ -414,7 +417,9 @@ class Parser:
             hlist.append(node.Penalty(10000))
             # \hskip\parfillskip
             hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
-            para = top[-1]
+            if para.parskip is not None:
+                top.append(para.parskip)
+            top.append(para)
         finalize_pending = getattr(top, "finalizePendingNode", None)
         if para is not None:
             if finalize_pending is not None:
@@ -487,28 +492,7 @@ class Parser:
         top = self.lists[-1]
         if top.type != lists.LISTTYPE.VERTICAL or top.inner:
             raise ValueError("did not end in the main vertical list")
-        # \vfill\penalty-'10000000000
-        top.append(node.Glue(glue.Glue(0, glue.Stretchness(1, 2)), "\\vfill"))
-        top.append(node.Penalty(-0x100000))
-
-    def outputPages(self, output=None):
-        top = self.lists[-1]
-        if top.type == lists.LISTTYPE.HORIZONTAL:
-            if top.inner:
-                raise ValueError("cannot output pages in internal horizontal mode")
-            self.endParagraph()
-            top = self.lists[-1]
-        if not isinstance(top, page.MainVList) or top is not self.lists[0]:
-            raise ValueError("page output requires the main vertical list")
-        assert self.shipout_class is not None
-        with self.shipout_class(self, output) as shipout:
-            self.shipout = shipout
-            try:
-                if not self.ended:
-                    self.end()
-                self.lists[-1].outputPages(self)
-            finally:
-                self.shipout = None
-        return shipout
+        top.finish(self)
+        self.shipout.close()
 
         

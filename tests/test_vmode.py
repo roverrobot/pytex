@@ -53,11 +53,7 @@ def test_end_stops_processing(parser):
     parser.parse("\\end\\vskip 1pt")
     top = parser.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 2
-    assert top[0].node_type == nd.NODE_TYPE.GLUE
-    assert top[0].name == "\\vfill"
-    assert top[1].node_type == nd.NODE_TYPE.PENALTY
-    assert top[1].penalty == -0x100000
+    assert len(top) == 0
 
 
 def test_penalty(cmr10):
@@ -208,9 +204,9 @@ def _break_pages(parser):
     main = parser.lists[0]
     assert isinstance(main, page.MainVList)
     main._realizeReadyTailEntries()
+    pages = list(parser.shipout.pages)
     material = list(main.contributed)
     breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
-    pages = [box.typeset(parser) for box in main.deferred_shipouts]
     context = main.page_initial_context
     topmark = list(parser.state.parameters["botmark"])
     page.MainVList._clearInsertScratch(parser)
@@ -579,25 +575,26 @@ def test_page_break_uses_marker_context(parser):
 def test_shipout_collects_box(parser):
     parser.parse("\\shipout\\hbox{A}")
     assert len(parser.lists[0]) == 0
-    assert len(parser.lists[0].deferred_shipouts) == 1
-    shipped = parser.lists[0].deferred_shipouts[0]
+    assert len(parser.shipout.pages) == 1
+    shipped = parser.shipout.pages[0]
     assert shipped.node_type == nd.NODE_TYPE.HLIST
 
 
-def test_output_pages_default_shipout(cmr10):
+def test_end_default_shipout(cmr10):
     cmr10.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}")
-    shipout = cmr10.outputPages()
+    cmr10.end()
+    shipout = cmr10.shipout
     assert len(shipout.pages) == 1
     assert cmr10.state.box[255] is None
     assert cmr10.state.globals["deadcycles"] == 0
-    assert getattr(cmr10, "shipout", None) is None
 
 
-def test_output_pages_skips_empty_page_with_only_whatsits(parser):
+def test_end_skips_empty_page_with_only_whatsits(parser):
     seen = []
     parser.parse("")
     parser.lists[0].append(_ProbeWhatsit(seen))
-    shipout = parser.outputPages()
+    parser.end()
+    shipout = parser.shipout
     assert len(shipout.pages) == 0
     assert seen == ["fired"]
 
@@ -625,7 +622,8 @@ def test_output_routine_can_carry_material_forward(cmr10):
         "\\output={\\ifnum\\count0=0\\global\\count0=1\\hbox{X}\\fi\\shipout\\box255}"
         "\\vsize=20pt\\topskip=0pt\\hbox{A}"
     )
-    shipout = cmr10.outputPages()
+    cmr10.end()
+    shipout = cmr10.shipout
     assert len(shipout.pages) == 2
     assert cmr10.state.count[0] == 1
     assert cmr10.state.globals["deadcycles"] == 0
@@ -643,7 +641,7 @@ def test_output_routine_sees_outputpenalty(cmr10):
         "\\output={\\global\\count0=\\outputpenalty\\shipout\\box255}"
         "\\vsize=20pt\\topskip=0pt\\hbox{A}\\penalty123"
     )
-    cmr10.outputPages()
+    cmr10.end()
     assert cmr10.state.count[0] == 123
 
 
@@ -653,16 +651,18 @@ def test_output_uses_default_when_maxdeadcycles_reached(cmr10):
         "\\output={\\global\\count0=1\\shipout\\box255}"
         "\\vsize=20pt\\topskip=0pt\\hbox{A}"
     )
-    shipout = cmr10.outputPages()
+    cmr10.end()
+    shipout = cmr10.shipout
     assert len(shipout.pages) == 1
     assert cmr10.state.count[0] == 0
     assert cmr10.state.box[255] is None
     assert cmr10.state.globals["deadcycles"] == 0
 
 
-def test_output_pages_ships_deferred_shipouts_before_page(cmr10):
+def test_end_ships_explicit_shipout_before_page(cmr10):
     cmr10.parse("\\shipout\\hbox{X}\\vsize=20pt\\topskip=0pt\\hbox{A}")
-    shipout = cmr10.outputPages()
+    cmr10.end()
+    shipout = cmr10.shipout
     assert len(shipout.pages) == 2
     first = shipout.pages[0]
     second = shipout.pages[1]

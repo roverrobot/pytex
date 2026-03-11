@@ -23,6 +23,7 @@ class DVIShipout(page.Shipout):
     def __init__(self, parser, output=None):
         super().__init__(parser)
         self.parser = parser
+        self.output = output
         self.mag = parser.state.parameters["mag"]
         self.font_ids = {}
         self.current_font = None
@@ -35,7 +36,6 @@ class DVIShipout(page.Shipout):
         self.max_height = 0
         self.max_width = 0
         self.file = None
-        self.open(output)
     
     def __enter__(self):
         if self.file is None:
@@ -49,6 +49,8 @@ class DVIShipout(page.Shipout):
     def open(self, output=None):
         if self.file is not None:
             return
+        if output is None:
+            output = self.output
         if output is None:
             output = self.parser.jobname
             if output is None:
@@ -337,7 +339,7 @@ class DVIShipout(page.Shipout):
 
     def shipout(self, box):
         if self.file is None:
-            raise ValueError("dvi file is not opened")
+            self.open()
         if box.width is None:
             packed = []
             box.typeset(self.parser, packed)
@@ -391,9 +393,12 @@ class DVIShipout(page.Shipout):
         self.file = None
 
 
+def init(parser):
+    parser.shipout = DVIShipout(parser)
+
+
 mod = Module(
     "dvi",
-    attributes={
-        "shipout_class": DVIShipout,
-    }
+    init=init,
+    attributes={}
 )

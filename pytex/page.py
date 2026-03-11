@@ -344,10 +344,27 @@ class Shipout:
     """
 
     def __init__(self, parser, output=None):
+        self.parser = parser
+        self.output = output
         self.pages = []
 
     def shipout(self, box):
+        self._flushWhatsits(box)
         self.pages.append(box)
+
+    def _flushWhatsits(self, box):
+        items = getattr(box, "list", None)
+        if items is None:
+            return
+        for node in items:
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                self._flushWhatsits(node)
+                continue
+            if node.node_type == nd.NODE_TYPE.WHATSIT:
+                node.output(self.parser, self)
+
+    def special(self, text):
+        pass
 
     def __enter__(self):
         self.open()
@@ -370,12 +387,11 @@ def shipout(parser, box):
     """
     backend = getattr(parser, "shipout", None)
     if backend is None:
-        if parser.lists and isinstance(parser.lists[0], MainVList):
-            parser.lists[0].deferShipout(box)
-            parser.state.globals["deadcycles"] = 0
-            return
         raise ValueError("no active shipout backend")
-    shipped_box = box.typeset(parser)
+    if getattr(box, "_typeset_cache", None) is box:
+        shipped_box = box
+    else:
+        shipped_box = box.typeset(parser)
     parser.traceOutputPage(shipped_box)
     backend.shipout(shipped_box)
     parser.state.globals["deadcycles"] = 0
@@ -458,27 +474,6 @@ class PageStateNode(nd.Node):
         return "PageState"
 
 
-class ShipoutNode(nd.Node):
-    """
-    Transparent marker for a deferred \\shipout in the main vertical list.
-    """
-
-    node_type = nd.NODE_TYPE.WHATSIT
-
-    def __init__(self, box):
-        self.box = box
-
-    def saveInfo(self):
-        return {"init": {"box": self.box}}
-
-    @classmethod
-    def new(cls, parser, box):
-        return cls(box)
-
-    def __repr__(self):
-        return "Shipout"
-
-
 class _PendingPageEntry:
     """
     One raw main-vlist node and the page-builder material currently derived from it.
@@ -557,7 +552,7 @@ class MainVListBreaker(VListBreaker):
         return None
 
     def isTransparent(self, node):
-        return isinstance(node, (PageStateNode, ShipoutNode))
+        return isinstance(node, PageStateNode)
 
     @staticmethod
     def _delaysPageStart(node):
@@ -861,17 +856,11 @@ class MainVList(vmode.VList):
         self.contributed = ContributedVList(parser)
         self._pending_entries = []
         self._processing_pages = False
-        self.deferred_shipouts = []
-
-    def deferShipout(self, box):
-        self.deferred_shipouts.append(box)
 
     @staticmethod
     def _entryReadyForPageBuilder(node):
         if isinstance(node, PageStateNode):
             return True
-        if isinstance(node, ShipoutNode):
-            return False
         if getattr(node, "page_builder_ready", True) is False:
             return False
         if getattr(node, "box_materializable", False) and node.node_type is None:
@@ -890,6 +879,21 @@ class MainVList(vmode.VList):
         self._pending_entries.append(entry)
         if self._entryReadyForPageBuilder(node):
             self._realizePendingEntry(entry)
+
+    @classmethod
+    def _triggersPageBuilder(cls, node):
+        if isinstance(node, PageStateNode):
+            return False
+        if node.node_type == nd.NODE_TYPE.PENALTY:
+            return True
+        if getattr(node, "box_materializable", False):
+            return cls._entryReadyForPageBuilder(node)
+        return node.node_type in (
+            nd.NODE_TYPE.HLIST,
+            nd.NODE_TYPE.VLIST,
+            nd.NODE_TYPE.RULE,
+            nd.NODE_TYPE.INS,
+        )
 
     def _materializePageEntry(self, node):
         generated = []
@@ -988,6 +992,8 @@ class MainVList(vmode.VList):
                     if getattr(node, "_typeset_cache", None) is None:
                         node.pretypeset(self.parser)
                 self._realizePendingEntry(entry)
+                if self._triggersPageBuilder(node):
+                    self._processPendingPages()
                 return
         raise ValueError("cannot finalize missing main-vlist node")
 
@@ -1072,7 +1078,7 @@ class MainVList(vmode.VList):
             kept.append(node)
         box.list[:] = kept
 
-    def _processPendingPages(self):
+    def _processPendingPages(self, force=False):
         if self._processing_pages:
             return
         if float(self.parser.state.layout["vsize"]) <= 0:
@@ -1083,14 +1089,16 @@ class MainVList(vmode.VList):
                 if not self.contributed.list:
                     return
                 breaker = MainVListBreaker(self.parser, self.contributed.list, self.page_initial_context)
-                start, _ = breaker.pruneTop(0, self.page_initial_context)
-                end, next_start, break_context, break_penalty = breaker.bestBreak(start, self.page_initial_context)
-                if not getattr(breaker, "last_triggered", False):
+                start, start_context = breaker.pruneTop(0, self.page_initial_context)
+                if start >= len(self.contributed.list):
+                    return
+                end, next_start, break_context, break_penalty = breaker.bestBreak(start, start_context)
+                if not getattr(breaker, "last_triggered", False) and not force:
                     return
                 if end <= start:
                     end = min(start + 1, len(self.contributed.list))
                     next_start = end
-                    break_context = breaker.advanceContext(start, end, self.page_initial_context)
+                    break_context = breaker.advanceContext(start, end, start_context)
                     break_penalty = 0
                 page = bx.VBox(self.parser, break_context.vsize, Dimen())
                 topmark = list(self.parser.state.parameters["botmark"])
@@ -1100,7 +1108,7 @@ class MainVList(vmode.VList):
                 self.parser.state.parameters["firstmark"] = list(firstmark)
                 self.parser.state.parameters["botmark"] = list(botmark)
                 self.parser.state.layout["outputpenalty"] = break_penalty
-                page_nodes = breaker.buildSlice(start, end, self.page_initial_context, "\\topskip")
+                page_nodes = breaker.buildSlice(start, end, start_context, "\\topskip")
                 has_content = self._hasPageContent(page_nodes)
                 self._clearInsertScratch(self.parser)
                 page.list[:], insert_carry = self._extractPageInserts(self.parser, page_nodes, breaker)
@@ -1130,7 +1138,7 @@ class MainVList(vmode.VList):
                 self.page_context = context
         super().append(node)
         self._appendPageNode(node)
-        if self.parser.run:
+        if self._triggersPageBuilder(node):
             self._processPendingPages()
 
     def pop(self, *args):
@@ -1221,7 +1229,7 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _isNonDiscardable(node):
-        if isinstance(node, (PageStateNode, ShipoutNode)):
+        if isinstance(node, PageStateNode):
             return False
         return node.node_type not in (
             nd.NODE_TYPE.GLUE,
@@ -1231,7 +1239,7 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _isTransparent(node):
-        return isinstance(node, (PageStateNode, ShipoutNode))
+        return isinstance(node, PageStateNode)
 
     @classmethod
     def _previousRealNode(cls, nodes, start, index):
@@ -1287,9 +1295,6 @@ class MainVList(vmode.VList):
             node = nodes[start]
             if isinstance(node, PageStateNode):
                 context = node.context
-                start += 1
-                continue
-            if isinstance(node, ShipoutNode):
                 start += 1
                 continue
             if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
@@ -1360,8 +1365,6 @@ class MainVList(vmode.VList):
             if isinstance(node, PageStateNode):
                 current_context = node.context
                 continue
-            if isinstance(node, ShipoutNode):
-                continue
             if not topskip_added:
                 top = self._pageTopskip(current_context.topskip, node)
                 if top is not None:
@@ -1386,8 +1389,6 @@ class MainVList(vmode.VList):
         first = None
         bot = None
         for node in nodes[start:end]:
-            if isinstance(node, ShipoutNode):
-                continue
             if node.node_type != nd.NODE_TYPE.MARK:
                 continue
             if getattr(node, "index", 0) != 0:
@@ -1407,8 +1408,6 @@ class MainVList(vmode.VList):
         botmarks = _copy_mark_register(topmarks)
         seen = set()
         for node in nodes[start:end]:
-            if isinstance(node, ShipoutNode):
-                continue
             if node.node_type != nd.NODE_TYPE.MARK:
                 continue
             index = getattr(node, "index", 0)
@@ -1422,8 +1421,6 @@ class MainVList(vmode.VList):
     @staticmethod
     def _pageHasNonZeroMarks(nodes, start, end):
         for node in nodes[start:end]:
-            if isinstance(node, ShipoutNode):
-                continue
             if node.node_type != nd.NODE_TYPE.MARK:
                 continue
             if getattr(node, "index", 0) != 0:
@@ -1585,17 +1582,12 @@ class MainVList(vmode.VList):
         vmode.typesetVerticalNodes(parser, outlist.list, carry)
         return carry
 
-    def outputPages(self, parser):
+    def finish(self, parser):
         self._realizeReadyTailEntries()
-        for box in self.deferred_shipouts:
-            shipout(parser, box)
-        self.deferred_shipouts.clear()
-        shipped = len(parser.shipout.pages)
         if float(parser.state.layout["vsize"]) <= 0:
             self._flushPageWhatsits(parser, self.contributed.list)
-            return parser.shipout.pages[shipped:]
-        self._processPendingPages()
-        return parser.shipout.pages[shipped:]
+            return
+        self._processPendingPages(force=True)
 
 
 class VSplitContext:
@@ -1624,6 +1616,7 @@ def init(parser):
     Runtime scratch storage for insertion classes during page building.
     """
     parser.state.globals["insert"] = [[] for _ in range(256)]
+    parser.shipout = Shipout(parser)
 
 
 class VSplit(Command):
@@ -1741,8 +1734,5 @@ mod = Module(
         "insert": Insert(),
         "shipout": ShipOutCommand(),
         "vsplit": VSplit(),
-    },
-    attributes={
-        "shipout_class": Shipout,
     }
 )

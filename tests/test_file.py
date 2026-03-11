@@ -74,8 +74,9 @@ def test_openout(parser):
 
 
 def test_deferred_shipout_flushes_write_before_closeout(parser, tmp_path):
+    parser.shipout = parser.shipout.__class__(parser, str(tmp_path / "shipwrite"))
     parser.parse("\\immediate\\openout 1=output2.tex\\shipout\\vbox{\\write1{abc}}\\closeout 1")
-    parser.outputPages(str(tmp_path / "shipwrite"))
+    parser.end()
     file = parser.resolver.in_memory_files["output2.tex"]
     assert file.content == "abc\n"
 

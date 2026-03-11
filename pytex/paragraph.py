@@ -20,6 +20,16 @@ class Language(nd.WhatsIt):
     def __init__(self, language):
         self.language = language
 
+
+class ParagraphList(hmode.HList):
+    """
+    Live unrestricted horizontal list for a paragraph under construction.
+    """
+    def __init__(self, parser, paragraph):
+        super().__init__(parser, paragraph.list, inner=False)
+        self.paragraph = paragraph
+
+
 class Paragraph(nd.Node, hmode.HListHolder):
     """
     A paragraph.

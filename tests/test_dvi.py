@@ -9,26 +9,32 @@ def _find_subsequence(data: bytes, needle: bytes) -> int:
 
 
 def test_output_pages_uses_dvi_shipout(parser, tmp_path):
+    parser.shipout = dvi.DVIShipout(parser)
     parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="out")
     parser.jobname = str(tmp_path / "out")
-    shipout = parser.outputPages()
+    parser.end()
+    shipout = parser.shipout
     assert isinstance(shipout, dvi.DVIShipout)
     assert Path(str(tmp_path / "out.dvi")).exists()
 
 
 def test_output_pages_uses_explicit_output_name(parser, tmp_path):
-    parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="ignored")
     out = tmp_path / "named-output"
-    shipout = parser.outputPages(str(out))
+    parser.shipout = dvi.DVIShipout(parser, str(out))
+    parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="ignored")
+    parser.end()
+    shipout = parser.shipout
     assert isinstance(shipout, dvi.DVIShipout)
     assert Path(str(out) + ".dvi").exists()
 
 
 def test_dvi_shipout_writes_minimal_page(cmr10, tmp_path):
+    out = tmp_path / "page"
+    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
     cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="page")
-    cmr10.jobname = str(tmp_path / "page")
-    shipout = cmr10.outputPages()
-    path = Path(str(tmp_path / "page.dvi"))
+    cmr10.end()
+    shipout = cmr10.shipout
+    path = Path(str(out) + ".dvi")
     data = path.read_bytes()
     assert data[:2] == bytes((247, 2))
     assert 139 in data  # bop
@@ -40,18 +46,20 @@ def test_dvi_shipout_writes_minimal_page(cmr10, tmp_path):
 
 
 def test_dvi_adjacent_chars_do_not_emit_explicit_move(cmr10, tmp_path):
+    out = tmp_path / "pair"
+    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
     cmr10.parse("\\shipout\\vbox{\\hbox{ab}}", jobname="pair")
-    cmr10.jobname = str(tmp_path / "pair")
-    cmr10.outputPages()
-    data = Path(str(tmp_path / "pair.dvi")).read_bytes()
+    cmr10.end()
+    data = Path(str(out) + ".dvi").read_bytes()
     assert bytes((ord("a"), ord("b"))) in data
 
 
 def test_dvi_hlist_rule_emits_depth_offset(cmr10, tmp_path):
+    out = tmp_path / "vrule"
+    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
     cmr10.parse("\\shipout\\vbox{\\hbox{\\vrule height 10pt depth 2pt width 0.4pt a}}", jobname="vrule")
-    cmr10.jobname = str(tmp_path / "vrule")
-    cmr10.outputPages()
-    data = Path(str(tmp_path / "vrule.dvi")).read_bytes()
+    cmr10.end()
+    data = Path(str(out) + ".dvi").read_bytes()
     sequence = bytes((
         160, 0, 2, 0, 0,      # down4 2pt
         132, 0, 12, 0, 0,     # set_rule height 12pt

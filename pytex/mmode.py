@@ -1490,6 +1490,9 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         self.node.next_paragraph = new_par
         new_par.prev_paragraph = self.node
         self.node.page_builder_ready = True
+        finalize_pending = getattr(top, "finalizePendingNode", None)
+        if finalize_pending is not None:
+            finalize_pending(self.node)
 
 
 def mathShift(parser):

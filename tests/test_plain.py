@@ -31,7 +31,7 @@ def plain(parser, plain_dump):
     return parser
 
 def test_plain(plain):
-    plain.parse(r"Hello, world! $\int_0^1 f(x) dx$\end")
+    plain.parse(r"Hello, world! $\int_0^1 f(x) dx$\par")
     # the content of the log file
     top = plain.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL

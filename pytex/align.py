@@ -1018,11 +1018,11 @@ class HAlignMathList(nd.Node):
         self.displayindent = displayindent
         self.predisplaysize = predisplaysize
         alignment = self.display[0]
-        packed.append(nd.Penalty(self.predisplaypenalty))
-        packed.append(nd.Glue(self.abovedisplayskip, "\\abovedisplayskip"))
+        packed.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
+        packed.append(nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip"))
         alignment.typeset(parser, packed, self)
-        packed.append(nd.Penalty(self.postdisplaypenalty))
-        packed.append(nd.Glue(self.belowdisplayskip, "\\belowdisplayskip"))
+        packed.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
+        packed.append(nd.Glue(parser.state.layout["belowdisplayskip"], "\\belowdisplayskip"))
         next_prevgraf = prevgraf + 3
         parser.state.globals["prevgraf"] = next_prevgraf
         if self.next_paragraph is not None:

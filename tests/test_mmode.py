@@ -145,14 +145,14 @@ def test_display_halign_typesets_with_display_wrapper(math):
     display = [n for n in packed if getattr(n, "source", None) is node]
     assert len(display) == 5
     assert display[0].node_type == nd.NODE_TYPE.PENALTY
-    assert display[0].penalty == node.predisplaypenalty
+    assert display[0].penalty == math.state.layout["predisplaypenalty"]
     assert display[1].node_type == nd.NODE_TYPE.GLUE
-    assert display[1].glue == node.abovedisplayskip
+    assert display[1].glue == math.state.layout["abovedisplayskip"]
     assert display[2].node_type == nd.NODE_TYPE.HLIST
     assert display[3].node_type == nd.NODE_TYPE.PENALTY
-    assert display[3].penalty == node.postdisplaypenalty
+    assert display[3].penalty == math.state.layout["postdisplaypenalty"]
     assert display[4].node_type == nd.NODE_TYPE.GLUE
-    assert display[4].glue == node.belowdisplayskip
+    assert display[4].glue == math.state.layout["belowdisplayskip"]
 
 
 def test_subformula_single_char_drops_outer_hbox(math):
@@ -261,7 +261,7 @@ def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
     assert packed[display_index + 1].penalty == 10000
     assert packed[display_index + 2].node_type == nd.NODE_TYPE.HLIST
     assert packed[display_index + 3].node_type == nd.NODE_TYPE.PENALTY
-    assert packed[display_index + 3].penalty == mlist.postdisplaypenalty
+    assert packed[display_index + 3].penalty == math.state.layout["postdisplaypenalty"]
 
 
 def test_everydisplay_can_read_prevgraf_from_previous_paragraph(math):
@@ -692,7 +692,7 @@ def test_rule17_cases(math):
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f")
     base = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
-    font = base.font(style, 0)
+    font = mmode.mathfont(base, style, 0)
     assert float(font.param[1]) != 0 and float(font["f"].italic) != 0, "rule17 text-symbol fixture precondition"
 
     plain_ctx = base
@@ -732,7 +732,7 @@ def test_rule20_spacing_cases(math):
             "$\\mathop a\\mathinner b$",
             1,
             lambda mlist, glues: float(glues[0].glue.dimen)
-            == pytest.approx(float(mlist.muskips[0].dimen), abs=1e-4),
+            == pytest.approx(float(mmode.mathmuskips(mlist)[0].dimen), abs=1e-4),
             "rule20 text style should insert thinmuskip",
         ),
         (
@@ -894,8 +894,8 @@ def test_rule18_substeps(math):
     assert len(translated) == 1 and translated[0].node_type == nd.NODE_TYPE.HLIST, "rule18a box translation shape"
     h = translated[0].height
     d = translated[0].depth
-    q = Dimen(ctx.sigma(style.superscript())[17])
-    r = Dimen(ctx.sigma(style.subscript())[18])
+    q = Dimen(mmode.mathsigma(ctx, style.superscript())[17])
+    r = Dimen(mmode.mathsigma(ctx, style.subscript())[18])
     u, v = atom.rule18a(math, translated, ctx, style)
     close(u, h - q, "rule18a box u should use h-q")
     close(v, d + r, "rule18a box v should use d+r")
@@ -910,11 +910,11 @@ def test_rule18_substeps(math):
     raw = box.HBox(math, None, 0)
     atom.sub.typeset(math, raw.list, ctx, style.subscript())
     raw.typeset(math, [])
-    close(sub_box.width, raw.width + ctx.scriptspace, "rule18b should add scriptspace")
+    close(sub_box.width, raw.width + math.state.layout["scriptspace"], "rule18b should add scriptspace")
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
     _, v = atom.rule18a(math, translated, ctx, style)
-    sigma = ctx.sigma(style)
+    sigma = mmode.mathsigma(ctx, style)
     sigma16 = Dimen(sigma[15])
     sigma5 = Dimen(sigma[4])
     lift_limit = sub_box.height - Dimen(abs(float(sigma5)) * 4 / 5)
@@ -931,12 +931,12 @@ def test_rule18_substeps(math):
     raw = box.HBox(math, None, 0)
     atom.sup.typeset(math, raw.list, ctx, style.superscript())
     raw.typeset(math, [])
-    close(sup_box.width, raw.width + ctx.scriptspace, "rule18c should add scriptspace")
+    close(sup_box.width, raw.width + math.state.layout["scriptspace"], "rule18c should add scriptspace")
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
     u, _ = atom.rule18a(math, translated, ctx, style)
-    sigma5 = Dimen(ctx.sigma(style)[4])
-    p = Dimen(ctx.sigma(style)[13])  # sigma14 in text style
+    sigma5 = Dimen(mmode.mathsigma(ctx, style)[4])
+    p = Dimen(mmode.mathsigma(ctx, style)[13])  # sigma14 in text style
     lift_limit = sup_box.depth + Dimen(abs(float(sigma5)) / 4)
     expected = max(u, p, lift_limit)
     close(sup_box.shifted, -expected, "rule18c sup shift formula")
@@ -949,9 +949,9 @@ def test_rule18_substeps(math):
     u_disp = atom.rule18c(x, ctx, mmode.Style(mmode.MATH_STYLE.D, cramped=False), u0)
     u_text = atom.rule18c(x, ctx, mmode.Style(mmode.MATH_STYLE.T, cramped=False), u0)
     u_crmp = atom.rule18c(x, ctx, mmode.Style(mmode.MATH_STYLE.T, cramped=True), u0)
-    sigma_disp = ctx.sigma(mmode.Style(mmode.MATH_STYLE.D, cramped=False))
-    sigma_text = ctx.sigma(mmode.Style(mmode.MATH_STYLE.T, cramped=False))
-    sigma_crmp = ctx.sigma(mmode.Style(mmode.MATH_STYLE.T, cramped=True))
+    sigma_disp = mmode.mathsigma(ctx, mmode.Style(mmode.MATH_STYLE.D, cramped=False))
+    sigma_text = mmode.mathsigma(ctx, mmode.Style(mmode.MATH_STYLE.T, cramped=False))
+    sigma_crmp = mmode.mathsigma(ctx, mmode.Style(mmode.MATH_STYLE.T, cramped=True))
     assert float(u_disp) >= float(Dimen(sigma_disp[12])), "rule18c display should use sigma13"
     assert float(u_text) >= float(Dimen(sigma_text[13])), "rule18c text should use sigma14"
     assert float(u_crmp) >= float(Dimen(sigma_crmp[14])), "rule18c cramped should use sigma15"
@@ -969,15 +969,15 @@ def test_rule18_substeps(math):
     raw = box.HBox(math, None, 0)
     atom.sub.typeset(math, raw.list, ctx, style.subscript())
     raw.typeset(math, [])
-    close(y.width, raw.width + ctx.scriptspace, "rule18d sub box should include scriptspace")
-    assert v2 >= v and v2 >= Dimen(ctx.sigma(style)[16]), "rule18d should enforce v>=max(v,sigma17)"
+    close(y.width, raw.width + math.state.layout["scriptspace"], "rule18d sub box should include scriptspace")
+    assert v2 >= v and v2 >= Dimen(mmode.mathsigma(ctx, style)[16]), "rule18d should enforce v>=max(v,sigma17)"
 
     # 18e: minimum clearance
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a")
     x = nd.Box(0, 0, 10)
     y = nd.Box(0, 10, 0)
     u2, v2 = atom.rule18e(x, y, ctx, style, Dimen(), Dimen())
-    theta = Dimen(ctx.xi(style)[7])
+    theta = Dimen(mmode.mathxi(ctx, style)[7])
     clearance = (u2 - x.depth) - (y.height - v2)
     close(clearance, 4 * theta, "rule18e should enforce 4theta clearance")
 
@@ -987,7 +987,7 @@ def test_rule18_substeps(math):
     u = Dimen()
     v = Dimen(100)
     u2, v2 = atom.rule18e(x, y, ctx, style, u, v)
-    floor = Dimen(abs(float(ctx.sigma(style)[4])) * 4 / 5)
+    floor = Dimen(abs(float(mmode.mathsigma(ctx, style)[4])) * 4 / 5)
     close(u2 - x.depth, floor, "rule18e should enforce 4/5 x-height floor")
     close(v2, v - (u2 - u), "rule18e should preserve clearance by reducing v")
 
@@ -1087,7 +1087,7 @@ def test_rule13_op_cases(math):
     y = limits_box.list[3]
     z = limits_box.list[5]
     assert x.width == y.width == z.width, "rule13a x/y/z should be reboxed to equal width"
-    delta = Dimen(ctx.font(style, 1)["f"].italic)
+    delta = Dimen(mmode.mathfont(ctx, style, 1)["f"].italic)
     assert float(x.shifted) == pytest.approx(float(delta / 2), abs=1e-4), "rule13a superscript horizontal shift"
     assert float(z.shifted) == pytest.approx(float(Dimen() - (delta / 2)), abs=1e-4), "rule13a subscript horizontal shift"
     # Rule 13a baseline should run through the centered nucleus y, not the
@@ -1112,7 +1112,7 @@ def test_rule13_op_cases(math):
     # Rule 13: display style uses successor for op symbol when available.
     style = mmode.Style(mmode.MATH_STYLE.D)
     # The fixture's symbols family (2) has no successor chains; extension family (3) does.
-    font = ctx.font(style, 3)
+    font = mmode.mathfont(ctx, style, 3)
     source_char = None
     target_char = None
     for info in font.tfm.char_info:
@@ -1411,7 +1411,7 @@ def test_delim_typeset_null_uses_nulldelimiterspace(math):
     b = d.typeset(math, Dimen(20), ctx, style)
     assert b.node_type == nd.NODE_TYPE.HLIST
     assert b.width == math.state.layout["nulldelimiterspace"]
-    axis = Dimen(ctx.sigma(style)[21])
+    axis = Dimen(mmode.mathsigma(ctx, style)[21])
     assert float(b.shifted) == pytest.approx(-float(axis), abs=1e-4)
 
 
@@ -1429,13 +1429,13 @@ def test_delim_typeset_order_uses_style_fonts(math):
     ctx = display_context(math)
 
     b_text = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.T))
-    assert b_text.list[0].font is ctx.textfont[1]
+    assert b_text.list[0].font is mmode.mathfont(ctx, mmode.Style(mmode.MATH_STYLE.T), 1)
 
     b_script = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.S))
-    assert b_script.list[0].font is ctx.scriptfont[1]
+    assert b_script.list[0].font is mmode.mathfont(ctx, mmode.Style(mmode.MATH_STYLE.S), 1)
 
     b_scriptscript = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.SS))
-    assert b_scriptscript.list[0].font is ctx.scriptscriptfont[1]
+    assert b_scriptscript.list[0].font is mmode.mathfont(ctx, mmode.Style(mmode.MATH_STYLE.SS), 1)
 
 
 def test_delim_typeset_adds_italic_correction(math):
@@ -1547,7 +1547,7 @@ def test_fraction_rule15_theta(math, cmd, expected_theta):
     style = mmode.Style(mmode.MATH_STYLE.T)
     _, _, theta = frac.rule15(ctx, style)
     if expected_theta == "default":
-        assert float(theta) == pytest.approx(ctx.xi(style)[7], abs=1e-4)
+        assert float(theta) == pytest.approx(mmode.mathxi(ctx, style)[7], abs=1e-4)
     else:
         assert theta == expected_theta
 
@@ -1565,7 +1565,7 @@ def test_fraction_rule15_delimiters(math):
 def test_fraction_rule15b_uv_text_over_vs_atop(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
     ctx = display_context(math)
-    sigma = ctx.sigma(style)
+    sigma = mmode.mathsigma(ctx, style)
 
     math.parse("\\noindent$a\\over b$\\relax")
     over = math.lists[-1][-1].list[0]
@@ -1586,7 +1586,7 @@ def test_fraction_rule15b_uv_text_over_vs_atop(math):
 def test_fraction_rule15b_uv_script(math):
     style = mmode.Style(mmode.MATH_STYLE.S)
     ctx = display_context(math)
-    sigma = ctx.sigma(style)
+    sigma = mmode.mathsigma(ctx, style)
     math.parse("\\noindent$a\\over b$\\relax")
     frac = math.lists[-1][-1].list[0]
     _, _, theta = frac.rule15(ctx, style)
@@ -1621,7 +1621,7 @@ def test_fraction_rule15c_atop_construction(math):
     _, _, theta = frac.rule15(ctx, style)
     u, v = frac.rule15b(ctx, style, theta)
     u, v, psi = frac.rule15c(x, z, ctx, style, u, v)
-    phi = 3 * Dimen(ctx.xi(style)[7])
+    phi = 3 * Dimen(mmode.mathxi(ctx, style)[7])
     assert float(k.kern) == pytest.approx(float(psi), abs=1e-4)
     assert float(k.kern) >= float(phi)
     assert float(out.height) == pytest.approx(float(x.height + u), abs=1e-4)
@@ -1698,7 +1698,7 @@ def test_fraction_rule15e_with_delims_builds_three_boxes(math):
     assert left.node_type == nd.NODE_TYPE.HLIST
     assert middle.node_type == nd.NODE_TYPE.VLIST
     assert right.node_type == nd.NODE_TYPE.HLIST
-    axis = Dimen(ctx.sigma(style)[21])
+    axis = Dimen(mmode.mathsigma(ctx, style)[21])
     left_center = (left.height - left.depth) / 2 - left.shifted
     right_center = (right.height - right.depth) / 2 - right.shifted
     assert float(left_center) == pytest.approx(float(axis), abs=1e-4)

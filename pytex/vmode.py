@@ -43,6 +43,14 @@ def _append_concrete_vertical(packed, state, node):
         state["prevdepth"] = init_prevdepth
 
 
+def _append_interline_glue(packed, state, source, glue, name, suppress_zero=False):
+    if suppress_zero and glue == Glue():
+        return
+    node = nd.Glue(glue, name)
+    node.source = source
+    _append_concrete_vertical(packed, state, node)
+
+
 def _append_expanded_item(parser, packed, state, item, source, node_context=None):
     if item.node_type == nd.NODE_TYPE.ADJUST:
         subitems = []
@@ -59,8 +67,36 @@ def _append_expanded_item(parser, packed, state, item, source, node_context=None
             context = node_context
         else:
             item.typeset_context = None
+        interline_penalty = getattr(item, "interline_penalty", None)
+        interline_glue = getattr(item, "interline_glue", None)
         if context is None:
-            if state["seen_box"]:
+            if interline_penalty is not None or interline_glue is not None:
+                if interline_penalty is None:
+                    interline_penalty = parser.state.layout["interlinepenalty"]
+                if interline_penalty != 0 and state["seen_box"]:
+                    penalty = nd.Penalty(interline_penalty)
+                    penalty.source = source
+                    _append_concrete_vertical(packed, state, penalty)
+                if interline_glue is None and float(state["prevdepth"]) > float(init_prevdepth) and state["seen_box"]:
+                    baselineskip = parser.state.layout["baselineskip"]
+                    diff = baselineskip.dimen - state["prevdepth"] - item.height
+                    if diff < parser.state.layout["lineskiplimit"]:
+                        interline_glue = parser.state.layout["lineskip"]
+                        glue_name = "\\lineskip"
+                    else:
+                        interline_glue = Glue(diff, baselineskip.stretch, baselineskip.shrink)
+                        glue_name = "\\baselineskip"
+                    _append_interline_glue(packed, state, source, interline_glue, glue_name)
+                elif interline_glue is not None and state["seen_box"]:
+                    _append_interline_glue(
+                        packed,
+                        state,
+                        source,
+                        interline_glue,
+                        "\\baselineskip",
+                        suppress_zero=True,
+                    )
+            elif state["seen_box"]:
                 prev = packed[-1] if packed else None
                 if prev is not None and prev.node_type in (
                     nd.NODE_TYPE.HLIST,
@@ -76,14 +112,12 @@ def _append_expanded_item(parser, packed, state, item, source, node_context=None
                         baselineskip = parser.state.layout["baselineskip"]
                         diff = baselineskip.dimen - state["prevdepth"] - item.height
                         if diff < parser.state.layout["lineskiplimit"]:
-                            glue = nd.Glue(parser.state.layout["lineskip"], "\\lineskip")
+                            glue = parser.state.layout["lineskip"]
+                            glue_name = "\\lineskip"
                         else:
-                            glue = nd.Glue(
-                                Glue(diff, baselineskip.stretch, baselineskip.shrink),
-                                "\\baselineskip",
-                            )
-                        glue.source = source
-                        _append_concrete_vertical(packed, state, glue)
+                            glue = Glue(diff, baselineskip.stretch, baselineskip.shrink)
+                            glue_name = "\\baselineskip"
+                        _append_interline_glue(packed, state, source, glue, glue_name)
         else:
             if context.interlinepenalty != 0 and state["seen_box"]:
                 penalty = nd.Penalty(context.interlinepenalty)

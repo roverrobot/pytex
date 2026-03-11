@@ -21,7 +21,6 @@ from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
 from pytex import box
 from pytex.hmode import Ligature
 from pytex.ligature import ligature_step, run_ligature_program
-from pytex.vmode import VNodeContext, init_prevdepth
 import enum
 import inspect
 from math import inf
@@ -108,12 +107,6 @@ def mathmuskips(parser):
 
 def mathlayout(parser, name):
     return parser.state.layout[name]
-
-
-def mathVNodeContext(parser, prevdepth):
-    context = VNodeContext(parser.state.layout, prevdepth)
-    context.interlinepenalty = 0
-    return context
 
 
 class AtomState:
@@ -782,7 +775,7 @@ class DisplayMathNode(MathListHolder):
             ga = parser.state.layout["abovedisplayshortskip"]
             gb = parser.state.layout["belowdisplayshortskip"]
         if e == 0 and left is True:
-            a.typeset_context = mathVNodeContext(parser, None)
+            a.interline_penalty = 0
             a.shifted = Dimen(s)
             cache.append(a)
             cache.append(nd.Penalty(10000))
@@ -811,7 +804,7 @@ class DisplayMathNode(MathListHolder):
         b = b.typeset(parser)
         b.shifted = Dimen(s+d)
         b.display = True
-        b.typeset_context = mathVNodeContext(parser, None)
+        b.interline_penalty = 0
         cache.append(b)
         # The final task is to append the glue or the equation number
         # that follows the display. If there was an \eqno and if e = 0, an infinite
@@ -822,8 +815,8 @@ class DisplayMathNode(MathListHolder):
         if e == 0 and left is False:
             cache.append(nd.Penalty(10000))
             a.shifted = Dimen(s + z) - a.width
-            a.typeset_context = mathVNodeContext(parser, None)
-            a.typeset_context.prevdepth = init_prevdepth
+            a.interline_penalty = 0
+            a.interline_glue = Glue()
             cache.append(a)
             cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
         else:

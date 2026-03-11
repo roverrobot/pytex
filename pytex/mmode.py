@@ -82,43 +82,6 @@ class Style(serialization.Serializable):
         return f"Style({self.style}{cramped})"
 
 
-class MathTypesetContext:
-    """
-    Standalone typesetting snapshot for math mode.
-    """
-    def __init__(self, inner):
-        _initMathContext(self, inner)
-
-    def snapshot(self, parser):
-        _snapshotMathContext(self, parser)
-
-    def __getitem__(self, index):
-        return getattr(self, index, None)
-    
-    def font(self, style, family):
-        """
-        get the font of a family in the current style
-        @param settings: the settings for typesetting the math list
-        @param family: the family
-        @return: the font
-        """
-        if style.style < MATH_STYLE.S:
-            return self.textfont[family]
-        if style.style == MATH_STYLE.S:
-            return self.scriptfont[family]
-        return self.scriptscriptfont[family]
-
-    def sigma(self, style: Style):
-        return self.font(style, 2).param
-
-    def xi(self, style: Style):
-        return self.font(style, 3).param
-
-
-def _copyMathFontArray(array):
-    return [array[i] for i in range(16)]
-
-
 def _validateMathFonts(textfont, scriptfont, scriptscriptfont):
     # TeX requires symbols/extensible families to expose enough fontdimen values.
     # family 2 (symbols): at least 22 params; family 3 (extension): at least 13 params.
@@ -133,71 +96,6 @@ def _validateMathFonts(textfont, scriptfont, scriptscriptfont):
             raise ValueError(f"{name}[2] has {len(symbol_params)} fontdimen params; need at least 22 for math typesetting")
         if len(ext_params) < 13:
             raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
-
-
-def _initMathContext(target, inner):
-    target.inner = inner
-    if inner:
-        target.mathsurround = None
-        target.binoppenalty = None
-        target.relpenalty = None
-        return
-    target.prevgraf = None
-    target.predisplaysize = None
-    target.prevdepth = None
-    target.displaywidth = None
-    target.displayindent = None
-    target.predisplaypenalty = None
-    target.postdisplaypenalty = None
-    target.abovedisplayskip = None
-    target.belowdisplayskip = None
-    target.abovedisplayshortskip = None
-    target.belowdisplayshortskip = None
-    target.baselineskip = None
-    target.lineskip = None
-    target.lineskiplimit = None
-    target.interlinepenalty = None
-
-
-def _snapshotMathContext(target, parser):
-        layout = parser.state.layout
-        # fonts
-        target.textfont = _copyMathFontArray(parser.state.textfont)
-        target.scriptfont = _copyMathFontArray(parser.state.scriptfont)
-        target.scriptscriptfont = _copyMathFontArray(parser.state.scriptscriptfont)
-        _validateMathFonts(target.textfont, target.scriptfont, target.scriptscriptfont)
-        # inter-atom spaces
-        target.muskips = [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
-        target.scriptspace = layout["scriptspace"]
-        target.nulldelimiterspace = layout["nulldelimiterspace"]
-        # delimiter sizing parameters used by Rule 19.
-        target.delimiterfactor = layout["delimiterfactor"]
-        target.delimitershortfall = layout["delimitershortfall"]
-        if target.inner:
-            target.mathsurround = layout["mathsurround"]
-            # Rule 21 inter-atom penalties (paragraph math only).
-            target.binoppenalty = layout["binoppenalty"]
-            target.relpenalty = layout["relpenalty"]
-            return
-        # display math parameters
-        volatile = parser.state.volatile
-        target.predisplaypenalty = layout["predisplaypenalty"]
-        target.displaywidth = volatile["displaywidth"]
-        target.displayindent = volatile["displayindent"]
-        target.predisplaysize = volatile["predisplaysize"]
-        target.prevgraf = parser.state.globals["prevgraf"]
-        target.postdisplaypenalty = layout["postdisplaypenalty"]
-        target.abovedisplayskip = layout["abovedisplayskip"]
-        target.belowdisplayskip = layout["belowdisplayskip"]
-        target.abovedisplayshortskip = layout["abovedisplayshortskip"]
-        target.belowdisplayshortskip = layout["belowdisplayshortskip"]
-        # interline parameters
-        target.baselineskip = layout["baselineskip"]
-        target.lineskip = layout["lineskip"]
-        target.lineskiplimit = layout["lineskiplimit"]
-        target.interlinepenalty = 0 # do not emit interline penalty
-
-
 class MathNodeContextMixin:
     parser = None
 
@@ -208,9 +106,9 @@ class MathNodeContextMixin:
         return getattr(self, index, None)
 
     def _fontArrays(self):
-        textfont = _copyMathFontArray(self.parser.state.textfont)
-        scriptfont = _copyMathFontArray(self.parser.state.scriptfont)
-        scriptscriptfont = _copyMathFontArray(self.parser.state.scriptscriptfont)
+        textfont = self.parser.state.textfont
+        scriptfont = self.parser.state.scriptfont
+        scriptscriptfont = self.parser.state.scriptscriptfont
         _validateMathFonts(textfont, scriptfont, scriptscriptfont)
         return textfont, scriptfont, scriptscriptfont
 
@@ -1158,7 +1056,7 @@ class Atom(nd.Node):
         [-1, 1, -2, -3, -1, 0, -1, -1]
     ]
 
-    def typsetSpace(self, packed, context:MathTypesetContext, style, atom_type):
+    def typsetSpace(self, packed, context, style, atom_type):
         """
         Typeset the psace between this atom and the previous one
         """
@@ -2266,7 +2164,7 @@ class Rad(Atom):
                 typeset(parser, out.list, context, style)
         return _drop_redundant_wrapper(out.typeset(parser), allow_char=False)
 
-    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
+    def typesetNucleus(self, parser, packed, context, style: Style):
         """
         Appendix G, Rule 11: typeset radical nucleus and delimiter.
         """
@@ -2399,7 +2297,7 @@ class Over(Atom):
             },
         }
     
-    def rule15(self, context: MathTypesetContext, style: Style):
+    def rule15(self, context, style: Style):
         """
         Appendix G, Rule 15 preamble for generalized fractions.
 
@@ -2417,7 +2315,7 @@ class Over(Atom):
             theta = Dimen(thickness)
         return num, den, theta
 
-    def rule15b(self, context: MathTypesetContext, style: Style, theta: Dimen):
+    def rule15b(self, context, style: Style, theta: Dimen):
         """
         Appendix G, Rule 15b: base numerator/denominator shifts.
         """
@@ -2432,7 +2330,7 @@ class Over(Atom):
             v = Dimen(sigma[11])  # sigma12
         return u, v
 
-    def rule15c(self, x, z, context: MathTypesetContext, style: Style, u: Dimen, v: Dimen):
+    def rule15c(self, x, z, context, style: Style, u: Dimen, v: Dimen):
         """
         Appendix G, Rule 15c: atop-style clearance adjustment (theta = 0).
 
@@ -2448,7 +2346,7 @@ class Over(Atom):
             psi = (u - x.depth) - (z.height - v)
         return u, v, psi
 
-    def rule15d(self, x, z, context: MathTypesetContext, style: Style, theta: Dimen, u: Dimen, v: Dimen):
+    def rule15d(self, x, z, context, style: Style, theta: Dimen, u: Dimen, v: Dimen):
         """
         Appendix G, Rule 15d: over-style bar placement/clearance adjustment.
 
@@ -2467,7 +2365,7 @@ class Over(Atom):
             k2 = (a - half_theta) - (z.height - v)
         return u, v, k1, k2
 
-    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
+    def typesetNucleus(self, parser, packed, context, style: Style):
         # TeXbook Appendix G, Rule 15(a-e)
         num, den, theta = self.rule15(context, style)
         x = box.HBox(parser, None, 0)
@@ -2638,7 +2536,7 @@ class Accent(Atom):
             node = nxt
         return node, font
 
-    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
+    def typesetNucleus(self, parser, packed, context, style: Style):
         # Rule 12 starts from nucleus in style C'.
         self._attach_scripts = True
         base_symbol = self.nucleus if isinstance(self.nucleus, MathSymbol) else None
@@ -2738,7 +2636,7 @@ class VCent(Box):
     def saveInfo(self):
         return super().saveInfo() | {"init": {"box": self.nucleus}}
 
-    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style):
+    def typesetNucleus(self, parser, packed, context, style):
         # \vcenter is built as a raw vbox; ensure dimensions are realized
         # before centering around the math axis.
         box = self.nucleus.typeset(parser)
@@ -2798,7 +2696,7 @@ class Line(Atom):
         atom_type = ATOM_TYPE.OVER if over else ATOM_TYPE.UNDER
         super().__init__(atom_type)
 
-    def typesetNucleus(self, parser, packed, context: MathTypesetContext, style: Style):
+    def typesetNucleus(self, parser, packed, context, style: Style):
         # Texbook Append G, rule 9: If the current item is an Over atom (from \overline), set box x to the nucleus
         # in style C′. Then replace the nucleus by a vbox containing kern θ, hrule of height θ,
         # kern 3θ, and box x, from top to bottom, where θ= ξ8 is the default rule thickness.

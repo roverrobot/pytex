@@ -19,6 +19,14 @@ def mu_unit(context, style):
     return mmode.mudimen(context, style, Dimen(1))
 
 
+def inline_context(parser):
+    return mmode.InlineMathNode(parser)
+
+
+def display_context(parser):
+    return mmode.DisplayMathNode(parser)
+
+
 @pytest.fixture()
 def math(cmr10):
     fonts="""
@@ -91,7 +99,7 @@ def test_mlist_mismatch(math):
         assert "missing" in str(e)
 
 
-def test_math_typeset_context_requires_symbol_and_extension_fonts(parser):
+def test_math_nodes_require_symbol_and_extension_fonts(parser):
     with pytest.raises(ValueError, match="fontdimen params"):
         parser.parse("$a$")
 
@@ -345,8 +353,7 @@ def test_mathsymbol_saveinfo_and_typeset(math):
     info = symbol.saveInfo()
     assert info["init"]["mathcode"] == symbol.encode()
     packed = []
-    context = mmode.MathTypesetContext(True)
-    context.snapshot(math)
+    context = inline_context(math)
     symbol.typeset(math, packed, context, mmode.Style(mmode.MATH_STYLE.T))
     assert len(packed) == 1
     assert packed[0].char == "a"
@@ -475,8 +482,7 @@ def test_rule5_bin_conversion_uses_effective_previous_atom_type(math):
     mlist = mmode.MList(math, subformula.list)
     mlist.extend([first, second])
     packed = []
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     subformula.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
 
     assert first.observed_prev is None
@@ -506,8 +512,7 @@ def test_rule5_bin_after_rel_becomes_ord(math):
     mlist = mmode.MList(math)
     mlist.extend([rel, bin_atom])
     packed = []
-    ctx = mmode.MathTypesetContext(True)
-    ctx.snapshot(math)
+    ctx = inline_context(math)
     mmode.MathListHolder(mlist).typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
 
     assert rel.observed_type == mmode.ATOM_TYPE.REL
@@ -541,8 +546,7 @@ def test_rule14_ord_op_ligature_collapses_pair(math):
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
         _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
     ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
     subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
@@ -562,8 +566,7 @@ def test_rule14_ord_op_kern_inserts_kern_and_keeps_op(math):
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "T"),
         _mk_atom(mmode.ATOM_TYPE.OP, 0, "o"),
     ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
     subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
@@ -583,8 +586,7 @@ def test_rule14_not_applied_across_explicit_kern(math):
         nd.Kern(0),
         _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
     ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
     subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
@@ -605,8 +607,7 @@ def test_rule14_applies_across_removed_style_node(math):
         mmode.StyleNode(mmode.MATH_STYLE.T),
         _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
     ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
     subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
@@ -625,8 +626,7 @@ def test_rule14_applies_across_removed_choice_node(math):
         choice,
         _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
     ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
     subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
@@ -644,8 +644,7 @@ def test_rule14_applies_when_nonscript_removes_following_kern(math):
         mmode.MuKern(18),
         _mk_atom(mmode.ATOM_TYPE.OP, 0, "i"),
     ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
     subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
@@ -661,8 +660,7 @@ def test_rule14_marks_text_symbol_for_rule17(math):
         _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f"),
         _mk_atom(mmode.ATOM_TYPE.REL, 0, "x"),
     ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
     subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
@@ -685,16 +683,14 @@ def test_rule17_cases(math):
     mlist = mmode.MList(math, subformula.list)
     mlist.append(atom)
     packed = []
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     subformula.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert any(n.node_type == nd.NODE_TYPE.HLIST for n in packed), "rule17 math-list nucleus should typeset to a box"
 
     # Rule 17: text-symbol mark suppresses italic correction kern.
     math.parse("\\textfont0=\\tenit \\scriptfont0=\\sevenrm \\scriptscriptfont0=\\fiverm")
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 0, "f")
-    base = mmode.MathTypesetContext(False)
-    base.snapshot(math)
+    base = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
     font = base.font(style, 0)
     assert float(font.param[1]) != 0 and float(font["f"].italic) != 0, "rule17 text-symbol fixture precondition"
@@ -826,10 +822,9 @@ def test_rule21_penalty_cases(math, label, node_type, nodes, ctx_overrides, expe
     node = node_type()
     mlist = mmode.MList(math, node.list)
     mlist.extend(nodes())
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     for key, value in ctx_overrides.items():
-        setattr(ctx, key, value)
+        math.state.layout[key] = value
     packed = []
     node.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     penalties = [n.penalty for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
@@ -845,8 +840,7 @@ def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
         _mk_atom(mmode.ATOM_TYPE.BIN, 0, "f"),
         _mk_atom(mmode.ATOM_TYPE.REL, 0, "i"),
     ])
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
     subformula._pass1AdjustAtoms(math, ctx, collected)
     wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
@@ -864,8 +858,7 @@ def test_rule18_substeps(math):
     def close(actual, expected, stage):
         assert float(actual) == pytest.approx(float(expected), abs=1e-4), stage
 
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
 
     # 18a: character nucleus => u=v=0
@@ -1072,8 +1065,7 @@ def test_rule13_op_cases(math):
     atom.limits = mmode.MATH_LIMITS.NORMAL
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1)
     atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
     assert len(b.list) == 1, "rule13a limits should produce one stacked nucleus"
@@ -1255,8 +1247,7 @@ def test_typesetnodes_rule1_passthrough_nodes(math):
     whatsit = DummyWhatsit()
     mlist.extend([rule, disc, penalty, whatsit])
     packed = []
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     subformula.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert packed == [rule, disc, penalty, whatsit]
 
@@ -1308,8 +1299,7 @@ def test_rule11_radical_cases(math):
     delim = mmode.Delim(0x270370, 0)
     oprand = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
     atom = mmode.Rad(delim, oprand)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
 
     translated = []
@@ -1361,8 +1351,7 @@ def test_rule12_accent_cases(math):
     accent = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | ord("b"), -1)
     atom = mmode.Accent(accent, mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
     b = atom.assemble(math, ctx, style)
     assert len(b.list) == 1, "rule12 single-char base should absorb scripts"
@@ -1414,8 +1403,7 @@ def test_delimiter(math):
 
 def test_delim_typeset_null_uses_nulldelimiterspace(math):
     d = mmode.Delim(0, 0)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
     b = d.typeset(math, Dimen(20), ctx, style)
     assert b.node_type == nd.NODE_TYPE.HLIST
@@ -1424,12 +1412,10 @@ def test_delim_typeset_null_uses_nulldelimiterspace(math):
     assert float(b.shifted) == pytest.approx(-float(axis), abs=1e-4)
 
 
-def test_delim_typeset_null_uses_context_snapshot_not_parser_layout(math):
+def test_delim_typeset_null_uses_live_parser_layout(math):
     d = mmode.Delim(0, 0)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    ctx.nulldelimiterspace = Dimen(7.5)
-    math.state.layout["nulldelimiterspace"] = Dimen(0)
+    math.state.layout["nulldelimiterspace"] = Dimen(7.5)
+    ctx = display_context(math)
     b = d.typeset(math, Dimen(20), ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert b.width == 7.5
 
@@ -1437,8 +1423,7 @@ def test_delim_typeset_null_uses_context_snapshot_not_parser_layout(math):
 def test_delim_typeset_order_uses_style_fonts(math):
     code = ((1 << 8) | ord("a")) << 12
     d = mmode.Delim(code, 0)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
 
     b_text = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert b_text.list[0].font is ctx.textfont[1]
@@ -1454,8 +1439,7 @@ def test_delim_typeset_adds_italic_correction(math):
     # family 1 is cmmi in the math fixture; many letters (e.g., l) have italic correction.
     code = ((1 << 8) | ord("l")) << 12
     d = mmode.Delim(code, 0)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     b = d.typeset(math, Dimen(), ctx, mmode.Style(mmode.MATH_STYLE.T))
     kerns = [n for n in b.list if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
     assert len(kerns) <= 1
@@ -1463,7 +1447,7 @@ def test_delim_typeset_adds_italic_correction(math):
         assert float(kerns[0].kern) > 0
 
 
-def test_rule19_uses_context_delimiter_parameters(math):
+def test_rule19_uses_live_delimiter_parameters(math):
     class SpyDelim:
         def __init__(self):
             self.total = None
@@ -1480,14 +1464,9 @@ def test_rule19_uses_context_delimiter_parameters(math):
     atom.left = left
     atom.right = right
 
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
-    # Force a distinguishable Rule 19 total from the context snapshot.
-    ctx.delimiterfactor = 0
-    ctx.delimitershortfall = Dimen(10000)
-    # Different parser values should not affect this atom's sizing.
-    math.state.layout["delimiterfactor"] = 1000
-    math.state.layout["delimitershortfall"] = Dimen(0)
+    math.state.layout["delimiterfactor"] = 0
+    math.state.layout["delimitershortfall"] = Dimen(10000)
+    ctx = display_context(math)
 
     packed = []
     atom_ctx = mmode.AtomTypesetContext(ctx, None)
@@ -1560,8 +1539,7 @@ def test_fraction_rule15_theta(math, cmd, expected_theta):
     math.parse(f"\\noindent$a{cmd} b$\\relax")
     frac = math.lists[-1][0].list[0]
     assert isinstance(frac, mmode.Over)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
     _, _, theta = frac.rule15(ctx, style)
     if expected_theta == "default":
@@ -1582,8 +1560,7 @@ def test_fraction_rule15_delimiters(math):
 
 def test_fraction_rule15b_uv_text_over_vs_atop(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     sigma = ctx.sigma(style)
 
     math.parse("\\noindent$a\\over b$\\relax")
@@ -1604,8 +1581,7 @@ def test_fraction_rule15b_uv_text_over_vs_atop(math):
 
 def test_fraction_rule15b_uv_script(math):
     style = mmode.Style(mmode.MATH_STYLE.S)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     sigma = ctx.sigma(style)
     math.parse("\\noindent$a\\over b$\\relax")
     frac = math.lists[-1][-1].list[0]
@@ -1617,8 +1593,7 @@ def test_fraction_rule15b_uv_script(math):
 
 def test_fraction_rule15c_atop_construction(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     math.parse("\\noindent$a\\atop b$\\relax")
     frac = math.lists[-1][-1].list[0]
     packed = []
@@ -1651,8 +1626,7 @@ def test_fraction_rule15c_atop_construction(math):
 
 def test_fraction_rule15d_over_construction(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     math.parse("\\noindent$a\\over b$\\relax")
     frac = math.lists[-1][-1].list[0]
     packed = []
@@ -1689,8 +1663,7 @@ def test_fraction_rule15d_over_construction(math):
 
 def test_fraction_rule15d_over_min_clearance_script(math):
     style = mmode.Style(mmode.MATH_STYLE.S)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     math.parse("\\noindent$a\\over b$\\relax")
     frac = math.lists[-1][-1].list[0]
     packed = []
@@ -1708,8 +1681,7 @@ def test_fraction_rule15d_over_min_clearance_script(math):
 
 def test_fraction_rule15e_with_delims_builds_three_boxes(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
-    ctx = mmode.MathTypesetContext(False)
-    ctx.snapshot(math)
+    ctx = display_context(math)
     math.parse("\\noindent$a\\overwithdelims() b$\\relax")
     frac = math.lists[-1][-1].list[0]
     packed = []

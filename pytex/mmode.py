@@ -1491,6 +1491,8 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         new_par.prev_paragraph = self.node
         self.node.page_builder_ready = True
         finalize_pending = getattr(top, "finalizePendingNode", None)
+        if finalize_pending is None:
+            finalize_pending = getattr(top, "finalizeExpandedNode", None)
         if finalize_pending is not None:
             finalize_pending(self.node)
 

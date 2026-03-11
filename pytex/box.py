@@ -612,6 +612,7 @@ class VBox(Box, vmode.VListHolder):
     def __init__(self, parser, to, spread):
         super().__init__(parser, to, spread, [])
         vmode.VListHolder.__init__(self, self.list)
+        self.expanded = []
         self.box_typeset_context = VBoxTypesetContext(parser.state.layout)
 
     @classmethod
@@ -631,12 +632,13 @@ class VBox(Box, vmode.VListHolder):
     def pretypeset(self, parser):
         if self._typeset_cache is not None:
             return
-        content = []
+        self.expanded = []
         typeset_nodes = getattr(self.list, "typesetNodes", None)
         if typeset_nodes is None:
-            self.typesetNodes(parser, content)
+            self.typesetNodes(parser, self.expanded)
         else:
-            typeset_nodes(parser, content)
+            typeset_nodes(parser, self.expanded)
+        content = self.expanded
         natural = Glue()
         self.width = Dimen()
         self.height = Dimen()

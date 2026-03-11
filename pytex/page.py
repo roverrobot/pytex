@@ -507,6 +507,10 @@ class ContributedVList(vmode.VList):
         elif node.node_type == nd.NODE_TYPE.RULE:
             self.prevdepth = vmode.init_prevdepth
 
+    def extendConcrete(self, nodes):
+        for node in nodes:
+            self.appendConcrete(node)
+
     def prependConcrete(self, nodes):
         if not nodes:
             return
@@ -854,7 +858,6 @@ class MainVList(vmode.VList):
         self.page_initial_context = PageBuilderContext(parser.state.layout)
         self.page_context = self.page_initial_context
         self.contributed = ContributedVList(parser)
-        self._pending_entries = []
         self._processing_pages = False
 
     @staticmethod
@@ -874,12 +877,6 @@ class MainVList(vmode.VList):
             return False
         return True
 
-    def _appendPageNode(self, node):
-        entry = _PendingPageEntry(node)
-        self._pending_entries.append(entry)
-        if self._entryReadyForPageBuilder(node):
-            self._realizePendingEntry(entry)
-
     @classmethod
     def _triggersPageBuilder(cls, node):
         if isinstance(node, PageStateNode):
@@ -895,124 +892,19 @@ class MainVList(vmode.VList):
             nd.NODE_TYPE.INS,
         )
 
-    def _materializePageEntry(self, node):
-        generated = []
-        contributed = self.contributed
-        context = getattr(node, "typeset_context", None)
-        if context is None and getattr(node, "needs_vcontext", False):
-            node.typeset_context = vmode.VNodeContext(self.parser.state.layout, contributed.prevdepth)
-            context = node.typeset_context
-        is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
-        if context is None and is_box:
-            node.typeset_context = vmode.VNodeContext(self.parser.state.layout, contributed.prevdepth)
-            context = node.typeset_context
-        expanded = vmode.expandVerticalNode(self.parser, node)
-        node_context = context
-
-        def appendItem(item):
-            nonlocal node_context
-            if item.node_type == nd.NODE_TYPE.ADJUST:
-                for sub in vmode.expandVerticalNode(self.parser, item):
-                    appendItem(sub)
-                return
-            if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                item_context = getattr(item, "typeset_context", None)
-                if item_context is None:
-                    item_context = node_context
-                    node_context = None
-                else:
-                    item.typeset_context = None
-                if item_context is None:
-                    if contributed.page_seen_box:
-                        prev = contributed.list[-1] if contributed.list else None
-                        if prev is not None and prev.node_type in (
-                            nd.NODE_TYPE.HLIST,
-                            nd.NODE_TYPE.VLIST,
-                            nd.NODE_TYPE.RULE,
-                        ):
-                            interlinepenalty = self.parser.state.layout["interlinepenalty"]
-                            if interlinepenalty != 0:
-                                penalty = nd.Penalty(interlinepenalty)
-                                contributed.appendConcrete(penalty)
-                                generated.append(penalty)
-                            if float(contributed.prevdepth) > float(vmode.init_prevdepth):
-                                baselineskip = self.parser.state.layout["baselineskip"]
-                                diff = baselineskip.dimen - contributed.prevdepth - item.height
-                                if diff < self.parser.state.layout["lineskiplimit"]:
-                                    glue = nd.Glue(
-                                        self.parser.state.layout["lineskip"], "\\lineskip"
-                                    )
-                                else:
-                                    glue = nd.Glue(
-                                        Glue(diff, baselineskip.stretch, baselineskip.shrink),
-                                        "\\baselineskip",
-                                    )
-                                contributed.appendConcrete(glue)
-                                generated.append(glue)
-                else:
-                    if item_context.interlinepenalty != 0 and contributed.page_seen_box:
-                        penalty = nd.Penalty(item_context.interlinepenalty)
-                        contributed.appendConcrete(penalty)
-                        generated.append(penalty)
-                    prevdepth = getattr(item_context, "prevdepth", None)
-                    if prevdepth is None:
-                        prevdepth = contributed.prevdepth
-                    if float(prevdepth) > float(vmode.init_prevdepth) and contributed.page_seen_box:
-                        baselineskip = item_context.baselineskip
-                        diff = baselineskip.dimen - prevdepth - item.height
-                        if diff < item_context.lineskiplimit:
-                            glue = nd.Glue(item_context.lineskip, "\\lineskip")
-                        else:
-                            glue = nd.Glue(
-                                Glue(diff, baselineskip.stretch, baselineskip.shrink),
-                                "\\baselineskip",
-                            )
-                        contributed.appendConcrete(glue)
-                        generated.append(glue)
-                contributed.appendConcrete(item)
-                generated.append(item)
-                return
-            contributed.appendConcrete(item)
-            generated.append(item)
-
-        for item in expanded:
-            appendItem(item)
-        return generated
-
-    def _realizePendingEntry(self, entry):
-        if entry.ready:
-            return
-        entry.material = self._materializePageEntry(entry.node)
-        entry.ready = True
+    def _didRealizeExpandedNode(self, node, material):
+        self.contributed.extendConcrete(material)
 
     def finalizePendingNode(self, node):
-        for entry in reversed(self._pending_entries):
-            if entry.node is node:
-                if getattr(node, "box_materializable", False) and node.node_type is None:
-                    if getattr(node, "_typeset_cache", None) is None:
-                        node.pretypeset(self.parser)
-                self._realizePendingEntry(entry)
-                if self._triggersPageBuilder(node):
-                    self._processPendingPages()
-                return
-        raise ValueError("cannot finalize missing main-vlist node")
-
-    def _realizeReadyTailEntries(self):
-        start = len(self._pending_entries)
-        while start > 0:
-            entry = self._pending_entries[start - 1]
-            if entry.ready:
-                start -= 1
-                continue
-            if not self._entryReadyForPageBuilder(entry.node):
-                break
-            start -= 1
-        for entry in self._pending_entries[start:]:
-            if not entry.ready:
-                self._realizePendingEntry(entry)
+        self.finalizeExpandedNode(node)
+        if self._triggersPageBuilder(node):
+            self._processPendingPages()
 
     def _rebuildRawState(self):
-        self.prevdepth = self.contributed.prevdepth if self.contributed.list else vmode.init_prevdepth
+        if self._expanded_raw_count < len(self.list):
+            self.prevdepth = None
+        else:
+            self.prevdepth = self._expanded_prevdepth if self.expanded else vmode.init_prevdepth
         context = self.page_initial_context
         for node in self.list:
             if isinstance(node, PageStateNode):
@@ -1027,36 +919,30 @@ class MainVList(vmode.VList):
     def _consumePagePrefix(self, count):
         if count <= 0:
             return
-        remaining = count
-        raw_remove = 0
-        while remaining > 0:
-            entry = self._pending_entries[0]
-            if not entry.ready:
-                raise AssertionError("page builder reached an unrealized main-vlist node")
-            material_len = len(entry.material)
-            if remaining < material_len:
-                entry.material = entry.material[remaining:]
-                remaining = 0
-                break
-            remaining -= material_len
-            self._pending_entries.pop(0)
-            raw_remove += 1
+        del self.expanded[:count]
+        state = vmode._rebuild_expanded_state(self.expanded)
+        self._expanded_prevdepth = state["prevdepth"]
+        self._expanded_seen_box = state["seen_box"]
         self.contributed.removePrefix(count)
-        if raw_remove:
-            del self.list[:raw_remove]
+        while self._expanded_raw_count > 0 and self.list:
+            node = self.list[0]
+            if self.expanded and getattr(self.expanded[0], "source", None) is node:
+                break
+            del self.list[0]
+            self._expanded_raw_count -= 1
         self._rebuildRawState()
 
     def _prependCarryNodes(self, nodes):
         if not nodes:
             return
-        entries = []
         for node in nodes:
-            entry = _PendingPageEntry(node)
-            entry.ready = True
-            entry.material = [node]
-            entries.append(entry)
+            node.source = node
         self.list[:0] = list(nodes)
-        self._pending_entries[:0] = entries
+        self.expanded[:0] = list(nodes)
+        self._expanded_raw_count += len(nodes)
+        state = vmode._rebuild_expanded_state(self.expanded)
+        self._expanded_prevdepth = state["prevdepth"]
+        self._expanded_seen_box = state["seen_box"]
         self.contributed.prependConcrete(list(nodes))
         self._rebuildRawState()
 
@@ -1128,16 +1014,14 @@ class MainVList(vmode.VList):
             self._processing_pages = False
 
     def append(self, node):
-        self._realizeReadyTailEntries()
+        self._realizeReadyTailNodes()
         if not isinstance(node, PageStateNode):
             context = PageBuilderContext(self.parser.state.layout)
             if not self.page_context.sameLayout(self.parser.state.layout):
                 marker = PageStateNode(context)
                 super().append(marker)
-                self._appendPageNode(marker)
                 self.page_context = context
         super().append(node)
-        self._appendPageNode(node)
         if self._triggersPageBuilder(node):
             self._processPendingPages()
 
@@ -1145,11 +1029,15 @@ class MainVList(vmode.VList):
         index = args[0] if args else -1
         if index not in (-1, len(self.list) - 1):
             raise NotImplementedError("MainVList.pop only supports removing the tail")
+        node = self.list[index]
+        material_len = 0
+        i = len(self.expanded) - 1
+        while i >= 0 and getattr(self.expanded[i], "source", None) is node:
+            material_len += 1
+            i -= 1
         node = super().pop(*args)
-        entry = self._pending_entries.pop()
-        assert entry.node is node
-        if entry.ready and entry.material:
-            self.contributed.removeTail(len(entry.material))
+        if material_len:
+            self.contributed.removeTail(material_len)
         self._rebuildRawState()
         return node
 
@@ -1583,7 +1471,7 @@ class MainVList(vmode.VList):
         return carry
 
     def finish(self, parser):
-        self._realizeReadyTailEntries()
+        self._realizeReadyTailNodes()
         if float(parser.state.layout["vsize"]) <= 0:
             self._flushPageWhatsits(parser, self.contributed.list)
             return

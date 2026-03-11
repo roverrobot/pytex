@@ -28,6 +28,116 @@ class VNodeContext:
         self.prevdepth = prevdepth
 
 
+def _mark_source(node, source):
+    if getattr(node, "source", None) is None:
+        node.source = source
+    return node
+
+
+def _append_concrete_vertical(packed, state, node):
+    packed.append(node)
+    if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+        state["prevdepth"] = node.depth
+        state["seen_box"] = True
+    elif node.node_type == nd.NODE_TYPE.RULE:
+        state["prevdepth"] = init_prevdepth
+
+
+def _append_expanded_item(parser, packed, state, item, source, node_context=None):
+    if item.node_type == nd.NODE_TYPE.ADJUST:
+        for sub in expandVerticalNode(parser, item):
+            sub_source = getattr(sub, "source", None)
+            if sub_source is None:
+                sub_source = source
+            _append_expanded_item(parser, packed, state, sub, sub_source)
+        return
+    if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+        context = getattr(item, "typeset_context", None)
+        if context is None:
+            context = node_context
+        else:
+            item.typeset_context = None
+        if context is None:
+            if state["seen_box"]:
+                prev = packed[-1] if packed else None
+                if prev is not None and prev.node_type in (
+                    nd.NODE_TYPE.HLIST,
+                    nd.NODE_TYPE.VLIST,
+                    nd.NODE_TYPE.RULE,
+                ):
+                    interlinepenalty = parser.state.layout["interlinepenalty"]
+                    if interlinepenalty != 0:
+                        penalty = nd.Penalty(interlinepenalty)
+                        penalty.source = source
+                        _append_concrete_vertical(packed, state, penalty)
+                    if float(state["prevdepth"]) > float(init_prevdepth):
+                        baselineskip = parser.state.layout["baselineskip"]
+                        diff = baselineskip.dimen - state["prevdepth"] - item.height
+                        if diff < parser.state.layout["lineskiplimit"]:
+                            glue = nd.Glue(parser.state.layout["lineskip"], "\\lineskip")
+                        else:
+                            glue = nd.Glue(
+                                Glue(diff, baselineskip.stretch, baselineskip.shrink),
+                                "\\baselineskip",
+                            )
+                        glue.source = source
+                        _append_concrete_vertical(packed, state, glue)
+        else:
+            if context.interlinepenalty != 0 and state["seen_box"]:
+                penalty = nd.Penalty(context.interlinepenalty)
+                penalty.source = source
+                _append_concrete_vertical(packed, state, penalty)
+            prevdepth = getattr(context, "prevdepth", None)
+            if prevdepth is None:
+                prevdepth = state["prevdepth"]
+            if float(prevdepth) > float(init_prevdepth) and state["seen_box"]:
+                baselineskip = context.baselineskip
+                diff = baselineskip.dimen - prevdepth - item.height
+                if diff < context.lineskiplimit:
+                    glue = nd.Glue(context.lineskip, "\\lineskip")
+                else:
+                    glue = nd.Glue(
+                        Glue(diff, baselineskip.stretch, baselineskip.shrink),
+                        "\\baselineskip",
+                    )
+                glue.source = source
+                _append_concrete_vertical(packed, state, glue)
+        _append_concrete_vertical(packed, state, _mark_source(item, source))
+        return
+    _append_concrete_vertical(packed, state, _mark_source(item, source))
+
+
+def _append_expanded_node(parser, packed, state, node):
+    node_context = getattr(node, "typeset_context", None)
+    for item in expandVerticalNode(parser, node):
+        source = getattr(item, "source", None)
+        if source is None:
+            source = node
+        _append_expanded_item(parser, packed, state, item, source, node_context)
+        if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            node_context = None
+
+
+def _rebuild_expanded_state(nodes):
+    state = {"prevdepth": init_prevdepth, "seen_box": False}
+    for node in nodes:
+        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            state["prevdepth"] = node.depth
+            state["seen_box"] = True
+        elif node.node_type == nd.NODE_TYPE.RULE:
+            state["prevdepth"] = init_prevdepth
+    return state
+
+
+def _expanded_tail_depth(parser, node):
+    for item in reversed(expandVerticalNode(parser, node)):
+        if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            return item.depth
+        if item.node_type == nd.NODE_TYPE.RULE:
+            return init_prevdepth
+    return init_prevdepth
+
+
 def expandVerticalNode(parser, node):
     """
     Expand one vertical-list item into concrete nodes without mutating the
@@ -44,23 +154,19 @@ def expandVerticalNode(parser, node):
             except TypeError:
                 packed = [packed]
         for n in packed:
-            if n is node:
-                continue
-            if getattr(n, "source", None) is None:
-                n.source = node
+            _mark_source(n, node)
         return packed
     typeset = getattr(node, "typeset", None)
     if typeset is None:
+        _mark_source(node, node)
         return [node]
     packed = []
     node.typeset(parser, packed)
     if not packed:
+        _mark_source(node, node)
         return [node]
     for n in packed:
-        if n is node:
-            continue
-        if getattr(n, "source", None) is None:
-            n.source = node
+        _mark_source(n, node)
     return packed
 
 
@@ -68,82 +174,17 @@ def typesetVerticalNodes(parser, nodes, packed):
     """
     Typeset a raw vertical node list into packed output.
     """
-    prevdepth = init_prevdepth
-    firstbox = True
-
-    def appendItem(item, node_context=None):
-        nonlocal prevdepth, firstbox
-        if item.node_type == nd.NODE_TYPE.ADJUST:
-            for sub in expandVerticalNode(parser, item):
-                appendItem(sub)
-            return
-        if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            # if the prevdepth is explicitly set, we use it. Otherwise, we use the current prevdepth
-            context = getattr(item, "typeset_context", None)
-            if context is None:
-                context = node_context
-            else:
-                item.typeset_context = None
-            if context is None:
-                if not firstbox:
-                    prev = packed[-1] if packed else None
-                    if prev is not None and prev.node_type in (
-                        nd.NODE_TYPE.HLIST,
-                        nd.NODE_TYPE.VLIST,
-                        nd.NODE_TYPE.RULE,
-                    ):
-                        interlinepenalty = parser.state.layout["interlinepenalty"]
-                        if interlinepenalty != 0:
-                            packed.append(nd.Penalty(interlinepenalty))
-                        if float(prevdepth) > float(init_prevdepth):
-                            baselineskip = parser.state.layout["baselineskip"]
-                            diff = baselineskip.dimen - prevdepth - item.height
-                            if diff < parser.state.layout["lineskiplimit"]:
-                                packed.append(nd.Glue(parser.state.layout["lineskip"], "\\lineskip"))
-                            else:
-                                packed.append(
-                                    nd.Glue(
-                                        Glue(diff, baselineskip.stretch, baselineskip.shrink),
-                                        "\\baselineskip",
-                                    )
-                                )
-            else:
-                # add interline penalty if needed
-                if context.interlinepenalty != 0 and not firstbox:
-                    packed.append(nd.Penalty(context.interlinepenalty))
-                d = getattr(context, "prevdepth", None)
-                if d is not None:
-                    prevdepth = d
-                # if prevdepth <= -10000, do not add interline glue
-                if float(prevdepth) > float(init_prevdepth) and not firstbox:
-                    baselineskip = context.baselineskip
-                    diff = baselineskip.dimen - prevdepth - item.height
-                    if diff < context.lineskiplimit:
-                        packed.append(nd.Glue(context.lineskip, "\\lineskip"))
-                    else:
-                        packed.append(
-                            nd.Glue(
-                                Glue(diff, baselineskip.stretch, baselineskip.shrink),
-                                "\\baselineskip",
-                            )
-                        )
-            # update prevdepth for the next item
-            prevdepth = item.depth
-            if firstbox:
-                firstbox = False
-        # reset prevdepth for rules
-        elif item.node_type == nd.NODE_TYPE.RULE:
-            prevdepth = init_prevdepth
-        # other nodes do not change the prevdepth
-        packed.append(item)
-
+    realize_ready = getattr(nodes, "_realizeReadyTailNodes", None)
+    if realize_ready is not None:
+        realize_ready()
+        expanded_raw_count = getattr(nodes, "_expanded_raw_count", None)
+        raw_nodes = getattr(nodes, "list", None)
+        if expanded_raw_count is not None and raw_nodes is not None and expanded_raw_count == len(raw_nodes):
+            packed.extend(nodes.expanded)
+            return packed
+    state = {"prevdepth": init_prevdepth, "seen_box": False}
     for node in nodes:
-        expanded = expandVerticalNode(parser, node)
-        node_context = getattr(node, "typeset_context", None)
-        for item in expanded:
-            appendItem(item, node_context)
-            if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                node_context = None
+        _append_expanded_node(parser, packed, state, node)
     return packed
 
 
@@ -200,32 +241,113 @@ class VList(lists.List):
     def __init__(self, parser, nodes, inner=True):
         self.parser = parser
         self.list = nodes
+        self.expanded = []
+        self._expanded_raw_count = 0
+        self._expanded_prevdepth = init_prevdepth
+        self._expanded_seen_box = False
+        self._local_prevdepth = init_prevdepth
+        self._parser_prevdepth_active = False
         self.inner = inner
         self.prevdepth = init_prevdepth
         self.can_lastbox = False
         self.type = lists.LISTTYPE.VERTICAL
 
     list_type_name = "VList"
+
+    @property
+    def prevdepth(self):
+        if self._parser_prevdepth_active and self.parser.lists and self.parser.lists[-1] is self:
+            return self.parser.state.volatile["prevdepth"]
+        return self._local_prevdepth
+
+    @prevdepth.setter
+    def prevdepth(self, value):
+        self._local_prevdepth = value
+        if self._parser_prevdepth_active and self.parser.lists and self.parser.lists[-1] is self:
+            self.parser.state.volatile["prevdepth"] = value
+
+    def _activateParserState(self):
+        if self._parser_prevdepth_active:
+            return
+        if self.parser.lists and self.parser.lists[-1] is self:
+            self.parser.state.volatile["prevdepth"] = self._local_prevdepth
+            self._parser_prevdepth_active = True
+
+    @staticmethod
+    def _entryReadyForExpansion(node):
+        if getattr(node, "page_builder_ready", True) is False:
+            return False
+        if getattr(node, "box_materializable", False) and node.node_type is None:
+            return getattr(node, "_typeset_cache", None) is not None
+        next_paragraph = getattr(node, "next_paragraph", None)
+        if (
+            next_paragraph is not None
+            and hasattr(next_paragraph, "typeset_context")
+            and getattr(next_paragraph, "typeset_context", None) is None
+        ):
+            return False
+        return True
+
+    def _materializeExpandedNode(self, node):
+        start = len(self.expanded)
+        state = {
+            "prevdepth": self._expanded_prevdepth,
+            "seen_box": self._expanded_seen_box,
+        }
+        _append_expanded_node(self.parser, self.expanded, state, node)
+        self._expanded_prevdepth = state["prevdepth"]
+        self._expanded_seen_box = state["seen_box"]
+        return self.expanded[start:]
+
+    def _didRealizeExpandedNode(self, node, material):
+        pass
+
+    def _realizeReadyTailNodes(self):
+        while self._expanded_raw_count < len(self.list):
+            node = self.list[self._expanded_raw_count]
+            if not self._entryReadyForExpansion(node):
+                break
+            material = self._materializeExpandedNode(node)
+            self._expanded_raw_count += 1
+            self._didRealizeExpandedNode(node, material)
+
+    def finalizeExpandedNode(self, node):
+        if getattr(node, "box_materializable", False) and node.node_type is None:
+            if getattr(node, "_typeset_cache", None) is None:
+                node.pretypeset(self.parser)
+        self._realizeReadyTailNodes()
+        if node in self.list[:self._expanded_raw_count]:
+            self.prevdepth = self._expanded_prevdepth if self.expanded else init_prevdepth
+            return
+        raise ValueError("cannot finalize missing vlist node")
     
     def append(self, node):
         self.can_lastbox = False
+        self._realizeReadyTailNodes()
+        base_prevdepth = self.resolvePrevDepth()
         context = getattr(node, "typeset_context", None)
         if context is None and getattr(node, "needs_vcontext", False):
-            node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)
+            node.typeset_context = VNodeContext(self.parser.state.layout, base_prevdepth)
             context = node.typeset_context
         is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
         if context is None and is_box:
-            node.typeset_context = VNodeContext(self.parser.state.layout, self.prevdepth)
+            node.typeset_context = VNodeContext(self.parser.state.layout, base_prevdepth)
             context = node.typeset_context
         if is_box:
             self.prevdepth = getattr(node, "depth", None)
         elif node.node_type == nd.NODE_TYPE.RULE:
             self.prevdepth = init_prevdepth
-        elif context is not None:
+        elif context is not None or getattr(node, "box_materializable", False):
             self.prevdepth = None
         self.list.append(node)
+        self._realizeReadyTailNodes()
+        if self._expanded_raw_count == len(self.list):
+            self.prevdepth = self._expanded_prevdepth if self.expanded else init_prevdepth
 
     def resolvePrevDepth(self):
+        if self.prevdepth is not None:
+            return self.prevdepth
+        self._realizeReadyTailNodes()
         if self.prevdepth is not None:
             return self.prevdepth
         for i in range(len(self) - 1, -1, -1):
@@ -234,22 +356,29 @@ class VList(lists.List):
             if context is not None:
                 depth = getattr(node, "depth", None)
                 if depth is None:
-                    nodes = expandVerticalNode(self.parser, node)
-                    for n in nodes:
-                        if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                            if getattr(n, "typeset_context", None) is None:
-                                n.typeset_context = context
-                            break
-                    self[i:i + 1] = nodes
-                    for n in reversed(nodes):
-                        depth = getattr(n, "depth", None)
-                        if depth is not None:
-                            return depth
-                    continue
+                    return _expanded_tail_depth(self.parser, node)
                 return depth
             elif node.node_type == nd.NODE_TYPE.RULE:
                 break
         return init_prevdepth
+
+    def pop(self, *args):
+        index = args[0] if args else -1
+        if index not in (-1, len(self.list) - 1):
+            raise NotImplementedError("VList.pop only supports removing the tail")
+        node = self.list.pop(*args)
+        if self._expanded_raw_count > len(self.list):
+            self._expanded_raw_count = len(self.list)
+        while self.expanded and getattr(self.expanded[-1], "source", None) is node:
+            self.expanded.pop()
+        state = _rebuild_expanded_state(self.expanded)
+        self._expanded_prevdepth = state["prevdepth"]
+        self._expanded_seen_box = state["seen_box"]
+        if self._expanded_raw_count < len(self.list):
+            self.prevdepth = None
+        else:
+            self.prevdepth = self._expanded_prevdepth if self.expanded else init_prevdepth
+        return node
 
 
 class VAdjust(nd.Node, VListHolder):
@@ -324,7 +453,7 @@ nd.Insert = Insert
 
 class PrevDepth(Accessor, DimenCommand):
     """
-    The \\prevdepth command. This is vertical-list-local state.
+    The \\prevdepth command. This is current vertical-builder state.
     """
     def readValue(self, parser):
         return parser.readDimen()

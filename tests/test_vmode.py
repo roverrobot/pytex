@@ -203,7 +203,7 @@ def _break_pages(parser):
         parser.endParagraph()
     main = parser.lists[0]
     assert isinstance(main, page.MainVList)
-    main._realizeReadyTailEntries()
+    main._realizeReadyTailNodes()
     pages = list(parser.shipout.pages)
     material = list(main.contributed)
     breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
@@ -311,6 +311,21 @@ def test_box_context_keeps_interlinepenalty(parser):
 def test_prevdepth_accessor_is_vlist_local(parser):
     parser.parse("\\prevdepth=5pt\\dimen0=\\prevdepth")
     assert parser.state.dimen[0] == 5
+
+
+def test_prevdepth_assignment_affects_next_box_context(parser):
+    parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
+    vlist = parser.lists[0]
+    first = _test_hbox(parser)
+    second = _test_hbox(parser)
+    vlist.append(first)
+    vlist.prevdepth = Dimen(10)
+    vlist.append(second)
+    packed = vmode.typesetVerticalNodes(parser, vlist, [])
+    glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
+    assert len(glues) == 1
+    assert glues[0].name == "\\lineskip"
+    assert glues[0].glue.dimen == 1
 
 
 def test_prevdepth_accessor_wrong_mode(cmr10):

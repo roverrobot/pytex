@@ -150,6 +150,7 @@ class Parser:
         # we first set up today etc.
         if self.lists is None:
             self.lists = [page.MainVList(self)]
+            self.lists[0]._activateParserState()
         date = datetime.datetime.now()
         self.state.volatile["year"] = date.year
         self.state.volatile["month"] = date.month
@@ -346,6 +347,9 @@ class Parser:
             self.lists.append(mmode.MList(self, subformula.list))
             ended = mmode.MathEndGroupCallback(self, subformula)
         self.state.beginGroup(position, group_type, to_end=to_end, ended=ended)
+        activate = getattr(self.lists[-1], "_activateParserState", None)
+        if activate is not None:
+            activate()
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
         """

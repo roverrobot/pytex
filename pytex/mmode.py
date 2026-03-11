@@ -84,66 +84,13 @@ class Style(serialization.Serializable):
 
 class MathTypesetContext:
     """
-    Typesetting snapshot for math mode.
+    Standalone typesetting snapshot for math mode.
     """
     def __init__(self, inner):
-        self.inner = inner
-        if not inner:
-            self.prevgraf = None
-            self.predisplaysize = None
-            self.prevdepth = None
+        _initMathContext(self, inner)
 
     def snapshot(self, parser):
-        layout = parser.state.layout
-        # fonts
-        def copy(array):
-            return [array[i] for i in range(16)]
-        self.textfont = copy(parser.state.textfont)
-        self.scriptfont = copy(parser.state.scriptfont)
-        self.scriptscriptfont = copy(parser.state.scriptscriptfont)
-        # TeX requires symbols/extensible families to expose enough fontdimen values.
-        # family 2 (symbols): at least 22 params; family 3 (extension): at least 13 params.
-        for name, fonts in (
-            ("textfont", self.textfont),
-            ("scriptfont", self.scriptfont),
-            ("scriptscriptfont", self.scriptscriptfont),
-        ):
-            symbol_params = getattr(fonts[2], "param", ())
-            ext_params = getattr(fonts[3], "param", ())
-            if len(symbol_params) < 22:
-                raise ValueError(f"{name}[2] has {len(symbol_params)} fontdimen params; need at least 22 for math typesetting")
-            if len(ext_params) < 13:
-                raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
-        # inter-atom spaces
-        self.muskips = [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
-        self.scriptspace = layout["scriptspace"]
-        self.nulldelimiterspace = layout["nulldelimiterspace"]
-        # delimiter sizing parameters used by Rule 19.
-        self.delimiterfactor = layout["delimiterfactor"]
-        self.delimitershortfall = layout["delimitershortfall"]
-        if self.inner:
-            self.mathsurround = layout["mathsurround"]
-            # Rule 21 inter-atom penalties (paragraph math only).
-            self.binoppenalty = layout["binoppenalty"]
-            self.relpenalty = layout["relpenalty"]
-            return
-        # display math parameters
-        volatile = parser.state.volatile
-        self.predisplaypenalty = layout["predisplaypenalty"]
-        self.displaywidth = volatile["displaywidth"]
-        self.displayindent = volatile["displayindent"]
-        self.predisplaysize = volatile["predisplaysize"]
-        self.prevgraf = parser.state.globals["prevgraf"]
-        self.postdisplaypenalty = layout["postdisplaypenalty"]
-        self.abovedisplayskip = layout["abovedisplayskip"]
-        self.belowdisplayskip = layout["belowdisplayskip"]
-        self.abovedisplayshortskip = layout["abovedisplayshortskip"]
-        self.belowdisplayshortskip = layout["belowdisplayshortskip"]
-        # interline parameters
-        self.baselineskip = layout["baselineskip"]
-        self.lineskip = layout["lineskip"]
-        self.lineskiplimit = layout["lineskiplimit"]
-        self.interlinepenalty = 0 # do not emit interline penalty
+        _snapshotMathContext(self, parser)
 
     def __getitem__(self, index):
         return getattr(self, index, None)
@@ -155,6 +102,204 @@ class MathTypesetContext:
         @param family: the family
         @return: the font
         """
+        if style.style < MATH_STYLE.S:
+            return self.textfont[family]
+        if style.style == MATH_STYLE.S:
+            return self.scriptfont[family]
+        return self.scriptscriptfont[family]
+
+    def sigma(self, style: Style):
+        return self.font(style, 2).param
+
+    def xi(self, style: Style):
+        return self.font(style, 3).param
+
+
+def _copyMathFontArray(array):
+    return [array[i] for i in range(16)]
+
+
+def _validateMathFonts(textfont, scriptfont, scriptscriptfont):
+    # TeX requires symbols/extensible families to expose enough fontdimen values.
+    # family 2 (symbols): at least 22 params; family 3 (extension): at least 13 params.
+    for name, fonts in (
+        ("textfont", textfont),
+        ("scriptfont", scriptfont),
+        ("scriptscriptfont", scriptscriptfont),
+    ):
+        symbol_params = getattr(fonts[2], "param", ())
+        ext_params = getattr(fonts[3], "param", ())
+        if len(symbol_params) < 22:
+            raise ValueError(f"{name}[2] has {len(symbol_params)} fontdimen params; need at least 22 for math typesetting")
+        if len(ext_params) < 13:
+            raise ValueError(f"{name}[3] has {len(ext_params)} fontdimen params; need at least 13 for math typesetting")
+
+
+def _initMathContext(target, inner):
+    target.inner = inner
+    if inner:
+        target.mathsurround = None
+        target.binoppenalty = None
+        target.relpenalty = None
+        return
+    target.prevgraf = None
+    target.predisplaysize = None
+    target.prevdepth = None
+    target.displaywidth = None
+    target.displayindent = None
+    target.predisplaypenalty = None
+    target.postdisplaypenalty = None
+    target.abovedisplayskip = None
+    target.belowdisplayskip = None
+    target.abovedisplayshortskip = None
+    target.belowdisplayshortskip = None
+    target.baselineskip = None
+    target.lineskip = None
+    target.lineskiplimit = None
+    target.interlinepenalty = None
+
+
+def _snapshotMathContext(target, parser):
+        layout = parser.state.layout
+        # fonts
+        target.textfont = _copyMathFontArray(parser.state.textfont)
+        target.scriptfont = _copyMathFontArray(parser.state.scriptfont)
+        target.scriptscriptfont = _copyMathFontArray(parser.state.scriptscriptfont)
+        _validateMathFonts(target.textfont, target.scriptfont, target.scriptscriptfont)
+        # inter-atom spaces
+        target.muskips = [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
+        target.scriptspace = layout["scriptspace"]
+        target.nulldelimiterspace = layout["nulldelimiterspace"]
+        # delimiter sizing parameters used by Rule 19.
+        target.delimiterfactor = layout["delimiterfactor"]
+        target.delimitershortfall = layout["delimitershortfall"]
+        if target.inner:
+            target.mathsurround = layout["mathsurround"]
+            # Rule 21 inter-atom penalties (paragraph math only).
+            target.binoppenalty = layout["binoppenalty"]
+            target.relpenalty = layout["relpenalty"]
+            return
+        # display math parameters
+        volatile = parser.state.volatile
+        target.predisplaypenalty = layout["predisplaypenalty"]
+        target.displaywidth = volatile["displaywidth"]
+        target.displayindent = volatile["displayindent"]
+        target.predisplaysize = volatile["predisplaysize"]
+        target.prevgraf = parser.state.globals["prevgraf"]
+        target.postdisplaypenalty = layout["postdisplaypenalty"]
+        target.abovedisplayskip = layout["abovedisplayskip"]
+        target.belowdisplayskip = layout["belowdisplayskip"]
+        target.abovedisplayshortskip = layout["abovedisplayshortskip"]
+        target.belowdisplayshortskip = layout["belowdisplayshortskip"]
+        # interline parameters
+        target.baselineskip = layout["baselineskip"]
+        target.lineskip = layout["lineskip"]
+        target.lineskiplimit = layout["lineskiplimit"]
+        target.interlinepenalty = 0 # do not emit interline penalty
+
+
+class MathNodeContextMixin:
+    parser = None
+
+    def ensureMathFonts(self):
+        self._fontArrays()
+
+    def __getitem__(self, index):
+        return getattr(self, index, None)
+
+    def _fontArrays(self):
+        textfont = _copyMathFontArray(self.parser.state.textfont)
+        scriptfont = _copyMathFontArray(self.parser.state.scriptfont)
+        scriptscriptfont = _copyMathFontArray(self.parser.state.scriptscriptfont)
+        _validateMathFonts(textfont, scriptfont, scriptscriptfont)
+        return textfont, scriptfont, scriptscriptfont
+
+    @property
+    def textfont(self):
+        return self._fontArrays()[0]
+
+    @property
+    def scriptfont(self):
+        return self._fontArrays()[1]
+
+    @property
+    def scriptscriptfont(self):
+        return self._fontArrays()[2]
+
+    @property
+    def muskips(self):
+        layout = self.parser.state.layout
+        return [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
+
+    @property
+    def scriptspace(self):
+        return self.parser.state.layout["scriptspace"]
+
+    @property
+    def nulldelimiterspace(self):
+        return self.parser.state.layout["nulldelimiterspace"]
+
+    @property
+    def delimiterfactor(self):
+        return self.parser.state.layout["delimiterfactor"]
+
+    @property
+    def delimitershortfall(self):
+        return self.parser.state.layout["delimitershortfall"]
+
+    @property
+    def mathsurround(self):
+        return self.parser.state.layout["mathsurround"]
+
+    @property
+    def binoppenalty(self):
+        return self.parser.state.layout["binoppenalty"]
+
+    @property
+    def relpenalty(self):
+        return self.parser.state.layout["relpenalty"]
+
+    @property
+    def predisplaypenalty(self):
+        return self.parser.state.layout["predisplaypenalty"]
+
+    @property
+    def postdisplaypenalty(self):
+        return self.parser.state.layout["postdisplaypenalty"]
+
+    @property
+    def abovedisplayskip(self):
+        return self.parser.state.layout["abovedisplayskip"]
+
+    @property
+    def belowdisplayskip(self):
+        return self.parser.state.layout["belowdisplayskip"]
+
+    @property
+    def abovedisplayshortskip(self):
+        return self.parser.state.layout["abovedisplayshortskip"]
+
+    @property
+    def belowdisplayshortskip(self):
+        return self.parser.state.layout["belowdisplayshortskip"]
+
+    @property
+    def baselineskip(self):
+        return self.parser.state.layout["baselineskip"]
+
+    @property
+    def lineskip(self):
+        return self.parser.state.layout["lineskip"]
+
+    @property
+    def lineskiplimit(self):
+        return self.parser.state.layout["lineskiplimit"]
+
+    @property
+    def interlinepenalty(self):
+        return 0
+
+    def font(self, style, family):
         if style.style < MATH_STYLE.S:
             return self.textfont[family]
         if style.style == MATH_STYLE.S:
@@ -614,10 +759,14 @@ class Subformula(MathListHolder):
             hbox.typeset(parser, packed)
 
 
-class InlineMathNode(MathListHolder):
-    def __init__(self, nodes=None):
+class InlineMathNode(MathNodeContextMixin, MathListHolder):
+    pretypeset_in_hlist = True
+
+    def __init__(self, parser=None, nodes=None):
         super().__init__(list=nodes, paragraph_math=True)
-        self.typeset_context = MathTypesetContext(True)
+        self.parser = parser
+        self.inner = True
+        self._typeset_cache = None
 
     node_type = nd.NODE_TYPE.MATH
 
@@ -629,32 +778,48 @@ class InlineMathNode(MathListHolder):
             }
         }
 
-    def typeset(self, parser, packed):
+    def pretypeset(self, parser):
+        self.parser = parser
+        if self._typeset_cache is not None:
+            return
+        self.ensureMathFonts()
+        cache = []
         # Appendix G Rule 22: inline math translation is enclosed by
         # math-on/math-off nodes, each carrying the current \mathsurround.
         math_shift = nd.MathShift(True)
         math_shift.source = self
-        math_shift.kern = Dimen(self.typeset_context.mathsurround)
-        packed.append(math_shift)
-        self.typesetNodes(parser, packed, self.typeset_context, Style(MATH_STYLE.T))
+        math_shift.kern = Dimen(self.mathsurround)
+        cache.append(math_shift)
+        self.typesetNodes(parser, cache, self, Style(MATH_STYLE.T))
         math_shift = nd.MathShift(False)
-        math_shift.kern = Dimen(self.typeset_context.mathsurround)
-        packed.append(math_shift)
+        math_shift.kern = Dimen(self.mathsurround)
+        cache.append(math_shift)
+        self._typeset_cache = cache
+
+    def typeset(self, parser, packed):
+        self.pretypeset(parser)
+        packed.extend(self._typeset_cache)
 
 
-class DisplayMathNode(MathListHolder):
+class DisplayMathNode(MathNodeContextMixin, MathListHolder):
     box_materializable = True
     
     node_type = nd.NODE_TYPE.MATH
 
-    def __init__(self):
+    def __init__(self, parser=None):
         super().__init__(list=[], paragraph_math=True)
+        self.parser = parser
+        self.inner = False
         # the equation number. If there is one, this holds a tuple (MList, bool)
         # where the MList points to the equation number material, and the bool indicates
         # whether the equation number is on the left
         self.eqno = None
-        self.typeset_context = MathTypesetContext(False)
         self.page_builder_ready = False
+        self.prevgraf = None
+        self.predisplaysize = None
+        self.prevdepth = None
+        self.displaywidth = None
+        self.displayindent = None
         # these point to the unrestricted hlists before and after the display math
         self.prev_paragraph = None
         self.next_paragraph = None
@@ -675,28 +840,44 @@ class DisplayMathNode(MathListHolder):
             packed.append(n)
     
     def pretypeset(self, parser):
+        self.parser = parser
         if self._typeset_cache is not None:
             return
+        self.ensureMathFonts()
         cache = []
         self._typeset_cache = cache
+        volatile = parser.state.volatile
+        globals = parser.state.globals
         if (
-            self.typeset_context.prevgraf is None
-            or self.typeset_context.displaywidth is None
-            or self.typeset_context.displayindent is None
-            or self.typeset_context.predisplaysize is None
+            globals["prevgraf"] is None
+            or volatile["displaywidth"] is None
+            or volatile["displayindent"] is None
+            or volatile["predisplaysize"] is None
         ):
             # Ensure display-related paragraph metrics are materialized before
             # laying out the display.
             if self.prev_paragraph is not None:
                 self.prev_paragraph.pretypeset(parser)
-        if self.typeset_context.prevgraf is None:
-            self.typeset_context.prevgraf = 0
-        if self.typeset_context.displaywidth is None:
-            self.typeset_context.displaywidth = parser.state.layout["hsize"]
-        if self.typeset_context.displayindent is None:
-            self.typeset_context.displayindent = Dimen()
-        if self.typeset_context.predisplaysize is None:
-            self.typeset_context.predisplaysize = NEG_MAX_DIMEN
+        prevgraf = globals["prevgraf"]
+        if prevgraf is None:
+            prevgraf = 0
+            globals["prevgraf"] = prevgraf
+        displaywidth = volatile["displaywidth"]
+        if displaywidth is None:
+            displaywidth = parser.state.layout["hsize"]
+            volatile["displaywidth"] = displaywidth
+        displayindent = volatile["displayindent"]
+        if displayindent is None:
+            displayindent = Dimen()
+            volatile["displayindent"] = displayindent
+        predisplaysize = volatile["predisplaysize"]
+        if predisplaysize is None:
+            predisplaysize = NEG_MAX_DIMEN
+            volatile["predisplaysize"] = predisplaysize
+        self.prevgraf = prevgraf
+        self.displaywidth = displaywidth
+        self.displayindent = displayindent
+        self.predisplaysize = predisplaysize
         # After a display has been read, TEX converts it from a math list to a horizontal
         # list h in display style, as explained in Appendix G. An equation number, if
         # present, is processed in text style and put into an hbox a with its natural width. Now
@@ -713,23 +894,23 @@ class DisplayMathNode(MathListHolder):
         if self.eqno is not None:
             eqno, left = self.eqno
             a = box.HBox(parser, None, 0)
-            eqno.typesetNodes(parser, a.list, self.typeset_context, Style(MATH_STYLE.T))
+            eqno.typesetNodes(parser, a.list, self, Style(MATH_STYLE.T))
             a = a.typeset(parser)
             e = a.width
-            q = e + self.typeset_context.textfont[2].param[5] # quad (fontdimen6)
+            q = e + self.textfont[2].param[5] # quad (fontdimen6)
         else:
             q = Dimen()
             e = Dimen()
             eqno = None
             left = None
-        h = self.typesetNodes(parser, None, self.typeset_context, Style(MATH_STYLE.D))
+        h = self.typesetNodes(parser, None, self, Style(MATH_STYLE.D))
         b = box.HBox(parser, None, 0)
         b.list[:] = h
         b = b.typeset(parser)
         w0 = b.width
-        z = self.typeset_context.displaywidth
-        s = self.typeset_context.displayindent
-        p = self.typeset_context.predisplaysize
+        z = displaywidth
+        s = displayindent
+        p = predisplaysize
         if w0 + q > z:
             # look at all the stretchness of a
             if e != 0:
@@ -783,15 +964,15 @@ class DisplayMathNode(MathListHolder):
         # appended as an hbox by itself, shifted right s and preceded by interline glue as usual;
         # an infinite penalty is also appended, to prevent a page break between this number and
         # the display. Otherwise a glue item ga is placed on the vertical list.
-        cache.append(nd.Penalty(self.typeset_context.predisplaypenalty))
+        cache.append(nd.Penalty(self.predisplaypenalty))
         if d + s <= p or left is True:
-            ga = self.typeset_context.abovedisplayskip
-            gb = self.typeset_context.belowdisplayskip
+            ga = self.abovedisplayskip
+            gb = self.belowdisplayskip
         else:
-            ga = self.typeset_context.abovedisplayshortskip
-            gb = self.typeset_context.belowdisplayshortskip
+            ga = self.abovedisplayshortskip
+            gb = self.belowdisplayshortskip
         if e == 0 and left is True:
-            a.typeset_context = VNodeContext(self.typeset_context, None)
+            a.typeset_context = VNodeContext(self, None)
             a.shifted = Dimen(s)
             cache.append(a)
             cache.append(nd.Penalty(10000))
@@ -820,7 +1001,7 @@ class DisplayMathNode(MathListHolder):
         b = b.typeset(parser)
         b.shifted = Dimen(s+d)
         b.display = True
-        b.typeset_context = VNodeContext(self.typeset_context, None)
+        b.typeset_context = VNodeContext(self, None)
         cache.append(b)
         # The final task is to append the glue or the equation number
         # that follows the display. If there was an \eqno and if e = 0, an infinite
@@ -831,20 +1012,18 @@ class DisplayMathNode(MathListHolder):
         if e == 0 and left is False:
             cache.append(nd.Penalty(10000))
             a.shifted = Dimen(s + z) - a.width
-            a.typeset_context = VNodeContext(self.typeset_context, None)
+            a.typeset_context = VNodeContext(self, None)
             a.typeset_context.prevdepth = init_prevdepth
             cache.append(a)
-            cache.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
+            cache.append(nd.Penalty(self.postdisplaypenalty))
         else:
-            cache.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
+            cache.append(nd.Penalty(self.postdisplaypenalty))
             cache.append(nd.Glue(gb, "\\belowdisplayskip" if d + s <= p or left is True else "\\belowdisplayshortskip"))
         # TEX now adds 3 to \prevgraf and returns to horizontal mode.
-        next_prevgraf = self.typeset_context.prevgraf + 3
+        next_prevgraf = prevgraf + 3
+        parser.state.globals["prevgraf"] = next_prevgraf
         if self.next_paragraph is not None:
             self.next_paragraph.prevgraf = next_prevgraf
-            next_context = getattr(self.next_paragraph, "typeset_context", None)
-            if next_context is not None:
-                next_context.prevgraf = next_prevgraf
 
 
 class StyleNode(nd.Node):
@@ -1443,7 +1622,8 @@ class Box(Atom):
 
     def typesetNucleus(self, parser, packed, context, style):
         # Box atoms carry a prebuilt box nucleus.
-        packed.append(self.nucleus.typeset(parser))
+        typeset = getattr(self.nucleus, "typeset", None)
+        packed.append(self.nucleus if typeset is None else typeset(parser))
         return Dimen()
 
 
@@ -1475,7 +1655,6 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         eqno = getattr(mlist, "eqno", None)
         if eqno is not None:
             self.node.eqno = eqno
-        self.node.typeset_context.snapshot(parser)
         if mlist.inner:
             top.append(self.node)
             return
@@ -1548,7 +1727,7 @@ def mathShift(parser):
         else:
             inner = True
             parser.input.unread(t)
-    node = InlineMathNode() if inner else DisplayMathNode()
+    node = InlineMathNode(parser) if inner else DisplayMathNode(parser)
     if not inner:
         volatile = parser.state.volatile
         if not started_in_vmode:
@@ -1556,13 +1735,18 @@ def mathShift(parser):
             if prev_par is not None:
                 prev_par.next_paragraph = node
                 prev_par.pretypeset(parser)
+            else:
+                volatile["displaywidth"] = parser.state.layout["hsize"]
+                volatile["displayindent"] = Dimen()
+                volatile["predisplaysize"] = NEG_MAX_DIMEN
+                parser.state.globals["prevgraf"] = 0
+        else:
+            volatile["displaywidth"] = parser.state.layout["hsize"]
+            volatile["displayindent"] = Dimen()
+            volatile["predisplaysize"] = NEG_MAX_DIMEN
+            parser.state.globals["prevgraf"] = 0
         node.prev_paragraph = prev_par
         parser.paragraph_before_last_display_math = prev_par
-#            prev_par.pretypeset(parser)
-        volatile["displaywidth"] = None
-        volatile["displayindent"] = None
-        volatile["predisplaysize"] = None
-        parser.state.globals["prevgraf"] = None
     parser.lists.append(MList(parser, node.list, inner=inner))
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
@@ -2674,7 +2858,7 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
         para = parser.paragraph_before_last_display_math
         assert para is not None
         para.pretypeset(parser)
-        return getattr(para.next_paragraph.typeset_context, self.index)
+        return parser.state.volatile[self.index]
 
     
 mod = Module("mmode",

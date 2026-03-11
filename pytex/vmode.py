@@ -268,13 +268,6 @@ class VList(lists.List):
             return False
         if getattr(node, "box_materializable", False) and node.node_type is None:
             return getattr(node, "_typeset_cache", None) is not None
-        next_paragraph = getattr(node, "next_paragraph", None)
-        if (
-            next_paragraph is not None
-            and hasattr(next_paragraph, "typeset_context")
-            and getattr(next_paragraph, "typeset_context", None) is None
-        ):
-            return False
         return True
 
     def _appendInterlineMaterial(self, context, node, prior_prevdepth):

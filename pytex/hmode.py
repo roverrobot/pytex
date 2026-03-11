@@ -205,6 +205,8 @@ class HList(lists.List):
         return "HList" if self.inner else "Paragraph"
 
     def append(self, node):
+        if getattr(node, "pretypeset_in_hlist", False):
+            node.pretypeset(self.parser)
         if node.node_type != nd.NODE_TYPE.CHAR:
             self.spacefactor = 1000
             self.list.append(node)

@@ -987,34 +987,46 @@ class HAlignMathList(nd.Node):
         self.display.list.append(node)
 
     def typeset(self, parser, packed):
+        volatile = parser.state.volatile
+        globals = parser.state.globals
         if (
-            self.typeset_context.prevgraf is None
-            or self.typeset_context.displaywidth is None
-            or self.typeset_context.displayindent is None
-            or self.typeset_context.predisplaysize is None
+            globals["prevgraf"] is None
+            or volatile["displaywidth"] is None
+            or volatile["displayindent"] is None
+            or volatile["predisplaysize"] is None
         ):
             if self.prev_paragraph is not None:
                 self.prev_paragraph.pretypeset(parser)
-        if self.typeset_context.prevgraf is None:
-            self.typeset_context.prevgraf = 0
-        if self.typeset_context.displaywidth is None:
-            self.typeset_context.displaywidth = parser.state.layout["hsize"]
-        if self.typeset_context.displayindent is None:
-            self.typeset_context.displayindent = Dimen()
-        if self.typeset_context.predisplaysize is None:
-            self.typeset_context.predisplaysize = NEG_MAX_DIMEN
+        prevgraf = globals["prevgraf"]
+        if prevgraf is None:
+            prevgraf = 0
+            globals["prevgraf"] = prevgraf
+        displaywidth = volatile["displaywidth"]
+        if displaywidth is None:
+            displaywidth = parser.state.layout["hsize"]
+            volatile["displaywidth"] = displaywidth
+        displayindent = volatile["displayindent"]
+        if displayindent is None:
+            displayindent = Dimen()
+            volatile["displayindent"] = displayindent
+        predisplaysize = volatile["predisplaysize"]
+        if predisplaysize is None:
+            predisplaysize = NEG_MAX_DIMEN
+            volatile["predisplaysize"] = predisplaysize
+        self.prevgraf = prevgraf
+        self.displaywidth = displaywidth
+        self.displayindent = displayindent
+        self.predisplaysize = predisplaysize
         alignment = self.display[0]
-        packed.append(nd.Penalty(self.typeset_context.predisplaypenalty))
-        packed.append(nd.Glue(self.typeset_context.abovedisplayskip, "\\abovedisplayskip"))
-        alignment.typeset(parser, packed, self.typeset_context)
-        packed.append(nd.Penalty(self.typeset_context.postdisplaypenalty))
-        packed.append(nd.Glue(self.typeset_context.belowdisplayskip, "\\belowdisplayskip"))
-        next_prevgraf = self.typeset_context.prevgraf + 3
+        packed.append(nd.Penalty(self.predisplaypenalty))
+        packed.append(nd.Glue(self.abovedisplayskip, "\\abovedisplayskip"))
+        alignment.typeset(parser, packed, self)
+        packed.append(nd.Penalty(self.postdisplaypenalty))
+        packed.append(nd.Glue(self.belowdisplayskip, "\\belowdisplayskip"))
+        next_prevgraf = prevgraf + 3
+        parser.state.globals["prevgraf"] = next_prevgraf
         if self.next_paragraph is not None:
             self.next_paragraph.prevgraf = next_prevgraf
-            next_context = getattr(self.next_paragraph, "typeset_context", None)
-            if next_context is not None:
-                next_context.prevgraf = next_prevgraf
 
 def init(parser):
     parser.alignments = AlignmentBuildStack()

@@ -176,15 +176,16 @@ class Paragraph(nd.Node, hmode.HListHolder):
         if self.next_paragraph is None:
             self._linked_next_paragraph = None
         else:
-            next_context = getattr(self.next_paragraph, "typeset_context", None)
             metrics_missing = (
-                next_context is not None
-                and (
-                    getattr(next_context, "prevgraf", None) is None
-                    or getattr(next_context, "displaywidth", None) is None
-                    or getattr(next_context, "displayindent", None) is None
-                    or getattr(next_context, "predisplaysize", None) is None
-                )
+                parser.state.globals["prevgraf"] is None
+                or parser.state.volatile["displaywidth"] is None
+                or parser.state.volatile["displayindent"] is None
+                or parser.state.volatile["predisplaysize"] is None
+                or
+                getattr(self.next_paragraph, "prevgraf", None) is None
+                or getattr(self.next_paragraph, "displaywidth", None) is None
+                or getattr(self.next_paragraph, "displayindent", None) is None
+                or getattr(self.next_paragraph, "predisplaysize", None) is None
             )
             if self._linked_next_paragraph is self.next_paragraph and not metrics_missing:
                 return
@@ -215,17 +216,17 @@ class Paragraph(nd.Node, hmode.HListHolder):
         if self.next_paragraph is None:
             return
         line_count = len(self._line_boxes or [])
+        parser.state.globals["prevgraf"] = line_count
         self.next_paragraph.prevgraf = line_count
         # For an immediately following display, TeX uses the next line-shape
         # slot to determine \displayindent and \displaywidth.
         displayindent, displaywidth = self.lineShape(parser, line_count + 1)
         self.line_count = line_count
-        next_context = getattr(self.next_paragraph, "typeset_context", None)
-        if next_context is None:
-            next_context = self.next_paragraph
-        next_context.prevgraf = line_count
-        next_context.displayindent = displayindent
-        next_context.displaywidth = displaywidth
+        self.next_paragraph.prevgraf = line_count
+        self.next_paragraph.displayindent = displayindent
+        self.next_paragraph.displaywidth = displaywidth
+        parser.state.volatile["displayindent"] = displayindent
+        parser.state.volatile["displaywidth"] = displaywidth
         # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
         # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
         # the closing $$ of another display), p is set to -16383.99999 pt (i.e., to the smallest legal
@@ -235,11 +236,14 @@ class Paragraph(nd.Node, hmode.HListHolder):
         # two ems in the current font.
         hbox = self._line_boxes[-1] if self._line_boxes else None
         if hbox is None:
-            next_context.predisplaysize = Dimen(-16383.99999)
-            next_context.prevdepth = Dimen()
+            predisplaysize = Dimen(-16383.99999)
+            self.next_paragraph.predisplaysize = predisplaysize
+            self.next_paragraph.prevdepth = Dimen()
         else:
-            next_context.predisplaysize = hbox.rightmost() + 2 * parser.state.parameters["currentfont"].param[5]
-            next_context.prevdepth = hbox.depth
+            predisplaysize = hbox.rightmost() + 2 * parser.state.parameters["currentfont"].param[5]
+            self.next_paragraph.predisplaysize = predisplaysize
+            self.next_paragraph.prevdepth = hbox.depth
+        parser.state.volatile["predisplaysize"] = predisplaysize
 
     def typeset(self, parser, vlist):
         self.pretypeset(parser)
@@ -872,7 +876,8 @@ class _BreakCandidateScan(list):
             candidate.penalty = self.parser.state.layout["exhyphenpenalty"]
 
     def extend(self, nodes):
-        for node in nodes.list:
+        items = nodes.list if hasattr(nodes, "list") else nodes
+        for node in items:
             self.append(node)
 
     def finish(self):
@@ -1129,7 +1134,7 @@ class PrevGraf(IntegerArrayItemAccessor):
         for para in reversed(vlist):
             if isinstance(para, Paragraph):
                 para.pretypeset(parser)
-                return para.line_count
+                return parser.state.globals["prevgraf"]
         return 0
 
 

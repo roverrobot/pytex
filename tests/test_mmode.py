@@ -137,14 +137,14 @@ def test_display_halign_typesets_with_display_wrapper(math):
     display = [n for n in packed if getattr(n, "source", None) is node]
     assert len(display) == 5
     assert display[0].node_type == nd.NODE_TYPE.PENALTY
-    assert display[0].penalty == node.typeset_context.predisplaypenalty
+    assert display[0].penalty == node.predisplaypenalty
     assert display[1].node_type == nd.NODE_TYPE.GLUE
-    assert display[1].glue == node.typeset_context.abovedisplayskip
+    assert display[1].glue == node.abovedisplayskip
     assert display[2].node_type == nd.NODE_TYPE.HLIST
     assert display[3].node_type == nd.NODE_TYPE.PENALTY
-    assert display[3].penalty == node.typeset_context.postdisplaypenalty
+    assert display[3].penalty == node.postdisplaypenalty
     assert display[4].node_type == nd.NODE_TYPE.GLUE
-    assert display[4].glue == node.typeset_context.belowdisplayskip
+    assert display[4].glue == node.belowdisplayskip
 
 
 def test_subformula_single_char_drops_outer_hbox(math):
@@ -161,7 +161,7 @@ def test_subformula_single_char_drops_outer_hbox(math):
 def test_mlist_typeset_single_box_drops_outer_hbox(math):
     # Build a sub-mlist that translates to exactly one box node.
     math.parse("$a$")
-    context = math.lists[-1][1].typeset_context
+    context = math.lists[-1][1]
     vb = box.VBox(math, None, 0)
     vb.list.append(nd.Rule(1, 1, 0))
     vb.typeset(math, [])
@@ -209,8 +209,8 @@ def test_display_centering_uses_half_remaining_width(math):
     packed = []
     vmode.typesetVerticalNodes(math, top, packed)
     b = _display_box_for_mlist(packed, mlist)
-    z = mlist.typeset_context.displaywidth
-    s = mlist.typeset_context.displayindent
+    z = mlist.displaywidth
+    s = mlist.displayindent
     expected = s + (z - b.width) / 2
     assert b.shifted == expected
 
@@ -224,7 +224,7 @@ def test_display_predisplaysize_adds_two_ems(math):
     vmode.typesetVerticalNodes(math, top, packed)
     last_prev_line = [n for n in packed if n.node_type == nd.NODE_TYPE.HLIST and getattr(n, "source", None) is prev_par][-1]
     expected = last_prev_line.rightmost() + 2 * math.state.parameters["currentfont"].param[5]
-    assert float(mlist.typeset_context.predisplaysize) == pytest.approx(float(expected), abs=1e-4)
+    assert float(mlist.predisplaysize) == pytest.approx(float(expected), abs=1e-4)
 
 
 def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
@@ -253,7 +253,7 @@ def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
     assert packed[display_index + 1].penalty == 10000
     assert packed[display_index + 2].node_type == nd.NODE_TYPE.HLIST
     assert packed[display_index + 3].node_type == nd.NODE_TYPE.PENALTY
-    assert packed[display_index + 3].penalty == mlist.typeset_context.postdisplaypenalty
+    assert packed[display_index + 3].penalty == mlist.postdisplaypenalty
 
 
 def test_everydisplay_can_read_prevgraf_from_previous_paragraph(math):
@@ -265,9 +265,9 @@ def test_display_metrics_realized_when_prevdepth_is_queried(math):
     math.parse("$$a$$\\par")
     mlist = next(node for node in math.lists[0] if isinstance(node, mmode.DisplayMathNode))
     math.parse("\\the\\prevdepth")
-    assert mlist.typeset_context.displaywidth is not None
-    assert mlist.typeset_context.displayindent is not None
-    assert mlist.typeset_context.predisplaysize is not None
+    assert mlist.displaywidth is not None
+    assert mlist.displayindent is not None
+    assert mlist.predisplaysize is not None
 
 
 def test_subformula(parser):
@@ -394,7 +394,7 @@ def test_mkern_typeset_uses_style_sigma6(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    mu = mu_unit(mlist.typeset_context, mmode.Style(mmode.MATH_STYLE.S))
+    mu = mu_unit(mlist, mmode.Style(mmode.MATH_STYLE.S))
     assert kerns[0].kern == 18 * mu
 
 
@@ -405,7 +405,7 @@ def test_nonscript_removes_immediately_following_glue_or_kern(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    mu = mu_unit(mlist.typeset_context, mmode.Style(mmode.MATH_STYLE.T))
+    mu = mu_unit(mlist, mmode.Style(mmode.MATH_STYLE.T))
     assert kerns[0].kern == 36 * mu
 
 
@@ -416,7 +416,7 @@ def test_nonscript_keeps_following_glue_or_kern_when_style_is_scriptscript(math)
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 2
-    mu = mu_unit(mlist.typeset_context, mmode.Style(mmode.MATH_STYLE.SS))
+    mu = mu_unit(mlist, mmode.Style(mmode.MATH_STYLE.SS))
     assert kerns[0].kern == 18 * mu
     assert kerns[1].kern == 36 * mu
 
@@ -428,7 +428,7 @@ def test_mathchoice_uses_current_text_style(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    mu = mu_unit(mlist.typeset_context, mmode.Style(mmode.MATH_STYLE.T))
+    mu = mu_unit(mlist, mmode.Style(mmode.MATH_STYLE.T))
     assert kerns[0].kern == 36 * mu
 
 
@@ -439,7 +439,7 @@ def test_mathchoice_uses_current_script_style(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    mu = mu_unit(mlist.typeset_context, mmode.Style(mmode.MATH_STYLE.S))
+    mu = mu_unit(mlist, mmode.Style(mmode.MATH_STYLE.S))
     assert kerns[0].kern == 54 * mu
 
 
@@ -450,7 +450,7 @@ def test_nested_mathchoice_expands_without_mutating_list(math):
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
     assert len(kerns) == 1
-    mu = mu_unit(mlist.typeset_context, mmode.Style(mmode.MATH_STYLE.T))
+    mu = mu_unit(mlist, mmode.Style(mmode.MATH_STYLE.T))
     assert kerns[0].kern == 36 * mu
     assert any(isinstance(n, mmode.ChoiceNode) for n in mlist.list)
 
@@ -733,7 +733,7 @@ def test_rule20_spacing_cases(math):
             "$\\mathop a\\mathinner b$",
             1,
             lambda mlist, glues: float(glues[0].glue.dimen)
-            == pytest.approx(float(mlist.typeset_context.muskips[0].dimen), abs=1e-4),
+            == pytest.approx(float(mlist.muskips[0].dimen), abs=1e-4),
             "rule20 text style should insert thinmuskip",
         ),
         (

@@ -266,6 +266,22 @@ def test_prevdepth_penalty_does_not_reset(parser):
     assert glues[0].glue.dimen == 4
 
 
+def test_vlist_append_inserts_interline_glue_after_discardables(parser):
+    parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
+    vlist = vmode.VList(parser, [])
+    first = _test_hbox(parser)
+    second = _test_hbox(parser)
+    vlist.append(first)
+    vlist.append(nd.Glue(glue.Glue(2), None))
+    vlist.append(second)
+    assert vlist.list[0] is first
+    assert vlist.list[1].node_type == nd.NODE_TYPE.GLUE
+    assert vlist.list[1].glue.dimen == 2
+    assert vlist.list[2].node_type == nd.NODE_TYPE.GLUE
+    assert vlist.list[2].name == "\\baselineskip"
+    assert vlist.list[3] is second
+
+
 def test_prevdepth_kept_across_glue_kern_penalty(parser):
     vlist = vmode.VList(parser, [])
     vlist.append(_test_hbox(parser, depth=3))

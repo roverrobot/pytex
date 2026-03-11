@@ -829,11 +829,16 @@ class MainVList(vmode.VList):
         if self._triggersPageBuilder(node):
             self._processPendingPages()
 
+    def _appendBuiltNode(self, node):
+        super()._appendBuiltNode(node)
+        if self._triggersPageBuilder(node):
+            self._processPendingPages()
+
     def _rebuildRawState(self):
         if self._expanded_raw_count < len(self.list):
             self.prevdepth = None
         else:
-            self.prevdepth = self._expanded_prevdepth if self.expanded else vmode.init_prevdepth
+            self.prevdepth = self._expandedPrevDepth() if self.expanded else vmode.init_prevdepth
         context = self.page_initial_context
         for node in self.list:
             if isinstance(node, PageStateNode):
@@ -846,9 +851,7 @@ class MainVList(vmode.VList):
         if count <= 0:
             return
         del self.expanded[:count]
-        state = vmode._rebuild_expanded_state(self.expanded)
-        self._expanded_prevdepth = state["prevdepth"]
-        self._expanded_seen_box = state["seen_box"]
+        self._syncExpandedTailState()
         while self._expanded_raw_count > 0 and self.list:
             node = self.list[0]
             if self.expanded and getattr(self.expanded[0], "source", None) is node:
@@ -865,9 +868,7 @@ class MainVList(vmode.VList):
         self.list[:0] = list(nodes)
         self.expanded[:0] = list(nodes)
         self._expanded_raw_count += len(nodes)
-        state = vmode._rebuild_expanded_state(self.expanded)
-        self._expanded_prevdepth = state["prevdepth"]
-        self._expanded_seen_box = state["seen_box"]
+        self._syncExpandedTailState()
         self._rebuildRawState()
 
     def _flushDeferredFileOps(self, box):

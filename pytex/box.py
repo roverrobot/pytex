@@ -790,7 +790,12 @@ class UnBox(Command):
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
             raise ValueError("expecting an hbox", parser.input.position())
         materialized, changed = _materializeBoxListNodes(parser, box.list)
-        top.extend(materialized if changed else box.list)
+        nodes = materialized if changed else box.list
+        extend_built = getattr(top, "extendBuilt", None) if self.vertical else None
+        if extend_built is not None:
+            extend_built(nodes)
+        else:
+            top.extend(nodes)
         if self.vertical and top.type == LISTTYPE.VERTICAL:
             top.can_lastbox = True
 

@@ -243,12 +243,11 @@ class VList(lists.List):
         self.list = nodes
         self.expanded = []
         self._expanded_raw_count = 0
-        self._expanded_prevdepth = init_prevdepth
-        self._expanded_seen_box = False
         self._local_prevdepth = init_prevdepth
         self._parser_prevdepth_active = False
         self.inner = inner
         self.prevdepth = init_prevdepth
+        self.lastbox = None
         self.can_lastbox = False
         self.type = lists.LISTTYPE.VERTICAL
 
@@ -288,15 +287,50 @@ class VList(lists.List):
             return False
         return True
 
+    def _appendInterlineMaterial(self, context, node, prior_prevdepth):
+        if context is None:
+            return
+        if context.interlinepenalty != 0 and float(prior_prevdepth) > float(init_prevdepth):
+            self.list.append(nd.Penalty(context.interlinepenalty))
+        prevdepth = getattr(context, "prevdepth", None)
+        if prevdepth is None:
+            prevdepth = prior_prevdepth
+        if float(prevdepth) <= float(init_prevdepth):
+            return
+        baselineskip = context.baselineskip
+        diff = baselineskip.dimen - prevdepth - node.height
+        if diff < context.lineskiplimit:
+            self.list.append(nd.Glue(context.lineskip, "\\lineskip"))
+        else:
+            self.list.append(
+                nd.Glue(
+                    Glue(diff, baselineskip.stretch, baselineskip.shrink),
+                    "\\baselineskip",
+                )
+            )
+
+    def _expandedPrevDepth(self):
+        for node in reversed(self.expanded):
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                return node.depth
+            if node.node_type == nd.NODE_TYPE.RULE:
+                return init_prevdepth
+        return init_prevdepth
+
+    def _expandedLastBox(self):
+        for node in reversed(self.expanded):
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                return node
+        return None
+
+    def _syncExpandedTailState(self):
+        self.lastbox = self._expandedLastBox()
+
     def _materializeExpandedNode(self, node):
         start = len(self.expanded)
-        state = {
-            "prevdepth": self._expanded_prevdepth,
-            "seen_box": self._expanded_seen_box,
-        }
+        state = _rebuild_expanded_state(self.expanded)
         _append_expanded_node(self.parser, self.expanded, state, node)
-        self._expanded_prevdepth = state["prevdepth"]
-        self._expanded_seen_box = state["seen_box"]
+        self._syncExpandedTailState()
         return self.expanded[start:]
 
     def _didRealizeExpandedNode(self, node, material):
@@ -311,13 +345,31 @@ class VList(lists.List):
             self._expanded_raw_count += 1
             self._didRealizeExpandedNode(node, material)
 
+    def _appendBuiltNode(self, node):
+        node.source = node
+        self.list.append(node)
+        self.expanded.append(node)
+        self._expanded_raw_count += 1
+        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            self.lastbox = node
+            self.prevdepth = node.depth
+        elif node.node_type == nd.NODE_TYPE.RULE:
+            self.prevdepth = init_prevdepth
+        elif self._expanded_raw_count == len(self.list):
+            self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
+
+    def extendBuilt(self, nodes):
+        self._realizeReadyTailNodes()
+        for node in nodes:
+            self._appendBuiltNode(node)
+
     def finalizeExpandedNode(self, node):
         if getattr(node, "box_materializable", False) and node.node_type is None:
             if getattr(node, "_typeset_cache", None) is None:
                 node.pretypeset(self.parser)
         self._realizeReadyTailNodes()
         if node in self.list[:self._expanded_raw_count]:
-            self.prevdepth = self._expanded_prevdepth if self.expanded else init_prevdepth
+            self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
             return
         raise ValueError("cannot finalize missing vlist node")
     
@@ -326,23 +378,28 @@ class VList(lists.List):
         self._realizeReadyTailNodes()
         base_prevdepth = self.resolvePrevDepth()
         context = getattr(node, "typeset_context", None)
-        if context is None and getattr(node, "needs_vcontext", False):
-            node.typeset_context = VNodeContext(self.parser.state.layout, base_prevdepth)
-            context = node.typeset_context
         is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
-        if context is None and is_box:
-            node.typeset_context = VNodeContext(self.parser.state.layout, base_prevdepth)
-            context = node.typeset_context
         if is_box:
+            if context is None:
+                context = VNodeContext(self.parser.state.layout, base_prevdepth)
+            self._appendInterlineMaterial(context, node, base_prevdepth)
+            if getattr(node, "typeset_context", None) is not None:
+                node.typeset_context = None
             self.prevdepth = getattr(node, "depth", None)
         elif node.node_type == nd.NODE_TYPE.RULE:
             self.prevdepth = init_prevdepth
-        elif context is not None or getattr(node, "box_materializable", False):
+        else:
+            if context is None and getattr(node, "needs_vcontext", False):
+                node.typeset_context = VNodeContext(self.parser.state.layout, base_prevdepth)
+                context = node.typeset_context
+        if (not is_box and node.node_type != nd.NODE_TYPE.RULE) and (
+            context is not None or getattr(node, "box_materializable", False)
+        ):
             self.prevdepth = None
         self.list.append(node)
         self._realizeReadyTailNodes()
         if self._expanded_raw_count == len(self.list):
-            self.prevdepth = self._expanded_prevdepth if self.expanded else init_prevdepth
+            self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
 
     def resolvePrevDepth(self):
         if self.prevdepth is not None:
@@ -360,7 +417,7 @@ class VList(lists.List):
                 return depth
             elif node.node_type == nd.NODE_TYPE.RULE:
                 break
-        return init_prevdepth
+        return self._expandedPrevDepth()
 
     def pop(self, *args):
         index = args[0] if args else -1
@@ -371,13 +428,11 @@ class VList(lists.List):
             self._expanded_raw_count = len(self.list)
         while self.expanded and getattr(self.expanded[-1], "source", None) is node:
             self.expanded.pop()
-        state = _rebuild_expanded_state(self.expanded)
-        self._expanded_prevdepth = state["prevdepth"]
-        self._expanded_seen_box = state["seen_box"]
+        self._syncExpandedTailState()
         if self._expanded_raw_count < len(self.list):
             self.prevdepth = None
         else:
-            self.prevdepth = self._expanded_prevdepth if self.expanded else init_prevdepth
+            self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
         return node
 
 

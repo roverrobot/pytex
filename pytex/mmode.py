@@ -211,32 +211,6 @@ class MathNodeContextMixin:
         return self.font(style, 3).param
 
 
-class AtomTypesetContext:
-    """
-    Transient atom-emission context used by MList.typesetNodes pass 2.
-
-    Pass 1 normalizes atom classes (Rule 5/6, and later Rule 14) into temporary
-    wrappers. Pass 2 emits those wrappers and only needs:
-    - prev_atom_type: the effective class of the last emitted atom-like item
-    - atom_type: the effective class of the current emitted wrapper
-    - text_symbol: whether Rule 14 marked current atom nucleus as text symbol
-    - paragraph_math: whether Rule 21 inter-atom penalties are enabled
-      (true only for InlineMathList / paragraph math)
-    """
-    def __init__(self, context, prev_atom_type):
-        self.context = context
-        self.prev_atom_type = prev_atom_type
-        self.atom_type = None
-        self.text_symbol = False
-        self.paragraph_math = False
-
-    def __getitem__(self, index):
-        return getattr(self.context, index, None)
-
-    def __getattr__(self, name):
-        return getattr(self.context, name)
-
-
 class _AtomWrapper:
     """
     Temporary math-atom record produced in MList.typesetNodes pass 1.
@@ -570,11 +544,11 @@ class MathListHolder:
         if prev is not None and prev.node_type == ATOM_TYPE.BIN:
             prev.node_type = ATOM_TYPE.ORD
 
-    def _rule21Penalty(self, context, current_item, next_item):
+    def _rule21Penalty(self, parser, paragraph_math, current_item, next_item):
         """
         Appendix G Rule 21 inter-atom penalties.
         """
-        if not context.paragraph_math:
+        if not paragraph_math:
             return None
         if next_item is None:
             return None
@@ -587,7 +561,8 @@ class MathListHolder:
             return None
         if atom_type == ATOM_TYPE.REL and isinstance(next_item, _AtomWrapper) and next_item.node_type == ATOM_TYPE.REL:
             return None
-        penalty = context.binoppenalty if atom_type == ATOM_TYPE.BIN else context.relpenalty
+        layout = parser.state.layout
+        penalty = layout["binoppenalty"] if atom_type == ATOM_TYPE.BIN else layout["relpenalty"]
         if penalty >= 10000:
             return None
         p = nd.Penalty(penalty)
@@ -603,22 +578,36 @@ class MathListHolder:
         """
         if packed is None:
             packed = []
-        atom_context = AtomTypesetContext(context, None)
-        atom_context.paragraph_math = self.paragraph_math
+        previous = {}
+        for name in ("prev_atom_type", "atom_type", "text_symbol"):
+            if hasattr(context, name):
+                previous[name] = (True, getattr(context, name))
+            else:
+                previous[name] = (False, None)
+        prev_atom_type = None
         items = iter(collected)
         item = next(items, None)
-        while item is not None:
-            nxt = next(items, None)
-            if isinstance(item, _AtomWrapper):
-                atom_context.atom_type = item.node_type
-                atom_context.text_symbol = item.text_symbol
-                item.typeset(parser, packed, atom_context, item.style)
-            else:
-                packed.append(item)
-            p = self._rule21Penalty(atom_context, item, nxt)
-            if p is not None:
-                packed.append(p)
-            item = nxt
+        try:
+            while item is not None:
+                nxt = next(items, None)
+                if isinstance(item, _AtomWrapper):
+                    context.prev_atom_type = prev_atom_type
+                    context.atom_type = item.node_type
+                    context.text_symbol = item.text_symbol
+                    item.typeset(parser, packed, context, item.style)
+                    prev_atom_type = context.prev_atom_type
+                else:
+                    packed.append(item)
+                p = self._rule21Penalty(parser, self.paragraph_math, item, nxt)
+                if p is not None:
+                    packed.append(p)
+                item = nxt
+        finally:
+            for name, (had_attr, value) in previous.items():
+                if had_attr:
+                    setattr(context, name, value)
+                elif hasattr(context, name):
+                    delattr(context, name)
         return packed
 
     def typesetNodes(self, parser, packed, context, style):

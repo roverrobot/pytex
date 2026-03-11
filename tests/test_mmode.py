@@ -695,7 +695,8 @@ def test_rule17_cases(math):
     font = base.font(style, 0)
     assert float(font.param[1]) != 0 and float(font["f"].italic) != 0, "rule17 text-symbol fixture precondition"
 
-    plain_ctx = mmode.AtomTypesetContext(base, None)
+    plain_ctx = base
+    plain_ctx.prev_atom_type = None
     plain_ctx.atom_type = mmode.ATOM_TYPE.ORD
     plain_ctx.text_symbol = False
     plain = []
@@ -703,7 +704,8 @@ def test_rule17_cases(math):
     plain_kerns = [n for n in plain if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
     assert len(plain_kerns) == 1, "rule17 plain symbol should get italic kern"
 
-    text_ctx = mmode.AtomTypesetContext(base, None)
+    text_ctx = base
+    text_ctx.prev_atom_type = None
     text_ctx.atom_type = mmode.ATOM_TYPE.ORD
     text_ctx.text_symbol = True
     text = []
@@ -714,7 +716,8 @@ def test_rule17_cases(math):
     # Rule 17: subscript present suppresses italic correction kern.
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 1, "f")
     atom.sub = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("i"), -1)
-    ctx = mmode.AtomTypesetContext(base, None)
+    ctx = base
+    ctx.prev_atom_type = None
     ctx.atom_type = mmode.ATOM_TYPE.ORD
     ctx.text_symbol = False
     packed = []
@@ -1469,7 +1472,8 @@ def test_rule19_uses_live_delimiter_parameters(math):
     ctx = display_context(math)
 
     packed = []
-    atom_ctx = mmode.AtomTypesetContext(ctx, None)
+    atom_ctx = ctx
+    atom_ctx.prev_atom_type = None
     atom_ctx.atom_type = atom.atom_type
     atom.typeset(math, packed, atom_ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert left.total == 0

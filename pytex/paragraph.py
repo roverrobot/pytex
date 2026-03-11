@@ -246,10 +246,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
         for node in self._typeset_cache:
             vlist.append(node)
 
-    def materialize_box_nodes(self, parser):
-        self.pretypeset(parser)
-        return list(self._typeset_cache)
-
     @staticmethod
     def _lineDisc(parser, disc, broken):
         rendered = disc.pre if broken else disc.replace

@@ -49,6 +49,9 @@ class HListHolder:
         """
         Typeset/expand one node into packed output with source propagation.
         """
+        if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
+            packed.append(node)
+            return
         typeset = node.typeset
         if typeset is None:
             packed.append(node)

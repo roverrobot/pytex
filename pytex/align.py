@@ -197,19 +197,6 @@ class Alignment(nd.Node):
     def pretypeset(self, parser):
         raise NotImplementedError
 
-    def materialize_box_nodes(self, parser):
-        self.pretypeset(parser)
-        prepare = getattr(self, "_prepareExpandedRows", None)
-        if prepare is not None:
-            prepare(getattr(self, "typeset_context", None))
-        cache = self._typeset_cache
-        if cache is None:
-            return []
-        nodes = getattr(cache, "list", None)
-        if nodes is None:
-            return [cache]
-        return list(nodes)
-
     def captureRowLayout(self, parser):
         layout = parser.state.layout
         self._row_layout = {
@@ -374,15 +361,13 @@ class Alignment(nd.Node):
 
 class HAlignment(Alignment):
     """
-    A \\halign node. It is vertical material, so it must capture vertical typesetting
-    context when appended to a vlist.
+    A \\halign node. It expands immediately into explicit vertical material.
+    The surrounding vlist supplies the outer first-row interline when this node
+    is expanded.
     """
-    needs_vcontext = True
 
     def __init__(self, to=None, spread=Dimen()):
         super().__init__(to, spread)
-        self.typeset_context = None
-        self._expanded_rows_ready = False
 
     def newBox(self, parser):
         return bx.HBox(parser, None, 0)
@@ -417,8 +402,6 @@ class HAlignment(Alignment):
         return box.typeset(parser)
 
     def _rowContext(self, prevdepth, context=None):
-        if context is None:
-            context = self.typeset_context
         source = self._row_layout if self._row_layout is not None else context
         if source is None:
             return None
@@ -439,11 +422,12 @@ class HAlignment(Alignment):
 
         return RowContext(source, prevdepth)
 
-    def pretypeset(self, parser, context=None):
+    def firstBoxContext(self, prevdepth):
+        return self._rowContext(prevdepth)
+
+    def pretypeset(self, parser, first_prevdepth=None):
         if self._typeset_cache is not None:
             return
-        if context is None:
-            context = self.typeset_context
         rows, w, t = self._collectEntries(parser)
         prepared = []
         W = Dimen()
@@ -500,45 +484,26 @@ class HAlignment(Alignment):
             W = self.to
         else:
             W += self.spread
-        out = bx.VBox(parser, None, Dimen())
-        out.typeset_context = context
-        vbuild = vmode.VList(parser, out.list, inner=True)
+        cache = []
+        vbuild = vmode.VList(parser, cache, inner=True)
+        vbuild.prevdepth = vmode.init_prevdepth
         if self.noalign is not None:
             self._appendVerticalMaterial(parser, vbuild, self.noalign)
         for row, rowbox, row_total, row_width in prepared:
             rowbox.to = W
             rowbox.spread = W - row_width
             rowbox = rowbox.typeset(parser)
-            row_context = self._rowContext(vbuild.prevdepth, context)
+            row_context = self._rowContext(vbuild.resolvePrevDepth())
             if row_context is not None:
                 rowbox.typeset_context = row_context
             vbuild.append(rowbox)
             if row.noalign is not None:
                 self._appendVerticalMaterial(parser, vbuild, row.noalign)
-        self._typeset_cache = out.typeset(parser)
-
-    def _prepareExpandedRows(self, context=None):
-        if self._expanded_rows_ready:
-            return
-        if context is None:
-            context = self.typeset_context
-        rowboxes = [item for item in self._typeset_cache.list if item.node_type == nd.NODE_TYPE.HLIST]
-        for index, rowbox in enumerate(rowboxes):
-            row_context = getattr(rowbox, "typeset_context", None)
-            if row_context is None:
-                continue
-            if index == 0 and context is not None:
-                row_context.prevdepth = context.prevdepth
-                row_context.interlinepenalty = context.interlinepenalty
-            else:
-                row_context.prevdepth = vmode.init_prevdepth
-                row_context.interlinepenalty = 0
-        self._expanded_rows_ready = True
+        self._typeset_cache = list(cache)
 
     def typeset(self, parser, packed):
         self.pretypeset(parser)
-        self._prepareExpandedRows()
-        packed.extend(self._typeset_cache.list)
+        packed.extend(self._typeset_cache)
 
 
 class MAlignment(HAlignment):
@@ -548,25 +513,22 @@ class MAlignment(HAlignment):
     needs_vcontext = False
 
     def typeset(self, parser, packed, context):
-        if self._typeset_cache is None:
-            self.pretypeset(parser, context)
-        self._prepareExpandedRows(context)
-        packed.extend(self._typeset_cache.list)
+        self.pretypeset(parser, context)
+        packed.extend(self._typeset_cache)
 
     def pretypeset(self, parser, context=None):
-        if context is None:
-            context = self.typeset_context
-        super().pretypeset(parser, context)
+        if self._typeset_cache is None:
+            super().pretypeset(parser, first_prevdepth=vmode.init_prevdepth)
         self._normalizeTagPlacement(parser, context)
         shift = Dimen() if context is None else Dimen(context.displayindent)
-        for row in self._typeset_cache.list:
+        for row in self._typeset_cache:
             if row.node_type == nd.NODE_TYPE.HLIST:
                 row.shifted = shift
 
     def _normalizeTagPlacement(self, parser, context):
         if context is None or context.displaywidth is None:
             return
-        rows = [row for row in self._typeset_cache.list if row.node_type == nd.NODE_TYPE.HLIST]
+        rows = [row for row in self._typeset_cache if row.node_type == nd.NODE_TYPE.HLIST]
         if not rows:
             return
 
@@ -1053,12 +1015,6 @@ class HAlignMathList(nd.Node):
             next_context = getattr(self.next_paragraph, "typeset_context", None)
             if next_context is not None:
                 next_context.prevgraf = next_prevgraf
-
-    def materialize_box_nodes(self, parser):
-        packed = []
-        self.typeset(parser, packed)
-        return packed
-
 
 def init(parser):
     parser.alignments = AlignmentBuildStack()

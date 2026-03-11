@@ -45,10 +45,12 @@ def _append_concrete_vertical(packed, state, node):
 
 def _append_expanded_item(parser, packed, state, item, source, node_context=None):
     if item.node_type == nd.NODE_TYPE.ADJUST:
-        for sub in expandVerticalNode(parser, item):
+        subitems = []
+        typesetVerticalNodes(parser, item.vlist, subitems)
+        for sub in subitems:
             sub_source = getattr(sub, "source", None)
             if sub_source is None:
-                sub_source = source
+                sub_source = item
             _append_expanded_item(parser, packed, state, sub, sub_source)
         return
     if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
@@ -109,6 +111,10 @@ def _append_expanded_item(parser, packed, state, item, source, node_context=None
 
 def _append_expanded_node(parser, packed, state, node):
     node_context = getattr(node, "typeset_context", None)
+    if node_context is None:
+        first_box_context = getattr(node, "firstBoxContext", None)
+        if first_box_context is not None:
+            node_context = first_box_context(state["prevdepth"])
     for item in expandVerticalNode(parser, node):
         source = getattr(item, "source", None)
         if source is None:
@@ -143,28 +149,12 @@ def expandVerticalNode(parser, node):
     Expand one vertical-list item into concrete nodes without mutating the
     containing list.
     """
-    materialize = getattr(node, "materialize_box_nodes", None)
-    if materialize is not None:
-        packed = materialize(parser)
-        if packed is None:
-            return []
-        if not isinstance(packed, list):
-            try:
-                packed = list(packed)
-            except TypeError:
-                packed = [packed]
-        for n in packed:
-            _mark_source(n, node)
-        return packed
     typeset = getattr(node, "typeset", None)
     if typeset is None:
         _mark_source(node, node)
         return [node]
     packed = []
     node.typeset(parser, packed)
-    if not packed:
-        _mark_source(node, node)
-        return [node]
     for n in packed:
         _mark_source(n, node)
     return packed
@@ -454,11 +444,6 @@ class VAdjust(nd.Node, VListHolder):
 
     def saveInfo(self):
         return {"init": {"vlist": self.vlist}}
-
-    def materialize_box_nodes(self, parser):
-        packed = []
-        typesetVerticalNodes(parser, self.vlist, packed)
-        return packed
 
     node_type = nd.NODE_TYPE.ADJUST
 

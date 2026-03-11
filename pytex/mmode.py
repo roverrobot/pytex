@@ -673,10 +673,6 @@ class DisplayMathNode(MathListHolder):
         self.pretypeset(parser)
         for n in self._typeset_cache:
             packed.append(n)
-
-    def materialize_box_nodes(self, parser):
-        self.pretypeset(parser)
-        return list(self._typeset_cache)
     
     def pretypeset(self, parser):
         if self._typeset_cache is not None:

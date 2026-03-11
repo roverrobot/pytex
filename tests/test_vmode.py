@@ -205,7 +205,7 @@ def _break_pages(parser):
     assert isinstance(main, page.MainVList)
     main._realizeReadyTailNodes()
     pages = list(parser.shipout.pages)
-    material = list(main.contributed)
+    material = list(main.expanded)
     breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
     context = main.page_initial_context
     topmark = list(parser.state.parameters["botmark"])

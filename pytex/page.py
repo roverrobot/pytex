@@ -474,73 +474,6 @@ class PageStateNode(nd.Node):
         return "PageState"
 
 
-class _PendingPageEntry:
-    """
-    One raw main-vlist node and the page-builder material currently derived from it.
-    """
-
-    __slots__ = ("node", "ready", "material")
-
-    def __init__(self, node):
-        self.node = node
-        self.ready = False
-        self.material = []
-
-
-class ContributedVList(vmode.VList):
-    """
-    Concrete contributed material waiting to be considered by the page builder.
-    """
-
-    list_type_name = "ContributedVList"
-
-    def __init__(self, parser):
-        super().__init__(parser, [], inner=False)
-        self.page_seen_box = False
-
-    def appendConcrete(self, node):
-        self.can_lastbox = False
-        self.list.append(node)
-        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            self.prevdepth = node.depth
-            self.page_seen_box = True
-        elif node.node_type == nd.NODE_TYPE.RULE:
-            self.prevdepth = vmode.init_prevdepth
-
-    def extendConcrete(self, nodes):
-        for node in nodes:
-            self.appendConcrete(node)
-
-    def prependConcrete(self, nodes):
-        if not nodes:
-            return
-        self.list[:0] = list(nodes)
-        self.rebuildState()
-
-    def removePrefix(self, count):
-        if count <= 0:
-            return
-        del self.list[:count]
-        self.rebuildState()
-
-    def removeTail(self, count):
-        if count <= 0:
-            return
-        del self.list[-count:]
-        self.rebuildState()
-
-    def rebuildState(self):
-        self.prevdepth = vmode.init_prevdepth
-        self.page_seen_box = False
-        self.can_lastbox = False
-        for node in self.list:
-            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                self.prevdepth = node.depth
-                self.page_seen_box = True
-            elif node.node_type == nd.NODE_TYPE.RULE:
-                self.prevdepth = vmode.init_prevdepth
-
-
 class MainVListBreaker(VListBreaker):
     def __init__(self, parser, nodes, initial_context):
         super().__init__(nodes, initial_context)
@@ -857,7 +790,6 @@ class MainVList(vmode.VList):
         super().__init__(parser, [], inner=False)
         self.page_initial_context = PageBuilderContext(parser.state.layout)
         self.page_context = self.page_initial_context
-        self.contributed = ContributedVList(parser)
         self._processing_pages = False
 
     @staticmethod
@@ -892,9 +824,6 @@ class MainVList(vmode.VList):
             nd.NODE_TYPE.INS,
         )
 
-    def _didRealizeExpandedNode(self, node, material):
-        self.contributed.extendConcrete(material)
-
     def finalizePendingNode(self, node):
         self.finalizeExpandedNode(node)
         if self._triggersPageBuilder(node):
@@ -913,9 +842,6 @@ class MainVList(vmode.VList):
             self.can_lastbox = False
         self.page_context = context
 
-    def _rebuildPageState(self):
-        self.contributed.rebuildState()
-
     def _consumePagePrefix(self, count):
         if count <= 0:
             return
@@ -923,7 +849,6 @@ class MainVList(vmode.VList):
         state = vmode._rebuild_expanded_state(self.expanded)
         self._expanded_prevdepth = state["prevdepth"]
         self._expanded_seen_box = state["seen_box"]
-        self.contributed.removePrefix(count)
         while self._expanded_raw_count > 0 and self.list:
             node = self.list[0]
             if self.expanded and getattr(self.expanded[0], "source", None) is node:
@@ -943,7 +868,6 @@ class MainVList(vmode.VList):
         state = vmode._rebuild_expanded_state(self.expanded)
         self._expanded_prevdepth = state["prevdepth"]
         self._expanded_seen_box = state["seen_box"]
-        self.contributed.prependConcrete(list(nodes))
         self._rebuildRawState()
 
     def _flushDeferredFileOps(self, box):
@@ -972,24 +896,24 @@ class MainVList(vmode.VList):
         self._processing_pages = True
         try:
             while True:
-                if not self.contributed.list:
+                if not self.expanded:
                     return
-                breaker = MainVListBreaker(self.parser, self.contributed.list, self.page_initial_context)
+                breaker = MainVListBreaker(self.parser, self.expanded, self.page_initial_context)
                 start, start_context = breaker.pruneTop(0, self.page_initial_context)
-                if start >= len(self.contributed.list):
+                if start >= len(self.expanded):
                     return
                 end, next_start, break_context, break_penalty = breaker.bestBreak(start, start_context)
                 if not getattr(breaker, "last_triggered", False) and not force:
                     return
                 if end <= start:
-                    end = min(start + 1, len(self.contributed.list))
+                    end = min(start + 1, len(self.expanded))
                     next_start = end
                     break_context = breaker.advanceContext(start, end, start_context)
                     break_penalty = 0
                 page = bx.VBox(self.parser, break_context.vsize, Dimen())
                 topmark = list(self.parser.state.parameters["botmark"])
-                firstmark, botmark = self._pageMarks(self.contributed.list, start, end, topmark)
-                self._updatePageMarksByClass(self.parser, self.contributed.list, start, end, topmark)
+                firstmark, botmark = self._pageMarks(self.expanded, start, end, topmark)
+                self._updatePageMarksByClass(self.parser, self.expanded, start, end, topmark)
                 self.parser.state.parameters["topmark"] = list(topmark)
                 self.parser.state.parameters["firstmark"] = list(firstmark)
                 self.parser.state.parameters["botmark"] = list(botmark)
@@ -1030,14 +954,10 @@ class MainVList(vmode.VList):
         if index not in (-1, len(self.list) - 1):
             raise NotImplementedError("MainVList.pop only supports removing the tail")
         node = self.list[index]
-        material_len = 0
         i = len(self.expanded) - 1
         while i >= 0 and getattr(self.expanded[i], "source", None) is node:
-            material_len += 1
             i -= 1
         node = super().pop(*args)
-        if material_len:
-            self.contributed.removeTail(material_len)
         self._rebuildRawState()
         return node
 
@@ -1473,7 +1393,7 @@ class MainVList(vmode.VList):
     def finish(self, parser):
         self._realizeReadyTailNodes()
         if float(parser.state.layout["vsize"]) <= 0:
-            self._flushPageWhatsits(parser, self.contributed.list)
+            self._flushPageWhatsits(parser, self.expanded)
             return
         self._processPendingPages(force=True)
 

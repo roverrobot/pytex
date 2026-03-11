@@ -82,13 +82,7 @@ class Style(serialization.Serializable):
         return f"Style({self.style}{cramped})"
 
 
-def _math_parser(source):
-    parser = getattr(source, "parser", None)
-    return parser if parser is not None else source
-
-
-def mathfont(source, style, family):
-    parser = _math_parser(source)
+def mathfont(parser, style, family):
     textfont = parser.state.textfont
     scriptfont = parser.state.scriptfont
     scriptscriptfont = parser.state.scriptscriptfont
@@ -99,25 +93,25 @@ def mathfont(source, style, family):
     return scriptscriptfont[family]
 
 
-def mathsigma(source, style: Style):
-    return mathfont(source, style, 2).param
+def mathsigma(parser, style: Style):
+    return mathfont(parser, style, 2).param
 
 
-def mathxi(source, style: Style):
-    return mathfont(source, style, 3).param
+def mathxi(parser, style: Style):
+    return mathfont(parser, style, 3).param
 
 
-def mathmuskips(source):
-    layout = _math_parser(source).state.layout
+def mathmuskips(parser):
+    layout = parser.state.layout
     return [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
 
 
-def mathlayout(source, name):
-    return _math_parser(source).state.layout[name]
+def mathlayout(parser, name):
+    return parser.state.layout[name]
 
 
-def mathVNodeContext(source, prevdepth):
-    context = VNodeContext(_math_parser(source).state.layout, prevdepth)
+def mathVNodeContext(parser, prevdepth):
+    context = VNodeContext(parser.state.layout, prevdepth)
     context.interlinepenalty = 0
     return context
 
@@ -926,7 +920,7 @@ class Atom(nd.Node):
         # At this stage we only emit with the supplied effective atom_type.
         context.atom_type = atom_type
         b = self.assemble(parser, context, style)
-        axis = Dimen(mathsigma(context, style)[21])
+        axis = Dimen(mathsigma(parser, style)[21])
         total = b.height + b.depth
         if self.left is not None and self.right is not None:
             # TeXbook Appendix G, Rule 19: size boundary delimiters from
@@ -934,26 +928,26 @@ class Atom(nd.Node):
             delta_up = b.height - axis
             delta_down = b.depth + axis
             delta = delta_up if delta_up >= delta_down else delta_down
-            f = mathlayout(context, "delimiterfactor")
-            l = mathlayout(context, "delimitershortfall")
+            f = mathlayout(parser, "delimiterfactor")
+            l = mathlayout(parser, "delimitershortfall")
             rule19 = Dimen(integer=(int(delta) // 500) * f)
             short = 2 * delta - l
             total = rule19 if rule19 >= short else short
         if self.left:
             left = self.left.typeset(parser, total, context, style, axis)
-            self.typsetSpace(packed, context, style, ATOM_TYPE.OPEN)
+            self.typsetSpace(parser, packed, context, style, ATOM_TYPE.OPEN)
             packed.append(left)
             context.prev_atom_type = ATOM_TYPE.OPEN
-            self.typsetSpace(packed, context, style, atom_type)
+            self.typsetSpace(parser, packed, context, style, atom_type)
         else:
-            self.typsetSpace(packed, context, style, atom_type)
+            self.typsetSpace(parser, packed, context, style, atom_type)
         for n in b.list:
             # packed needs to handle ligatures automatically. So we cannot use extend, but to add them invididually
             packed.append(n)
         context.prev_atom_type = atom_type
         if self.right:
             right = self.right.typeset(parser, total, context, style, axis)
-            self.typsetSpace(packed, context, style, ATOM_TYPE.CLOSE)
+            self.typsetSpace(parser, packed, context, style, ATOM_TYPE.CLOSE)
             packed.append(right)
             context.prev_atom_type = ATOM_TYPE.CLOSE
 
@@ -974,7 +968,7 @@ class Atom(nd.Node):
         [-1, 1, -2, -3, -1, 0, -1, -1]
     ]
 
-    def typsetSpace(self, packed, context, style, atom_type):
+    def typsetSpace(self, parser, packed, context, style, atom_type):
         """
         Typeset the psace between this atom and the previous one
         """
@@ -992,7 +986,7 @@ class Atom(nd.Node):
             space = -space
         packed.append(
             nd.Glue(
-                muglue(context, style, mathmuskips(context)[space - 1]),
+                muglue(parser, style, mathmuskips(parser)[space - 1]),
                 ["\\thinmuskip", "\\medmuskip", "\\thickmuskip"][space - 1],
             )
         )
@@ -1062,8 +1056,8 @@ class Atom(nd.Node):
         if self._rule18aIsCharTranslation(translated):
             return Dimen(), Dimen()
         h, d = self._translatedHeightDepth(parser, translated)
-        q = Dimen(mathsigma(context, style.superscript())[17])  # sigma18 at C^
-        r = Dimen(mathsigma(context, style.subscript())[18])    # sigma19 at C_
+        q = Dimen(mathsigma(parser, style.superscript())[17])  # sigma18 at C^
+        r = Dimen(mathsigma(parser, style.subscript())[18])    # sigma19 at C_
         return h - q, d + r
 
     def _typesetScriptField(self, parser, field, context, style):
@@ -1078,16 +1072,16 @@ class Atom(nd.Node):
             else:
                 typeset(parser, x.list, context, style)
         x = _drop_redundant_wrapper(x.typeset(parser), allow_char=False)
-        x.width += mathlayout(context, "scriptspace")
+        x.width += mathlayout(parser, "scriptspace")
         if hasattr(x, "to"):
             x.to = x.width
         return x
 
-    def rule18c(self, x, context, style, u):
+    def rule18c(self, parser, x, context, style, u):
         """
         Appendix G Rule 18c: tentative superscript shift-up.
         """
-        sigma = mathsigma(context, style)
+        sigma = mathsigma(parser, style)
         sigma5 = Dimen(sigma[4])  # sigma5, x-height
         if style.style == MATH_STYLE.D and not style.cramped:
             p = Dimen(sigma[12])   # sigma13
@@ -1108,21 +1102,21 @@ class Atom(nd.Node):
         build subscript box y in C_ and enforce v >= sigma17.
         """
         y = self._typesetScriptField(parser, self.sub, context, style.subscript())
-        sigma17 = Dimen(mathsigma(context, style)[16])  # sigma17
+        sigma17 = Dimen(mathsigma(parser, style)[16])  # sigma17
         if sigma17 > v:
             v = sigma17
         return y, v
 
-    def rule18e(self, x, y, context, style, u, v):
+    def rule18e(self, parser, x, y, context, style, u, v):
         """
         Appendix G Rule 18e: joint superscript/subscript clearance adjustment.
         """
-        theta = Dimen(mathxi(context, style)[7])  # xi8
+        theta = Dimen(mathxi(parser, style)[7])  # xi8
         min_clear = 4 * theta
         clearance = (u - x.depth) - (y.height - v)
         if clearance < min_clear:
             v += (min_clear - clearance)
-        sigma5 = Dimen(mathsigma(context, style)[4])  # sigma5 x-height
+        sigma5 = Dimen(mathsigma(parser, style)[4])  # sigma5 x-height
         psi = (abs(sigma5) * 4) / 5 - (u - x.depth)
         if psi > 0:
             u += psi
@@ -1161,7 +1155,7 @@ class Atom(nd.Node):
         if self.sup is None:
             # Rule 18b: subscript only.
             x = self._typesetScriptField(parser, self.sub, context, style.subscript())
-            sigma = mathsigma(context, style)
+            sigma = mathsigma(parser, style)
             sigma16 = Dimen(sigma[15])  # sigma16
             sigma5 = Dimen(sigma[4])    # sigma5 (x-height)
             lift_limit = x.height - (abs(sigma5) * 4) / 5
@@ -1175,7 +1169,7 @@ class Atom(nd.Node):
             return
         # Rule 18c: superscript exists.
         x = self._typesetScriptField(parser, self.sup, context, style.superscript())
-        u = self.rule18c(x, context, style, u)
+        u = self.rule18c(parser, x, context, style, u)
         if self.sub is None:
             # Rule 18d.
             x.shifted = -u
@@ -1184,7 +1178,7 @@ class Atom(nd.Node):
         # Rule 18d (both scripts): build subscript and apply v floor.
         y, v = self.rule18d(parser, context, style, v)
         # Rule 18e.
-        u, v = self.rule18e(x, y, context, style, u, v)
+        u, v = self.rule18e(parser, x, y, context, style, u, v)
         # Rule 18f.
         self.rule18f(parser, packed, x, y, u, v, delta)
 
@@ -1273,7 +1267,7 @@ class Op(Atom):
                 typeset(parser, out.list, context, style)
         out = out.typeset(parser)
         if field is not None:
-            out.width += mathlayout(context, "scriptspace")
+            out.width += mathlayout(parser, "scriptspace")
             out.to = out.width
         return out
 
@@ -1290,7 +1284,7 @@ class Op(Atom):
                 typeset(parser, y.list, context, style)
             return y.typeset(parser), delta
         # C > T means display style in this implementation.
-        font = mathfont(context, style, symbol.fam)
+        font = mathfont(parser, style, symbol.fam)
         node = font[symbol.char]
         if style.style == MATH_STYLE.D and getattr(node.char_info, "chain", None):
             node = font[node.char_info.chain]
@@ -1300,7 +1294,7 @@ class Op(Atom):
         if int(delta) != 0 and (use_limits or self.sub is None):
             y.list.append(nd.Kern(delta, automatic=True))
         y = y.typeset(parser)
-        axis = Dimen(mathsigma(context, style)[21])  # sigma22
+        axis = Dimen(mathsigma(parser, style)[21])  # sigma22
         y.shifted = (y.height - y.depth) / 2 - axis
         return y, delta
 
@@ -1316,7 +1310,7 @@ class Op(Atom):
         y = Atom.rebox(parser, y, target)
         z = Atom.rebox(parser, z, target)
 
-        xi = mathxi(context, style)
+        xi = mathxi(parser, style)
         xi9 = Dimen(xi[8])
         xi10 = Dimen(xi[9])
         xi11 = Dimen(xi[10])
@@ -1425,7 +1419,7 @@ class MathSymbol(serialization.Serializable):
         return ATOM_TYPE(type), family, chr(char)
 
     def typeset(self, parser, packed, context, style):
-        font = mathfont(context, style, self.fam)
+        font = mathfont(parser, style, self.fam)
         packed.append(font[self.char])
 
 
@@ -1715,7 +1709,7 @@ class MuKern(nd.Kern):
             raise ValueError("typeset requires a packed list")
         if parser is None:
             raise ValueError("typeset requires a parser for mu units")
-        dimen = mudimen(context, style, self.kern)
+        dimen = mudimen(parser, style, self.kern)
         packed.append(nd.Kern(dimen))
         return
 
@@ -1740,7 +1734,7 @@ class MuGlue(nd.Glue):
     def typeset(self, parser, packed, context, style):
         if packed is None:
             raise ValueError("typeset requires a packed list")
-        packed.append(nd.Glue(muglue(context, style, self.glue), getattr(self, "name", None)))
+        packed.append(nd.Glue(muglue(parser, style, self.glue), getattr(self, "name", None)))
         return
 
 
@@ -1885,7 +1879,7 @@ class Delim(serialization.Serializable):
     def _styleLevel(style):
         return style.style if isinstance(style, Style) else style
 
-    def _fontSearchOrder(self, context, style, family):
+    def _fontSearchOrder(self, parser, style, family):
         """
         Build delimiter search order for one family:
         - scriptscriptfont if C is scriptscript
@@ -1907,7 +1901,6 @@ class Delim(serialization.Serializable):
 
         if family < 0 or family >= 16:
             return fonts
-        parser = _math_parser(context)
         textfont = parser.state.textfont
         scriptfont = parser.state.scriptfont
         scriptscriptfont = parser.state.scriptscriptfont
@@ -1929,11 +1922,11 @@ class Delim(serialization.Serializable):
             return None, None
         return info, font.charnode[i]
 
-    def _scanSymbol(self, symbol, context, style, minimum, best):
+    def _scanSymbol(self, parser, symbol, style, minimum, best):
         if self._symbolIsNull(symbol):
             return None, best
         code0 = ord(symbol.char)
-        for font in self._fontSearchOrder(context, style, symbol.fam):
+        for font in self._fontSearchOrder(parser, style, symbol.fam):
             code = code0
             visited = set()
             while code not in visited:
@@ -2041,22 +2034,22 @@ class Delim(serialization.Serializable):
         height+depth.
         """
         if axis is None:
-            axis = Dimen(mathsigma(context, style)[21])
+            axis = Dimen(mathsigma(parser, style)[21])
         if self._isNull():
-            b = box.HBox(parser, mathlayout(context, "nulldelimiterspace"), None)
+            b = box.HBox(parser, mathlayout(parser, "nulldelimiterspace"), None)
             b = b.typeset(parser)
             # Rule 15e/19 centering applies to null delimiters as well.
             b.shifted = (b.height - b.depth) / 2 - axis
             return b
         minimum = Dimen(total)
         best = None
-        chosen, best = self._scanSymbol(self.small, context, style, minimum, best)
+        chosen, best = self._scanSymbol(parser, self.small, style, minimum, best)
         if chosen is None:
-            chosen, best = self._scanSymbol(self.large, context, style, minimum, best)
+            chosen, best = self._scanSymbol(parser, self.large, style, minimum, best)
         if chosen is None:
             chosen = best
         if chosen is None:
-            b = box.HBox(parser, mathlayout(context, "nulldelimiterspace"), None)
+            b = box.HBox(parser, mathlayout(parser, "nulldelimiterspace"), None)
             return b.typeset(parser)
         if chosen["extensible"]:
             out = self._buildExtensible(parser, chosen, minimum)
@@ -2096,10 +2089,10 @@ class Rad(Atom):
         Appendix G, Rule 11: typeset radical nucleus and delimiter.
         """
         x = self._typesetField(parser, self.oprand, context, Style(style.style, cramped=True))
-        theta = Dimen(mathxi(context, style)[7])  # xi8 default rule thickness
+        theta = Dimen(mathxi(parser, style)[7])  # xi8 default rule thickness
         # Rule 11: in display style, use sigma5; otherwise use theta.
         if style.style < MATH_STYLE.T:
-            phi = Dimen(mathsigma(context, style)[4])  # sigma5
+            phi = Dimen(mathsigma(parser, style)[4])  # sigma5
         else:
             phi = theta
         clr = theta + abs(phi) / 4
@@ -2224,7 +2217,7 @@ class Over(Atom):
             },
         }
     
-    def rule15(self, context, style: Style):
+    def rule15(self, parser, style: Style):
         """
         Appendix G, Rule 15 preamble for generalized fractions.
 
@@ -2237,16 +2230,16 @@ class Over(Atom):
         """
         num, den, bar, thickness = self.nucleus
         if thickness is None:
-            theta = Dimen(mathxi(context, style)[7]) if bar else Dimen()
+            theta = Dimen(mathxi(parser, style)[7]) if bar else Dimen()
         else:
             theta = Dimen(thickness)
         return num, den, theta
 
-    def rule15b(self, context, style: Style, theta: Dimen):
+    def rule15b(self, parser, style: Style, theta: Dimen):
         """
         Appendix G, Rule 15b: base numerator/denominator shifts.
         """
-        sigma = mathsigma(context, style)
+        sigma = mathsigma(parser, style)
         if style.style < MATH_STYLE.T:
             # C > T
             u = Dimen(sigma[7])   # sigma8
@@ -2257,13 +2250,13 @@ class Over(Atom):
             v = Dimen(sigma[11])  # sigma12
         return u, v
 
-    def rule15c(self, x, z, context, style: Style, u: Dimen, v: Dimen):
+    def rule15c(self, parser, x, z, style: Style, u: Dimen, v: Dimen):
         """
         Appendix G, Rule 15c: atop-style clearance adjustment (theta = 0).
 
         Returns adjusted (u, v, clearance_kern).
         """
-        xi8 = Dimen(mathxi(context, style)[7])
+        xi8 = Dimen(mathxi(parser, style)[7])
         phi = (7 * xi8) if style.style < MATH_STYLE.T else (3 * xi8)
         psi = (u - x.depth) - (z.height - v)
         if psi < phi:
@@ -2273,14 +2266,14 @@ class Over(Atom):
             psi = (u - x.depth) - (z.height - v)
         return u, v, psi
 
-    def rule15d(self, x, z, context, style: Style, theta: Dimen, u: Dimen, v: Dimen):
+    def rule15d(self, parser, x, z, style: Style, theta: Dimen, u: Dimen, v: Dimen):
         """
         Appendix G, Rule 15d: over-style bar placement/clearance adjustment.
 
         Returns adjusted (u, v, kern_above_rule, kern_below_rule).
         """
         phi = (3 * theta) if style.style < MATH_STYLE.T else theta
-        a = Dimen(mathsigma(context, style)[21])  # axis height, sigma22
+        a = Dimen(mathsigma(parser, style)[21])  # axis height, sigma22
         half_theta = theta / 2
         k1 = (u - x.depth) - (a + half_theta)
         if k1 < phi:
@@ -2294,7 +2287,7 @@ class Over(Atom):
 
     def typesetNucleus(self, parser, packed, context, style: Style):
         # TeXbook Appendix G, Rule 15(a-e)
-        num, den, theta = self.rule15(context, style)
+        num, den, theta = self.rule15(parser, style)
         x = box.HBox(parser, None, 0)
         z = box.HBox(parser, None, 0)
         num.typesetNodes(parser, x.list, context, style.numerator())
@@ -2304,17 +2297,17 @@ class Over(Atom):
         target = x.width if x.width >= z.width else z.width
         x = Atom.rebox(parser, x, target)
         z = Atom.rebox(parser, z, target)
-        u, v = self.rule15b(context, style, theta)
+        u, v = self.rule15b(parser, style, theta)
         if int(theta) == 0:
             # Rule 15c (\atop): enforce minimum clearance with adjusted shifts.
-            u, v, k = self.rule15c(x, z, context, style, u, v)
+            u, v, k = self.rule15c(parser, x, z, style, u, v)
             out = box.VBox(parser, x.height + u, 0)
             out.list[:] = [x, nd.Kern(k), z]
             out = out.typeset(parser)
             out.depth = z.depth + v
         else:
             # Rule 15d (\over): enforce clearances from numerator/denominator to bar.
-            u, v, k1, k2 = self.rule15d(x, z, context, style, theta, u, v)
+            u, v, k1, k2 = self.rule15d(parser, x, z, style, theta, u, v)
             out = box.VBox(parser, x.height + u, 0)
             out.list[:] = [
                 x,
@@ -2333,7 +2326,7 @@ class Over(Atom):
             right_delim = Delim(0, 0)
         else:
             left_delim, right_delim = self.delims
-        sigma = mathsigma(context, style)
+        sigma = mathsigma(parser, style)
         min_total = Dimen(sigma[19] if style.style < MATH_STYLE.T else sigma[20])
         total = out.height + out.depth
         if total < min_total:
@@ -2428,12 +2421,12 @@ class Accent(Atom):
             return None
         return font[char]
 
-    def _rule12Skew(self, nucleus_symbol, context, style):
+    def _rule12Skew(self, parser, nucleus_symbol, context, style):
         # Kern amount for nucleus followed by skewchar in its font.
         if not isinstance(nucleus_symbol, MathSymbol):
             return Dimen()
         base_style = Style(style.style, cramped=True)
-        font = mathfont(context, base_style, nucleus_symbol.fam)
+        font = mathfont(parser, base_style, nucleus_symbol.fam)
         base = self._fontCharIfExists(font, nucleus_symbol.char)
         if base is None:
             return Dimen()
@@ -2448,9 +2441,9 @@ class Accent(Atom):
             return Dimen()
         return Dimen(step.kern * font.at)
 
-    def _rule12AccentNode(self, context, style, u):
+    def _rule12AccentNode(self, parser, context, style, u):
         # Pick accent in current size, following successor chain while width <= u.
-        font = mathfont(context, style, self.accent.fam)
+        font = mathfont(parser, style, self.accent.fam)
         node = self._fontCharIfExists(font, self.accent.char)
         if node is None:
             return None, None
@@ -2470,11 +2463,11 @@ class Accent(Atom):
         base_symbol = self.nucleus if isinstance(self.nucleus, MathSymbol) else None
         x = self._typesetField(parser, self.nucleus, context, Style(style.style, cramped=True))
         u = x.width
-        y_char, accent_font = self._rule12AccentNode(context, style, u)
+        y_char, accent_font = self._rule12AccentNode(parser, context, style, u)
         # If accent doesn't exist in current size, continue at Rule 16.
         if y_char is None:
             return super().typesetNucleus(parser, packed, context, style)
-        s = self._rule12Skew(base_symbol, context, style) if base_symbol is not None else Dimen()
+        s = self._rule12Skew(parser, base_symbol, context, style) if base_symbol is not None else Dimen()
         delta = x.height
         xh = Dimen(accent_font.param[4])  # fontdimen5 (x-height)
         if delta > xh:
@@ -2571,7 +2564,7 @@ class VCent(Box):
         height = box.height if box.height is not None else Dimen()
         depth = box.depth if box.depth is not None else Dimen()
         v = height + depth
-        a = Dimen(mathsigma(context, style)[21])
+        a = Dimen(mathsigma(parser, style)[21])
         half = v / 2
         box.height = half + a
         box.depth = half - a
@@ -2641,7 +2634,7 @@ class Line(Atom):
             x = x.list[0]
         else:
             x = x.typeset(parser)
-        theta = Dimen(mathxi(context, style)[7])
+        theta = Dimen(mathxi(parser, style)[7])
         if self.atom_type == ATOM_TYPE.OVER:
             vbox = Atom.overbar(parser, x, 3 * theta, theta)
         else:

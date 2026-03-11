@@ -309,13 +309,12 @@ def test_rule_resets_resolved_prevdepth(parser):
     assert vlist.resolvePrevDepth() == vmode.init_prevdepth
 
 
-def test_box_context_keeps_interlinepenalty(parser):
+def test_box_interline_penalty_override(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt\\interlinepenalty=0")
     vlist = vmode.VList(parser, [])
     first = _test_hbox(parser)
     second = _test_hbox(parser)
-    second.typeset_context = vmode.VNodeContext(parser.state.layout, vmode.init_prevdepth)
-    second.typeset_context.interlinepenalty = 123
+    second.interline_penalty = 123
     vlist.append(first)
     vlist.append(second)
     packed = vmode.typesetVerticalNodes(parser, vlist, [])

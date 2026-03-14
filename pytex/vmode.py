@@ -302,7 +302,7 @@ class VList(lists.List):
     def _syncExpandedTailState(self):
         self.lastbox = self._expandedLastBox()
 
-    def _materializeExpandedNode(self, node):
+    def _expandReadyNode(self, node):
         start = len(self.expanded)
         state = _rebuild_expanded_state(self.expanded)
         _append_expanded_node(self.parser, self.expanded, state, node)
@@ -314,7 +314,7 @@ class VList(lists.List):
             node = self.list[self._expanded_raw_count]
             if not self._entryReadyForExpansion(node):
                 break
-            self._materializeExpandedNode(node)
+            self._expandReadyNode(node)
             self._expanded_raw_count += 1
 
     def _appendBuiltNode(self, node):

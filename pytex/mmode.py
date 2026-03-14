@@ -1409,7 +1409,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if finalize_pending is not None:
             finalize_pending(self.node)
         # TeX is back in horizontal mode after a display, but the follow-on
-        # paragraph is only materialized if it later receives content.
+        # paragraph is only added if it later receives content.
         new_par = parser.newParagraph(indent=False, parskip=False, reset_prevgraf=False)
         new_par.keep_empty = True
 

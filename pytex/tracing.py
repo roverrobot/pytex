@@ -38,9 +38,6 @@ def _normalize_trace_nodes(node, expanded):
 
 
 def _trace_expand_node(parser, node):
-    materialize = getattr(node, "materialize_box_nodes", None)
-    if materialize is not None:
-        return _normalize_trace_nodes(node, materialize(parser))
     typeset = getattr(node, "typeset", None)
     if typeset is None:
         return None

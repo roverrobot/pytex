@@ -28,7 +28,7 @@ class List:
 
     Build-time state (for example, spacefactor while scanning horizontal
     material) lives here instead of on the node object that will later be
-    typeset/materialized.
+    typeset/expanded.
     """
     def __init__(self, parser, nodes: list, inner: bool):
         self.parser = parser

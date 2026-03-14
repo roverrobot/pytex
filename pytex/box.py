@@ -787,8 +787,7 @@ class UnBox(Command):
             raise ValueError("expecting a vbox", parser.input.position())
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
             raise ValueError("expecting an hbox", parser.input.position())
-        materialized, changed = _materializeBoxListNodes(parser, box.list)
-        nodes = materialized if changed else box.list
+        nodes = box.list
         extend_built = getattr(top, "extendBuilt", None) if self.vertical else None
         if extend_built is not None:
             extend_built(nodes)
@@ -796,59 +795,6 @@ class UnBox(Command):
             top.extend(nodes)
         if self.vertical and top.type == LISTTYPE.VERTICAL:
             top.can_lastbox = True
-
-
-def _materializeBoxNodes(parser, node):
-    materialize = getattr(node, "materialize_box_nodes", None)
-    if materialize is None:
-        return None
-    nodes = materialize(parser)
-    if nodes is None:
-        return []
-    if isinstance(nodes, list):
-        return nodes
-    try:
-        return list(nodes)
-    except TypeError:
-        return [nodes]
-
-
-def _materializeBoxListNodes(parser, nodes):
-    expanded = []
-    changed = False
-    for node in nodes:
-        materialized = _materializeBoxNodes(parser, node)
-        if materialized is None:
-            expanded.append(node)
-            continue
-        changed = True
-        for n in materialized:
-            if n is node:
-                expanded.append(n)
-                continue
-            if getattr(n, "source", None) is None:
-                n.source = node
-            expanded.append(n)
-    return expanded, changed
-
-
-def _materializeTailForLastBox(parser, top):
-    while top:
-        tail = top[-1]
-        if isinstance(tail, Box):
-            return True
-        nodes = _materializeBoxNodes(parser, tail)
-        if nodes is None:
-            return False
-        if len(nodes) == 1 and nodes[0] is tail:
-            return False
-        can_lastbox = getattr(top, "can_lastbox", None)
-        top[-1:] = nodes
-        if hasattr(top, "prevdepth"):
-            top.prevdepth = None
-        if can_lastbox is not None:
-            top.can_lastbox = can_lastbox
-    return False
 
 
 class Shift(ModeDependentCommand):
@@ -1052,7 +998,7 @@ class LastBox(Command):
             raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
         if top.type == LISTTYPE.MATH:
             raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())
-        if not _materializeTailForLastBox(parser, top):
+        if not top or not isinstance(top[-1], Box):
             return None
         return top.pop()
     

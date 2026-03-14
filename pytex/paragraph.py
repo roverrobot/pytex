@@ -128,8 +128,9 @@ class Paragraph(nd.Node, hmode.HListHolder):
                 self.line_count = len(lines)
                 # add the lines into the vlist
                 self._line_boxes = []
-                self._typeset_cache = []
-                prev_box = None
+                cache = []
+                vbuild = vmode.VList(parser, cache, inner=True)
+                vbuild.prevdepth = vmode.init_prevdepth
                 for i, line in enumerate(lines):
                     packed = []
                     indent, measure = self.lineShape(parser, i + 1)
@@ -162,13 +163,13 @@ class Paragraph(nd.Node, hmode.HListHolder):
                     hbox = hbox.typeset(parser)
                     hbox.source = self
                     self._line_boxes.append(hbox)
-                    if prev_box is not None:
-                        penalty = self._interlinePenalty(parser, line)
-                        if penalty != 0:
-                            self._typeset_cache.append(nd.Penalty(penalty))
-                        self._typeset_cache.append(self._interlineGlue(parser, prev_box, hbox))
-                    hbox.typeset(parser, self._typeset_cache)
-                    prev_box = hbox
+                    if i != 0:
+                        hbox.interline_penalty = self._interlinePenalty(parser, line)
+                    vbuild.append(hbox)
+                self._typeset_cache = list(vbuild.expanded)
+                for node in self._typeset_cache:
+                    node.source = self
+
     def _interlinePenalty(self, parser, line):
         penalty = parser.state.layout["interlinepenalty"]
         if line.line_no == 2:
@@ -178,16 +179,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
         if line.prev is not None and line.prev.hyphenated:
             penalty += parser.state.layout["brokenpenalty"]
         return penalty
-
-    def _interlineGlue(self, parser, prev_box, hbox):
-        baselineskip = parser.state.layout["baselineskip"]
-        diff = baselineskip.dimen - prev_box.depth - hbox.height
-        if diff < parser.state.layout["lineskiplimit"]:
-            return nd.Glue(parser.state.layout["lineskip"], "\\lineskip")
-        return nd.Glue(
-            Glue(diff, baselineskip.stretch, baselineskip.shrink),
-            "\\baselineskip",
-        )
 
     def updateDisplayState(self, parser):
         line_count = len(self._line_boxes or [])
@@ -211,10 +202,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
         else:
             predisplaysize = hbox.rightmost() + 2 * parser.state.parameters["currentfont"].param[5]
         parser.state.volatile["predisplaysize"] = predisplaysize
-
-    def stampFirstBoxInterline(self, parser, prevdepth):
-        if self._line_boxes:
-            vmode.stampBoxInterline(self._line_boxes[0], parser.state.layout, prevdepth)
 
     def typeset(self, parser, vlist):
         self.pretypeset(parser)

@@ -299,7 +299,9 @@ def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
     vlist.append(_test_hbox(parser))
     packed = vmode.typesetVerticalNodes(parser, vlist, [])
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
+    penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
     assert len(glues) == 0
+    assert len(penalties) == 0
 
 
 def test_rule_resets_resolved_prevdepth(parser):

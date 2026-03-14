@@ -27,8 +27,12 @@ def _append_concrete_vertical(packed, state, node):
     if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
         state["prevdepth"] = node.depth
         state["seen_box"] = True
+        state["pending_interline"] = False
     elif node.node_type == nd.NODE_TYPE.RULE:
         state["prevdepth"] = init_prevdepth
+        state["pending_interline"] = False
+    elif getattr(node, "interline_generated", False):
+        state["pending_interline"] = True
 
 
 def _append_interline_glue(packed, state, source, glue_node):
@@ -36,6 +40,7 @@ def _append_interline_glue(packed, state, source, glue_node):
         return
     node = nd.Glue(glue_node.glue, glue_node.name)
     node.source = source
+    node.interline_generated = True
     _append_concrete_vertical(packed, state, node)
 
 
@@ -53,11 +58,40 @@ def _compute_interline_material(layout, prevdepth, height):
     )
 
 
-def stampBoxInterline(box, layout, prevdepth):
-    penalty, glue_node = _compute_interline_material(layout, prevdepth, box.height)
-    box.interline_penalty = penalty
-    box.interline_glue = glue_node
-    return box
+def _append_interline_nodes(parser, packed, state, source, box):
+    prevdepth = state["prevdepth"]
+    if float(prevdepth) <= float(init_prevdepth):
+        return
+    interline_penalty = getattr(box, "interline_penalty", None)
+    interline_glue = getattr(box, "interline_glue", None)
+    default_penalty, default_glue = _compute_interline_material(
+        parser.state.layout,
+        prevdepth,
+        box.height,
+    )
+    if interline_penalty is None:
+        interline_penalty = default_penalty
+    if interline_glue is None:
+        interline_glue = default_glue
+    if interline_penalty != 0:
+        penalty = nd.Penalty(interline_penalty)
+        penalty.source = source
+        penalty.interline_generated = True
+        _append_concrete_vertical(packed, state, penalty)
+    _append_interline_glue(packed, state, source, interline_glue)
+
+
+def _should_insert_default_interline(packed, state):
+    if state["pending_interline"]:
+        return False
+    if state["builder_mode"]:
+        return True
+    prev = packed[-1] if packed else None
+    return prev is not None and prev.node_type in (
+        nd.NODE_TYPE.HLIST,
+        nd.NODE_TYPE.VLIST,
+        nd.NODE_TYPE.RULE,
+    )
 
 
 def _append_expanded_item(parser, packed, state, item, source):
@@ -65,72 +99,42 @@ def _append_expanded_item(parser, packed, state, item, source):
         subitems = []
         typesetVerticalNodes(parser, item.vlist, subitems)
         for sub in subitems:
-            sub_source = getattr(sub, "source", None)
-            if sub_source is None:
-                sub_source = item
-            _append_expanded_item(parser, packed, state, sub, sub_source)
+            sub.source = source
+            _append_concrete_vertical(packed, state, sub)
         return
     if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-        interline_penalty = getattr(item, "interline_penalty", None)
-        interline_glue = getattr(item, "interline_glue", None)
-        if interline_penalty is not None or interline_glue is not None:
-            if interline_penalty is None:
-                interline_penalty = parser.state.layout["interlinepenalty"]
-            if interline_penalty != 0 and state["seen_box"]:
-                penalty = nd.Penalty(interline_penalty)
-                penalty.source = source
-                _append_concrete_vertical(packed, state, penalty)
-            if interline_glue is None:
-                _, interline_glue = _compute_interline_material(
-                    parser.state.layout,
-                    state["prevdepth"],
-                    item.height,
-                )
-            if state["seen_box"]:
-                _append_interline_glue(packed, state, source, interline_glue)
-        elif state["seen_box"]:
-            prev = packed[-1] if packed else None
-            if prev is not None and prev.node_type in (
-                nd.NODE_TYPE.HLIST,
-                nd.NODE_TYPE.VLIST,
-                nd.NODE_TYPE.RULE,
-            ):
-                interline_penalty, interline_glue = _compute_interline_material(
-                    parser.state.layout,
-                    state["prevdepth"],
-                    item.height,
-                )
-                if interline_penalty != 0:
-                    penalty = nd.Penalty(interline_penalty)
-                    penalty.source = source
-                    _append_concrete_vertical(packed, state, penalty)
-                _append_interline_glue(packed, state, source, interline_glue)
+        if _should_insert_default_interline(packed, state):
+            _append_interline_nodes(parser, packed, state, source, item)
         _append_concrete_vertical(packed, state, _mark_source(item, source))
         return
     _append_concrete_vertical(packed, state, _mark_source(item, source))
 
 
 def _append_expanded_node(parser, packed, state, node):
-    stamp_first_box = getattr(node, "stampFirstBoxInterline", None)
-    first_box_pending = stamp_first_box is not None
     for item in expandVerticalNode(parser, node):
         source = getattr(item, "source", None)
         if source is None:
             source = node
-        if first_box_pending and item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            stamp_first_box(parser, state["prevdepth"])
-            first_box_pending = False
         _append_expanded_item(parser, packed, state, item, source)
 
 
 def _rebuild_expanded_state(nodes):
-    state = {"prevdepth": init_prevdepth, "seen_box": False}
+    state = {
+        "prevdepth": init_prevdepth,
+        "seen_box": False,
+        "pending_interline": False,
+        "builder_mode": True,
+    }
     for node in nodes:
         if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
             state["prevdepth"] = node.depth
             state["seen_box"] = True
+            state["pending_interline"] = False
         elif node.node_type == nd.NODE_TYPE.RULE:
             state["prevdepth"] = init_prevdepth
+            state["pending_interline"] = False
+        elif getattr(node, "interline_generated", False):
+            state["pending_interline"] = True
     return state
 
 
@@ -171,7 +175,12 @@ def typesetVerticalNodes(parser, nodes, packed):
         if expanded_raw_count is not None and raw_nodes is not None and expanded_raw_count == len(raw_nodes):
             packed.extend(nodes.expanded)
             return packed
-    state = {"prevdepth": init_prevdepth, "seen_box": False}
+    state = {
+        "prevdepth": init_prevdepth,
+        "seen_box": False,
+        "pending_interline": False,
+        "builder_mode": False,
+    }
     for node in nodes:
         _append_expanded_node(parser, packed, state, node)
     return packed
@@ -281,9 +290,13 @@ class VList(lists.List):
             if interline_penalty is None:
                 interline_penalty = default_penalty
         if interline_penalty != 0 and float(prior_prevdepth) > float(init_prevdepth):
-            self.list.append(nd.Penalty(interline_penalty))
+            penalty = nd.Penalty(interline_penalty)
+            penalty.interline_generated = True
+            self.list.append(penalty)
         if float(prior_prevdepth) > float(init_prevdepth) and interline_glue.glue is not None:
-            self.list.append(nd.Glue(interline_glue.glue, interline_glue.name))
+            glue_node = nd.Glue(interline_glue.glue, interline_glue.name)
+            glue_node.interline_generated = True
+            self.list.append(glue_node)
 
     def _expandedPrevDepth(self):
         for node in reversed(self.expanded):
@@ -349,9 +362,6 @@ class VList(lists.List):
         self.can_lastbox = False
         self._realizeReadyTailNodes()
         base_prevdepth = self.resolvePrevDepth()
-        stamp_first_box = getattr(node, "stampFirstBoxInterline", None)
-        if stamp_first_box is not None and getattr(node, "_typeset_cache", None) is None:
-            node.pretypeset(self.parser)
         is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
         if is_box:
             self._appendInterlineMaterial(node, base_prevdepth)
@@ -362,9 +372,6 @@ class VList(lists.List):
             self.prevdepth = getattr(node, "depth", None)
         elif node.node_type == nd.NODE_TYPE.RULE:
             self.prevdepth = init_prevdepth
-        else:
-            if stamp_first_box is not None:
-                stamp_first_box(self.parser, base_prevdepth)
         if (not is_box and node.node_type != nd.NODE_TYPE.RULE) and getattr(node, "box_materializable", False):
             self.prevdepth = None
         self.list.append(node)

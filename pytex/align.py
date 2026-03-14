@@ -165,7 +165,6 @@ class Alignment(nd.Node):
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
         self._typeset_cache = None
-        self._row_layout = None
 
     node_type = nd.NODE_TYPE.ALIGNMENT
     box_materializable = True
@@ -195,15 +194,6 @@ class Alignment(nd.Node):
 
     def pretypeset(self, parser):
         raise NotImplementedError
-
-    def captureRowLayout(self, parser):
-        layout = parser.state.layout
-        self._row_layout = {
-            "baselineskip": layout["baselineskip"].copy(),
-            "lineskip": layout["lineskip"].copy(),
-            "lineskiplimit": Dimen(layout["lineskiplimit"]),
-            "interlinepenalty": int(layout["interlinepenalty"]),
-        }
 
     def _collectEntries(self, parser):
         # TeXBook notation is 1-based; this implementation uses the same names
@@ -400,16 +390,7 @@ class HAlignment(Alignment):
         box = bx.HBox(parser, width, None)
         return box.typeset(parser)
 
-    def stampFirstBoxInterline(self, parser, prevdepth):
-        if self._typeset_cache is None:
-            return
-        for node in self._typeset_cache:
-            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                layout = self._row_layout if self._row_layout is not None else parser.state.layout
-                vmode.stampBoxInterline(node, layout, prevdepth)
-                return
-
-    def pretypeset(self, parser, first_prevdepth=None):
+    def pretypeset(self, parser):
         if self._typeset_cache is not None:
             return
         rows, w, t = self._collectEntries(parser)

@@ -239,12 +239,10 @@ def test_vbox_trailing_penalty_keeps_depth(parser):
     assert typed.depth == 3
 
 
-def test_vbox_uses_captured_boxmaxdepth(parser):
-    parser.state.layout["boxmaxdepth"] = Dimen(1)
-    vbox = bx.VBox(parser, None, 0)
-    vbox.list.append(_synthetic_hbox(parser, height=6, depth=3))
+def test_vbox_is_pretypeset_with_current_boxmaxdepth(parser):
+    parser.parse("\\boxmaxdepth=1pt\\setbox0=\\vbox{\\hbox{\\vrule height 6pt depth 3pt width 1pt}}")
     parser.state.layout["boxmaxdepth"] = Dimen()
-    typed = vbox.typeset(parser)
+    typed = parser.state.box[0].typeset(parser)
     assert typed.height == 8
     assert typed.depth == 1
 

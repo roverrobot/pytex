@@ -41,14 +41,6 @@ class GlueRatio(tuple):
         return (sign * num) / den
 
 
-class VBoxTypesetContext:
-    """
-    Snapshot of vbox-local layout parameters needed for lazy typesetting.
-    """
-    def __init__(self, layout):
-        self.boxmaxdepth = layout["boxmaxdepth"]
-
-
 class Box(nd.Box):
     """
     the base class for \\hbox, \\vbox, and \\vtop
@@ -434,7 +426,7 @@ class BoxPretypesetCallback:
         self.box = box
 
     def __call__(self):
-        if self.box.node_type == nd.NODE_TYPE.HLIST and self.box._typeset_cache is None:
+        if self.box._typeset_cache is None:
             self.box.pretypeset(self.box.parser)
 
 
@@ -459,7 +451,7 @@ class BuildBox(Command):
     def boxValue(self, parser, setbox):
         spec, d = readBoxSpec(parser)
         box = self.box(parser, d, None) if spec == "to" else self.box(parser, None, d)
-        to_end = BoxPretypesetCallback(box) if box.node_type == nd.NODE_TYPE.HLIST else None
+        to_end = BoxPretypesetCallback(box)
         parser.skipFiller()
         t = parser.token_expand()
         t = parser.token_meaning(t)
@@ -547,7 +539,7 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
         if new is not top:
             # we are reading a list, but the group has not started yet to accommodate \afterassignment
             value = self.value[0]
-            to_end = BoxPretypesetCallback(value) if value.node_type == nd.NODE_TYPE.HLIST else None
+            to_end = BoxPretypesetCallback(value)
             parser.beginGroup(
                 parser.input.position(),
                 new.group_type,
@@ -611,7 +603,7 @@ class VBox(Box, vmode.VListHolder):
         super().__init__(parser, to, spread, [])
         vmode.VListHolder.__init__(self, self.list)
         self.expanded = []
-        self.box_typeset_context = VBoxTypesetContext(parser.state.layout)
+        self.boxmaxdepth = parser.state.layout["boxmaxdepth"]
 
     @classmethod
     def new(cls, parser, **kwargs):
@@ -664,7 +656,7 @@ class VBox(Box, vmode.VListHolder):
                 continue
             self.calculate(n, natural, None)
         self.depth = last_depth
-        maxdepth = self.box_typeset_context.boxmaxdepth
+        maxdepth = self.boxmaxdepth
         if self.depth > maxdepth:
             natural.dimen += self.depth - maxdepth
             self.depth = maxdepth

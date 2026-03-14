@@ -188,7 +188,7 @@ class Alignment(nd.Node):
     def newBox(self, parser):
         raise NotImplementedError
 
-    def typeset(self, parser, packed, context=None, style=None):
+    def typeset(self, parser, packed):
         self.pretypeset(parser)
         packed.append(self._typeset_cache)
 
@@ -463,7 +463,7 @@ class HAlignment(Alignment):
                 self._appendVerticalMaterial(parser, vbuild, row.noalign)
         self._typeset_cache = list(cache)
 
-    def typeset(self, parser, packed, context=None, style=None):
+    def typeset(self, parser, packed):
         self.pretypeset(parser)
         packed.extend(self._typeset_cache)
 
@@ -524,7 +524,7 @@ class VAlignment(Alignment):
             out.list.append(colbox.typeset(parser))
         self._typeset_cache = out.typeset(parser)
 
-    def typeset(self, parser, packed, context=None, style=None):
+    def typeset(self, parser, packed):
         self.pretypeset(parser)
         packed.extend(self._typeset_cache.list)
 

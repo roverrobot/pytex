@@ -369,7 +369,7 @@ class Parser:
         """
         return hmode.IndentBox(self)
 
-    def newParagraph(self, indent: bool = True, parskip: bool = True):
+    def newParagraph(self, indent: bool = True, parskip: bool = True, reset_prevgraf: bool = True):
         """
         start a new paragraph: starting the horizontal list with an empty 
         # hbox whose width is \\parindent. The \\everypar tokens are inserted into 
@@ -387,7 +387,8 @@ class Parser:
             if self.tracingcommands > 0 and self.checkRange():
                 self.message(f"everypar: {self.toksToString(everypar)}")
         # the spacefactor is set to 1000 at the beginning of a paragraph
-        self.state.globals["prevgraf"] = 0
+        if reset_prevgraf:
+            self.state.globals["prevgraf"] = 0
         return para
 
     def endParagraph(self):
@@ -407,14 +408,14 @@ class Parser:
         top = self.lists[-1]
         # A truly empty paragraph contributes nothing (e.g., \noindent\par).
         # TeX does not emit a synthetic empty line in this case.
+        updates_display_state = True
         if len(hlist) == 0:
             if para.keep_empty:
                 if para.parskip is not None:
                     top.append(para.parskip)
                 top.append(para)
+                updates_display_state = False
             else:
-                if para.prev_paragraph:
-                    para.prev_paragraph.next_paragraph = None
                 para = None
         else:
             # \penalty10000
@@ -430,6 +431,8 @@ class Parser:
                 finalize_pending(para)
             else:
                 para.pretypeset(self)
+            if updates_display_state:
+                para.updateDisplayState(self)
         # TeX clears \\looseness etc after each paragraph.
         self.clearParagraphSettings()
         return para

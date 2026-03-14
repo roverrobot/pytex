@@ -487,109 +487,6 @@ class HAlignment(Alignment):
         packed.extend(self._typeset_cache)
 
 
-class MAlignment(HAlignment):
-    """
-    A \\halign used as a display alignment inside $$...$$.
-    """
-
-    def typeset(self, parser, packed, context=None, style=None):
-        self.pretypeset(parser)
-        packed.extend(self._typeset_cache)
-
-    def pretypeset(self, parser):
-        if self._typeset_cache is None:
-            super().pretypeset(parser, first_prevdepth=vmode.init_prevdepth)
-        self._normalizeTagPlacement(parser)
-        displayindent = parser.state.volatile["displayindent"]
-        shift = Dimen() if displayindent is None else Dimen(displayindent)
-        for row in self._typeset_cache:
-            if row.node_type == nd.NODE_TYPE.HLIST:
-                row.shifted = shift
-
-    def _normalizeTagPlacement(self, parser):
-        displaywidth = parser.state.volatile["displaywidth"]
-        if displaywidth is None:
-            return
-        rows = [row for row in self._typeset_cache if row.node_type == nd.NODE_TYPE.HLIST]
-        if not rows:
-            return
-
-        tagged = []
-        max_left = None
-        max_right = None
-        max_outer = None
-        for row in rows:
-            if len(row.list) < 5:
-                continue
-            left_glue = row.list[0]
-            left_box = row.list[1]
-            right_box = row.list[3]
-            right_glue = row.list[4]
-            if (
-                getattr(left_glue, "node_type", None) != nd.NODE_TYPE.GLUE
-                or getattr(right_glue, "node_type", None) != nd.NODE_TYPE.GLUE
-                or getattr(left_box, "node_type", None) != nd.NODE_TYPE.HLIST
-                or getattr(right_box, "node_type", None) != nd.NODE_TYPE.HLIST
-            ):
-                continue
-            if not right_box.list:
-                continue
-            outer = right_box.list[0]
-            if getattr(outer, "node_type", None) != nd.NODE_TYPE.HLIST or len(outer.list) < 2:
-                continue
-            math_box = outer.list[1]
-            if getattr(math_box, "node_type", None) != nd.NODE_TYPE.HLIST or len(math_box.list) < 3:
-                continue
-            kneg = math_box.list[-3]
-            kpos = math_box.list[-2]
-            tag_box = math_box.list[-1]
-            if (
-                getattr(kneg, "node_type", None) != nd.NODE_TYPE.KERN
-                or getattr(kpos, "node_type", None) != nd.NODE_TYPE.KERN
-                or kneg.automatic
-                or kpos.automatic
-                or getattr(tag_box, "node_type", None) != nd.NODE_TYPE.HLIST
-            ):
-                continue
-            tagged.append((row, left_glue, right_glue, right_box, outer, math_box, kneg, kpos))
-            max_left = Dimen(left_box.width) if max_left is None or left_box.width > max_left else max_left
-            max_right = Dimen(right_box.width) if max_right is None or right_box.width > max_right else max_right
-            max_outer = Dimen(outer.width) if max_outer is None or outer.width > max_outer else max_outer
-
-        if not tagged or max_left is None or max_right is None or max_outer is None:
-            return
-
-        side = (Dimen(displaywidth) - max_left - max_right) / 2
-        if side <= 0:
-            return
-
-        for row, left_glue, right_glue, right_box, outer, math_box, kneg, kpos in tagged:
-            lg = left_glue.glue.copy()
-            lg.dimen = Dimen(side)
-            left_glue.glue = lg
-            rg = right_glue.glue.copy()
-            rg.dimen = Dimen(side)
-            right_glue.glue = rg
-            extra = max_outer - outer.width
-            if extra < 0:
-                extra = Dimen()
-            kneg.kern = -Dimen(side)
-            # amsmath tags are emitted as a tail sequence that assumes an
-            # additional tabskip slot before the tag box. Our alignment packing
-            # keeps that tail in the equation cell, so add one extra side-width
-            # advance here to match TeX's final tag placement. Also normalize
-            # narrower rows so all tags share the same right margin.
-            kpos.kern = 2 * Dimen(side) + extra
-            # Repack modified nested boxes and keep the row width at \displaywidth.
-            for box in (math_box, outer, right_box):
-                box._typeset_cache = None
-                box.pretypeset(parser)
-            row.to = Dimen(displaywidth)
-            row.spread = None
-            row._typeset_cache = None
-            row.pretypeset(parser)
-
-
 class VAlignment(Alignment):
     """
     A \\valign node. It behaves like an hbox with respect to surrounding layout.
@@ -785,6 +682,9 @@ class AlignmentEndCallback:
         if self.parser.alignments.currentCell() is not None:
             raise ValueError("expecting \\cr", self.parser.input.position())
         self.target.append(self.builder.alignment)
+        top = self.parser.lists[-1]
+        if top.type == lists.LISTTYPE.MATH:
+            top.isalign = True
         if self.parser.alignments and self.parser.alignments[-1] is self.builder:
             self.parser.alignments.pop()
 
@@ -893,6 +793,27 @@ class AlignmentBuilder:
         self.readPreamble(parser)
 
 
+class MAlignment(HAlignment):
+    def pretypeset(self, parser):
+        if self._typeset_cache is not None:
+            return
+        cache = []
+        prevgraf = parser.state.globals["prevgraf"]
+        displayindent = parser.state.volatile["displayindent"]
+        cache.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
+        cache.append(nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip"))
+        super().pretypeset(parser)
+        for n in self._typeset_cache:
+            if n.node_type == nd.NODE_TYPE.HLIST:
+                n.shifted = displayindent
+            n.source = self
+        cache.extend(self._typeset_cache)
+        cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
+        cache.append(nd.Glue(parser.state.layout["belowdisplayskip"], "\\belowdisplayskip"))
+        parser.state.globals["prevgraf"] = prevgraf + 3
+        self._typeset_cache = cache
+            
+
 class Align(lists.ModeDependentCommand):
     """
     The \\halign command.
@@ -900,7 +821,6 @@ class Align(lists.ModeDependentCommand):
     def newAlignment(self, parser, list, cls):
         spec, d = parser.readBoxSpec()
         alignment = cls(d, None) if spec == "to" else cls(None, d)
-        alignment.captureRowLayout(parser)
         AlignmentBuilder(alignment).run(parser, list)
 
 
@@ -909,11 +829,8 @@ class HAlign(Align):
         self.newAlignment(parser, vlist, HAlignment)
     
     def math(self, parser, mlist):
-        from pytex import mmode
         if mlist.inner or len(mlist) > 0:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
-        mlist = HAlignMathList(mlist)
-        parser.lists[-1] = mlist
         self.newAlignment(parser, mlist, MAlignment)
 
 
@@ -924,91 +841,6 @@ class VAlign(Align):
     def horizontal(self, parser, hlist):
         self.newAlignment(parser, hlist, VAlignment)
 
-
-class HAlignMathList(nd.Node):
-    """
-    Wrapper around a DisplayMathList whose sole node is a display \\halign.
-    """
-    node_type = nd.NODE_TYPE.MATH
-    type = lists.LISTTYPE.MATH
-    list_type_name = "MLIST"
-
-    def __init__(self, display):
-        object.__setattr__(self, "display", display)
-
-    def saveInfo(self):
-        return {"init": {"display": self.display}}
-
-    @classmethod
-    def new(cls, parser, display):
-        return cls(display)
-
-    def __getattr__(self, name):
-        return getattr(self.display, name)
-
-    def __setattr__(self, name, value):
-        if name == "display":
-            object.__setattr__(self, name, value)
-            return
-        if name == "eqno" and value is not None:
-            raise ValueError("misplaced equation number", self.display.parser.input.position())
-        setattr(self.display, name, value)
-
-    def __len__(self):
-        return len(self.display.list)
-
-    def __iter__(self):
-        return iter(self.display.list)
-
-    def __getitem__(self, index):
-        return self.display.list[index]
-
-    def append(self, node):
-        if len(self.display.list) > 0 or not isinstance(node, MAlignment):
-            raise ValueError("only assignments can follow \\halign in display math", self.display.parser.input.position())
-        self.display.list.append(node)
-
-    def typeset(self, parser, packed, context=None, style=None):
-        volatile = parser.state.volatile
-        globals = parser.state.globals
-        if (
-            globals["prevgraf"] is None
-            or volatile["displaywidth"] is None
-            or volatile["displayindent"] is None
-            or volatile["predisplaysize"] is None
-        ):
-            if self.prev_paragraph is not None:
-                self.prev_paragraph.pretypeset(parser)
-        prevgraf = globals["prevgraf"]
-        if prevgraf is None:
-            prevgraf = 0
-            globals["prevgraf"] = prevgraf
-        displaywidth = volatile["displaywidth"]
-        if displaywidth is None:
-            displaywidth = parser.state.layout["hsize"]
-            volatile["displaywidth"] = displaywidth
-        displayindent = volatile["displayindent"]
-        if displayindent is None:
-            displayindent = Dimen()
-            volatile["displayindent"] = displayindent
-        predisplaysize = volatile["predisplaysize"]
-        if predisplaysize is None:
-            predisplaysize = NEG_MAX_DIMEN
-            volatile["predisplaysize"] = predisplaysize
-        self.prevgraf = prevgraf
-        self.displaywidth = displaywidth
-        self.displayindent = displayindent
-        self.predisplaysize = predisplaysize
-        alignment = self.display[0]
-        packed.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
-        packed.append(nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip"))
-        alignment.typeset(parser, packed, self)
-        packed.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
-        packed.append(nd.Glue(parser.state.layout["belowdisplayskip"], "\\belowdisplayskip"))
-        next_prevgraf = prevgraf + 3
-        parser.state.globals["prevgraf"] = next_prevgraf
-        if self.next_paragraph is not None:
-            self.next_paragraph.prevgraf = next_prevgraf
 
 def init(parser):
     parser.alignments = AlignmentBuildStack()

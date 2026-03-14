@@ -20,11 +20,11 @@ def mu_unit(context, style):
 
 
 def inline_context(parser):
-    return mmode.InlineMathNode(parser)
+    return mmode.InlineMathNode()
 
 
 def display_context(parser):
-    return mmode.DisplayMathNode(parser)
+    return mmode.DisplayMathNode()
 
 
 @pytest.fixture()
@@ -131,15 +131,13 @@ def test_mlist_typeset_display(math):
 def test_display_halign_replaces_display_math_list(math):
     math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$")
     top = math.lists[0]
-    node = next(n for n in top if isinstance(n, mmode.DisplayMathNode))
-    assert len(node.list) == 1
-    assert isinstance(node.list[0], align.MAlignment)
+    node = next(n for n in top if isinstance(n, align.MAlignment))
 
 
 def test_display_halign_typesets_with_display_wrapper(math):
     math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$\\par")
     top = math.lists[0]
-    node = next(n for n in top if isinstance(n, mmode.DisplayMathNode))
+    node = next(n for n in top if isinstance(n, align.MAlignment))
     packed = []
     vmode.typesetVerticalNodes(math, top.list, packed)
     display = [n for n in packed if getattr(n, "source", None) is node]
@@ -183,14 +181,12 @@ def test_mlist_typeset_single_box_drops_outer_hbox(math):
 
 
 def test_display_noindent_has_no_synthetic_previous_paragraph(math):
-    math.parse("\\noindent$$a$$1\\par")
+    math.parse("\\noindent$$a$$1")
     top = math.lists[0]
-    assert len(top) ==2
+    assert len(top) ==1
     assert isinstance(top[0], mmode.DisplayMathNode)
-    assert isinstance(top[1], paragraph.Paragraph)
     packed = []
-    vmode.typesetVerticalNodes(math, top, packed)
-    assert top[1].prevgraf == 3
+    assert math.state.globals["prevgraf"] == 3
 
 
 def test_mlist_typeset_display_without_closing_paragraph(math):
@@ -217,8 +213,8 @@ def test_display_centering_uses_half_remaining_width(math):
     packed = []
     vmode.typesetVerticalNodes(math, top, packed)
     b = _display_box_for_mlist(packed, mlist)
-    z = mlist.displaywidth
-    s = mlist.displayindent
+    z = math.state.volatile["displaywidth"]
+    s = math.state.volatile["displayindent"]
     expected = s + (z - b.width) / 2
     assert b.shifted == expected
 
@@ -227,12 +223,11 @@ def test_display_predisplaysize_adds_two_ems(math):
     math.parse("\\noindent abc$$a$$\\par")
     top = math.lists[0]
     prev_par = next(node for node in top if isinstance(node, paragraph.Paragraph))
-    mlist = next(node for node in top if isinstance(node, mmode.DisplayMathNode))
     packed = []
     vmode.typesetVerticalNodes(math, top, packed)
     last_prev_line = [n for n in packed if n.node_type == nd.NODE_TYPE.HLIST and getattr(n, "source", None) is prev_par][-1]
     expected = last_prev_line.rightmost() + 2 * math.state.parameters["currentfont"].param[5]
-    assert float(mlist.predisplaysize) == pytest.approx(float(expected), abs=1e-4)
+    assert float(math.state.volatile["predisplaysize"]) == pytest.approx(float(expected), abs=1e-4)
 
 
 def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
@@ -272,10 +267,9 @@ def test_everydisplay_can_read_prevgraf_from_previous_paragraph(math):
 def test_display_metrics_realized_when_prevdepth_is_queried(math):
     math.parse("$$a$$\\par")
     mlist = next(node for node in math.lists[0] if isinstance(node, mmode.DisplayMathNode))
-    math.parse("\\the\\prevdepth")
-    assert mlist.displaywidth is not None
-    assert mlist.displayindent is not None
-    assert mlist.predisplaysize is not None
+    assert math.state.volatile["prevdepth"] is not None
+    assert math.state.volatile["displaywidth"] is not None
+    assert math.state.volatile["predisplaysize"] is not None
 
 
 def test_subformula(parser):

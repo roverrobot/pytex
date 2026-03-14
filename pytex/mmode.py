@@ -180,6 +180,7 @@ class MList(lists.List):
         super().__init__(parser, [] if list is None else list, inner=inner)
         self.building_atom = None
         self.type = lists.LISTTYPE.MATH
+        self.isalign = False
     
     node_type = nd.NODE_TYPE.MATH
 
@@ -207,6 +208,8 @@ class MList(lists.List):
         self.building_atom = (atom, field)
 
     def append(self, node):
+        if self.isalign:
+            raise ValueError("improper \\halign inside math mode", self.parser.input.position())
         if self.building_atom is not None:
             atom, field = self.building_atom
             setattr(atom, field, node)
@@ -578,22 +581,14 @@ class DisplayMathNode(MathListHolder):
     
     node_type = nd.NODE_TYPE.MATH
 
-    def __init__(self, parser=None):
+    def __init__(self):
         super().__init__(list=[], paragraph_math=True)
-        self.parser = parser
         self.inner = False
         # the equation number. If there is one, this holds a tuple (MList, bool)
         # where the MList points to the equation number material, and the bool indicates
         # whether the equation number is on the left
         self.eqno = None
         self.page_builder_ready = False
-        self.prevgraf = None
-        self.predisplaysize = None
-        self.displaywidth = None
-        self.displayindent = None
-        # these point to the unrestricted hlists before and after the display math
-        self.prev_paragraph = None
-        self.next_paragraph = None
         self._typeset_cache = None
 
     def saveInfo(self):
@@ -611,43 +606,16 @@ class DisplayMathNode(MathListHolder):
             packed.append(n)
     
     def pretypeset(self, parser):
-        self.parser = parser
         if self._typeset_cache is not None:
             return
         cache = []
         self._typeset_cache = cache
         volatile = parser.state.volatile
         globals = parser.state.globals
-        if (
-            globals["prevgraf"] is None
-            or volatile["displaywidth"] is None
-            or volatile["displayindent"] is None
-            or volatile["predisplaysize"] is None
-        ):
-            # Ensure display-related paragraph metrics are materialized before
-            # laying out the display.
-            if self.prev_paragraph is not None:
-                self.prev_paragraph.pretypeset(parser)
         prevgraf = globals["prevgraf"]
-        if prevgraf is None:
-            prevgraf = 0
-            globals["prevgraf"] = prevgraf
         displaywidth = volatile["displaywidth"]
-        if displaywidth is None:
-            displaywidth = parser.state.layout["hsize"]
-            volatile["displaywidth"] = displaywidth
         displayindent = volatile["displayindent"]
-        if displayindent is None:
-            displayindent = Dimen()
-            volatile["displayindent"] = displayindent
         predisplaysize = volatile["predisplaysize"]
-        if predisplaysize is None:
-            predisplaysize = NEG_MAX_DIMEN
-            volatile["predisplaysize"] = predisplaysize
-        self.prevgraf = prevgraf
-        self.displaywidth = displaywidth
-        self.displayindent = displayindent
-        self.predisplaysize = predisplaysize
         # After a display has been read, TEX converts it from a math list to a horizontal
         # list h in display style, as explained in Appendix G. An equation number, if
         # present, is processed in text style and put into an hbox a with its natural width. Now
@@ -790,10 +758,7 @@ class DisplayMathNode(MathListHolder):
             cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
             cache.append(nd.Glue(gb, "\\belowdisplayskip" if d + s <= p or left is True else "\\belowdisplayshortskip"))
         # TEX now adds 3 to \prevgraf and returns to horizontal mode.
-        next_prevgraf = prevgraf + 3
-        parser.state.globals["prevgraf"] = next_prevgraf
-        if self.next_paragraph is not None:
-            self.next_paragraph.prevgraf = next_prevgraf
+        parser.state.globals["prevgraf"] = prevgraf + 3
 
 
 class StyleNode(nd.Node):
@@ -1433,18 +1398,20 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if mlist.inner:
             top.append(self.node)
             return
+        if mlist.isalign:
+            self.node = mlist[0]
         top.append(self.node)
-        # top is the enclosing vlist
-        new_par = parser.newParagraph(indent=False, parskip=False) # the new paragraph after the display math
-        new_par.keep_empty = True
-        self.node.next_paragraph = new_par
-        new_par.prev_paragraph = self.node
-        self.node.page_builder_ready = True
+        if hasattr(self.node, "page_builder_ready"):
+            self.node.page_builder_ready = True
         finalize_pending = getattr(top, "finalizePendingNode", None)
         if finalize_pending is None:
             finalize_pending = getattr(top, "finalizeExpandedNode", None)
         if finalize_pending is not None:
             finalize_pending(self.node)
+        # TeX is back in horizontal mode after a display, but the follow-on
+        # paragraph is only materialized if it later receives content.
+        new_par = parser.newParagraph(indent=False, parskip=False, reset_prevgraf=False)
+        new_par.keep_empty = True
 
 
 def mathShift(parser):
@@ -1502,15 +1469,12 @@ def mathShift(parser):
         else:
             inner = True
             parser.input.unread(t)
-    node = InlineMathNode(parser) if inner else DisplayMathNode(parser)
+    node = InlineMathNode() if inner else DisplayMathNode()
     if not inner:
         volatile = parser.state.volatile
         if not started_in_vmode:
             prev_par = parser.endParagraph()
-            if prev_par is not None:
-                prev_par.next_paragraph = node
-                prev_par.pretypeset(parser)
-            else:
+            if prev_par is None:
                 volatile["displaywidth"] = parser.state.layout["hsize"]
                 volatile["displayindent"] = Dimen()
                 volatile["predisplaysize"] = NEG_MAX_DIMEN
@@ -1520,7 +1484,6 @@ def mathShift(parser):
             volatile["displayindent"] = Dimen()
             volatile["predisplaysize"] = NEG_MAX_DIMEN
             parser.state.globals["prevgraf"] = 0
-        node.prev_paragraph = prev_par
         parser.paragraph_before_last_display_math = prev_par
     parser.lists.append(MList(parser, node.list, inner=inner))
     # \fam=-1 when entering math mode
@@ -2493,6 +2456,9 @@ class Eqno(lists.ModeDependentCommand):
             raise ValueError("misplaced equation number", parser.input.position())
         if mlist.inner:
             raise ValueError("only display math can have an equation number", parser.input.position())
+        # equation numbers are invalid in $$\halign$$
+        if mlist.isalign:
+            raise ValueError("equation numbers cannot be used with \\halign in math mode", parser.input.position())
         # We start a new group, parsing the equation number, then we pop it off during the 
         # mathShift function before ending the math mode.
         eqno = Subformula()

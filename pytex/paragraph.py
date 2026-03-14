@@ -51,10 +51,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
         if indent:
             self.list.append(bx.IndentBox(parser))
         self.parskip
-        # these two fields are used to link paragraphs together for display math integration,
-        self.next_paragraph = None
-        self.prev_paragraph = None
-        self._linked_next_paragraph = None
         # if this paragraph has been typeset, then the line boxes are stored in this cache
         self._line_boxes = None
         self._typeset_cache = None
@@ -173,25 +169,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
                         self._typeset_cache.append(self._interlineGlue(parser, prev_box, hbox))
                     hbox.typeset(parser, self._typeset_cache)
                     prev_box = hbox
-        if self.next_paragraph is None:
-            self._linked_next_paragraph = None
-        else:
-            metrics_missing = (
-                parser.state.globals["prevgraf"] is None
-                or parser.state.volatile["displaywidth"] is None
-                or parser.state.volatile["displayindent"] is None
-                or parser.state.volatile["predisplaysize"] is None
-                or
-                getattr(self.next_paragraph, "prevgraf", None) is None
-                or getattr(self.next_paragraph, "displaywidth", None) is None
-                or getattr(self.next_paragraph, "displayindent", None) is None
-                or getattr(self.next_paragraph, "predisplaysize", None) is None
-            )
-            if self._linked_next_paragraph is self.next_paragraph and not metrics_missing:
-                return
-            self._refreshLinkedParagraphContext(parser)
-            self._linked_next_paragraph = self.next_paragraph
-
     def _interlinePenalty(self, parser, line):
         penalty = parser.state.layout["interlinepenalty"]
         if line.line_no == 2:
@@ -212,19 +189,13 @@ class Paragraph(nd.Node, hmode.HListHolder):
             "\\baselineskip",
         )
 
-    def _refreshLinkedParagraphContext(self, parser):
-        if self.next_paragraph is None:
-            return
+    def updateDisplayState(self, parser):
         line_count = len(self._line_boxes or [])
         parser.state.globals["prevgraf"] = line_count
-        self.next_paragraph.prevgraf = line_count
         # For an immediately following display, TeX uses the next line-shape
         # slot to determine \displayindent and \displaywidth.
         displayindent, displaywidth = self.lineShape(parser, line_count + 1)
         self.line_count = line_count
-        self.next_paragraph.prevgraf = line_count
-        self.next_paragraph.displayindent = displayindent
-        self.next_paragraph.displaywidth = displaywidth
         parser.state.volatile["displayindent"] = displayindent
         parser.state.volatile["displaywidth"] = displaywidth
         # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
@@ -237,12 +208,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
         hbox = self._line_boxes[-1] if self._line_boxes else None
         if hbox is None:
             predisplaysize = Dimen(-16383.99999)
-            self.next_paragraph.predisplaysize = predisplaysize
-            self.next_paragraph.prevdepth = Dimen()
         else:
             predisplaysize = hbox.rightmost() + 2 * parser.state.parameters["currentfont"].param[5]
-            self.next_paragraph.predisplaysize = predisplaysize
-            self.next_paragraph.prevdepth = hbox.depth
         parser.state.volatile["predisplaysize"] = predisplaysize
 
     def stampFirstBoxInterline(self, parser, prevdepth):

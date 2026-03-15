@@ -70,6 +70,8 @@ def test_ifcase(collector):
     assert collector.getString() == ""
     collector.parse("\\ifcase4 a\\or b\\else c\\fi")
     assert collector.getString() == "c"
+    collector.parse("\\ifcase-1 a\\or b\\else c\\fi")
+    assert collector.getString() == "c"
 
 
 def test_ifnum(collector):

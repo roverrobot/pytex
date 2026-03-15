@@ -105,7 +105,8 @@ class Conditional(Command):
         return 0
 
     def skipTo(self, parser, condition, level):
-        for i in range(condition):
+        i = 0
+        while i != condition:
             c = skipBranch(parser, level)
             if c == _or and not isinstance(self, IfCase):
                 raise ValueError("unexpected \\or")
@@ -114,6 +115,7 @@ class Conditional(Command):
             elif c == fi:
                 parser.ifstack.pop()
                 return
+            i += 1
 
     def expand(self, parser):
         # We push the ifstack before checking the condition, because there could be other 

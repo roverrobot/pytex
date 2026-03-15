@@ -270,12 +270,6 @@ class VList(lists.List):
             self.parser.state.volatile["prevdepth"] = self._local_prevdepth
             self._parser_prevdepth_active = True
 
-    @staticmethod
-    def _entryReadyForExpansion(node):
-        if getattr(node, "page_builder_ready", True) is False:
-            return False
-        return True
-
     def _appendInterlineMaterial(self, node, prior_prevdepth):
         interline_penalty = getattr(node, "interline_penalty", None)
         interline_glue = getattr(node, "interline_glue", None)
@@ -323,8 +317,6 @@ class VList(lists.List):
     def _realizeReadyTailNodes(self):
         while self._expanded_raw_count < len(self.list):
             node = self.list[self._expanded_raw_count]
-            if not self._entryReadyForExpansion(node):
-                break
             self._expandReadyNode(node)
             self._expanded_raw_count += 1
 
@@ -346,13 +338,6 @@ class VList(lists.List):
         for node in nodes:
             self._appendBuiltNode(node)
 
-    def finalizeExpandedNode(self, node):
-        self._realizeReadyTailNodes()
-        if node in self.list[:self._expanded_raw_count]:
-            self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
-            return
-        raise ValueError("cannot finalize missing vlist node")
-    
     def append(self, node):
         self.can_lastbox = False
         self._realizeReadyTailNodes()

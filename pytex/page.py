@@ -792,14 +792,6 @@ class MainVList(vmode.VList):
         self.page_context = self.page_initial_context
         self._processing_pages = False
 
-    @staticmethod
-    def _entryReadyForPageBuilder(node):
-        if isinstance(node, PageStateNode):
-            return True
-        if getattr(node, "page_builder_ready", True) is False:
-            return False
-        return True
-
     @classmethod
     def _triggersPageBuilder(cls, node):
         if isinstance(node, PageStateNode):
@@ -807,18 +799,13 @@ class MainVList(vmode.VList):
         if node.node_type == nd.NODE_TYPE.PENALTY:
             return True
         if getattr(node, "box_materializable", False):
-            return cls._entryReadyForPageBuilder(node)
+            return True
         return node.node_type in (
             nd.NODE_TYPE.HLIST,
             nd.NODE_TYPE.VLIST,
             nd.NODE_TYPE.RULE,
             nd.NODE_TYPE.INS,
         )
-
-    def finalizePendingNode(self, node):
-        self.finalizeExpandedNode(node)
-        if self._triggersPageBuilder(node):
-            self._processPendingPages()
 
     def _appendBuiltNode(self, node):
         super()._appendBuiltNode(node)

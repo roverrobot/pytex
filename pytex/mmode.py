@@ -588,7 +588,6 @@ class DisplayMathNode(MathListHolder):
         # where the MList points to the equation number material, and the bool indicates
         # whether the equation number is on the left
         self.eqno = None
-        self.page_builder_ready = False
 
     def saveInfo(self):
         return {
@@ -1390,13 +1389,6 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if mlist.isalign:
             self.node = mlist[0]
         top.append(self.node)
-        if hasattr(self.node, "page_builder_ready"):
-            self.node.page_builder_ready = True
-        finalize_pending = getattr(top, "finalizePendingNode", None)
-        if finalize_pending is None:
-            finalize_pending = getattr(top, "finalizeExpandedNode", None)
-        if finalize_pending is not None:
-            finalize_pending(self.node)
         parser.state.globals["prevgraf"] += 3
         # TeX is back in horizontal mode after a display, but the follow-on
         # paragraph is only added if it later receives content.

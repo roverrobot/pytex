@@ -689,12 +689,12 @@ class AlignmentBuilder:
             # TeX expands tokens while scanning alignment templates; this is
             # required for LaTeX-style preambles where the placeholder comes
             # from a macro (for example \@sharp).
-            t = parser.skipSpaces(True)
+            t = parser.skipSpaces(False)
             t = parser.token_meaning(t)
             # now T is the first meaningful token in a column.
             # in the following loop, we collect the tokens in a column
             while True:
-                if getattr(t, "definition", None) is span or t.name == "\\span":
+                if getattr(t, "definition", None) is span:
                     t = parser.token_expand()
                     t = parser.token_meaning(t)
                 if t is None:
@@ -711,7 +711,7 @@ class AlignmentBuilder:
                     break
                 else:
                     template.append(t)
-                t = parser.token_expand()
+                t = parser.token()
                 t = parser.token_meaning(t)
             # now a column is read in template. We look for the # token
             if not template and not self.preamble and t is None:

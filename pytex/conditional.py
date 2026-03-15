@@ -66,7 +66,7 @@ class Or(Branch):
     """ the \\or command """
     def _expand(self, parser):
         if not isinstance(parser.ifstack[-1][0], IfCase):
-            raise ValueError("unexpected \\or")
+            raise ValueError("unexpected \\or", parser.input.position())
         skipAll(parser)
 
 

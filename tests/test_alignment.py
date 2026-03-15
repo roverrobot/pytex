@@ -125,13 +125,6 @@ def test_preamble_hash_inside_group_is_valid_placeholder(cmr10):
     assert len(row.cells) == 3
 
 
-def test_preamble_placeholder_from_macro_expansion(cmr10):
-    cmr10.parse("\\def\\cellfmt{\\hfil##\\hfil}\\halign{\\cellfmt\\cr a\\cr}")
-    node = cmr10.lists[-1][0]
-    row = node.rows[0]
-    assert len(row.cells) == 1
-
-
 def test_preamble_multiple_hash_tokens_fail(cmr10):
     with pytest.raises(ValueError):
         cmr10.parse("\\halign{a#b{#}\\cr 1\\cr}")

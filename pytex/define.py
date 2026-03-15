@@ -127,6 +127,9 @@ class CharDefValue(Command):
         """
         name = parser.formatName('\\char')
         return f"{name}\"{self.value:X}"
+    
+    def __eq__(self, other):
+        return isinstance(other, CharDefValue) and self.value == other.value
 
 
 class CharDefAccessor(accessor.ParameterAccessor):

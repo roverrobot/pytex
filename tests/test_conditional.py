@@ -190,3 +190,13 @@ def test_ifvmode(collector):
     assert collector.getString() == "a"
     collector.parse("\\ifvmode a\\fi")
     assert collector.getString() == "a"
+
+
+def test_ifx_chardef(collector):
+    collector.parse("\\chardef\\a=0 \\chardef\\b=0 \\ifx\\a\\b yes\\else no\\fi")
+    assert collector.getString() == "yes"
+
+
+def test_ifx_mathchardef(collector):
+    collector.parse("\\mathchardef\\a=0 \\mathchardef\\b=0 \\ifx\\a\\b yes\\else no\\fi")
+    assert collector.getString() == "yes"

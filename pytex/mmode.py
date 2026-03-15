@@ -589,7 +589,6 @@ class DisplayMathNode(MathListHolder):
         # whether the equation number is on the left
         self.eqno = None
         self.page_builder_ready = False
-        self._typeset_cache = None
 
     def saveInfo(self):
         return {
@@ -601,18 +600,8 @@ class DisplayMathNode(MathListHolder):
         }
 
     def typeset(self, parser, packed):
-        self.pretypeset(parser)
-        for n in self._typeset_cache:
-            packed.append(n)
-    
-    def pretypeset(self, parser):
-        if self._typeset_cache is not None:
-            return
         cache = []
-        self._typeset_cache = cache
         volatile = parser.state.volatile
-        globals = parser.state.globals
-        prevgraf = globals["prevgraf"]
         displaywidth = volatile["displaywidth"]
         displayindent = volatile["displayindent"]
         predisplaysize = volatile["predisplaysize"]
@@ -758,7 +747,7 @@ class DisplayMathNode(MathListHolder):
             cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
             cache.append(nd.Glue(gb, "\\belowdisplayskip" if d + s <= p or left is True else "\\belowdisplayshortskip"))
         # TEX now adds 3 to \prevgraf and returns to horizontal mode.
-        parser.state.globals["prevgraf"] = prevgraf + 3
+        packed.extend(cache)
 
 
 class StyleNode(nd.Node):
@@ -1408,6 +1397,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
             finalize_pending = getattr(top, "finalizeExpandedNode", None)
         if finalize_pending is not None:
             finalize_pending(self.node)
+        parser.state.globals["prevgraf"] += 3
         # TeX is back in horizontal mode after a display, but the follow-on
         # paragraph is only added if it later receives content.
         new_par = parser.newParagraph(indent=False, parskip=False, reset_prevgraf=False)
@@ -2602,7 +2592,7 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
         # if this paragraph does not exist, then the value has not been changed. we should have returned early
         para = parser.paragraph_before_last_display_math
         assert para is not None
-        para.pretypeset(parser)
+        para.typeset(parser, [])
         return parser.state.volatile[self.index]
 
     

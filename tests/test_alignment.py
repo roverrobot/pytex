@@ -15,7 +15,6 @@ def test_halign(cmr10):
     node = top[0]
     assert isinstance(node, align.HAlignment)
     assert node.noalign is None
-    assert node._typeset_cache is not None
     assert len(node.rows) == 1
     row = node.rows[0]
     assert len(row.cells) == 2

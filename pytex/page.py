@@ -388,7 +388,7 @@ def shipout(parser, box):
     backend = getattr(parser, "shipout", None)
     if backend is None:
         raise ValueError("no active shipout backend")
-    if getattr(box, "_typeset_cache", None) is box:
+    if getattr(box, "_packed", None) is box:
         shipped_box = box
     else:
         shipped_box = box.typeset(parser)
@@ -798,8 +798,6 @@ class MainVList(vmode.VList):
             return True
         if getattr(node, "page_builder_ready", True) is False:
             return False
-        if getattr(node, "box_materializable", False) and node.node_type is None:
-            return getattr(node, "_typeset_cache", None) is not None
         return True
 
     @classmethod

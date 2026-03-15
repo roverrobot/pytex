@@ -164,7 +164,6 @@ class Alignment(nd.Node):
         self.tabskips = []
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
-        self._typeset_cache = None
 
     node_type = nd.NODE_TYPE.ALIGNMENT
     box_materializable = True
@@ -189,10 +188,6 @@ class Alignment(nd.Node):
         raise NotImplementedError
 
     def typeset(self, parser, packed):
-        self.pretypeset(parser)
-        packed.append(self._typeset_cache)
-
-    def pretypeset(self, parser):
         raise NotImplementedError
 
     def _collectEntries(self, parser):
@@ -390,9 +385,7 @@ class HAlignment(Alignment):
         box = bx.HBox(parser, width, None)
         return box.typeset(parser)
 
-    def pretypeset(self, parser):
-        if self._typeset_cache is not None:
-            return
+    def typeset(self, parser, packed):
         rows, w, t = self._collectEntries(parser)
         prepared = []
         W = Dimen()
@@ -461,11 +454,7 @@ class HAlignment(Alignment):
             vbuild.append(rowbox)
             if row.noalign is not None:
                 self._appendVerticalMaterial(parser, vbuild, row.noalign)
-        self._typeset_cache = list(cache)
-
-    def typeset(self, parser, packed):
-        self.pretypeset(parser)
-        packed.extend(self._typeset_cache)
+        packed.extend(list(cache))
 
 
 class VAlignment(Alignment):
@@ -495,9 +484,7 @@ class VAlignment(Alignment):
         out.list.append(nd.Glue(vss, None))
         return out.typeset(parser)
 
-    def pretypeset(self, parser):
-        if self._typeset_cache is not None:
-            return
+    def typeset(self, parser, packed):
         rows, w, t = self._collectEntries(parser)
         out = bx.HBox(parser, self.to, self.spread)
         for row, entries in rows:
@@ -520,13 +507,8 @@ class VAlignment(Alignment):
                     colbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
             for box in entry_boxes:
                 box.width = col_width
-                box._typeset_cache = box
             out.list.append(colbox.typeset(parser))
-        self._typeset_cache = out.typeset(parser)
-
-    def typeset(self, parser, packed):
-        self.pretypeset(parser)
-        packed.extend(self._typeset_cache.list)
+        packed.extend(out.typeset(parser).list)
 
 
 class EndCellToken(Token):
@@ -775,24 +757,21 @@ class AlignmentBuilder:
 
 
 class MAlignment(HAlignment):
-    def pretypeset(self, parser):
-        if self._typeset_cache is not None:
-            return
+    def typeset(self, parser, packed):
         cache = []
-        prevgraf = parser.state.globals["prevgraf"]
         displayindent = parser.state.volatile["displayindent"]
         cache.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
         cache.append(nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip"))
-        super().pretypeset(parser)
-        for n in self._typeset_cache:
+        inner = []
+        super().typeset(parser, inner)
+        for n in inner:
             if n.node_type == nd.NODE_TYPE.HLIST:
                 n.shifted = displayindent
             n.source = self
-        cache.extend(self._typeset_cache)
+        cache.extend(inner)
         cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
         cache.append(nd.Glue(parser.state.layout["belowdisplayskip"], "\\belowdisplayskip"))
-        parser.state.globals["prevgraf"] = prevgraf + 3
-        self._typeset_cache = cache
+        packed.extend(cache)
             
 
 class Align(lists.ModeDependentCommand):

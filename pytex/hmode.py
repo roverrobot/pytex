@@ -406,25 +406,20 @@ class Disc(nd.Node):
         self.pre = pre
         self.post = post
         self.replace = replace
-        self._typeset_cache = None
-
-    def pretypeset(self, parser):
-        
-        if self._typeset_cache is not None:
-            return
-        pre = []
-        HListHolder(self.pre).typesetNodes(parser, pre)
-        post = []
-        HListHolder(self.post).typesetNodes(parser, post)
-        replace = []
-        HListHolder(self.replace).typesetNodes(parser, replace)
-        self._typeset_cache = TypesetDisc(pre, post, replace)
+        self.rendered = None
     
     def typeset(self, parser, packed=None):
-        self.pretypeset(parser)
+        if self.rendered is None:
+            pre = []
+            HListHolder(self.pre).typesetNodes(parser, pre)
+            post = []
+            HListHolder(self.post).typesetNodes(parser, post)
+            replace = []
+            HListHolder(self.replace).typesetNodes(parser, replace)
+            self.rendered = TypesetDisc(pre, post, replace)
         if packed is None:
-            return self._typeset_cache
-        packed.append(self._typeset_cache)
+            return self.rendered
+        packed.append(self.rendered)
         
     def saveInfo(self):
         return {"init": {"pre": self.pre, "post": self.post, "replace": self.replace}}

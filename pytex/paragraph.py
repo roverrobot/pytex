@@ -51,9 +51,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
         if indent:
             self.list.append(bx.IndentBox(parser))
         self.parskip
-        # if this paragraph has been typeset, then the line boxes are stored in this cache
         self._line_boxes = None
-        self._typeset_cache = None
 
     # not a proper node
     node_type = None
@@ -111,64 +109,50 @@ class Paragraph(nd.Node, hmode.HListHolder):
             line_no,
         )
     
-    def pretypeset(self, parser): 
-        """
-        pretypeset the paragraph, i.e., break into lines, and set the , using the current typeset context.
-        """
-        if self._typeset_cache is None:
-            if len(self.list) == 0:
-                self.line_count = 0
-                self._line_boxes = []
-                self._typeset_cache = []
-            else:
-                scan = self._typesetNodesWithBreaks(parser, self.list)
-                hlist = scan
-                # line break the hlist into lines and pack them into the vlist
-                hlist, lines = self.lineBreak(parser, hlist, scan.candidates)
-                self.line_count = len(lines)
-                # add the lines into the vlist
-                self._line_boxes = []
-                cache = []
-                vbuild = vmode.VList(parser, cache, inner=True)
-                vbuild.prevdepth = vmode.init_prevdepth
-                for i, line in enumerate(lines):
-                    packed = []
-                    indent, measure = self.lineShape(parser, i + 1)
-                    if indent != 0:
-                        packed.append(nd.Glue(Glue(indent), "\\parindent"))
-                    leftskip = parser.state.layout["leftskip"]
-                    if leftskip != Glue():
-                        packed.append(nd.Glue(leftskip, "\\leftskip"))
-                    # if the line starts with a ligature then add in the post nodes
-                    if line.begin.disc is not None:
-                        packed.extend(line.begin.disc.post)
-                    # for any disc node in between, replace it with the replace list
-                    for node in hlist[line.begin.line_start_index:line.end.break_index]:
-                        if node.node_type == nd.NODE_TYPE.DISC:
-                            packed.append(self._lineDisc(parser, node, broken=False))
-                        else:
-                            packed.append(node)
-                    # TeX keeps an explicit breakpoint penalty in the ending line box
-                    # when the break is chosen at that penalty node.
-                    if line.end.break_index < len(hlist):
-                        end_node = hlist[line.end.break_index]
-                        if line.end.at_penalty:
-                            packed.append(end_node)
-                    # if the line ends at a ligature, append the pre nodes
-                    if line.end.disc is not None:
-                        packed.append(self._lineDisc(parser, line.end.disc, broken=True))
-                    packed.append(nd.Glue(parser.state.layout["rightskip"], "\\rightskip"))
-                    hbox = bx.HBox(parser, measure, None)
-                    hbox.list[:] = packed
-                    hbox = hbox.typeset(parser)
-                    hbox.source = self
-                    self._line_boxes.append(hbox)
-                    if i != 0:
-                        hbox.interline_penalty = self._interlinePenalty(parser, line)
-                    vbuild.append(hbox)
-                self._typeset_cache = list(vbuild.expanded)
-                for node in self._typeset_cache:
-                    node.source = self
+    def _buildExpanded(self, parser):
+        if len(self.list) == 0:
+            self.line_count = 0
+            self._line_boxes = []
+            return []
+        scan = self._typesetNodesWithBreaks(parser, self.list)
+        hlist = scan
+        hlist, lines = self.lineBreak(parser, hlist, scan.candidates)
+        self.line_count = len(lines)
+        self._line_boxes = []
+        cache = []
+        vbuild = vmode.VList(parser, cache, inner=True)
+        vbuild.prevdepth = vmode.init_prevdepth
+        for i, line in enumerate(lines):
+            packed = []
+            indent, measure = self.lineShape(parser, i + 1)
+            if indent != 0:
+                packed.append(nd.Glue(Glue(indent), "\\parindent"))
+            leftskip = parser.state.layout["leftskip"]
+            if leftskip != Glue():
+                packed.append(nd.Glue(leftskip, "\\leftskip"))
+            if line.begin.disc is not None:
+                packed.extend(line.begin.disc.post)
+            for node in hlist[line.begin.line_start_index:line.end.break_index]:
+                if node.node_type == nd.NODE_TYPE.DISC:
+                    packed.append(self._lineDisc(parser, node, broken=False))
+                else:
+                    packed.append(node)
+            if line.end.break_index < len(hlist):
+                end_node = hlist[line.end.break_index]
+                if line.end.at_penalty:
+                    packed.append(end_node)
+            if line.end.disc is not None:
+                packed.append(self._lineDisc(parser, line.end.disc, broken=True))
+            packed.append(nd.Glue(parser.state.layout["rightskip"], "\\rightskip"))
+            hbox = bx.HBox(parser, measure, None)
+            hbox.list[:] = packed
+            hbox = hbox.typeset(parser)
+            hbox.source = self
+            self._line_boxes.append(hbox)
+            if i != 0:
+                hbox.interline_penalty = self._interlinePenalty(parser, line)
+            vbuild.append(hbox)
+        return list(vbuild.expanded)
 
     def _interlinePenalty(self, parser, line):
         penalty = parser.state.layout["interlinepenalty"]
@@ -204,8 +188,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
         parser.state.volatile["predisplaysize"] = predisplaysize
 
     def typeset(self, parser, vlist):
-        self.pretypeset(parser)
-        for node in self._typeset_cache:
+        for node in self._buildExpanded(parser):
             vlist.append(node)
 
     @staticmethod
@@ -1091,7 +1074,7 @@ class PrevGraf(IntegerArrayItemAccessor):
                 break
         for para in reversed(vlist):
             if isinstance(para, Paragraph):
-                para.pretypeset(parser)
+                para.typeset(parser, [])
                 return parser.state.globals["prevgraf"]
         return 0
 

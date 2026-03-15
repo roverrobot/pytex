@@ -274,8 +274,6 @@ class VList(lists.List):
     def _entryReadyForExpansion(node):
         if getattr(node, "page_builder_ready", True) is False:
             return False
-        if getattr(node, "box_materializable", False) and node.node_type is None:
-            return getattr(node, "_typeset_cache", None) is not None
         return True
 
     def _appendInterlineMaterial(self, node, prior_prevdepth):
@@ -349,9 +347,6 @@ class VList(lists.List):
             self._appendBuiltNode(node)
 
     def finalizeExpandedNode(self, node):
-        if getattr(node, "box_materializable", False) and node.node_type is None:
-            if getattr(node, "_typeset_cache", None) is None:
-                node.pretypeset(self.parser)
         self._realizeReadyTailNodes()
         if node in self.list[:self._expanded_raw_count]:
             self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
@@ -388,8 +383,6 @@ class VList(lists.List):
         for i in range(len(self) - 1, -1, -1):
             node = self[i]
             if getattr(node, "box_materializable", False):
-                if getattr(node, "_typeset_cache", None) is None:
-                    node.pretypeset(self.parser)
                 return _expanded_tail_depth(self.parser, node)
             elif node.node_type == nd.NODE_TYPE.RULE:
                 break

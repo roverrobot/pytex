@@ -32,7 +32,10 @@ def test_paragraph_uses_state_when_it_ends(cmr10):
     vlist = cmr10.lists[-1]
     p = next(node for node in vlist if isinstance(node, paragraph.Paragraph))
     assert isinstance(p, paragraph.Paragraph)
-    lines = _lineBoxes(p._typeset_cache)
+    lines = [
+        node for node in vlist.expanded
+        if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is p
+    ]
     assert len(lines) > 1
     assert all(line.width == 20 for line in lines)
     cmr10.parse("\\hsize=100pt")
@@ -41,10 +44,14 @@ def test_paragraph_uses_state_when_it_ends(cmr10):
 
 def test_paragraph_is_pretypeset_when_it_ends(cmr10):
     cmr10.parse("\\hsize=100pt a\\par")
-    p = next(node for node in cmr10.lists[-1] if isinstance(node, paragraph.Paragraph))
-    assert p._typeset_cache is not None
-    assert len(p._typeset_cache) == 1
-    assert p._typeset_cache[0].node_type == nd.NODE_TYPE.HLIST
+    vlist = cmr10.lists[-1]
+    p = next(node for node in vlist if isinstance(node, paragraph.Paragraph))
+    lines = [
+        node for node in vlist.expanded
+        if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is p
+    ]
+    assert len(lines) == 1
+    assert lines[0].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_paragraph_chain_break_on_nonparagraph(parser):
@@ -254,10 +261,12 @@ def test_linebreak_plain_paragraph_cases(parser):
     )
     parser.parse("\\looseness=-1 ")
     parser.parse(text + "\\par")
-    para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
-    out = []
-    para.typeset(parser, out)
-    lines = _lineBoxes(out)
+    top = parser.lists[-1]
+    para = next(n for n in reversed(top) if isinstance(n, paragraph.Paragraph))
+    lines = [
+        node for node in top.expanded
+        if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is para
+    ]
     assert len(lines) == 4
     endings = [_lineEndingWord(line) for line in lines]
     assert endings[:3] == ["tech-", "difficult", "much"]

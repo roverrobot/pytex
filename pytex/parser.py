@@ -429,8 +429,6 @@ class Parser:
         if para is not None:
             if finalize_pending is not None:
                 finalize_pending(para)
-            else:
-                para.pretypeset(self)
             if updates_display_state:
                 para.updateDisplayState(self)
         # TeX clears \\looseness etc after each paragraph.

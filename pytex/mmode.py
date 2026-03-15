@@ -195,7 +195,7 @@ class MList(lists.List):
             atom = self[-1] if len(self) > 0 else None
             if not isinstance(atom, Atom):
                 atom = Atom(ATOM_TYPE.ORD)
-                atom.nucleus = MList(self.parser)
+                atom.nucleus = Subformula()
                 self.append(atom)
         else:
             self.append(atom)
@@ -212,9 +212,17 @@ class MList(lists.List):
             raise ValueError("improper \\halign inside math mode", self.parser.input.position())
         if self.building_atom is not None:
             atom, field = self.building_atom
+            if isinstance(node, MList):
+                subformula = Subformula()
+                subformula.list = node.list
+                node = subformula
             setattr(atom, field, node)
             self.building_atom = None
             return
+        if isinstance(node, MList):
+            subformula = Subformula()
+            subformula.list = node.list
+            node = subformula
         if isinstance(node, box.Box):
             node = Box(node)
         elif isinstance(node, Subformula):

@@ -118,6 +118,26 @@ def test_mlist_typeset_inline(math):
     assert packed[-1].kern == math.state.layout["mathsurround"]
 
 
+def test_leading_superscript_uses_empty_subformula_nucleus(math):
+    math.parse("$^a$")
+    node = math.lists[-1][1].list[0]
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.Subformula)
+    assert node.nucleus.list == []
+    assert isSymbol(node.sup, 1, "a")
+
+
+def test_mlist_append_wraps_raw_mlist_in_subformula(math):
+    outer = mmode.MList(math)
+    inner = mmode.MList(math)
+    inner.append(mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
+    outer.append(inner)
+    node = outer[0]
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.Subformula)
+    assert len(node.nucleus.list) == 1
+
+
 def test_mlist_typeset_display(math):
     math.parse("$$a$$\\par")
     top = math.lists[0]

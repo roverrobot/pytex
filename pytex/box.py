@@ -426,8 +426,13 @@ class BoxPretypesetCallback:
         self.box = box
 
     def __call__(self):
+        parser = self.box.parser
+        if self.box.node_type == nd.NODE_TYPE.VLIST:
+            top = parser.lists[-1]
+            if top.type == LISTTYPE.HORIZONTAL and not top.inner:
+                parser.endParagraph()
         if self.box._packed is None:
-            self.box.pack(self.box.parser)
+            self.box.pack(parser)
 
 
 class BuildBox(Command):

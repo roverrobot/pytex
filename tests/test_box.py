@@ -247,6 +247,13 @@ def test_vbox_is_pretypeset_with_current_boxmaxdepth(parser):
     assert typed.depth == 1
 
 
+def test_vbox_closes_internal_paragraph_before_packing(cmr10):
+    cmr10.parse("\\setbox0=\\vbox{\\hsize=20pt\\parindent=0pt a a a a a}")
+    typed = cmr10.state.box[0].typeset(cmr10)
+    lines = [node for node in typed.list if node.node_type == NODE_TYPE.HLIST]
+    assert len(lines) > 1
+
+
 def test_vsplit_void(parser):
     parser.parse("\\setbox0=\\vsplit1 to 10pt")
     assert parser.state.box[0] is None

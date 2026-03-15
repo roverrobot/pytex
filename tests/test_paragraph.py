@@ -7,6 +7,7 @@ from pytex import texlive
 from pytex import vmode
 from pytex import mmode
 from pytex import page
+from pytex import glue
 from pytex.dimen import Dimen
 
 
@@ -52,6 +53,16 @@ def test_paragraph_is_pretypeset_when_it_ends(cmr10):
     ]
     assert len(lines) == 1
     assert lines[0].node_type == nd.NODE_TYPE.HLIST
+
+
+def test_paragraph_typeset_uses_stored_parfillskip_not_live_state(parser):
+    parser.parse("\\parfillskip=0pt a\\par")
+    para = next(node for node in parser.lists[-1] if isinstance(node, paragraph.Paragraph))
+    parser.state.parameters["parfillskip"] = glue.Glue(0, glue.Stretchness(1, 1))
+    out = []
+    para.typeset(parser, out)
+    assert len(out) == 1
+    assert out[0].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_paragraph_chain_break_on_nonparagraph(parser):

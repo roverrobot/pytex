@@ -825,14 +825,6 @@ class _BreakCandidateScan(list):
         if self._finished:
             return self
         self.end = len(self)
-        if (
-            self.end < 2
-            or self[-2].node_type != nd.NODE_TYPE.PENALTY
-            or self[-2].penalty != 10000
-            or self[-1].node_type != nd.NODE_TYPE.GLUE
-            or self[-1].glue != self.parser.state.parameters["parfillskip"]
-        ):
-            raise ValueError("paragraph does not end with \\penalty10000 and \\parfillskip")
         if self.candidates.tail.break_index != self.end:
             end_candidate = _BreakCandidate(self.end)
             end_candidate.penalty = -10000

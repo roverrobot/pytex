@@ -425,10 +425,7 @@ class Parser:
             if para.parskip is not None:
                 top.append(para.parskip)
             top.append(para)
-        finalize_pending = getattr(top, "finalizePendingNode", None)
         if para is not None:
-            if finalize_pending is not None:
-                finalize_pending(para)
             if updates_display_state:
                 para.updateDisplayState(self)
         # TeX clears \\looseness etc after each paragraph.

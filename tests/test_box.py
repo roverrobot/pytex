@@ -129,7 +129,7 @@ def test_hbox_sets_badness_before_next_token(cmr10):
 def test_setbox_packs_hbox_when_the_box_group_closes(cmr10):
     cmr10.parse("\\setbox0=\\hbox to 100pt{a}")
     box0 = cmr10.state.box[0]
-    assert box0._typeset_cache is not None
+    assert box0._packed is not None
     assert cmr10.lastbox is box0
     cmr10.parse("\\count0=\\badness")
     assert cmr10.state.count[0] == 10000
@@ -148,7 +148,7 @@ def test_badness_is_not_grouped(parser):
 def test_explicit_badness_assignment_overrides_packed_hbox_badness(cmr10):
     cmr10.parse("\\setbox0=\\hbox to 100pt{a}\\badness=7\\count0=\\badness")
     assert cmr10.state.count[0] == 7
-    assert cmr10.state.box[0]._typeset_cache is not None
+    assert cmr10.state.box[0]._packed is not None
 
 
 def test_vbox(box):
@@ -459,7 +459,9 @@ def test_box_void(box):
 def test_unhbox(box):
     box.parse("1\\unhbox0")
     top = box.lists[-1]
-    assert len(top) == 15
+    assert len(top) == 16
+    assert top[0].node_type == NODE_TYPE.HLIST
+    assert any(node.node_type == NODE_TYPE.KERN for node in top)
     assert box.state.box[0] is None
 
 
@@ -482,7 +484,9 @@ def test_unvbox_wrongbox(box):
 def test_unhcopy(box):
     box.parse("1\\unhcopy0")
     top = box.lists[-1]
-    assert len(top) == 15
+    assert len(top) == 16
+    assert top[0].node_type == NODE_TYPE.HLIST
+    assert any(node.node_type == NODE_TYPE.KERN for node in top)
     box0 = box.state.box[0]
     assert len(box0.list) == 13
 
@@ -493,6 +497,19 @@ def test_unvbox(box):
     assert len(top) == 1
     assert top[0].node_type == NODE_TYPE.HLIST
     assert box.state.box[1] is None
+
+
+def test_unvbox_uses_packed_vbox_contents(cmr10):
+    cmr10.parse("\\setbox1=\\vbox{\\hsize=20pt\\parindent=0pt a a a a a\\par}")
+    packed = cmr10.state.box[1].typeset(cmr10)
+    packed_lines = [node for node in packed.list if node.node_type == NODE_TYPE.HLIST]
+    assert len(packed_lines) > 1
+
+    cmr10.parse("\\hsize=200pt\\unvbox1")
+    top = cmr10.lists[-1]
+    top_lines = [node for node in top.list if node.node_type == NODE_TYPE.HLIST]
+    assert len(top_lines) == len(packed_lines)
+    assert [node.node_type for node in top.list] == [node.node_type for node in packed.list]
 
 
 def test_accent_nochar(cmr10):

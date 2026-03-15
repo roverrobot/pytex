@@ -58,7 +58,7 @@ class Box(nd.Box):
         # (sign, num, den), representing sign * num / den.
         # sign is -1, 0, or 1; num >= 0; den >= 1.
         self.glue_ratio = GlueRatio(0, 0, 1)
-        self._typeset_cache = None
+        self._packed = None
 
     def saveInfo(self):
         return {
@@ -121,12 +121,12 @@ class Box(nd.Box):
         @param parser: the parser
         @param packed: if provided, append this node and skip in-place typesetting.
         """
-        self.pretypeset(parser)
+        self.pack(parser)
         if packed is None:
-            return self._typeset_cache
-        packed.append(self._typeset_cache)
+            return self._packed
+        packed.append(self._packed)
 
-    def pretypeset(self, parser):
+    def pack(self, parser):
         raise NotImplementedError("this method should be implemented in subclasses")
 
     @staticmethod
@@ -198,7 +198,7 @@ class Box(nd.Box):
         box.natural = self.natural
         box.glue_ratio = self.glue_ratio
         if content is not None:
-            box._typeset_cache = box
+            box._packed = box
         return box
 
 
@@ -210,8 +210,8 @@ class BadnessAccessor(IntegerArrayItemAccessor):
         box = parser.lastbox
         if box is not None:
             parser.lastbox = None
-            if box._typeset_cache is None:
-                box.pretypeset(parser)
+            if box._packed is None:
+                box.pack(parser)
         return super().intValue(parser)
 
     def set(self, parser, value):
@@ -239,8 +239,8 @@ class HBox(Box, hmode.HListHolder):
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def pretypeset(self, parser):
-        if self._typeset_cache is not None:
+    def pack(self, parser):
+        if self._packed is not None:
             # it has been typeset. do nothing
             return
         content = []
@@ -283,7 +283,7 @@ class HBox(Box, hmode.HListHolder):
         self.natural = natural
         self._set_badness(parser, spread, natural)
         self.width = self.to
-        self._typeset_cache = self.copy(content)
+        self._packed = self.copy(content)
     
     def calculate(self, node, natural, dim):
         if dim is None:
@@ -426,8 +426,8 @@ class BoxPretypesetCallback:
         self.box = box
 
     def __call__(self):
-        if self.box._typeset_cache is None:
-            self.box.pretypeset(self.box.parser)
+        if self.box._packed is None:
+            self.box.pack(self.box.parser)
 
 
 class BuildBox(Command):
@@ -619,8 +619,8 @@ class VBox(Box, vmode.VListHolder):
             self.width = w
         return natural
 
-    def pretypeset(self, parser):
-        if self._typeset_cache is not None:
+    def pack(self, parser):
+        if self._packed is not None:
             return
         self.expanded = []
         typeset_nodes = getattr(self.list, "typesetNodes", None)
@@ -671,18 +671,18 @@ class VBox(Box, vmode.VListHolder):
         self.natural = natural
         self._set_badness(parser, spread, natural)
         self.height = self.to
-        self._typeset_cache = self.copy(content)
+        self._packed = self.copy(content)
 
     def __repr__(self):
         return f"VBox({self.width}, {self.height}, {self.depth}, {self.list})"
 
 
 class VTop(VBox):
-    def pretypeset(self, parser):
-        super().pretypeset(parser)
+    def pack(self, parser):
+        super().pack(parser)
         total = self.height + self.depth
-        self._typeset_cache.height = self.height = getattr(self.list[0], "height", 0)
-        self._typeset_cache.depth = self.depth = total - self.height
+        self._packed.height = self.height = getattr(self.list[0], "height", 0)
+        self._packed.depth = self.depth = total - self.height
 
 
 class VBoxCommand(BuildBox):
@@ -779,7 +779,12 @@ class UnBox(Command):
             raise ValueError("expecting a vbox", parser.input.position())
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
             raise ValueError("expecting an hbox", parser.input.position())
-        nodes = box.list
+        packed_box = box.typeset(parser)
+        nodes = list(packed_box.list)
+        if not self.vertical:
+            for node in box.list:
+                if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
+                    nodes.append(node)
         extend_built = getattr(top, "extendBuilt", None) if self.vertical else None
         if extend_built is not None:
             extend_built(nodes)

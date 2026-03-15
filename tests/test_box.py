@@ -5,6 +5,7 @@ from pytex import node as nd
 from pytex import lists
 from pytex import page
 from pytex import paragraph
+from pytex import vmode
 from pytex.node import NODE_TYPE
 from pytex import texlive
 from pytex.dimen import Dimen
@@ -237,6 +238,49 @@ def test_vbox_trailing_penalty_keeps_depth(parser):
     typed = vbox.typeset(parser)
     assert typed.height == 6
     assert typed.depth == 3
+
+
+def test_vbox_preserves_prevdepth_across_explicit_glue(parser):
+    parser.state.layout["baselineskip"] = glue.Glue(12)
+    parser.state.layout["lineskip"] = glue.Glue(1)
+    parser.state.layout["lineskiplimit"] = Dimen()
+    vbox = bx.VBox(parser, None, 0)
+    builder = vmode.VList(parser, vbox.list, inner=True)
+    vbox._build_state = builder
+    first = _synthetic_hbox(parser, height=6, depth=2, width=10)
+    second = _synthetic_hbox(parser, height=6, depth=2, width=10)
+    builder.append(first)
+    builder.append(nd.Glue(glue.Glue(15), None))
+    builder.append(second)
+    typed = vbox.typeset(parser)
+    assert typed.list[0] is first
+    assert typed.list[1].node_type == NODE_TYPE.GLUE
+    assert typed.list[1].glue.dimen == 15
+    assert typed.list[2].node_type == NODE_TYPE.GLUE
+    assert typed.list[2].name == "\\baselineskip"
+    assert typed.list[2].glue.dimen == 4
+    assert typed.list[3] is second
+
+
+def test_vbox_pack_reuses_live_vertical_builder(parser):
+    parser.state.layout["baselineskip"] = glue.Glue(22)
+    parser.state.layout["lineskip"] = glue.Glue(1)
+    parser.state.layout["lineskiplimit"] = Dimen()
+    vbox = bx.VBox(parser, None, 0)
+    builder = vmode.VList(parser, vbox.list, inner=True)
+    vbox._build_state = builder
+    builder.append(_synthetic_hbox(parser, height=0, depth=0, width=0))
+    builder.append(nd.Glue(glue.Glue(20), None))
+    title = _synthetic_hbox(parser, height=12, depth=0, width=10)
+    builder.append(title)
+    parser.state.layout["baselineskip"] = glue.Glue(12)
+    typed = vbox.typeset(parser)
+    assert typed.list[1].node_type == NODE_TYPE.GLUE
+    assert typed.list[1].glue.dimen == 20
+    assert typed.list[2].node_type == NODE_TYPE.GLUE
+    assert typed.list[2].name == "\\baselineskip"
+    assert typed.list[2].glue.dimen == 10
+    assert typed.list[3] is title
 
 
 def test_vbox_is_pretypeset_with_current_boxmaxdepth(parser):

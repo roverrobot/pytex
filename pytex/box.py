@@ -59,6 +59,7 @@ class Box(nd.Box):
         # sign is -1, 0, or 1; num >= 0; den >= 1.
         self.glue_ratio = GlueRatio(0, 0, 1)
         self._packed = None
+        self._build_state = None
 
     def saveInfo(self):
         return {
@@ -466,6 +467,7 @@ class BuildBox(Command):
             state = vmode.VList(parser, box.list, inner=True)
         else:
             state = hmode.HList(parser, box.list, inner=True)
+        box._build_state = state
         parser.lists.append(state)
         state.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value
@@ -628,11 +630,19 @@ class VBox(Box, vmode.VListHolder):
         if self._packed is not None:
             return
         self.expanded = []
-        typeset_nodes = getattr(self.list, "typesetNodes", None)
-        if typeset_nodes is None:
-            self.typesetNodes(parser, self.expanded)
+        build_state = self._build_state
+        if build_state is not None:
+            realize_ready = getattr(build_state, "_realizeReadyTailNodes", None)
+            if realize_ready is not None:
+                realize_ready()
+            self.expanded.extend(build_state.expanded)
+            self._build_state = None
         else:
-            typeset_nodes(parser, self.expanded)
+            typeset_nodes = getattr(self.list, "typesetNodes", None)
+            if typeset_nodes is None:
+                self.typesetNodes(parser, self.expanded)
+            else:
+                typeset_nodes(parser, self.expanded)
         content = self.expanded
         natural = Glue()
         self.width = Dimen()

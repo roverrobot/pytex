@@ -122,12 +122,13 @@ class Box(nd.Box):
         @param parser: the parser
         @param packed: if provided, append this node and skip in-place typesetting.
         """
-        self.pack(parser)
+        if self._packed is None:
+            self._typesetSelf(parser)
         if packed is None:
             return self._packed
         packed.append(self._packed)
 
-    def pack(self, parser):
+    def _typesetSelf(self, parser):
         raise NotImplementedError("this method should be implemented in subclasses")
 
     @staticmethod
@@ -212,7 +213,7 @@ class BadnessAccessor(IntegerArrayItemAccessor):
         if box is not None:
             parser.lastbox = None
             if box._packed is None:
-                box.pack(parser)
+                box.typeset(parser)
         return super().intValue(parser)
 
     def set(self, parser, value):
@@ -240,7 +241,7 @@ class HBox(Box, hmode.HListHolder):
 
     node_type = nd.NODE_TYPE.HLIST
 
-    def pack(self, parser):
+    def _typesetSelf(self, parser):
         if self._packed is not None:
             # it has been typeset. do nothing
             return
@@ -433,7 +434,7 @@ class BoxPretypesetCallback:
             if top.type == LISTTYPE.HORIZONTAL and not top.inner:
                 parser.endParagraph()
         if self.box._packed is None:
-            self.box.pack(parser)
+            self.box.typeset(parser)
 
 
 class BuildBox(Command):
@@ -626,7 +627,7 @@ class VBox(Box, vmode.VListHolder):
             self.width = w
         return natural
 
-    def pack(self, parser):
+    def _typesetSelf(self, parser):
         if self._packed is not None:
             return
         self.expanded = []
@@ -693,8 +694,8 @@ class VBox(Box, vmode.VListHolder):
 
 
 class VTop(VBox):
-    def pack(self, parser):
-        super().pack(parser)
+    def _typesetSelf(self, parser):
+        super()._typesetSelf(parser)
         total = self.height + self.depth
         self._packed.height = self.height = getattr(self.list[0], "height", 0)
         self._packed.depth = self.depth = total - self.height

@@ -155,6 +155,16 @@ def test_omit_as_first_non_space_token_ignores_template(cmr10):
     assert len(row.cells[0].list) == 1
 
 
+def test_everycr_runs_between_alignment_rows(cmr10):
+    cmr10.parse(
+        "\\count0=0 "
+        "\\everycr{\\noalign{\\global\\advance\\count0 by 1}}"
+        "\\setbox0=\\vbox{\\halign{#\\cr a\\cr b\\cr}}"
+        "\\message{COUNT=\\the\\count0}"
+    )
+    assert "COUNT=3" in cmr10.logContent()
+
+
 def test_halign_typesets_directly_to_rows(cmr10):
     cmr10.parse("\\halign{#&#\\cr a&bc\\cr}")
     node = cmr10.lists[-1][0]

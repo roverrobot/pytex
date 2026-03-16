@@ -105,7 +105,7 @@ class RowBuildState:
         if getattr(t, "definition", None) is omit:
             templates = []
         else:
-            parser.input.unread(t)        
+            parser.input.unread(t)
             if column_no >= len(preamble):
                 if not self.builder.repeat_start:
                     raise ValueError("extra alignment tab", parser.input.position())
@@ -524,6 +524,9 @@ class EndCellToken(Token):
         if not self.is_last:
             row.newCell(parser, len(row.row.cells))
         else:
+            everycr = parser.everycr.value
+            if everycr:
+                parser.input.push(lexer.TokenListScanner(list(everycr)))
             row.finishRow(parser)
 
 
@@ -555,6 +558,9 @@ class CrCr(Command):
         else:
             parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
             builder.row_state = RowBuildState(builder.alignment, builder)
+            everycr = parser.everycr.value
+            if everycr:
+                parser.input.push(lexer.TokenListScanner(list(everycr)))
             builder.row_state.finishRow(parser)
         
 

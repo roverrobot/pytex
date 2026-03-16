@@ -171,6 +171,8 @@ def test_display_halign_typesets_with_display_wrapper(math):
     assert display[3].penalty == math.state.layout["postdisplaypenalty"]
     assert display[4].node_type == nd.NODE_TYPE.GLUE
     assert display[4].glue == math.state.layout["belowdisplayskip"]
+    expected = math.state.volatile["displayindent"] + (math.state.volatile["displaywidth"] - display[2].width) / 2
+    assert display[2].shifted == expected
 
 
 def test_subformula_single_char_drops_outer_hbox(math):
@@ -1102,6 +1104,8 @@ def test_rule13_op_cases(math):
     z = limits_box.list[5]
     assert x.width == y.width == z.width, "rule13a x/y/z should be reboxed to equal width"
     delta = Dimen(mmode.mathfont(math, style, 1)["f"].italic)
+    assert getattr(y, "shifted", Dimen()) == 0, "rule13a operator nucleus should not reuse shifted for horizontal placement"
+    assert getattr(y, "math_axis_shift", None) is not None, "rule13a operator nucleus should retain axis shift separately"
     assert float(x.shifted) == pytest.approx(float(delta / 2), abs=1e-4), "rule13a superscript horizontal shift"
     assert float(z.shifted) == pytest.approx(float(Dimen() - (delta / 2)), abs=1e-4), "rule13a subscript horizontal shift"
     # Rule 13a baseline should run through the centered nucleus y, not the

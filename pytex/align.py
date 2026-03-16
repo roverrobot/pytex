@@ -759,6 +759,7 @@ class AlignmentBuilder:
 class MAlignment(HAlignment):
     def typeset(self, parser, packed):
         cache = []
+        displaywidth = parser.state.volatile["displaywidth"]
         displayindent = parser.state.volatile["displayindent"]
         cache.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
         cache.append(nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip"))
@@ -766,7 +767,7 @@ class MAlignment(HAlignment):
         super().typeset(parser, inner)
         for n in inner:
             if n.node_type == nd.NODE_TYPE.HLIST:
-                n.shifted = displayindent
+                n.shifted = displayindent + (displaywidth - n.width) / 2
             n.source = self
         cache.extend(inner)
         cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))

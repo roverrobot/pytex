@@ -1159,6 +1159,8 @@ class Atom(nd.Node):
         if italic is not None and int(italic) != 0:
             out.list.append(nd.Kern(italic, automatic=True))
         out.list.append(nd.Glue(hss, None))
+        if hasattr(b, "math_axis_shift"):
+            out.math_axis_shift = b.math_axis_shift
         return out.typeset(parser)
     
 
@@ -1216,7 +1218,11 @@ class Op(Atom):
             y.list.append(nd.Kern(delta, automatic=True))
         y = y.typeset(parser)
         axis = Dimen(mathsigma(parser, style)[21])  # sigma22
-        y.shifted = (y.height - y.depth) / 2 - axis
+        axis_shift = (y.height - y.depth) / 2 - axis
+        if use_limits:
+            y.math_axis_shift = axis_shift
+        else:
+            y.shifted = axis_shift
         return y, delta
 
     def _rule13aAttachLimits(self, parser, context, style, y, delta):
@@ -1271,7 +1277,7 @@ class Op(Atom):
 
     def _rule13aDepthFromY(self, out, pieces, y_index):
         def _effective_box_dims(item):
-            shifted = item.shifted if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) else 0
+            shifted = getattr(item, "math_axis_shift", 0)
             return item.height - shifted, item.depth + shifted
 
         y = pieces[y_index]
@@ -1552,6 +1558,9 @@ class MathCharValue(lists.ModeDependentCommand):
         """
         s = parser.formatName("\\mathchar")
         return f"{s}\"{self.mathcode:X}"
+    
+    def __eq__(self, other):
+        return isinstance(other, MathCharValue) and self.mathcode == other.mathcode
 
 
 

@@ -1,5 +1,6 @@
 import pytest
 import types
+import os
 from pytex import paragraph
 from pytex import lists
 from pytex import node as nd
@@ -8,7 +9,9 @@ from pytex import vmode
 from pytex import mmode
 from pytex import page
 from pytex import glue
+from pytex.parser import Parser
 from pytex.dimen import Dimen
+from pytex.module import ModuleManager
 
 
 def simple_context(parshape, hsize, hangindent, hangafter):
@@ -377,3 +380,83 @@ def test_linebreaker_select_final_negative_looseness():
 def test_paragraph_settings_reset_after_paragraph(parser):
     parser.parse("\\looseness=2 a\\par b\\par")
     assert parser.state.volatile["looseness"] == 0
+
+
+def _latex_parser():
+    had_etex = "etex" in ModuleManager
+    had_pdftex = "pdftex" in ModuleManager
+    prev_etex = ModuleManager.get("etex")
+    prev_pdftex = ModuleManager.get("pdftex")
+    from pytex import etex
+    from pytex import pdftex
+
+    ModuleManager["etex"] = etex.mod
+    ModuleManager["pdftex"] = pdftex.mod
+    try:
+        parser = Parser()
+        parser.console = open(os.devnull, "w")
+        parser.resolver.format = "latex"
+        fmt = parser.resolver.openIn("latex", "dump")
+        parser.load(fmt)
+        fmt.close()
+        return parser
+    finally:
+        if not had_etex:
+            ModuleManager.pop("etex", None)
+        else:
+            ModuleManager["etex"] = prev_etex
+        if not had_pdftex:
+            ModuleManager.pop("pdftex", None)
+        else:
+            ModuleManager["pdftex"] = prev_pdftex
+
+
+def _flatten_text(nodes):
+    out = []
+    for node in nodes or []:
+        if node.node_type == nd.NODE_TYPE.CHAR:
+            out.append(node.char)
+        elif node.node_type == nd.NODE_TYPE.LIGATURE:
+            source = getattr(node, "source", None)
+            if source:
+                out.extend(char.char for char in source)
+            else:
+                out.append(node.char)
+        elif node.node_type == nd.NODE_TYPE.GLUE:
+            out.append(" ")
+        elif node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            out.append(_flatten_text(getattr(node, "list", None)))
+    return "".join(out)
+
+
+def _collect_hbox_texts(box):
+    texts = []
+    for node in getattr(box, "list", None) or []:
+        if node.node_type == nd.NODE_TYPE.HLIST:
+            texts.append(_flatten_text(node.list).strip())
+            texts.extend(_collect_hbox_texts(node))
+        elif node.node_type == nd.NODE_TYPE.VLIST:
+            texts.extend(_collect_hbox_texts(node))
+    return texts
+
+
+def test_twocolumn_centered_title_prefers_later_equal_demerit_break():
+    parser = _latex_parser()
+    parser.parse(
+        r"\documentclass[12pt]{article}"
+        r"\begin{document}"
+        r"\begin{center}{\LARGE An Edge Based SIS Model on Random Networks\par}\end{center}"
+        r"\end{document}",
+        jobname="title_break",
+    )
+    parser.end()
+    page_box = parser.shipout.pages[0]
+    texts = _collect_hbox_texts(page_box)
+    title_lines = [
+        text for text in texts
+        if "Edge Based SIS Model on Random" in text or text == "Networks"
+    ]
+    assert title_lines[:2] == [
+        "An Edge Based SIS Model on Random",
+        "Networks",
+    ]

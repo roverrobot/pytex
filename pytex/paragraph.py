@@ -1024,7 +1024,7 @@ class _LineBreaker:
                     else:
                         key = (end, line.line_no, line.fitness, line.hyphenated)
                         best = next_states.get(key)
-                        if best is None or line.demerits < best.demerits:
+                        if best is None or line.demerits <= best.demerits:
                             next_states[key] = self._State(end, line)
                     end = end.next
             if not next_states:

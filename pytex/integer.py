@@ -388,7 +388,7 @@ module = Module("integer",
         "year": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         # these are reset at the end of every paragraph
         "looseness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
-        "hangafter": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
+        "hangafter": {"value": 1, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         # global parameters
         "deadcycles": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
         "insertpenalties": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},

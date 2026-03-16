@@ -382,6 +382,16 @@ def test_paragraph_settings_reset_after_paragraph(parser):
     assert parser.state.volatile["looseness"] == 0
 
 
+def test_noindent_with_hanging_label_does_not_add_first_line_indent(parser):
+    parser.parse("\\input plain \\hsize=200pt \\hangindent=20pt \\noindent\\hbox{1\\quad}Introduction\\par")
+    para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))
+    out = []
+    para.typeset(parser, out)
+    lines = _lineBoxes(out)
+    assert len(lines) == 1
+    assert lines[0].list[0].node_type == nd.NODE_TYPE.HLIST
+
+
 def _latex_parser():
     had_etex = "etex" in ModuleManager
     had_pdftex = "pdftex" in ModuleManager

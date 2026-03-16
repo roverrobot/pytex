@@ -441,6 +441,7 @@ def test_moveright_dispatches_to_vertical_handler(parser):
     shifted = top[-1]
     assert shifted.node_type == NODE_TYPE.VLIST
     assert shifted.shifted == 1
+    assert shifted.typeset(parser).shifted == 1
 
 
 def test_moveleft_dispatches_to_vertical_handler(parser):
@@ -449,6 +450,7 @@ def test_moveleft_dispatches_to_vertical_handler(parser):
     shifted = top[-1]
     assert shifted.node_type == NODE_TYPE.VLIST
     assert shifted.shifted == -1
+    assert shifted.typeset(parser).shifted == -1
 
 
 def test_vtop(box):

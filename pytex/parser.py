@@ -436,7 +436,7 @@ class Parser:
         volatile = self.state.volatile
         volatile["looseness"] = 0
         volatile["hangindent"] = dimen.Dimen()
-        volatile["hangafter"] = 0
+        volatile["hangafter"] = 1
         self.state.globals["parshape"] = []
 
     def hyphenChar(self):

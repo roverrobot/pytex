@@ -844,7 +844,11 @@ class Shift(ModeDependentCommand):
         """
         shift = parser.readDimen()
         box = parser.readBox()
-        box.shifted = shift * self.direction
+        shifted = shift * self.direction
+        box.shifted = shifted
+        packed = getattr(box, "_packed", None)
+        if packed is not None:
+            packed.shifted = shifted
         return box
 
 

@@ -128,8 +128,6 @@ class Tokenizer:
         c, catcode = self.charExpand()
         if catcode is None:
             return None
-        if catcode == CATCODE.IGNORE:
-            return self.read()
         # handle comments
         if catcode == CATCODE.COMMENT:
             return None
@@ -148,7 +146,7 @@ class Tokenizer:
             t.entry = self.equitable.entry(c)
             return t
         if catcode != CATCODE.ESCAPE:
-            return Token.token(c, catcode)
+            return self.read() if catcode == CATCODE.IGNORE else Token.token(c, catcode)
         c, catcode = self.charExpand()
         name = "\\" + c
         if catcode == CATCODE.LETTER:

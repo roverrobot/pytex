@@ -222,6 +222,6 @@ def test_ignore(collector):
     assert collector.getString() == "1 "
 
 def test_macro_balanced(parser):
-    parser.parse("\\catcode`^^@=2 \\catcode`:=11 \\catcode`_=11 \\catcode32=9\\def\\a{ \\exp:w \\if_false: { \\fi: `^^@ \\exp_stop_f: }")
+    parser.parse("\\catcode`\^^@=2 \\catcode`:=11 \\catcode`_=11 \\catcode32=9\\def\\a{ \\exp:w \\if_false: { \\fi: `^^@ \\exp_stop_f: }")
     a = parser.lookup("\\a")
     assert len(a.replacement) == 7

@@ -62,6 +62,7 @@ class Box(nd.Box):
         self._build_state = None
 
     def saveInfo(self):
+        packed = None if self._packed == self else self._packed
         return {
             "init": {
                 "to": self.to, 
@@ -73,9 +74,16 @@ class Box(nd.Box):
                 "height": self.height,
                 "depth": self.depth,
                 "shifted": self.shifted,
-                "_packed": self._packed,
+                "_packed": packed,
             }
         }
+    
+    @classmethod
+    def new(cls, parser, **kargs):
+        box = cls(parser, **kargs)
+        if box._packed is None and getattr(box, "width") is not None:
+            box._packed = box
+        return box
     
     @staticmethod
     def _ratioParts(glue_ratio):

@@ -69,10 +69,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
             },
         }
 
-    @classmethod
-    def new(cls, parser, indent):
-        return cls(parser, indent)
-
+    init_needs_parser = True
+    
     def __repr__(self):
         return f'HList([{", ".join(repr(node) for node in self.list)}])'
 

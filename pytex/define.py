@@ -98,13 +98,6 @@ class CharDefValue(Command):
 
     def saveInfo(self):
         return {"init": {"value": self.value}}
-    
-    @classmethod
-    def new(cls, parser, **kwargs):
-        """
-        create a new object from the dictionary
-        """
-        return cls(**kwargs)
 
     def execute(self, parser):
         return parser.addChar(self.charValue(parser))

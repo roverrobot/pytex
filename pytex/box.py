@@ -235,9 +235,7 @@ class HBox(Box, hmode.HListHolder):
         super().__init__(parser, to, spread, [])
         hmode.HListHolder.__init__(self, self.list)
 
-    @classmethod
-    def new(cls, parser, **kwargs):
-        return cls(parser, kwargs["to"], kwargs["spread"])
+    init_needs_parser = True
 
     node_type = nd.NODE_TYPE.HLIST
 
@@ -613,9 +611,7 @@ class VBox(Box, vmode.VListHolder):
         self.expanded = []
         self.boxmaxdepth = parser.state.layout["boxmaxdepth"]
 
-    @classmethod
-    def new(cls, parser, **kwargs):
-        return cls(parser, kwargs["to"], kwargs["spread"])
+    init_needs_parser = True
 
     node_type = nd.NODE_TYPE.VLIST  
 
@@ -925,9 +921,7 @@ class IndentBox(Box):
     def saveInfo(self):
         return {}
     
-    @classmethod
-    def new(cls, parser, **kwargs):
-        return cls(parser)
+    init_needs_parser = True
 
     node_type = nd.NODE_TYPE.HLIST
 

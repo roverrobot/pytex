@@ -133,6 +133,8 @@ class ArrayItemAccessor(Accessor):
     def saveInfo(self):
         return {"init": {"domain": self.domain.name, "index": self.index}}
 
+    init_needs_parser = True
+    
     @classmethod
     def new(cls, parser, **kargs):
         """

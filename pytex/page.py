@@ -466,10 +466,6 @@ class PageStateNode(nd.Node):
     def saveInfo(self):
         return {"init": {"context": self.context}}
 
-    @classmethod
-    def new(cls, parser, context):
-        return cls(context)
-
     def __repr__(self):
         return "PageState"
 

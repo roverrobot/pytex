@@ -46,6 +46,8 @@ class Module:
                 name = "\\" + name
                 if not command.name:
                     command.name = name
+                else:
+                    print("command", command.name)
                 parser.state.equitable.setGlobal(name, command)
                 parser.builtin[name] = command
 

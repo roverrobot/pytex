@@ -79,10 +79,13 @@ class Command(serialization.Serializable):
         @param init: the command information
         @return: the command
         """
-        name = kargs["name"]
-        if name is None:
-            raise ValueError("command name is required")
-        return parser.builtin[name]
+        name = kargs.get("name")
+        if name:
+            return parser.builtin[name]
+        if cls.init_needs_parser:
+            return cls(parser, **kargs)
+        return cls(**kargs)
+
    
     def __eq__(self, other):
         """
@@ -148,6 +151,10 @@ class Token(Command):
     
     def saveInfo(self):
         return {"init": {"name": self.name, "catcode": self.catcode}}
+    
+    @classmethod
+    def new(cls, parser, **kargs):
+        return cls(**kargs)
 
     def isSpace(self, expand):
         """ 
@@ -173,15 +180,6 @@ class Token(Command):
             raise ValueError("invalid category code: %d" % catcode)
         return factory(name, catcode)
 
-    @classmethod
-    def new(cls, parser, **kargs):
-        """
-        create a new command from the dictionary
-        @param parser: the parser
-        @param init: the command information
-        @return: the command
-        """
-        return cls(**kargs)
     
     def meaning(self, parser):
         """

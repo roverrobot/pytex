@@ -12,15 +12,14 @@ def serialize(obj):
     """
     if isinstance(obj, Serializable):
         return obj.serialize()
-    elif isinstance(obj, list):
-        for i, value in enumerate(obj):
-            obj[i] = serialize(value)
-        return obj
-    elif isinstance(obj, dict):
+    if isinstance(obj, list):
+        return [serialize(value) for value in obj]
+    if isinstance(obj, dict):
+        d = {}
         for key, value in obj.items():
-            obj[key] = serialize(value)
-        return obj
-    elif isinstance(obj, enum.Enum):
+            d[key] = serialize(value)
+        return d
+    if isinstance(obj, enum.Enum):
         return obj.value
     return obj
 
@@ -44,18 +43,23 @@ def deserialize(parser, data):
     deserialize the object from a dictionary or a list
     """
     if isinstance(data, list):
-        items = enumerate(data)
-    elif isinstance(data, dict):
-        items = data.items()
-    else:
-        items = None
-    if items is not None:
-        for key, value in items:
-            data[key] = deserialize(parser, value)
-    if isinstance(data, dict) and "__classname__" in data:
-        cls = getClass(data["__classname__"])
-        data = cls.deserialize(parser, data)
-    return data
+        return [deserialize(parser, x) for x in data]
+    elif not isinstance(data, dict):
+        return data
+    d = {}
+    cls = None
+    for key, value in data.items():
+        if key == "__classname__":
+            cls = getClass(value)
+        else:
+            d[key] = deserialize(parser, value)
+    if cls is None:
+        return d
+    init = d.get("init", {})
+    obj = cls.new(parser, **init)
+    for key, value in d.get("extra", {}).items():
+        setattr(obj, key, value)
+    return obj
 
 
 class Serializable:
@@ -79,25 +83,11 @@ class Serializable:
         info["__classname__"] = f"{self.__module__}.{self.__class__.__name__}"
         return info
 
+    init_needs_parser = False
+    
     @classmethod
     def new(cls, parser, **kwargs):
         """
         create a new object from the dictionary
         """
-        return cls(**kwargs)
-
-    @classmethod
-    def deserialize(cls, parser, data):
-        """
-        deserialize the object from a string
-        """
-        init = deserialize(parser, data["init"]) if "init" in data else {}
-        cls = getClass(data["__classname__"])
-        obj = cls.new(parser, **init)
-        if "extra" in data:
-            for key, value in data["extra"].items():
-                if isinstance(value, dict) and "__classname__" in value:
-                    cls = getClass(value["classname"])
-                    value = cls.deserialize(parser, value)
-                setattr(obj, key, value)
-        return obj
+        return cls(parser, **kwargs) if cls.init_needs_parser else cls(**kwargs)

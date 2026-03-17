@@ -1536,13 +1536,6 @@ class MathCharValue(lists.ModeDependentCommand):
     def saveInfo(self):
         return {"init": {"mathcode": self.mathcode}}
 
-    @classmethod
-    def new(cls, parser, **kwargs):
-        """
-        create a new object from the dictionary
-        """
-        return cls(**kwargs)
-
     def math(self, parser, mlist):
         mlist.append(self.mathCharValue(parser))
 
@@ -2574,15 +2567,11 @@ class Line(Atom):
 
 
 class VolatileParameterAccessor(Accessor, DimenCommand):
-    def __init__(self, name):
-        self.index = name
+    def __init__(self, index):
+        self.index = index
 
     def saveInfo(self):
-        return {"init": {"name": self.index}}
-
-    @classmethod
-    def new(cls, parser, **kargs):
-        return cls(kargs["name"])
+        return {"init": {"name": self.name}}
 
     def readValue(self, parser):
         return parser.readDimen()

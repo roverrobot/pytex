@@ -12,12 +12,6 @@ from pytex.module import Module
 from pytex.define import registerdef
 
 
-def _to_dimen(value):
-    if isinstance(value, Dimen):
-        return value
-    return Dimen(value)
-
-
 class Stretchness(serialization.Serializable):
     """
     the stretchness of a glue
@@ -27,7 +21,7 @@ class Stretchness(serialization.Serializable):
     """
     mu = False
     def __init__(self, factor=Dimen(), order: int=0):
-        self.factor = _to_dimen(factor)
+        self.factor = Dimen(factor)
         self.order = order
     
     def saveInfo(self):
@@ -84,7 +78,7 @@ class Glue(serialization.Serializable):
     """
     mu = False
     def __init__(self, dimen=Dimen(), stretch=Stretchness(), shrink=Stretchness()):
-        self.dimen = _to_dimen(dimen)
+        self.dimen = Dimen(dimen)
         self.stretch = stretch
         self.shrink = shrink
     

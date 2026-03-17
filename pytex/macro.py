@@ -93,13 +93,10 @@ class Macro(Command):
         self.protected = False
 
     def saveInfo(self):
-        brackets = []
-        for b in self.brackets:
-            brackets.append([t.serialize() for t in b])
         return {
             "init": {
-                "brackets": brackets,
-                "replacement": [t.serialize() for t in self.replacement],
+                "brackets": self.brackets,
+                "replacement": self.replacement,
             },
             "extra": {
                 "long": self.long,

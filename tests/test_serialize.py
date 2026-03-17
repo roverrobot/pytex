@@ -16,7 +16,7 @@ def test_dimen(parser):
     d = dimen.Dimen(10)
     s = d.serialize()
     assert s == dimenInfo(d)
-    v = dimen.Dimen.deserialize(parser, s)
+    v = serialization.deserialize(parser, s)
     assert v == d
 
 
@@ -43,7 +43,7 @@ def test_glue(parser):
     g = glue.Glue(10)
     s = serialization.serialize(g.serialize())
     assert s == glueInfo(g)
-    v = glue.Glue.deserialize(parser, s)
+    v = serialization.deserialize(parser, s)
     assert v == g
 
 

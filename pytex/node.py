@@ -168,10 +168,6 @@ class Glue(Node):
     def saveInfo(self):
         return {"init": {"glue": self.glue, "name": self.name}}
 
-    @classmethod
-    def new(cls, parser, glue, name=None):
-        return cls(glue, name)
-
     def __repr__(self):
         set = self.glue if self.kern is None else f"{self.kern}pt"
         return f"Glue({set})"

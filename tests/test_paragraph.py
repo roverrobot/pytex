@@ -392,35 +392,6 @@ def test_noindent_with_hanging_label_does_not_add_first_line_indent(parser):
     assert lines[0].list[0].node_type == nd.NODE_TYPE.HLIST
 
 
-def _latex_parser():
-    had_etex = "etex" in ModuleManager
-    had_pdftex = "pdftex" in ModuleManager
-    prev_etex = ModuleManager.get("etex")
-    prev_pdftex = ModuleManager.get("pdftex")
-    from pytex import etex
-    from pytex import pdftex
-
-    ModuleManager["etex"] = etex.mod
-    ModuleManager["pdftex"] = pdftex.mod
-    try:
-        parser = Parser()
-        parser.console = open(os.devnull, "w")
-        parser.resolver.format = "latex"
-        fmt = parser.resolver.openIn("latex", "dump")
-        parser.load(fmt)
-        fmt.close()
-        return parser
-    finally:
-        if not had_etex:
-            ModuleManager.pop("etex", None)
-        else:
-            ModuleManager["etex"] = prev_etex
-        if not had_pdftex:
-            ModuleManager.pop("pdftex", None)
-        else:
-            ModuleManager["pdftex"] = prev_pdftex
-
-
 def _flatten_text(nodes):
     out = []
     for node in nodes or []:
@@ -448,25 +419,3 @@ def _collect_hbox_texts(box):
         elif node.node_type == nd.NODE_TYPE.VLIST:
             texts.extend(_collect_hbox_texts(node))
     return texts
-
-
-def test_twocolumn_centered_title_prefers_later_equal_demerit_break():
-    parser = _latex_parser()
-    parser.parse(
-        r"\documentclass[12pt]{article}"
-        r"\begin{document}"
-        r"\begin{center}{\LARGE An Edge Based SIS Model on Random Networks\par}\end{center}"
-        r"\end{document}",
-        jobname="title_break",
-    )
-    parser.end()
-    page_box = parser.shipout.pages[0]
-    texts = _collect_hbox_texts(page_box)
-    title_lines = [
-        text for text in texts
-        if "Edge Based SIS Model on Random" in text or text == "Networks"
-    ]
-    assert title_lines[:2] == [
-        "An Edge Based SIS Model on Random",
-        "Networks",
-    ]

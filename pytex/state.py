@@ -313,7 +313,7 @@ class ArraySavedValue:
 
 
 class Array(list, Command):
-    SIZE = 65536
+    SIZE = 32768
     """
     an array of values
     """

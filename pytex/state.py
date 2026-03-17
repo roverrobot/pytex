@@ -247,7 +247,7 @@ class Dict(dict):
         @param key: the index of the value
         @param: the value
         """
-        self.entry(key).value = value
+        self.entry(key).set(value)
 
     def __delitem__(self, index):
         """
@@ -309,28 +309,20 @@ class ArraySavedValue:
         """
         restore the value at the index in the domain
         """
-        list.__setitem__(self.array, self.index, self.value)
+        self.array._set(self.index, self.value)
 
 
-class Array(list, Command):
-    SIZE = 32768
+class Array:
+    SIZE = 256
     """
     an array of values
     """
-    def __init__(self, name: str, state=None, default=None, size: typing.Optional[int]=None):
-        if size is None:
-            size = self.SIZE
-        if callable(default):
-            init = [default() for i in range(size)]
-            self.default = default()
-        else:
-            init = [default] * size
-            self.default = default
-        list.__init__(self, init)
-
+    def __init__(self, name: str, state=None, default=None):
+        self.default = default() if callable(default) else default
+        self.list = [self.default for i in range(self.SIZE)]
+        self.dict = {}
         self.state = state
         self.name = name
-        self.size = size
     
     def __setitem__(self, index, value):
         if self.state:
@@ -339,7 +331,16 @@ class Array(list, Command):
                 store = top.store(self.name, index)
                 if store is not None:
                     store[index] = ArraySavedValue(self, index)
-        list.__setitem__(self, index, value)
+        self._set(index, value)
+
+    def _set(self, index, value):
+        if index < self.SIZE:
+            self.list[index] = value
+        else:
+            self.dict[index] = value
+
+    def __getitem__(self, index):
+        return self.list[index] if index < self.SIZE else self.dict.get(index, self.default)
 
     def setGlobal(self, index, value):
         """
@@ -351,7 +352,7 @@ class Array(list, Command):
         """
         if self.state:
             self.state.remove(self.name, index)
-        list.__setitem__(self, index, value)
+        self._set(index, value)
 
     def load(self, data):
         """
@@ -359,7 +360,7 @@ class Array(list, Command):
         @param data: the data to restore the array
         """
         for i, v in data.items():
-            list.__setitem__(self, int(i), v)
+            self._set(int(i), v)
 
     def dump(self):
         """
@@ -368,10 +369,10 @@ class Array(list, Command):
         """
         values = {}
         default = self.default
-        for i, v in enumerate(self):
-            if v is not default:
+        for i, v in enumerate(self.list):
+            if v != default:
                 values[i] = v
-        return values
+        return values | self.dict
     
 
 class Globals(dict):

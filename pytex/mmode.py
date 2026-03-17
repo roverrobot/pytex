@@ -841,7 +841,8 @@ class Atom(nd.Node):
         # At this stage we only emit with the supplied effective atom_type.
         context.atom_type = atom_type
         b = self.assemble(parser, context, style)
-        axis = Dimen(mathsigma(parser, style)[21])
+        sigma = mathsigma(parser, style)
+        axis = Dimen(sigma[21])
         total = b.height + b.depth
         if self.left is not None and self.right is not None:
             # TeXbook Appendix G, Rule 19: size boundary delimiters from

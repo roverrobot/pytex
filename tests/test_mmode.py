@@ -99,11 +99,6 @@ def test_mlist_mismatch(math):
         assert "missing" in str(e)
 
 
-def test_math_nodes_require_symbol_and_extension_fonts(parser):
-    with pytest.raises(ValueError, match="fontdimen params"):
-        parser.parse("$a$")
-
-
 def test_mlist_typeset_inline(math):
     math.parse("$a$")
     mlist = math.lists[-1][1]

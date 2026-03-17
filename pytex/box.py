@@ -565,25 +565,6 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
             )
         else:
             self._set(parser)
-    
-
-class BoxArray(Array):
-    """
-    an array of boxes
-    """
-    def __init__(self, state):
-        super().__init__("box", state, None)
-    
-    def dump(self):
-        """
-        dump the array
-        @return: a dict that contains the array values
-        """
-        values = {}
-        for i, v in enumerate(self):
-            if v is not None:
-                values[i] = v
-        return values
 
 
 class SetBox(ArrayAccessor):
@@ -785,7 +766,7 @@ class UnBox(Command):
             parser.newParagraph(indent=False)
             return
         index = parser.readInteger()
-        if not (0 <= index < parser.state.box.size):
+        if index < 0:
             raise ValueError("box index out of range", parser.input.position())
         box = parser.state.box[index]
         if self.wipe:
@@ -1031,7 +1012,7 @@ class LastBox(Command):
 
 mod = Module("hbox", 
     domains={
-        "box": {"generator": BoxArray, "accessor": SetBox},
+        "box": {"generator": Array, "accessor": SetBox},
     },
     parameters={
         "badness": {"value": 0, "accessor": BadnessAccessor, "domain": "globals"},

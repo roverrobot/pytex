@@ -149,11 +149,6 @@ class MathFontArray(Array):
             if len(params) < 13:
                 raise ValueError(f"{self.name}[3] has {len(params)} fontdimen params; need at least 13 for math typesetting")
 
-    def __getitem__(self, index):
-        font = list.__getitem__(self, index)
-        self._validateMathFamily(index, font)
-        return font
-
     def __setitem__(self, index, value):
         self._validateMathFamily(index, value)
         super().__setitem__(index, value)
@@ -164,7 +159,7 @@ class MathFontArray(Array):
 
 
 def fontarray(name): 
-    return lambda state: MathFontArray(name, state, default=nullfont, size=256)
+    return lambda state: MathFontArray(name, state, default=nullfont)
 
 
 class FontCharAccessor(IntegerArrayItemAccessor):

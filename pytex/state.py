@@ -239,11 +239,7 @@ class Dict(dict):
         @param key: the index of the value
         @return: the value at the index
         """
-        try:
-            return dict.__getitem__(self, key).value
-        except KeyError:
-            dict.__setitem__(self, key, NamedEntry(self.state, self.name, key))
-            return None
+        return self.entry(key).value
     
     def __setitem__(self, key, value):
         """
@@ -251,10 +247,7 @@ class Dict(dict):
         @param key: the index of the value
         @param: the value
         """
-        try:
-            dict.__getitem__(self, key).set(value)
-        except KeyError:
-            dict.__setitem__(self, key,  NamedEntry(self.state, self.name, key, value))
+        self.entry(key).value = value
 
     def __delitem__(self, index):
         """
@@ -274,7 +267,8 @@ class Dict(dict):
     def dump(self):
         data = {}
         for i, v in self.items():
-            data[i] = v.value
+            if v.value is not None:
+                data[i] = v.value
         return data
 
     def setGlobal(self, key, value):
@@ -294,40 +288,6 @@ class Dict(dict):
         if self.state:
             self.state.remove(self.name, key)
     
-
-class Parameter(NamedEntry):
-    """
-    a class holding a parameter value
-    @param value: the value of the entry
-    @param version: the version of the entry
-    """
-    def __init__(self, state, name, value=None):
-        super().__init__(state, "parameters", name, value) 
-
-class Layout(Parameter):
-    """
-    a domain that store layout related parameters.
-    @param state: the a State object for parser state
-
-    These parameters stores their current value in State if they are chenged.
-    """
-
-    def __init__(self, state, name, value=None):
-        super().__init__(state, name, value)
-        self._changed = {}
-
-    def set(self, value):
-        """
-        set the value of the entry, and store it in the changed dict.
-        @param value: the value to be set
-        """
-        super().set(value)
-        self.state.changed[self.name] = value
-
-    def setGlobal(self, value):
-        super().setGlobal(value)
-        self.state.changed[self.name] = value
-
 
 class ArraySavedValue:
     """
@@ -409,7 +369,7 @@ class Array(list, Command):
         values = {}
         default = self.default
         for i, v in enumerate(self):
-            if v != default:
+            if v is not default:
                 values[i] = v
         return values
     
@@ -438,7 +398,6 @@ class State:
         self.parameters = Dict("parameters", self)  # the parameters domain
         self.equitable = Dict("equitable", self)  # the equitable domain
         self.layout = Dict("layout", self)  # the layout domain
-        self.changed = {}
         self.arrays = {}  # a dict of arrays, where the key is the name of the array, and the value is the Array object
 
     def dump(self):

@@ -47,12 +47,12 @@ class Box(nd.Box):
     @param to: the target width or height
     @param spread: the spread
     """
-    def __init__(self, parser, to, spread, list=None):
+    def __init__(self, parser, to, spread):
         super().__init__(None, None, None)
         self.parser = parser
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
-        self.list = list
+        self.list = []
         self.shifted = 0
         self.natural = None
         # (sign, num, den), representing sign * num / den.
@@ -68,12 +68,15 @@ class Box(nd.Box):
                 "spread": self.spread, 
             },
             "extra": {
-                "shifted": self.shifted,
                 "list": self.list,
-                "glue_ratio": self.glue_ratio,
+                "width": self.width,
+                "height": self.height,
+                "depth": self.depth,
+                "shifted": self.shifted,
+                "_packed": self._packed,
             }
         }
-
+    
     @staticmethod
     def _ratioParts(glue_ratio):
         if isinstance(glue_ratio, tuple):
@@ -232,7 +235,7 @@ class HBox(Box, hmode.HListHolder):
     @param spread: the spread
     """
     def __init__(self, parser, to, spread):
-        super().__init__(parser, to, spread, [])
+        super().__init__(parser, to, spread)
         hmode.HListHolder.__init__(self, self.list)
 
     init_needs_parser = True
@@ -606,7 +609,7 @@ class VBox(Box, vmode.VListHolder):
     @param vtop: whether the box is a vtop
     """
     def __init__(self, parser, to, spread):
-        super().__init__(parser, to, spread, [])
+        super().__init__(parser, to, spread)
         vmode.VListHolder.__init__(self, self.list)
         self.expanded = []
         self.boxmaxdepth = parser.state.layout["boxmaxdepth"]
@@ -853,7 +856,8 @@ class AccentBox(Box):
     An accent box.
     """
     def __init__(self, accent):
-        super().__init__(None, None, None, [accent])
+        super().__init__(None, None, None)
+        self.list.append(accent)
         self.accent = accent
         self.width = accent.width
         self.height = accent.height
@@ -912,7 +916,7 @@ class IndentBox(Box):
     An indent box.
     """
     def __init__(self, parser):
-        super().__init__(parser, None, None, None)
+        super().__init__(parser, None, None)
         self.width = parser.state.parameters["parindent"]
         self.height = Dimen()
         self.depth = Dimen()

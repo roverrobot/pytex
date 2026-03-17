@@ -318,7 +318,6 @@ class InputStack:
         save a token for later reading
         @param token: the token to save
         """
-        assert token is not None
         self.saved.append(token)
 
     def push(self, lexer):
@@ -342,9 +341,9 @@ class InputStack:
         pop the top scanner if it is terminated
         @param to: the scanner to pop to (including to)
         """
-        if self.stack:
+        try:
             self.top, self.active = self.stack.pop()
-        else:
+        except IndexError:
             self.top = None
             self.active = None
 

@@ -215,14 +215,21 @@ class CatCode(Array):
     """
     def __init__(self, state):
         super().__init__("catcode", state, CATCODE.OTHER)
+        # When INITEX begins, it knows nothing but T EX’s primitives. All 256 charac-
+        # ters are initially of category 12, except that ⟨return⟩has category 5, ⟨space⟩
+        # has category 10, ⟨null⟩has category 9, ⟨delete⟩has category 15, the 52 letters A...Zand
+        # a...z have category 11, % and \ have the respective categories 14 and 0. It follows that
+        # INITEX is initially incapable of carrying out some of T EX’s primitives that depend on
+        # grouping; you can’t use \def or \hbox until there are characters of categories 1 and 2.        
+        self[ord("\r")] = CATCODE.END_OF_LINE
+        self[ord(" ")] = CATCODE.SPACE
+        self[0] = CATCODE.IGNORE
+        self[8] = CATCODE.INVALID
         for c in range(ord("A"), ord("Z") + 1):
             self[c] = CATCODE.LETTER
             self[c + 32] = CATCODE.LETTER
-        self[ord("\\")] = CATCODE.ESCAPE
-        self[ord("\r")] = CATCODE.END_OF_LINE
-        self[ord(" ")] = CATCODE.SPACE
         self[ord("%")] = CATCODE.COMMENT
-        self[8] = CATCODE.INVALID
+        self[ord("\\")] = CATCODE.ESCAPE
 
 
 class CatCodeArrayAccessor(RangedIntegerArrayAccessor):

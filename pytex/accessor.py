@@ -131,7 +131,7 @@ class ArrayItemAccessor(Accessor):
         self.index = index
 
     def saveInfo(self):
-        return {"init": {"domain": self.domain.name, "index": self.index}}
+        return {"domain": self.domain.name, "index": self.index}, None
 
     init_needs_parser = True
     

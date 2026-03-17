@@ -31,12 +31,10 @@ class Row(serialization.Serializable):
         self.cells = []
 
     def saveInfo(self):
-        return {
-            "extra": {
+        return {}, {
                 "noalign": self.noalign,
                 "cells": self.cells,
-            },
-        }
+            }
 
     def __repr__(self):
         return f"Row({self.cells})"
@@ -170,16 +168,13 @@ class Alignment(nd.Node):
 
     def saveInfo(self):
         return {
-            "init": {
                 "to": self.to,
                 "spread": self.spread,
-            },
-            "extra": {
+            }, {
                 "rows": self.rows,
                 "noalign": self.noalign,
                 "tabskips": self.tabskips,
             },
-        }
     
     def __repr__(self):
         return f"{self.__class__.__name__}({self.rows})"

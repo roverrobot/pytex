@@ -25,7 +25,7 @@ class Stretchness(serialization.Serializable):
         self.order = order
     
     def saveInfo(self):
-        return {"init": {"factor": self.factor, "order": self.order}}
+        return {"factor": float(self.factor), "order": self.order}, None
 
     def copy(self):
         """
@@ -83,11 +83,11 @@ class Glue(serialization.Serializable):
         self.shrink = shrink
     
     def saveInfo(self):
-        return {"init": {
-            "dimen": self.dimen, 
+        return {
+            "dimen": float(self.dimen), 
             "stretch": self.stretch,
             "shrink": self.shrink,
-        }}
+        }, None
     
     def copy(self):
         """

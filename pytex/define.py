@@ -97,7 +97,7 @@ class CharDefValue(Command):
         self.value = value
 
     def saveInfo(self):
-        return {"init": {"value": self.value}}
+        return {"value": self.value}, None
 
     def execute(self, parser):
         return parser.addChar(self.charValue(parser))

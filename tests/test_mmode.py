@@ -362,7 +362,7 @@ def test_mathchar(math, cmd):
 def test_mathsymbol_saveinfo_and_typeset(math):
     symbol = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
     info = symbol.saveInfo()
-    assert info["init"]["mathcode"] == symbol.encode()
+    assert info["mmode.MathSymbol"]["mathcode"] == symbol.encode()
     packed = []
     context = inline_context(math)
     symbol.typeset(math, packed, context, mmode.Style(mmode.MATH_STYLE.T))
@@ -1306,8 +1306,8 @@ def test_radical(math):
     assert isSymbol(node.delim.large, 3, chr(0x70))
     assert isSymbol(node.oprand, 1, "a")
     info = node.saveInfo()
-    assert info["init"]["delim"] is node.delim
-    assert info["init"]["oprand"] is node.oprand
+    assert info["mmode.Delim"]["delim"] is node.delim
+    assert info["mmode.Delim"]["oprand"] is node.oprand
     math.parse("$")
 
 
@@ -1353,8 +1353,8 @@ def test_mathaccent(math):
     assert isSymbol(node.base, 1, "a")
     assert isSymbol(node.accent, 3, chr(0x62))
     info = node.saveInfo()
-    assert info["init"]["accent"] is node.accent
-    assert info["init"]["base"] is node.base
+    assert info["mmode.Accent"]["accent"] is node.accent
+    assert info["mmode.Accent"]["base"] is node.base
     try:
         math.parse("\\accent`^a$")
         assert False

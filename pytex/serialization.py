@@ -31,7 +31,8 @@ def getClass(name):
     # check if module has the form pytex.module
     names = name.split(".")
     if len(names) == 1:
-        return __import__(name)
+        return None
+    assert names[0] == "pytex", f"invalid class {names[0]}"
     module = __import__(names[0])
     for name in names[1:]:
         module = getattr(module, name)
@@ -44,21 +45,21 @@ def deserialize(parser, data):
     """
     if isinstance(data, list):
         return [deserialize(parser, x) for x in data]
-    elif not isinstance(data, dict):
+    elif not isinstance(data, dict) or not data:
         return data
+    class_name = list(data.keys())[0]
     d = {}
-    cls = None
-    for key, value in data.items():
-        if key == "__classname__":
-            cls = getClass(value)
-        else:
-            d[key] = deserialize(parser, value)
+    cls = getClass(class_name)
     if cls is None:
+        for name, value in data.items():
+            d[name] = deserialize(parser, value)
         return d
-    init = d.get("init", {})
+    init = deserialize(parser, data[class_name])
     obj = cls.new(parser, **init)
-    for key, value in d.get("extra", {}).items():
-        setattr(obj, key, value)
+    extra = data.get("extra")
+    if extra:
+        for key, value in extra.items():
+            setattr(obj, key, deserialize(parser, value))
     return obj
 
 
@@ -69,18 +70,22 @@ class Serializable:
     """
     def saveInfo(self):
         """
-        save the information of the command into a dictionary
+        return two dictionaries, the first is the arguments to the __init__ method, and the second stores
+        the extra instance variables that needs to be saved (or None for no such values)
 
         One component of the information is argument needed to construct the command, which
         is stored in the "init" element. The other component is the extra attributed,
         which is stored in the "extra" element. If either is empty, the element is not
         included in the dictionary.
         """
-        return {}
+        return {}, None
 
     def serialize(self):
-        info = serialize(self.saveInfo())
-        info["__classname__"] = f"{self.__module__}.{self.__class__.__name__}"
+        init, extra = self.saveInfo()
+        info = {}
+        info[f"{self.__module__}.{self.__class__.__name__}"] = serialize(init)
+        if extra:
+            info["extra"] = serialize(extra)
         return info
 
     init_needs_parser = False

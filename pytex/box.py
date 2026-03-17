@@ -64,11 +64,9 @@ class Box(nd.Box):
     def saveInfo(self):
         packed = None if self._packed == self else self._packed
         return {
-            "init": {
                 "to": self.to, 
                 "spread": self.spread, 
-            },
-            "extra": {
+            }, {
                 "list": self.list,
                 "width": self.width,
                 "height": self.height,
@@ -76,7 +74,6 @@ class Box(nd.Box):
                 "shifted": self.shifted,
                 "_packed": packed,
             }
-        }
     
     @classmethod
     def new(cls, parser, **kargs):
@@ -856,7 +853,7 @@ class AccentBox(Box):
     node_type = nd.NODE_TYPE.HLIST
 
     def saveInfo(self):
-        return {"init": {"accent": self.accent}}
+        return {"accent": self.accent}, None
 
 
 class AccentNode(nd.Node):
@@ -868,7 +865,7 @@ class AccentNode(nd.Node):
         self.base = base
 
     def saveInfo(self):
-        return {"init": {"accent": self.accent, "base": self.base}}
+        return {"accent": self.accent, "base": self.base}, None
     
     node_type = nd.NODE_TYPE.ACCENT
 
@@ -912,7 +909,7 @@ class IndentBox(Box):
         self.typeset = None
 
     def saveInfo(self):
-        return {}
+        return {}, None
     
     init_needs_parser = True
 

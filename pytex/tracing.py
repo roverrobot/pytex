@@ -183,7 +183,7 @@ class TracingEntry(NamedEntry):
         self.value = getattr(self.parser, name)
 
     def saveInfo(self):
-        return {"init": {"domain": self.domain.name, "name": self.name}}
+        return {"domain": self.domain.name, "name": self.name}, None
 
     @classmethod
     def new(cls, parser, **kargs):

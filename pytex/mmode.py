@@ -38,7 +38,7 @@ class Style(serialization.Serializable):
         self.cramped = cramped
 
     def saveInfo(self):
-        return {"init": {"style": self.style.value, "cramped": self.cramped}}
+        return {"style": self.style.value, "cramped": self.cramped}, None
     
     def superscript(self):
         """
@@ -242,6 +242,9 @@ class MathListHolder:
         self.paragraph_math = paragraph_math
     
     node_type = None # not a standard node. Needs to be expanded into boxes
+
+    def saveInfo(self):
+        return {}, {"list": self.list}
 
     def _pass1Collect(self, parser, context, style):
         """
@@ -524,14 +527,6 @@ class Subformula(MathListHolder):
     def __init__(self):
         super().__init__(list=[], paragraph_math=False)
 
-    def saveInfo(self):
-        return {
-            "init": {},
-            "extra": {
-                "list": self.list,
-            }
-        }
-
     def typeset(self, parser, packed, context, style):
         temp = []
         super().typeset(parser, temp, context, style)
@@ -553,14 +548,6 @@ class InlineMathNode(MathListHolder):
         self._typeset_cache = None
 
     node_type = nd.NODE_TYPE.MATH
-
-    def saveInfo(self):
-        return {
-            "init": {},
-            "extra": {
-                "list": self.list,
-            }
-        }
 
     def pretypeset(self, parser):
         self.parser = parser
@@ -598,13 +585,8 @@ class DisplayMathNode(MathListHolder):
         self.eqno = None
 
     def saveInfo(self):
-        return {
-            "init": {},
-            "extra": {
-                "list": self.list,
-                "eqno": self.eqno,
-            }
-        }
+        init, extra = super().saveInfo()
+        return init, extra | {"eqno": self.eqno}
 
     def typeset(self, parser, packed):
         cache = []
@@ -768,7 +750,7 @@ class StyleNode(nd.Node):
             self.style = Style(style, cramped)
 
     def saveInfo(self):
-        return {"init": {"style": self.style}}
+        return {"style": self.style}, None
 
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -813,14 +795,12 @@ class Atom(nd.Node):
         self.right: Delim = None
 
     def saveInfo(self):
-        return {
-            "extra": {
+        return {"atom_type": self.atom_type},  {
                 "sub": self.sub, 
                 "sup": self.sup,
                 "left": self.left,
                 "right": self.right
             }
-        }
 
     node_type = nd.NODE_TYPE.MATHNODE
 
@@ -1330,7 +1310,7 @@ class MathSymbol(serialization.Serializable):
         self.type, self.fam, self.char = self.decode(mathcode, fam)
 
     def saveInfo(self):
-        return {"init": {"mathcode": self.encode(), "fam": -1}}
+        return {"mathcode": self.encode(), "fam": -1}, None
 
     def encode(self):
         return (self.type.value << 12) | (self.fam << 8) | ord(self.char)
@@ -1361,7 +1341,8 @@ class Box(Atom):
         self.nucleus = box
     
     def saveInfo(self):
-        return super().saveInfo() | {"init": {"box": self.nucleus}}
+        init, extra = super().saveInfo()
+        return init | {"box": self.nucleus}, extra
 
     def typesetNucleus(self, parser, packed, context, style):
         # Box atoms carry a prebuilt box nucleus.
@@ -1535,7 +1516,7 @@ class MathCharValue(lists.ModeDependentCommand):
         self.mathcode = mathcode
 
     def saveInfo(self):
-        return {"init": {"mathcode": self.mathcode}}
+        return {"mathcode": self.mathcode}, None
 
     def math(self, parser, mlist):
         mlist.append(self.mathCharValue(parser))
@@ -1614,11 +1595,11 @@ def mustretchness(source, style, stretch):
 
 class MuKern(nd.Kern):
     def __init__(self, dimen):
-        super().__init__(dimen)
+        super().__init__(Dimen(dimen))
         self.mu = True
 
     def saveInfo(self):
-        return {"init": {"dimen": self.dimen}}
+        return {"dimen": float(self.dimen)}, None
 
     def typeset(self, parser, packed, context, style):
         if packed is None:
@@ -1645,7 +1626,7 @@ class MuGlue(nd.Glue):
         self.mu = True
 
     def saveInfo(self):
-        return {"init": {"glue": self.glue, "name": self.name}}
+        return {"glue": self.glue, "name": self.name}, None
 
     def typeset(self, parser, packed, context, style):
         if packed is None:
@@ -1707,14 +1688,12 @@ class ChoiceNode(nd.Node):
 
     def saveInfo(self):
         return {
-            "init": {
                 "display": self.display,
                 "text": self.text,
                 "script": self.script,
                 "scriptscript": self.scriptscript
-            }
-        }
-
+            }, None
+ 
     def branch(self, style):
         current = style.style if isinstance(style, Style) else style
         if current == MATH_STYLE.D:
@@ -1774,12 +1753,10 @@ class Delim(serialization.Serializable):
     
     def saveInfo(self):
         return {
-            "init": {
                 "type": self.type.value,
                 "small": self.small,
                 "large": self.large
-            }
-        }
+            }, None
 
     def __repr__(self):
         return f"Delim({self.type}, {self.small}, {self.large})"
@@ -1988,7 +1965,7 @@ class Rad(Atom):
         self.oprand = oprand
 
     def saveInfo(self):
-        return {"init": {"delim": self.delim, "oprand": self.oprand}}
+        return {"delim": self.delim, "oprand": self.oprand}, None
 
     def _typesetField(self, parser, field, context, style):
         out = box.HBox(parser, None, 0)
@@ -2122,16 +2099,13 @@ class Over(Atom):
 
     def saveInfo(self):
         return {
-            "init": {
                 "num": self.nucleus[0],
                 "den": self.nucleus[1],
                 "bar": self.nucleus[2],
                 "thickness": self.nucleus[3],
-            },
-            "extra": {
+            }, {
                 "delims": self.delims,
-            },
-        }
+            }
     
     def rule15(self, parser, style: Style):
         """
@@ -2316,7 +2290,7 @@ class Accent(Atom):
         self.nucleus = value
 
     def saveInfo(self):
-        return {"init": {"accent": self.accent, "base": self.base}}
+        return {"accent": self.accent, "base": self.base}, None
 
     def _typesetField(self, parser, field, context, style):
         out = box.HBox(parser, None, 0)
@@ -2474,7 +2448,8 @@ class VCent(Box):
         self.atom_type = ATOM_TYPE.VCENT
     
     def saveInfo(self):
-        return super().saveInfo() | {"init": {"box": self.nucleus}}
+        init, extra = super().saveInfo() 
+        return init | {"box": self.nucleus}, extra
 
     def typesetNucleus(self, parser, packed, context, style):
         # \vcenter is built as a raw vbox; ensure dimensions are realized
@@ -2520,7 +2495,7 @@ class NonscriptGlue(nd.Glue):
         self.nonscript = True
 
     def saveInfo(self):
-        return {}
+        return {}, None
 
 
 class Nonscript(lists.ModeDependentCommand):
@@ -2572,7 +2547,7 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
         self.index = index
 
     def saveInfo(self):
-        return {"init": {"name": self.name}}
+        return {"name": self.name}, None
 
     def readValue(self, parser):
         return parser.readDimen()

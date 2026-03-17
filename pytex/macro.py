@@ -94,16 +94,13 @@ class Macro(Command):
 
     def saveInfo(self):
         return {
-            "init": {
                 "brackets": self.brackets,
                 "replacement": self.replacement,
-            },
-            "extra": {
+            }, {
                 "long": self.long,
                 "outer": self.outer,
                 "protected": self.protected
             }
-        }
 
     @classmethod
     def new(cls, parser, **kwargs):

@@ -69,7 +69,7 @@ class Command(serialization.Serializable):
         save the command information. This is used to serialize the command.
         @return: a dictionary with the command information
         """
-        return {"init": {"name": self.name}}
+        return {"name": self.name}, None
 
     @classmethod
     def new(cls, parser, **kargs):
@@ -150,11 +150,12 @@ class Token(Command):
         raise ValueError(f"invalid token: {self.meaning(parser)}", parser.input.position())
     
     def saveInfo(self):
-        return {"init": {"name": self.name, "catcode": self.catcode}}
+        return {"value": [self.name, self.catcode]}, None
     
     @classmethod
     def new(cls, parser, **kargs):
-        return cls(**kargs)
+        value = kargs["value"]
+        return cls(value[0], value[1])
 
     def isSpace(self, expand):
         """ 
@@ -222,7 +223,7 @@ class CommandToken(Token):
         self.noexpand = False
 
     def saveInfo(self):
-        return {"init": {"name": self.name}}
+        return {"name": self.name}, None
 
     @classmethod
     def new(cls, parser, **kargs):
@@ -343,7 +344,8 @@ class ParameterToken(Token):
     parameter = None
 
     def saveInfo(self):
-        return super().saveInfo() | {"extra": {"parameter": self.parameter}}
+        init, extra = super().saveInfo() 
+        return init, {"parameter": self.parameter}
 
     def execute(self, parser):
         raise ValueError("unexpected #", parser.input.position())
@@ -377,7 +379,11 @@ class SpaceToken(Token):
         return "blank space"
     
     def saveInfo(self):
-        return {}
+        return {}, None
+    
+    @classmethod
+    def new(cls, parser, **kargs):
+        return cls()
     
     def isSpace(self, expand):
         """ 

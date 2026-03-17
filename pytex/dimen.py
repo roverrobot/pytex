@@ -22,7 +22,7 @@ class Dimen(serialization.Serializable):
             self.value = 0 if integer is None else integer
 
     def saveInfo(self):
-        return {"init": {"integer": self.value}}
+        return {"integer": self.value}, None
 
     def negate(self):
         return Dimen(integer=-self.value)

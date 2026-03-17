@@ -422,7 +422,7 @@ class Disc(nd.Node):
         packed.append(self.rendered)
         
     def saveInfo(self):
-        return {"init": {"pre": self.pre, "post": self.post, "replace": self.replace}}
+        return {"pre": self.pre, "post": self.post, "replace": self.replace}, None
     
     def __repr__(self):
         return f"Disc({self.pre}, {self.post}, {self.replace})"

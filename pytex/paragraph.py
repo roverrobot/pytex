@@ -60,14 +60,11 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     def saveInfo(self):
         return {
-            "init": {
                 "indent": self.indent,
-            },
-            "extra": {
+            }, {
                 "disc": getattr(self, "disc", None),
                 "list": self.list,
-            },
-        }
+            }
 
     init_needs_parser = True
     

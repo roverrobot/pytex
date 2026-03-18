@@ -135,6 +135,8 @@ def test_macro_expansion(collector):
     assert collector.getString() == "2 "
     collector.parse("\\def\\a1#12#2{#1#2}\\a1{2}23")
     assert collector.getString() == "23 "
+    collector.parse("\\def\\a.#1#{[#1]}\\a. x{y}")
+    assert collector.getString() == "[ x]y "
     collector.parse("\\def\\a#1\\relax#2\\relax{#1#2}")
     collector.parse("\\expandafter\\def\\expandafter\\x\\expandafter{\\a\\relax{}\\relax}")
     x = collector.lookup("\\x")

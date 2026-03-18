@@ -131,8 +131,10 @@ class ArrayItemAccessor(Accessor):
         self.index = index
 
     def saveInfo(self):
-        return {"init": {"domain": self.domain.name, "index": self.index}}
+        return {"domain": self.domain.name, "index": self.index}, None
 
+    init_needs_parser = True
+    
     @classmethod
     def new(cls, parser, **kargs):
         """
@@ -248,11 +250,14 @@ class Prefix(token.Command):
         prefixes.append(self)
         parser.skipFiller()
         t = parser.token()
-        if t is None or not t.is_command or not hasattr(t.definition, "assign"):
+        if t is None:
+            raise ValueError("expecting an assignment", parser.input.position())
+        assign = getattr(t.definition, "assign", None)
+        if assign is None:
             raise ValueError("expecting an assignment", parser.input.position())
         if parser.tracingcommands > 0:
             parser.trace(t, "execute")
-        t.definition.assign(parser, prefixes)
+        assign(parser, prefixes)
 
     def execute(self, parser):
         """

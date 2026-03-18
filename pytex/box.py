@@ -47,12 +47,12 @@ class Box(nd.Box):
     @param to: the target width or height
     @param spread: the spread
     """
-    def __init__(self, parser, to, spread, list=None):
+    def __init__(self, parser, to, spread):
         super().__init__(None, None, None)
         self.parser = parser
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
-        self.list = list
+        self.list = []
         self.shifted = 0
         self.natural = None
         # (sign, num, den), representing sign * num / den.
@@ -62,18 +62,26 @@ class Box(nd.Box):
         self._build_state = None
 
     def saveInfo(self):
+        packed = None if self._packed == self else self._packed
         return {
-            "init": {
                 "to": self.to, 
                 "spread": self.spread, 
-            },
-            "extra": {
-                "shifted": self.shifted,
+            }, {
                 "list": self.list,
-                "glue_ratio": self.glue_ratio,
+                "width": self.width,
+                "height": self.height,
+                "depth": self.depth,
+                "shifted": self.shifted,
+                "_packed": packed,
             }
-        }
-
+    
+    @classmethod
+    def new(cls, parser, **kargs):
+        box = cls(parser, **kargs)
+        if box._packed is None and getattr(box, "width") is not None:
+            box._packed = box
+        return box
+    
     @staticmethod
     def _ratioParts(glue_ratio):
         if isinstance(glue_ratio, tuple):
@@ -232,12 +240,10 @@ class HBox(Box, hmode.HListHolder):
     @param spread: the spread
     """
     def __init__(self, parser, to, spread):
-        super().__init__(parser, to, spread, [])
+        super().__init__(parser, to, spread)
         hmode.HListHolder.__init__(self, self.list)
 
-    @classmethod
-    def new(cls, parser, **kwargs):
-        return cls(parser, kwargs["to"], kwargs["spread"])
+    init_needs_parser = True
 
     node_type = nd.NODE_TYPE.HLIST
 
@@ -556,25 +562,6 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
             )
         else:
             self._set(parser)
-    
-
-class BoxArray(Array):
-    """
-    an array of boxes
-    """
-    def __init__(self, state):
-        super().__init__("box", state, None)
-    
-    def dump(self):
-        """
-        dump the array
-        @return: a dict that contains the array values
-        """
-        values = {}
-        for i, v in enumerate(self):
-            if v is not None:
-                values[i] = v
-        return values
 
 
 class SetBox(ArrayAccessor):
@@ -608,14 +595,12 @@ class VBox(Box, vmode.VListHolder):
     @param vtop: whether the box is a vtop
     """
     def __init__(self, parser, to, spread):
-        super().__init__(parser, to, spread, [])
+        super().__init__(parser, to, spread)
         vmode.VListHolder.__init__(self, self.list)
         self.expanded = []
         self.boxmaxdepth = parser.state.layout["boxmaxdepth"]
 
-    @classmethod
-    def new(cls, parser, **kwargs):
-        return cls(parser, kwargs["to"], kwargs["spread"])
+    init_needs_parser = True
 
     node_type = nd.NODE_TYPE.VLIST  
 
@@ -778,7 +763,7 @@ class UnBox(Command):
             parser.newParagraph(indent=False)
             return
         index = parser.readInteger()
-        if not (0 <= index < parser.state.box.size):
+        if index < 0:
             raise ValueError("box index out of range", parser.input.position())
         box = parser.state.box[index]
         if self.wipe:
@@ -857,7 +842,8 @@ class AccentBox(Box):
     An accent box.
     """
     def __init__(self, accent):
-        super().__init__(None, None, None, [accent])
+        super().__init__(None, None, None)
+        self.list.append(accent)
         self.accent = accent
         self.width = accent.width
         self.height = accent.height
@@ -867,7 +853,7 @@ class AccentBox(Box):
     node_type = nd.NODE_TYPE.HLIST
 
     def saveInfo(self):
-        return {"init": {"accent": self.accent}}
+        return {"accent": self.accent}, None
 
 
 class AccentNode(nd.Node):
@@ -879,7 +865,7 @@ class AccentNode(nd.Node):
         self.base = base
 
     def saveInfo(self):
-        return {"init": {"accent": self.accent, "base": self.base}}
+        return {"accent": self.accent, "base": self.base}, None
     
     node_type = nd.NODE_TYPE.ACCENT
 
@@ -916,18 +902,16 @@ class IndentBox(Box):
     An indent box.
     """
     def __init__(self, parser):
-        super().__init__(parser, None, None, None)
+        super().__init__(parser, None, None)
         self.width = parser.state.parameters["parindent"]
         self.height = Dimen()
         self.depth = Dimen()
         self.typeset = None
 
     def saveInfo(self):
-        return {}
+        return {}, None
     
-    @classmethod
-    def new(cls, parser, **kwargs):
-        return cls(parser)
+    init_needs_parser = True
 
     node_type = nd.NODE_TYPE.HLIST
 
@@ -1025,7 +1009,7 @@ class LastBox(Command):
 
 mod = Module("hbox", 
     domains={
-        "box": {"generator": BoxArray, "accessor": SetBox},
+        "box": {"generator": Array, "accessor": SetBox},
     },
     parameters={
         "badness": {"value": 0, "accessor": BadnessAccessor, "domain": "globals"},

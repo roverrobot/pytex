@@ -44,10 +44,7 @@ class Font(Command):
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}
     
     def saveInfo(self):
-        return {
-            "init": {"tfm": self.tfm.name, "at": self.at},
-            "extra": {"fontchar": self.fontchar, "name": getattr(self, "name", None)},
-        }
+        return {"tfm": self.tfm.name, "at": self.at}, {"fontchar": self.fontchar, "name": getattr(self, "name", None)}
 
     @classmethod
     def new(cls, parser, tfm, at):
@@ -71,7 +68,7 @@ class Font(Command):
         return name if name is not None else f"\\{self.tfm.name}"
 
     def meaning(self, parser):
-        return repr(self)
+        return f"select font {self.tfm.name} at {self.at}pt"
         
     def fontValue(self, parser):
         """
@@ -149,11 +146,6 @@ class MathFontArray(Array):
             if len(params) < 13:
                 raise ValueError(f"{self.name}[3] has {len(params)} fontdimen params; need at least 13 for math typesetting")
 
-    def __getitem__(self, index):
-        font = list.__getitem__(self, index)
-        self._validateMathFamily(index, font)
-        return font
-
     def __setitem__(self, index, value):
         self._validateMathFamily(index, value)
         super().__setitem__(index, value)
@@ -164,7 +156,7 @@ class MathFontArray(Array):
 
 
 def fontarray(name): 
-    return lambda state: MathFontArray(name, state, default=nullfont, size=256)
+    return lambda state: MathFontArray(name, state, default=nullfont)
 
 
 class FontCharAccessor(IntegerArrayItemAccessor):

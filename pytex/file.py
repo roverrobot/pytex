@@ -50,7 +50,7 @@ class OpenOp(ArrayItemAccessor):
 
     def saveInfo(self):
         input = self.file_array == "openin"
-        return {"init": {"input": input, "file_id": self.index, "filename": self.filename}}
+        return {"input": input, "file_id": self.index, "filename": self.filename}, None
 
     
 class OpenInOp(OpenOp):
@@ -74,7 +74,7 @@ class FileOp(serialization.Serializable):
         self.file_id = file_id
 
     def saveInfo(self):
-        return {"init": {"input": self.input, "file_id": self.file_id}}
+        return {"input": self.input, "file_id": self.file_id}, None
     
     def execute(self, parser):
         """
@@ -114,7 +114,7 @@ class WriteOp(FileOp):
         self.tokens = tokens
     
     def saveInfo(self):
-        return {"init": {"file_id": self.file_id, "tokens": self.tokens}}
+        return {"file_id": self.file_id, "tokens": self.tokens}, None
     
     def execute(self, parser):
         pushFileScan(parser, TokenListScanner(self.tokens))
@@ -207,7 +207,7 @@ class FileOpNode(nd.WhatsIt):
         self.op = op
 
     def saveInfo(self):
-        return {"init": {"op": self.op}}
+        return {"op": self.op}, None
 
     def output(self, parser, device):
         self.op.execute(parser)
@@ -292,7 +292,7 @@ class Read(FileCommand):
         if to is None:
             raise ValueError("Expected 'to' keyword")
         t = parser.skipSpaces(expand=False)
-        if not t.is_command:
+        if t.entry is None:
             raise ValueError(f"Expected a control sequence, got {t}")
         return ReadOp(t.entry, file_id)
     

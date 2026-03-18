@@ -1,8 +1,6 @@
 import io
-import json
 
 from pytex.parser import Parser
-from pytex import serialization
 from pytex.token import CATCODE
 
 
@@ -30,27 +28,51 @@ def test_hyphenator_dump_load_roundtrip(parser):
 
     loaded = Parser()
     _set_common_catcodes(loaded)
-    loaded.load(io.StringIO(data))
+    loaded.load(io.BytesIO(data))
 
-    assert loaded.hyphenator.dicts[0]["technical"] == [4, 6]
-    assert loaded.hyphenator.dicts[1]["microwave"] == [5]
+    assert loaded.formatfile is not None
     assert loaded.hyphenator.language == 1
+    loaded.hyphenator.setLanguage(0)
+    assert loaded.hyphenator.dicts[0]["technical"] == [4, 6]
+    loaded.hyphenator.setLanguage(1)
+    assert loaded.hyphenator.dicts[1]["microwave"] == [5]
     assert loaded.hyphenator.words is loaded.hyphenator.dicts[1]
     assert loaded.hyphenator._dumpPatternTrie(loaded.hyphenator.pattern_tries[1]) == [
         ["abc", [0, 1, 0, 2]]
     ]
 
 
-def test_parser_load_backward_compatible_state_only_dump(parser):
+def test_hyphenator_container_dump_load_is_lazy(parser, monkeypatch):
     parser.parse("\\count0=123")
-    old_style = json.dumps(serialization.serialize(parser.state.dump()))
+    parser.parse("\\patterns{a1b}")
+    parser.parse("\\language 1 \\hyphenation{mi-cro-wave}\\patterns{c3d}")
+    data = parser.dump()
 
     loaded = Parser()
     _set_common_catcodes(loaded)
-    loaded.load(io.StringIO(old_style))
+    calls = []
+    original = loaded.hyphenator._insertPattern
+
+    def tracking_insert(root, letters, weights):
+        calls.append(letters)
+        return original(root, letters, weights)
+
+    monkeypatch.setattr(type(loaded.hyphenator), "_insertPattern", staticmethod(tracking_insert))
+    loaded.load(io.BytesIO(data))
 
     assert loaded.state.count[0] == 123
+    assert loaded.formatfile is not None
+    assert loaded.hyphenator.language == 1
+    assert calls == []
 
+    loaded.hyphenator.setLanguage(1)
+    assert loaded.hyphenator.hyphenate("cd") == [1]
+    assert calls == ["cd"]
+    assert loaded.hyphenator.words["microwave"] == [2, 5]
+
+    loaded.hyphenator.setLanguage(0)
+    assert loaded.hyphenator.hyphenate("ab") == [1]
+    assert calls == ["cd", "ab"]
 
 def test_patterns_parsed_into_trie(parser):
     parser.parse("\\patterns{a1bc .T2e}")
@@ -63,11 +85,11 @@ def test_patterns_parsed_into_trie(parser):
     )
 
 
-def test_patterns_duplicate_uses_latter_weights(parser):
-    parser.parse("\\patterns{a3b4c a1bc}")
+def test_patterns_duplicate_merges_weights_silently(parser):
+    parser.parse("\\patterns{a3b4c a1bc ab5c}")
     got = parser.hyphenator._dumpPatternTrie(parser.hyphenator.pattern_tries[0])
-    assert got == [["abc", [0, 1, 0, 0]]]
-    assert "duplicate hyphenation pattern 'abc'" in parser.logContent()
+    assert got == [["abc", [0, 3, 5, 0]]]
+    assert "duplicate hyphenation pattern 'abc'" not in parser.logContent()
 
 
 def test_patterns_are_language_scoped(parser):
@@ -92,6 +114,11 @@ def test_pattern_hyphenation_uses_max_weights(parser):
     parser.parse("\\patterns{b3c}")
     # now max becomes 3 (odd) -> break at position 2
     assert parser.hyphenator.hyphenate("abc") == [2]
+
+
+def test_pattern_hyphenation_merges_duplicate_letter_patterns(parser):
+    parser.parse("\\patterns{a1bc ab3c}")
+    assert parser.hyphenator.hyphenate("abc") == [1, 2]
 
 
 def test_pattern_hyphenation_respects_boundary_dot(parser):

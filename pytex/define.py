@@ -30,7 +30,7 @@ class Define(accessor.ArrayAccessor):
         @param parser: the parser
         """
         t = parser.token()
-        if t is None or not t.is_command:
+        if t is None or t.entry is None:
             raise ValueError(f"command name expected, got {t}", parser.input.position())
         # is the command defined? Is so, lead it alone. Otherwise, it is going to be defined.
         # However, we may meet is while reading the value of the definition. This causes a problem 
@@ -54,7 +54,7 @@ class LetAccessor(accessor.ParameterAccessor):
         t = parser.token()
         if t is None:
             raise ValueError("a token is expected")
-        return t.definition if t.is_command else t
+        return t.definition if t.entry is not None else t
 
 
 let = Define(LetAccessor)
@@ -83,7 +83,7 @@ class FutureLetAccessor(accessor.ParameterAccessor):
             raise ValueError("\\futurelet expects two tokens")
         parser.input.unread(t2)
         parser.input.unread(t1)
-        return t2.definition if t2.is_command else t2
+        return t2.definition if t2.entry is not None else t2
 
 
 futurelet = Define(FutureLetAccessor)
@@ -97,14 +97,7 @@ class CharDefValue(Command):
         self.value = value
 
     def saveInfo(self):
-        return {"init": {"value": self.value}}
-    
-    @classmethod
-    def new(cls, parser, **kwargs):
-        """
-        create a new object from the dictionary
-        """
-        return cls(**kwargs)
+        return {"value": self.value}, None
 
     def execute(self, parser):
         return parser.addChar(self.charValue(parser))

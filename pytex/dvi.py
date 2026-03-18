@@ -55,6 +55,10 @@ class DVIShipout(page.Shipout):
             output = self.parser.jobname
             if output is None:
                 output = "texput"
+        if hasattr(output, "write"):
+            self.file = output
+            self._write_pre()
+            return
         path = os.fspath(output)
         if not path.endswith(".dvi"):
             path += ".dvi"

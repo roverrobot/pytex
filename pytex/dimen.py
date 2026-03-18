@@ -15,14 +15,14 @@ DECIMAL_DIGIT_LIMIT = 17
 
 class Dimen(serialization.Serializable):
     scale = 65536
-    def __init__(self, dimen=None, integer=0):
-        if dimen is None:
-            self.value = 0 if integer is None else integer
-        else:
+    def __init__(self, dimen=0.0, integer=None):
+        if integer is None:
             self.value = int(float(dimen) * self.scale)
+        else:
+            self.value = 0 if integer is None else integer
 
     def saveInfo(self):
-        return {"init": {"integer": self.value}}
+        return {"integer": self.value}, None
 
     def negate(self):
         return Dimen(integer=-self.value)

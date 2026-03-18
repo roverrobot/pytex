@@ -6,7 +6,6 @@ from pytex import font
 from pytex import lists
 from pytex import node as nd
 from pytex import paragraph
-import json
 import io
 
 
@@ -20,12 +19,12 @@ def plain_dump(parser):
     data = parser.dump()
     dump.write(data)
     dump.close()
-    return parser.resolver.in_memory_files["plain.json"].content
+    return parser.resolver.in_memory_files["plain.pfmt"].content
 
 
 @pytest.fixture()
 def plain(parser, plain_dump):
-    format = io.StringIO(plain_dump)
+    format = io.BytesIO(plain_dump)
     parser.load(format)
     format.close()
     return parser

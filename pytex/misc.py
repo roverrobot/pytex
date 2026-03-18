@@ -14,10 +14,6 @@ from pytex import token
 class Dump(token.Command):
     """
     Dump the current parser state as a format file.
-
-    A format file is a JSON file that contains the changes to parser.state
-    since the last dump. If this is the first dump, it is compared to the
-    default state of the parser. 
     """
     def execute(self, parser):
         parser.end()

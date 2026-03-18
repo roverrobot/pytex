@@ -54,7 +54,7 @@ parser = Parser()
 
 
 def dumper(parser, data):
-    with open(parser.resolver.format+'.json', "w") as fmt:
+    with open(parser.resolver.format + '.pfmt', "wb") as fmt:
         fmt.write(data)
 parser.dumper = types.MethodType(dumper, parser)
 
@@ -72,10 +72,15 @@ if args.format == "initex":
         raise ValueError("The file must be a relative path")
     if ext == "" and parser.resolver.format != "plain": # no extension
         source += ".ini"
-    print(f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.json", file = parser.console)
+    print(
+        f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.pfmt",
+        file=parser.console,
+    )
 else:
     parser.resolver.format = args.format
     fmt = parser.resolver.openIn(args.format, "dump")
+    if fmt is None:
+        raise ValueError(f"cannot find format {args.format}")
     parser.load(fmt)
     fmt.close()
 
@@ -91,7 +96,8 @@ if args.profile:
     parser.console.close()
     exit(0)
 else:
-    parser.shipout = dvi.DVIShipout(parser, args.output)
+    if args.format != "initex":
+        parser.shipout = dvi.DVIShipout(parser, args.output)
     parser.parse(input, jobname=file)
 input.close()
 

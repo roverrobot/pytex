@@ -6,7 +6,34 @@ This module implements various expandable commands.
 from pytex.token import Command, CATCODE, CommandToken, ActiveToken, relax, SpaceToken, CharToken
 from pytex.module import Module
 from pytex.lexer import TokenListScanner, Scanner
+from pytex.state import NamedEntry
 import pathlib
+
+
+class NoExpandToken(CommandToken):
+    def __init__(self, parser, inner):
+        super().__init__(inner.name)
+        self._entry = inner.entry
+        self.saved = parser.state.equitable.entry("noexpand")
+        if self.saved.value is None:
+            self.saved.value = relax
+        # Trigger __getattr__("entry") on first read so the token initially
+        # behaves like \relax, then falls back to the wrapped token's entry.
+        del self.entry
+
+    def __getattr__(self, name):
+        if name == "entry":
+            self.entry = self._entry
+            return self.saved
+        raise AttributeError(name)
+        
+    def saveInfo(self):
+        return {"name": self.name}, None
+    
+    @classmethod
+    def new(cls, parser, **kargs):
+        return CommandToken.new(parser, **kargs)
+
 
 class NoExpand(Command):
     """
@@ -20,12 +47,9 @@ class NoExpand(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token after \\noexpand", parser.input.position())
-        if t.is_command:
-            entry = t.entry
-            if entry.value is None or entry.value.expand:
-                t = CommandToken(t.name) if t.catcode is None else ActiveToken(t.name, t.catcode)
-                t.entry = entry
-                t.noexpand = True
+        entry = t.entry
+        if entry is not None and (entry.value is None or entry.value.expand):
+            t = NoExpandToken(parser, t)
         parser.input.unread(t)
 
 
@@ -45,7 +69,7 @@ class ExpandAfter(Command):
         if t is None:
             return
         t1 = parser.token()
-        if t1.is_command:
+        if t1.entry is not None:
             definition = t1.definition
             if definition is None:
                 raise ValueError(f"undefined command {t1.name}", parser.input.position())

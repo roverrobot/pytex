@@ -68,6 +68,8 @@ def test_ifdefined(collector):
     assert collector.getString() == "b"
     collector.parse("\\ifdefined\\count a\\else b\\fi")
     assert collector.getString() == "a"
+    collector.parse("\\ifdefined1a\\else b\\fi")
+    assert collector.getString() == "a"
 
 def test_ifcsname(collector):
     collector.parse("\\ifcsname undefined\\endcsname a\\else b\\fi")
@@ -96,6 +98,12 @@ def test_fontchar_dimen(collector):
     assert collector.getString() == "6.83331pt"
     collector.parse("\\the\\fontchardp\\font 65")
     assert collector.getString() == "0.0pt"
+
+
+def test_font_meaning_matches_tex_shape(parser):
+    parser.parse("\\font\\f=cmr10 at 1pt")
+    assert parser.lookup("\\f").meaning(parser) == "select font cmr10 at 1.0pt"
+
 
 def test_gluestretchness(collector):
     collector.parse("\\skip0= 0pt plus 1pt minus 2filll")

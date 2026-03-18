@@ -407,7 +407,7 @@ class VAdjust(nd.Node, VListHolder):
         self.list = value
 
     def saveInfo(self):
-        return {"init": {"vlist": self.vlist}}
+        return {"vlist": self.vlist}, None
 
     node_type = nd.NODE_TYPE.ADJUST
 
@@ -421,7 +421,7 @@ class Mark(nd.Node):
         self.tokens = tokens
 
     def saveInfo(self):
-        return {"init": {"tokens": self.tokens}}
+        return {"tokens": self.tokens}, None
 
     node_type = nd.NODE_TYPE.MARK
 
@@ -444,7 +444,7 @@ class Insert(nd.Node, VListHolder):
         self.list = value
 
     def saveInfo(self):
-        return {"init": {"index": self.index, "vlist": self.vlist}}
+        return {"index": self.index, "vlist": self.vlist}, None
 
     node_type = nd.NODE_TYPE.INS
 

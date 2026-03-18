@@ -128,8 +128,6 @@ class Tokenizer:
         c, catcode = self.charExpand()
         if catcode is None:
             return None
-        if catcode == CATCODE.IGNORE:
-            return self.read()
         # handle comments
         if catcode == CATCODE.COMMENT:
             return None
@@ -148,7 +146,7 @@ class Tokenizer:
             t.entry = self.equitable.entry(c)
             return t
         if catcode != CATCODE.ESCAPE:
-            return Token.token(c, catcode)
+            return self.read() if catcode == CATCODE.IGNORE else Token.token(c, catcode)
         c, catcode = self.charExpand()
         name = "\\" + c
         if catcode == CATCODE.LETTER:
@@ -304,23 +302,31 @@ class InputStack:
         @return: the next token, or None if the end of the stack is reached
         """
         if self.saved:
-            return self.saved.pop()
+            t = self.saved.pop()
+            entry = t.entry
+            if entry is not None:
+                t.definition = entry.value
+            return t
         while self.top:
             t = self.top.read()
             if t:
+                entry = t.entry
+                if entry is not None:
+                    t.definition = entry.value
                 return t
-            if self.stack:
-                self.top, self.active = self.stack.pop()
-            else:
-                self.top = None
-                self.active = None
+            self.top, self.active, self.saved = self.stack.pop()
+            if self.saved:
+                t = self.saved.pop()
+                entry = t.entry
+                if entry is not None:
+                    t.definition = entry.value
+                return t
 
     def unread(self, token):
         """
         save a token for later reading
         @param token: the token to save
         """
-        assert token is not None
         self.saved.append(token)
 
     def push(self, lexer):
@@ -328,27 +334,23 @@ class InputStack:
         push a new scanner on the stack
         @param lexer: the scanner to push
         """
-        if self.top is not None:
-            self.stack.append((self.top, self.active))
-        if self.saved:
-            # remember that the saved tokens are on a stack. So we need to reverse it
-            self.saved.reverse()
-            self.stack.append((TokenListScanner(self.saved), self.active))
-            self.saved = []
+        self.stack.append((self.top, self.active, self.saved))
         self.top = lexer
         if lexer.position is not None:
             self.active = lexer
+        self.saved = []
     
     def pop(self):
         """
         pop the top scanner if it is terminated
         @param to: the scanner to pop to (including to)
         """
-        if self.stack:
-            self.top, self.active = self.stack.pop()
-        else:
+        try:
+            self.top, self.active, self.saved = self.stack.pop()
+        except IndexError:
             self.top = None
             self.active = None
+            self.saved = []
 
     def clear(self):
         """

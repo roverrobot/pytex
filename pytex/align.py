@@ -31,12 +31,10 @@ class Row(serialization.Serializable):
         self.cells = []
 
     def saveInfo(self):
-        return {
-            "extra": {
+        return {}, {
                 "noalign": self.noalign,
                 "cells": self.cells,
-            },
-        }
+            }
 
     def __repr__(self):
         return f"Row({self.cells})"
@@ -170,16 +168,13 @@ class Alignment(nd.Node):
 
     def saveInfo(self):
         return {
-            "init": {
                 "to": self.to,
                 "spread": self.spread,
-            },
-            "extra": {
+            }, {
                 "rows": self.rows,
                 "noalign": self.noalign,
                 "tabskips": self.tabskips,
             },
-        }
     
     def __repr__(self):
         return f"{self.__class__.__name__}({self.rows})"
@@ -571,7 +566,7 @@ class Cr(CrCr):
     def execute(self, parser):
         # check if it is followed by a \crcr
         t = parser.token_expand()
-        if t is not None and (not t.is_command or t.definition != crcr):
+        if t is not None and t.definition != crcr:
             parser.input.unread(t)
         super().execute(parser)
 
@@ -706,7 +701,7 @@ class AlignmentBuilder:
                 if t is None:
                     raise ValueError("expecting a \\cr", parser.input.position())
                 if t.catcode == CATCODE.BEGIN_GROUP:
-                    template.extend(parser.readBalancedText([t], expand=False, macro=False))
+                    template.extend(parser.readBalancedText([t]))
                 elif t.catcode == CATCODE.ALIGNMENT_TAB:
                     # end of column, but no crcr
                     t = None

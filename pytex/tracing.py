@@ -183,7 +183,7 @@ class TracingEntry(NamedEntry):
         self.value = getattr(self.parser, name)
 
     def saveInfo(self):
-        return {"init": {"domain": self.domain.name, "name": self.name}}
+        return {"domain": self.domain.name, "name": self.name}, None
 
     @classmethod
     def new(cls, parser, **kargs):
@@ -312,7 +312,7 @@ class ShowBox(Command):
     """
     def execute(self, parser):
         index = parser.readInteger()
-        box = parser.state.box[index] if 0 <= index < len(parser.state.box) else None
+        box = parser.state.box[index]
         lines = [f"> \\box{index}="]
         lines.extend(_show_box(parser, box))
         lines.append("OK.")

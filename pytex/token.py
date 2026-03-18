@@ -69,7 +69,7 @@ class Command(serialization.Serializable):
         save the command information. This is used to serialize the command.
         @return: a dictionary with the command information
         """
-        return {"init": {"name": self.name}}
+        return {"name": self.name}, None
 
     @classmethod
     def new(cls, parser, **kargs):
@@ -79,10 +79,13 @@ class Command(serialization.Serializable):
         @param init: the command information
         @return: the command
         """
-        name = kargs["name"]
-        if name is None:
-            raise ValueError("command name is required")
-        return parser.builtin[name]
+        name = kargs.get("name")
+        if name:
+            return parser.builtin[name]
+        if cls.init_needs_parser:
+            return cls(parser, **kargs)
+        return cls(**kargs)
+
    
     def __eq__(self, other):
         """
@@ -129,10 +132,10 @@ class Token(Command):
         self.name = name
         self.catcode = catcode
         self.definition = None
+        # only command tokens have entry, pointing to the entry in equitable. However, we can use this field to
+        # distinguish if a tokan is a command or not
+        self.entry = None
 
-    # the token is not a command
-    is_command = False
-    
     # not expandable by default
     expand = None
 
@@ -147,7 +150,12 @@ class Token(Command):
         raise ValueError(f"invalid token: {self.meaning(parser)}", parser.input.position())
     
     def saveInfo(self):
-        return {"init": {"name": self.name, "catcode": self.catcode}}
+        return {"value": [self.name, self.catcode]}, None
+    
+    @classmethod
+    def new(cls, parser, **kargs):
+        value = kargs["value"]
+        return cls(value[0], value[1])
 
     def isSpace(self, expand):
         """ 
@@ -173,15 +181,6 @@ class Token(Command):
             raise ValueError("invalid category code: %d" % catcode)
         return factory(name, catcode)
 
-    @classmethod
-    def new(cls, parser, **kargs):
-        """
-        create a new command from the dictionary
-        @param parser: the parser
-        @param init: the command information
-        @return: the command
-        """
-        return cls(**kargs)
     
     def meaning(self, parser):
         """
@@ -224,7 +223,7 @@ class CommandToken(Token):
         self.noexpand = False
 
     def saveInfo(self):
-        return {"init": {"name": self.name}}
+        return {"name": self.name}, None
 
     @classmethod
     def new(cls, parser, **kargs):
@@ -240,9 +239,6 @@ class CommandToken(Token):
         t = cls(name)
         t.entry = parser.state.equitable.entry(name)
         return t
-
-    # Command tokens represent commands
-    is_command = True
 
     def execute(self, parser):
         """
@@ -345,7 +341,8 @@ class ParameterToken(Token):
     parameter = None
 
     def saveInfo(self):
-        return super().saveInfo() | {"extra": {"parameter": self.parameter}}
+        init, extra = super().saveInfo() 
+        return init, {"parameter": self.parameter}
 
     def execute(self, parser):
         raise ValueError("unexpected #", parser.input.position())
@@ -379,7 +376,11 @@ class SpaceToken(Token):
         return "blank space"
     
     def saveInfo(self):
-        return {}
+        return {}, None
+    
+    @classmethod
+    def new(cls, parser, **kargs):
+        return cls()
     
     def isSpace(self, expand):
         """ 

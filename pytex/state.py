@@ -239,11 +239,7 @@ class Dict(dict):
         @param key: the index of the value
         @return: the value at the index
         """
-        try:
-            return dict.__getitem__(self, key).value
-        except KeyError:
-            dict.__setitem__(self, key, NamedEntry(self.state, self.name, key))
-            return None
+        return self.entry(key).value
     
     def __setitem__(self, key, value):
         """
@@ -251,10 +247,7 @@ class Dict(dict):
         @param key: the index of the value
         @param: the value
         """
-        try:
-            dict.__getitem__(self, key).set(value)
-        except KeyError:
-            dict.__setitem__(self, key,  NamedEntry(self.state, self.name, key, value))
+        self.entry(key).set(value)
 
     def __delitem__(self, index):
         """
@@ -274,7 +267,8 @@ class Dict(dict):
     def dump(self):
         data = {}
         for i, v in self.items():
-            data[i] = v.value
+            if v.value is not None:
+                data[i] = v.value
         return data
 
     def setGlobal(self, key, value):
@@ -294,40 +288,6 @@ class Dict(dict):
         if self.state:
             self.state.remove(self.name, key)
     
-
-class Parameter(NamedEntry):
-    """
-    a class holding a parameter value
-    @param value: the value of the entry
-    @param version: the version of the entry
-    """
-    def __init__(self, state, name, value=None):
-        super().__init__(state, "parameters", name, value) 
-
-class Layout(Parameter):
-    """
-    a domain that store layout related parameters.
-    @param state: the a State object for parser state
-
-    These parameters stores their current value in State if they are chenged.
-    """
-
-    def __init__(self, state, name, value=None):
-        super().__init__(state, name, value)
-        self._changed = {}
-
-    def set(self, value):
-        """
-        set the value of the entry, and store it in the changed dict.
-        @param value: the value to be set
-        """
-        super().set(value)
-        self.state.changed[self.name] = value
-
-    def setGlobal(self, value):
-        super().setGlobal(value)
-        self.state.changed[self.name] = value
-
 
 class ArraySavedValue:
     """
@@ -349,28 +309,20 @@ class ArraySavedValue:
         """
         restore the value at the index in the domain
         """
-        list.__setitem__(self.array, self.index, self.value)
+        self.array._set(self.index, self.value)
 
 
-class Array(list, Command):
-    SIZE = 65536
+class Array:
+    SIZE = 256
     """
     an array of values
     """
-    def __init__(self, name: str, state=None, default=None, size: typing.Optional[int]=None):
-        if size is None:
-            size = self.SIZE
-        if callable(default):
-            init = [default() for i in range(size)]
-            self.default = default()
-        else:
-            init = [default] * size
-            self.default = default
-        list.__init__(self, init)
-
+    def __init__(self, name: str, state=None, default=None):
+        self.default = default() if callable(default) else default
+        self.list = [self.default for i in range(self.SIZE)]
+        self.dict = {}
         self.state = state
         self.name = name
-        self.size = size
     
     def __setitem__(self, index, value):
         if self.state:
@@ -379,7 +331,16 @@ class Array(list, Command):
                 store = top.store(self.name, index)
                 if store is not None:
                     store[index] = ArraySavedValue(self, index)
-        list.__setitem__(self, index, value)
+        self._set(index, value)
+
+    def _set(self, index, value):
+        if index < self.SIZE:
+            self.list[index] = value
+        else:
+            self.dict[index] = value
+
+    def __getitem__(self, index):
+        return self.list[index] if index < self.SIZE else self.dict.get(index, self.default)
 
     def setGlobal(self, index, value):
         """
@@ -391,7 +352,7 @@ class Array(list, Command):
         """
         if self.state:
             self.state.remove(self.name, index)
-        list.__setitem__(self, index, value)
+        self._set(index, value)
 
     def load(self, data):
         """
@@ -399,7 +360,7 @@ class Array(list, Command):
         @param data: the data to restore the array
         """
         for i, v in data.items():
-            list.__setitem__(self, int(i), v)
+            self._set(int(i), v)
 
     def dump(self):
         """
@@ -408,10 +369,10 @@ class Array(list, Command):
         """
         values = {}
         default = self.default
-        for i, v in enumerate(self):
+        for i, v in enumerate(self.list):
             if v != default:
                 values[i] = v
-        return values
+        return values | self.dict
     
 
 class Globals(dict):
@@ -438,7 +399,6 @@ class State:
         self.parameters = Dict("parameters", self)  # the parameters domain
         self.equitable = Dict("equitable", self)  # the equitable domain
         self.layout = Dict("layout", self)  # the layout domain
-        self.changed = {}
         self.arrays = {}  # a dict of arrays, where the key is the name of the array, and the value is the Array object
 
     def dump(self):

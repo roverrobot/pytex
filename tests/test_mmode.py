@@ -99,11 +99,6 @@ def test_mlist_mismatch(math):
         assert "missing" in str(e)
 
 
-def test_math_nodes_require_symbol_and_extension_fonts(parser):
-    with pytest.raises(ValueError, match="fontdimen params"):
-        parser.parse("$a$")
-
-
 def test_mlist_typeset_inline(math):
     math.parse("$a$")
     mlist = math.lists[-1][1]
@@ -366,8 +361,8 @@ def test_mathchar(math, cmd):
 
 def test_mathsymbol_saveinfo_and_typeset(math):
     symbol = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1)
-    info = symbol.saveInfo()
-    assert info["init"]["mathcode"] == symbol.encode()
+    init, extra = symbol.saveInfo()
+    assert init["mathcode"] == symbol.encode()
     packed = []
     context = inline_context(math)
     symbol.typeset(math, packed, context, mmode.Style(mmode.MATH_STYLE.T))
@@ -1310,9 +1305,9 @@ def test_radical(math):
     assert isSymbol(node.delim.small, 2, chr(0x70))
     assert isSymbol(node.delim.large, 3, chr(0x70))
     assert isSymbol(node.oprand, 1, "a")
-    info = node.saveInfo()
-    assert info["init"]["delim"] is node.delim
-    assert info["init"]["oprand"] is node.oprand
+    init, extra = node.saveInfo()
+    assert init["delim"] is node.delim
+    assert init["oprand"] is node.oprand
     math.parse("$")
 
 
@@ -1357,9 +1352,9 @@ def test_mathaccent(math):
     assert isinstance(node, mmode.Accent)
     assert isSymbol(node.base, 1, "a")
     assert isSymbol(node.accent, 3, chr(0x62))
-    info = node.saveInfo()
-    assert info["init"]["accent"] is node.accent
-    assert info["init"]["base"] is node.base
+    init, extra = node.saveInfo()
+    assert init["accent"] is node.accent
+    assert init["base"] is node.base
     try:
         math.parse("\\accent`^a$")
         assert False

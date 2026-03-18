@@ -7,16 +7,13 @@ from pytex import serialization
 
 
 def dimenInfo(d):
-    return {
-        "init": {"integer": d.value},
-        "__classname__": "pytex.dimen.Dimen",
-    }
+    return {"pytex.dimen.Dimen": {"integer": d.value}}
 
 def test_dimen(parser):
     d = dimen.Dimen(10)
     s = d.serialize()
     assert s == dimenInfo(d)
-    v = dimen.Dimen.deserialize(parser, s)
+    v = serialization.deserialize(parser, s)
     assert v == d
 
 
@@ -30,12 +27,11 @@ def test_dimen_array(parser):
 
 def glueInfo(g):
     return {
-        "init": {
-            "dimen": dimenInfo(g.dimen), 
+        "pytex.glue.Glue": {
+            "dimen": float(g.dimen), 
             "stretch": g.stretch.serialize(), 
             "shrink": g.shrink.serialize()
-        },
-        "__classname__": "pytex.glue.Glue",
+        }
     }
 
 
@@ -43,7 +39,7 @@ def test_glue(parser):
     g = glue.Glue(10)
     s = serialization.serialize(g.serialize())
     assert s == glueInfo(g)
-    v = glue.Glue.deserialize(parser, s)
+    v = serialization.deserialize(parser, s)
     assert v == g
 
 

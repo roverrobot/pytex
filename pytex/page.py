@@ -464,11 +464,7 @@ class PageStateNode(nd.Node):
         self.context = context
 
     def saveInfo(self):
-        return {"init": {"context": self.context}}
-
-    @classmethod
-    def new(cls, parser, context):
-        return cls(context)
+        raise NotImplementedError("This method should not be called")
 
     def __repr__(self):
         return "PageState"

@@ -52,7 +52,7 @@ class MathShift(Node):
         self.on = on
 
     def saveInfo(self):
-        return {"init": {"on": self.on}}
+        return {"on": self.on}, None
 
     node_type = NODE_TYPE.MATH
 
@@ -73,7 +73,7 @@ class Box(Node):
         self.depth = None if depth is None else Dimen(depth)
 
     def saveInfo(self):
-        return {"init": {"width": self.width, "height": self.height, "depth": self.depth}}
+        return {"width": self.width, "height": self.height, "depth": self.depth}, None
 
     def meaning(self, parser):
         kind = "\\hbox" if self.node_type == NODE_TYPE.HLIST else "\\vbox"
@@ -131,7 +131,7 @@ class CharNode(Box):
         self.font = font
 
     def saveInfo(self):
-        return {"init": {"char": self.char, "font": self.font}}
+        return {"char": self.char, "font": self.font}, None
 
     node_type = NODE_TYPE.CHAR
 
@@ -139,7 +139,7 @@ class CharNode(Box):
         return f"{self.char}"
 
     def meaning(self, parser):
-        return f"{self.font.meaning(parser)} {self.char}"
+        return f"{self.font} {self.char}"
 
 
 class Rule(Box):
@@ -166,11 +166,7 @@ class Glue(Node):
         self.kern = None
 
     def saveInfo(self):
-        return {"init": {"glue": self.glue, "name": self.name}}
-
-    @classmethod
-    def new(cls, parser, glue, name=None):
-        return cls(glue, name)
+        return {"glue": self.glue, "name": self.name}, None
 
     def __repr__(self):
         set = self.glue if self.kern is None else f"{self.kern}pt"
@@ -200,7 +196,7 @@ class Kern(Node):
         self.automatic = automatic
 
     def saveInfo(self):
-        return {"init": {"kern": self.kern, "automatic": self.automatic}}
+        return {"kern": self.kern, "automatic": self.automatic}, None
 
     node_type = NODE_TYPE.KERN
 
@@ -220,7 +216,7 @@ class Penalty(Node):
         self.penalty = penalty
 
     def saveInfo(self):
-        return {"init": {"penalty": self.penalty}}
+        return {"penalty": self.penalty}, None
 
     node_type = NODE_TYPE.PENALTY
 
@@ -254,7 +250,7 @@ class Special(WhatsIt):
         self.text = text
 
     def saveInfo(self):
-        return {"init": {"text": self.text}}
+        return {"text": self.text}, None
 
     def __repr__(self):
         return f"Special({self.text})"

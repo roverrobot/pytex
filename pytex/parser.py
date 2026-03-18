@@ -1,8 +1,8 @@
 import typing
-import json
 import datetime
 from fractions import Fraction
 from pytex import serialization
+from pytex import formatfile
 from pytex import token
 from pytex import lexer
 from pytex import state
@@ -45,6 +45,7 @@ class Parser:
         self.builtin = {}
         # now we are at a similar stage to INITEX. We do not need to keep the current state.
         self.input = lexer.InputStack()
+        self.token = self.input.read
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
         self.ifstack = []
@@ -52,11 +53,11 @@ class Parser:
         self.log = self.getLogFile()
         # the console file. None to standard output, or os.devnull for no output
         self.console = None
-        # the dumper instance variable should point to a function that takes the content of 
-        # a dump file and writes it to a file. The \dump command (vmode.Dump) handles the 
+        # the dumper instance variable should point to a function that takes the content of
+        # a binary format file and writes it to a file. The \dump command (vmode.Dump) handles the
         # dump and uses this variable. Here is an example of setting it.
         # def dumper:
-        #     with open("dump.fmt", "w") as format:
+        #     with open("dump.pfmt", "wb") as format:
         #         format.write(content)
         # parser.dumper = dumper
         self.dumper = None
@@ -68,6 +69,7 @@ class Parser:
         self.jobname = "noname"
         self.lastbox = None
         self.ended = False
+        self.formatfile = None
     
     def getLogFile(self):
         """
@@ -95,20 +97,6 @@ class Parser:
         if console:
             print(message, file=self.console)
     
-    def token(self):
-        """
-        get the next token from the input stack
-        @return: the next token
-        """
-        t = self.input.read()
-        if t is not None and t.is_command:
-            if t.noexpand:
-                t.noexpand = False
-                t.definition = token.relax
-            else:
-                t.definition = t.entry.value
-        return t
-    
     def token_expand(self):
         """
         get the next token from the input stack and expand it
@@ -119,7 +107,7 @@ class Parser:
             t = self.token()
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
-            if t is not None and t.is_command:
+            if t is not None and t.entry is not None:
                 definition = t.definition
                 if definition is None:
                     raise ValueError("undefined command" + t.name, self.input.position())
@@ -137,7 +125,7 @@ class Parser:
         resolve a \\let alias to a literal token without expanding commands.
         This is used by syntax scanners that accept things like \\bgroup.
         """
-        if t is not None and t.is_command and isinstance(t.definition, token.Token):
+        if t is not None and t.entry is not None and isinstance(t.definition, token.Token):
             return t.definition
         return t
 
@@ -447,34 +435,25 @@ class Parser:
         c = font.fontchar["hyphenchar"]
         return self.state.parameters["defaulthyphenchar"] if c == 0 else c
 
-    def dump(self) -> str:
+    def dump(self) -> bytes:
         """
-        dump the state as a format (JSON) file
+        Dump the state as a format container.
         @return: the format file content
         """
-        dump = {
-            "state": serialization.serialize(self.state.dump()),
-        }
-        if hasattr(self, "hyphenator"):
-            dump["hyphenator"] = self.hyphenator.dump()
-        return json.dumps(dump)
+        return formatfile.dump(self)
 
     def load(self, file):
         """
         load the state from a format file
         @param file: the file to load the state
         """
-        format = json.loads(file.read())
-        # Backward compatible: old dumps stored only state data at top level.
-        if "state" in format:
-            state_data = format["state"]
-            hyphen_data = format.get("hyphenator", None)
-        else:
-            state_data = format
-            hyphen_data = None
-        self.state.load(serialization.deserialize(self, state_data))
-        if hyphen_data is not None and hasattr(self, "hyphenator"):
-            self.hyphenator.load(hyphen_data)
+        self.formatfile = None
+        data = file.read()
+        if not isinstance(data, (bytes, bytearray)):
+            raise ValueError("format files must be opened in binary mode")
+        if not formatfile.isContainer(data):
+            raise ValueError("unsupported format file")
+        formatfile.load(self, data)
 
     def end(self):
         """

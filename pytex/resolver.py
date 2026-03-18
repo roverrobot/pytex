@@ -7,7 +7,7 @@ The basic idea is to provide a generic interface to find files by their name.
 
 from pytex.token import CATCODE
 from pytex.module import Module
-from io import StringIO
+from io import BytesIO, StringIO
 from types import MethodType
 from typing import Tuple
 import os
@@ -52,6 +52,39 @@ class InMemoryTextFile:
         return s
 
 
+class InMemoryBinaryFile:
+    """
+    An in memory binary file
+    """
+    def __init__(self, content: bytes=b""):
+        self.content = content
+        self.readers = []
+        self.writer = None
+
+    def open(self, for_read: bool=True):
+        """
+        Open the content as a binary file.
+        """
+        if for_read and self.writer is not None:
+            raise ValueError("file already opened for writing")
+        if not for_read and (self.readers or self.writer):
+            raise ValueError("file already opened for reading")
+        s = BytesIO(self.content)
+        def close(f):
+            self.content = f.getvalue()
+            if f in self.readers:
+                self.readers.remove(f)
+            if f == self.writer:
+                self.writer = None
+            BytesIO.close(f)
+        s.close = MethodType(close, s)
+        if not for_read:
+            self.writer = s
+        else:
+            self.readers.append(s)
+        return s
+
+
 class FileResolver:
     """
     The base class for all file resolvers
@@ -68,9 +101,15 @@ class FileResolver:
                 },
             },
             "dump": {
-                "json": {
-                    "extensions": ["json"], 
-                    "binary": False,
+                "pfmt": {
+                    "extensions": ["pfmt"],
+                    "binary": True,
+                },
+            },
+            "shipout": {
+                "dvi": {
+                    "extensions": ["dvi"],
+                    "binary": True,
                 },
             },
             "source": {
@@ -232,8 +271,6 @@ class FileResolver:
         Resolve the file name for writing
 
         The output file cannot be an absolute path. The file is created in memory.
-        Note that shipout files are not opened by this method.
-
         @param name: the file name
         @param type: the file type. If None, the file type is inferred from the file extension
         @param shipout: whether the file is an output file
@@ -247,15 +284,16 @@ class FileResolver:
         if name.startswith("./"):
             return self.openOut(name[2:], type)
         info = self.getInfo(name, type)
-        if info["binary"]:
-            raise ValueError("binary files not allowed for writing")
         # it must be an in memory file
         for t in info["extensions"]:
             n = info["name"] + "." + t
             if n in self.in_memory_files:
                 return self.in_memory_files[n].open(for_read=False)
         n = info["name"] + "." + info["extensions"][0]
-        f = InMemoryTextFile()
+        if info["binary"]:
+            f = InMemoryBinaryFile()
+        else:
+            f = InMemoryTextFile()
         self.in_memory_files[n] = f
         return f.open(for_read=False)
 
@@ -284,7 +322,7 @@ def readFileName(parser) -> str:
         # skip an optional space
         parser.skipSpace(expand=True)
     elif t.catcode == CATCODE.BEGIN_GROUP:
-        toks = parser.readBalancedText([], expand=True, macro=False)
+        toks = parser.readBalancedTextExpanded([])
         # pop the trailing }
         toks.pop()
     else:
@@ -299,7 +337,7 @@ def readFileName(parser) -> str:
                 break
             toks.append(t)
             if t.catcode == CATCODE.BEGIN_GROUP:
-                toks = parser.readBalancedText(toks, expand=True, macro=False)
+                toks = parser.readBalancedTextExpanded(toks)
     for t in toks:
         name += t.name
     return name

@@ -8,7 +8,7 @@ from pytex import macro
 def state():
     s = st.State()
     d = st.Dict(name="dict", state=s)
-    a = st.Array(name="array", state=s, default=0, size=3)
+    a = st.Array(name="array", state=s, default=0)
     return s, d, a
 
 def test_set_value(state):

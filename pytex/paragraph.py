@@ -60,19 +60,14 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     def saveInfo(self):
         return {
-            "init": {
                 "indent": self.indent,
-            },
-            "extra": {
+            }, {
                 "disc": getattr(self, "disc", None),
                 "list": self.list,
-            },
-        }
+            }
 
-    @classmethod
-    def new(cls, parser, indent):
-        return cls(parser, indent)
-
+    init_needs_parser = True
+    
     def __repr__(self):
         return f'HList([{", ".join(repr(node) for node in self.list)}])'
 

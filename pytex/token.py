@@ -136,9 +136,6 @@ class Token(Command):
         # distinguish if a tokan is a command or not
         self.entry = None
 
-    # the token is not a command
-    is_command = False
-
     # not expandable by default
     expand = None
 
@@ -242,9 +239,6 @@ class CommandToken(Token):
         t = cls(name)
         t.entry = parser.state.equitable.entry(name)
         return t
-
-    # Command tokens represent commands
-    is_command = True
 
     def execute(self, parser):
         """

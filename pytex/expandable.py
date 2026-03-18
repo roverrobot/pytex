@@ -47,10 +47,9 @@ class NoExpand(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token after \\noexpand", parser.input.position())
-        if t.is_command:
-            entry = t.entry
-            if entry.value is None or entry.value.expand:
-                t = NoExpandToken(parser, t)
+        entry = t.entry
+        if entry is not None and (entry.value is None or entry.value.expand):
+            t = NoExpandToken(parser, t)
         parser.input.unread(t)
 
 
@@ -70,7 +69,7 @@ class ExpandAfter(Command):
         if t is None:
             return
         t1 = parser.token()
-        if t1.is_command:
+        if t1.entry is not None:
             definition = t1.definition
             if definition is None:
                 raise ValueError(f"undefined command {t1.name}", parser.input.position())

@@ -106,7 +106,7 @@ class Parser:
             t = self.token()
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
-            if t is not None and t.is_command:
+            if t is not None and t.entry is not None:
                 definition = t.definition
                 if definition is None:
                     raise ValueError("undefined command" + t.name, self.input.position())
@@ -124,7 +124,7 @@ class Parser:
         resolve a \\let alias to a literal token without expanding commands.
         This is used by syntax scanners that accept things like \\bgroup.
         """
-        if t is not None and t.is_command and isinstance(t.definition, token.Token):
+        if t is not None and t.entry is not None and isinstance(t.definition, token.Token):
             return t.definition
         return t
 

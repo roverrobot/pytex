@@ -303,20 +303,23 @@ class InputStack:
         """
         if self.saved:
             t = self.saved.pop()
-            if t.is_command:
-                t.definition = t.entry.value
+            entry = t.entry
+            if entry is not None:
+                t.definition = entry.value
             return t
         while self.top:
             t = self.top.read()
             if t:
-                if t.is_command:
-                    t.definition = t.entry.value
+                entry = t.entry
+                if entry is not None:
+                    t.definition = entry.value
                 return t
             self.top, self.active, self.saved = self.stack.pop()
             if self.saved:
                 t = self.saved.pop()
-                if t.is_command:
-                    t.definition = t.entry.value
+                entry = t.entry
+                if entry is not None:
+                    t.definition = entry.value
                 return t
 
     def unread(self, token):

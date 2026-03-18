@@ -21,7 +21,7 @@ def token_expand(parser):
     """
     while True:
         t = parser.token()
-        if t is None or not t.is_command:
+        if t is None or t.entry is None:
             return t, None
         if t.noexpand:
             t.noexpand = False
@@ -239,8 +239,9 @@ def readToks(parser):
         """
         parser.skipFiller()
         t = parser.token()
-        if t.is_command and hasattr(t.definition, "toksValue"):
-            return t.definition.toksValue(parser)
+        toksValue = getattr(t.definition, "toksValue", None)
+        if toksValue:
+            return toksValue(parser)
         parser.input.unread(t)
         return readGeneralText(parser, expand=False)
     
@@ -366,11 +367,11 @@ class Case(Command):
             if c == 0:
                 toks.append(t)
             else:
-                t = Token.token(chr(c), t.catcode)
-                if t.is_command:
+                t1 = Token.token(chr(c), t.catcode)
+                if t.entry is not None:
                     # if the token is a command, we need to set the entry
-                    t.entry = parser.state.equitable.entry(t.name)
-                toks.append(t)
+                    t1.entry = parser.state.equitable.entry(t1.name)
+                toks.append(t1)
         parser.input.push(TokenListScanner(toks))
 
 

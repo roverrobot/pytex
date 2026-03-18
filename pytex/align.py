@@ -566,7 +566,7 @@ class Cr(CrCr):
     def execute(self, parser):
         # check if it is followed by a \crcr
         t = parser.token_expand()
-        if t is not None and (not t.is_command or t.definition != crcr):
+        if t is not None and t.definition != crcr:
             parser.input.unread(t)
         super().execute(parser)
 

@@ -68,6 +68,8 @@ def test_ifdefined(collector):
     assert collector.getString() == "b"
     collector.parse("\\ifdefined\\count a\\else b\\fi")
     assert collector.getString() == "a"
+    collector.parse("\\ifdefined1a\\else b\\fi")
+    assert collector.getString() == "a"
 
 def test_ifcsname(collector):
     collector.parse("\\ifcsname undefined\\endcsname a\\else b\\fi")

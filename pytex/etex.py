@@ -441,7 +441,7 @@ class IfDefined(conditional.Conditional):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token, but reached end of input", parser.input.position())
-        return 0 if t.is_command and t.definition is not None else 1
+        return 0 if t.entry is None or t.definition is not None else 1
 
 
 class IfFontChar(conditional.Conditional):
@@ -480,14 +480,13 @@ class Unless(token.Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token, but reached end of input", parser.input.position())
-        if t.is_command:
-            c = t.definition
-            if isinstance(c, conditional.Conditional) and not isinstance(c, conditional.IfCase):
-                if parser.tracingcommands > 0:
-                    parser.trace(t, "expand")
-                unless = UnlessConditional(c)
-                unless.expand(parser)
-                return
+        c = t.definition
+        if isinstance(c, conditional.Conditional) and not isinstance(c, conditional.IfCase):
+            if parser.tracingcommands > 0:
+                parser.trace(t, "expand")
+            unless = UnlessConditional(c)
+            unless.expand(parser)
+            return
         raise ValueError(f"You cannot use \\unless in front of {t.name}", parser.input.position())
 
 class Protected(accessor.Prefix):
@@ -567,7 +566,7 @@ class Readline(file.FileCommand):
         if to is None:
             raise ValueError("Expected 'to' keyword")
         t = parser.skipSpaces(expand=False)
-        if not t.is_command:
+        if t.entry is None:
             raise ValueError(f"Expected a control sequence, got {t}")
         return ReadlineOp(t.entry, file_id)
 

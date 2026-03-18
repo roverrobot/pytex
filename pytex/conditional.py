@@ -19,8 +19,8 @@ def skipBranch(parser, level: list):
         if t is None:
             c, cpos, branch = parser.ifstack[-1]
             raise ValueError("missing a \\fi match matches the {c.name} at {cpos}", parser.input.position())
-        if t.is_command:
-            c = t.definition
+        c = t.definition
+        if c is not None:
             if isinstance(c, Conditional): # another level
                 parser.ifstack.append([c, parser.input.position(), -1])
             elif isinstance(c, Branch):
@@ -151,9 +151,9 @@ class IfCompareToken(Conditional):
             t2 = parser.token()
         if t1 is None or t2 is None:
             raise ValueError("expecting two tokens", parser.input.position())
-        if t1.is_command and isinstance(t1.definition, Token):
+        if isinstance(t1.definition, Token):
             t1 = t1.definition
-        if t2.is_command and isinstance(t2.definition, Token):
+        if isinstance(t2.definition, Token):
             t2 = t2.definition
         return 0 if self.equal(t1, t2) else 1
 
@@ -193,9 +193,9 @@ class IfX(IfCompareToken):
         # or if (b) the two tokens are macros, and they both have the same status 
         # with respect to \long and \outer, and they both have the same
         # parameters and “top level” expansion.
-        if t1.is_command and t2.is_command:
+        if t1.entry is not None and t2.entry is not None:
             return t1.definition == t2.definition
-        if t1.is_command or t2.is_command:
+        if t1.entry is not None or t2.entry is not None:
             return False
         # neither token is command, so we compare their character codes and category codes
         return t1.catcode == t2.catcode and t1.name == t2.name

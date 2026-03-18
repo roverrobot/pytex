@@ -41,6 +41,39 @@ def test_hyphenator_dump_load_roundtrip(parser):
     ]
 
 
+def test_hyphenator_container_dump_load_is_lazy(parser, monkeypatch):
+    parser.parse("\\count0=123")
+    parser.parse("\\patterns{a1b}")
+    parser.parse("\\language 1 \\hyphenation{mi-cro-wave}\\patterns{c3d}")
+    data = parser.dumpContainer()
+
+    loaded = Parser()
+    _set_common_catcodes(loaded)
+    calls = []
+    original = loaded.hyphenator._insertPattern
+
+    def tracking_insert(root, letters, weights):
+        calls.append(letters)
+        return original(root, letters, weights)
+
+    monkeypatch.setattr(type(loaded.hyphenator), "_insertPattern", staticmethod(tracking_insert))
+    loaded.load(io.BytesIO(data))
+
+    assert loaded.state.count[0] == 123
+    assert loaded.formatfile is not None
+    assert loaded.hyphenator.language == 1
+    assert calls == []
+
+    loaded.hyphenator.setLanguage(1)
+    assert loaded.hyphenator.hyphenate("cd") == [1]
+    assert calls == ["cd"]
+    assert loaded.hyphenator.words["microwave"] == [2, 5]
+
+    loaded.hyphenator.setLanguage(0)
+    assert loaded.hyphenator.hyphenate("ab") == [1]
+    assert calls == ["cd", "ab"]
+
+
 def test_parser_load_backward_compatible_state_only_dump(parser):
     parser.parse("\\count0=123")
     old_style = json.dumps(serialization.serialize(parser.state.dump()))

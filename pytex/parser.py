@@ -3,6 +3,7 @@ import json
 import datetime
 from fractions import Fraction
 from pytex import serialization
+from pytex import formatfile
 from pytex import token
 from pytex import lexer
 from pytex import state
@@ -69,6 +70,7 @@ class Parser:
         self.jobname = "noname"
         self.lastbox = None
         self.ended = False
+        self.formatfile = None
     
     def getLogFile(self):
         """
@@ -446,12 +448,25 @@ class Parser:
             dump["hyphenator"] = self.hyphenator.dump()
         return json.dumps(dump)
 
+    def dumpContainer(self) -> bytes:
+        """
+        Dump the state as a zip-based format container.
+        """
+        return formatfile.dumpContainer(self)
+
     def load(self, file):
         """
         load the state from a format file
         @param file: the file to load the state
         """
-        format = json.loads(file.read())
+        data = file.read()
+        if isinstance(data, bytes):
+            if formatfile.isContainer(data):
+                formatfile.loadContainer(self, data)
+                return
+            data = data.decode("utf-8")
+        self.formatfile = None
+        format = json.loads(data)
         # Backward compatible: old dumps stored only state data at top level.
         if "state" in format:
             state_data = format["state"]

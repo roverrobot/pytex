@@ -15,15 +15,14 @@ class Dump(token.Command):
     """
     Dump the current parser state as a format file.
 
-    A format file is a JSON file that contains the changes to parser.state
-    since the last dump. If this is the first dump, it is compared to the
-    default state of the parser. 
+    The default dumper used by examples/tex.py writes the state as a versioned
+    format container. Legacy JSON dumps remain available through parser.dump().
     """
     def execute(self, parser):
         parser.end()
         if parser.dumper is None:
             raise ValueError("no dumper is available", parser.input.position())
-        parser.dumper(parser.dump())
+        parser.dumper(parser.dumpContainer())
 
 
 mod = Module("misc",

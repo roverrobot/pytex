@@ -72,6 +72,10 @@ class FileResolver:
                     "extensions": ["json"], 
                     "binary": False,
                 },
+                "pfmt": {
+                    "extensions": ["pfmt"],
+                    "binary": True,
+                },
             },
             "source": {
                 "tex": {

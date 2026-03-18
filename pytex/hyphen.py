@@ -69,13 +69,18 @@ class Hyphenator:
     - `words` / `pattern_trie`: active views for current `language`.
     """
     LANGUAGES = 256
-    def __init__(self):
+    def __init__(self, parser=None):
+        self.parser = parser
+        self._reset()
+
+    def _reset(self):
         # the words are organized into dictionaries that are indexed by the language
         self.dicts = [{} for i in range(self.LANGUAGES)]
         # one pattern trie per language id (filled by \\patterns in a later step)
         self.pattern_tries = [_PatternTrieNode() for i in range(self.LANGUAGES)]
         # per-language cache of computed hyphenation points
         self.caches = [{} for i in range(self.LANGUAGES)]
+        self._lazy_entries = {}
         self.language = 0
         self.words = self.dicts[self.language]
         self.pattern_trie = self.pattern_tries[self.language]
@@ -131,6 +136,7 @@ class Hyphenator:
         """
         Add normalized pattern tokens to the trie of the current language.
         """
+        self._ensureLanguageLoaded(self.language)
         root = self.pattern_trie
         for pattern in patterns:
             letters, weights = self._parsePattern(pattern)
@@ -159,50 +165,114 @@ class Hyphenator:
         Dump hyphenator data for parser format files.
         """
         words = {}
-        for i, d in enumerate(self.dicts):
-            if d:
-                words[str(i)] = {word: list(pos) for word, pos in d.items()}
         patterns = {}
-        for i, root in enumerate(self.pattern_tries):
-            flattened = self._dumpPatternTrie(root)
-            if flattened:
-                patterns[str(i)] = flattened
+        for i, data in self.dumpLanguages():
+            if data["words"]:
+                words[str(i)] = data["words"]
+            if data["patterns"]:
+                patterns[str(i)] = data["patterns"]
         return {
             "language": self.language,
             "words": words,
             "patterns": patterns,
         }
 
+    def dumpLanguage(self, language):
+        """
+        Dump one language's hyphenation data, or None if it is empty.
+        """
+        self._ensureLanguageLoaded(language)
+        words = self.dicts[language]
+        patterns = self._dumpPatternTrie(self.pattern_tries[language])
+        if not words and not patterns:
+            return None
+        return {
+            "words": {word: list(pos) for word, pos in words.items()},
+            "patterns": patterns,
+        }
+
+    def dumpLanguages(self):
+        """
+        Iterate over non-empty language payloads for container dumps.
+        """
+        for language in range(self.LANGUAGES):
+            data = self.dumpLanguage(language)
+            if data is not None:
+                yield language, data
+
+    def _loadLanguageData(self, language, data):
+        """
+        Load one language payload into in-memory dictionaries and tries.
+        """
+        words = data.get("words", {})
+        self.dicts[language] = {word: list(pos) for word, pos in words.items()}
+        root = _PatternTrieNode()
+        for letters, weights in data.get("patterns", ()):
+            self._insertPattern(root, letters, weights)
+        self.pattern_tries[language] = root
+        self.caches[language] = {}
+        if self.language == language:
+            self.words = self.dicts[language]
+            self.pattern_trie = root
+            self.cache = self.caches[language]
+
+    def _ensureLanguageLoaded(self, language):
+        """
+        Load a lazy language payload on first use.
+        """
+        entry = self._lazy_entries.get(language, None)
+        if entry is None:
+            return
+        container = getattr(self.parser, "formatfile", None)
+        if container is None:
+            raise ValueError("lazy hyphen data requires parser.formatfile")
+        data = container.readJSON(entry)
+        del self._lazy_entries[language]
+        self._loadLanguageData(language, data)
+
     def load(self, data):
         """
         Load hyphenator data previously produced by dump().
         """
-        self.dicts = [{} for i in range(self.LANGUAGES)]
-        self.pattern_tries = [_PatternTrieNode() for i in range(self.LANGUAGES)]
-        self.caches = [{} for i in range(self.LANGUAGES)]
+        self._reset()
         words = data.get("words", {})
         for key, d in words.items():
             i = int(key)
             if i < 0 or i >= self.LANGUAGES:
                 continue
-            self.dicts[i] = {word: list(pos) for word, pos in d.items()}
         patterns = data.get("patterns", {})
-        for key, flattened in patterns.items():
+        for key in set(words.keys()) | set(patterns.keys()):
             i = int(key)
             if i < 0 or i >= self.LANGUAGES:
                 continue
-            root = self.pattern_tries[i]
-            for item in flattened:
-                letters, weights = item
-                self._insertPattern(root, letters, weights)
+            self._loadLanguageData(
+                i,
+                {
+                    "words": words.get(key, {}),
+                    "patterns": patterns.get(key, []),
+                },
+            )
         language = data.get("language", 0)
         if not isinstance(language, int) or language < 0 or language >= self.LANGUAGES:
             language = 0
-        self.language = 0
-        self.words = self.dicts[0]
-        self.pattern_trie = self.pattern_tries[0]
-        self.cache = self.caches[0]
         self.setLanguage(language)
+
+    def loadContainer(self, data):
+        """
+        Load container metadata and defer per-language payloads until used.
+        """
+        self._reset()
+        for key, value in data.get("entries", {}).items():
+            language = int(key)
+            if 0 <= language < self.LANGUAGES:
+                self._lazy_entries[language] = value
+        language = data.get("language", 0)
+        if not isinstance(language, int) or language < 0 or language >= self.LANGUAGES:
+            language = 0
+        self.language = language
+        self.words = self.dicts[language]
+        self.pattern_trie = self.pattern_tries[language]
+        self.cache = self.caches[language]
 
     def setLanguage(self, language):
         """
@@ -213,11 +283,13 @@ class Hyphenator:
             self.words = self.dicts[self.language]
             self.pattern_trie = self.pattern_tries[self.language]
             self.cache = self.caches[self.language]
+        self._ensureLanguageLoaded(language)
 
     def addWords(self, words):
         """
         Add words to the hyphenator
         """
+        self._ensureLanguageLoaded(self.language)
         for word, positions in words.items():
             if word in self.words:
                 self.words[word] += positions
@@ -229,6 +301,7 @@ class Hyphenator:
         """
         Hyphenate a word
         """
+        self._ensureLanguageLoaded(self.language)
         # Explicit exceptions take precedence and are looked up directly.
         # We cache only pattern-derived results.
         exceptions = self.words.get(word, None)
@@ -306,7 +379,7 @@ class Patterns(token.Command):
 
 
 def init(parser):
-    parser.hyphenator = Hyphenator()
+    parser.hyphenator = Hyphenator(parser)
 
 
 mod = Module("hyphen",

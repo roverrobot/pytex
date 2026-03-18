@@ -13,18 +13,18 @@ import pathlib
 class NoExpandToken(CommandToken):
     def __init__(self, parser, inner):
         super().__init__(inner.name)
-        self.inner = inner
+        self._entry = inner.entry
         self.saved = parser.state.equitable.entry("noexpand")
         if self.saved.value is None:
             self.saved.value = relax
 
     def __getattr__(self, name):
         if name == "entry":
-            self.entry = self.inner.entry
+            self.entry = self._entry
             return self.saved
         
     def saveInfo(self):
-        return {"name": self.inner.name}, None
+        return {"name": self.name}, None
     
     @classmethod
     def new(cls, parser, **kargs):

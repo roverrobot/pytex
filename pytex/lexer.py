@@ -307,11 +307,9 @@ class InputStack:
             t = self.top.read()
             if t:
                 return t
-            if self.stack:
-                self.top, self.active = self.stack.pop()
-            else:
-                self.top = None
-                self.active = None
+            self.top, self.active, self.saved = self.stack.pop()
+            if self.saved:
+                return self.saved.pop()
 
     def unread(self, token):
         """
@@ -325,16 +323,11 @@ class InputStack:
         push a new scanner on the stack
         @param lexer: the scanner to push
         """
-        if self.top is not None:
-            self.stack.append((self.top, self.active))
-        if self.saved:
-            # remember that the saved tokens are on a stack. So we need to reverse it
-            self.saved.reverse()
-            self.stack.append((TokenListScanner(self.saved), self.active))
-            self.saved = []
+        self.stack.append((self.top, self.active, self.saved))
         self.top = lexer
         if lexer.position is not None:
             self.active = lexer
+        self.saved = []
     
     def pop(self):
         """
@@ -342,10 +335,11 @@ class InputStack:
         @param to: the scanner to pop to (including to)
         """
         try:
-            self.top, self.active = self.stack.pop()
+            self.top, self.active, self.saved = self.stack.pop()
         except IndexError:
             self.top = None
             self.active = None
+            self.saved = []
 
     def clear(self):
         """

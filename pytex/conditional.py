@@ -45,7 +45,7 @@ def skipAll(parser):
 
 class Branch(Command):
     """
-    the base class for a branch. Commands such as \else, \or, and \fi are subclasses of this class.
+    the base class for a branch. Commands such as \\else, \\or, and \\fi are subclasses of this class.
     @param command_name: the name of the command
     """
     def expand(self, parser):

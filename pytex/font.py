@@ -68,7 +68,7 @@ class Font(Command):
         return name if name is not None else f"\\{self.tfm.name}"
 
     def meaning(self, parser):
-        return repr(self)
+        return f"select font {self.tfm.name} at {self.at}pt"
         
     def fontValue(self, parser):
         """

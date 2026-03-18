@@ -139,7 +139,7 @@ class CharNode(Box):
         return f"{self.char}"
 
     def meaning(self, parser):
-        return f"{self.font.meaning(parser)} {self.char}"
+        return f"{self.font} {self.char}"
 
 
 class Rule(Box):

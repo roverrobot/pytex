@@ -30,6 +30,10 @@ class TexliveResolver(FileResolver):
         if os.path.exists(texmf_local):
             self.paths.append(texmf_local)
         self.format = format
+        # Cache the first matching full path for each file name under a search root.
+        # latex.ltx parsing resolves hundreds of files from the same few TeX Live
+        # subtrees, so indexing each subtree once avoids repeated os.walk/scandir.
+        self._index = {}
 
 
     def searchPaths(self, info: dict):
@@ -54,10 +58,17 @@ class TexliveResolver(FileResolver):
         @param path: the path to search
         @return: the file path or None if the file does not exist
         """
-        for root, dirs, files in os.walk(path):
-            for name in names:
-                if name in files:
-                    return os.path.join(root, name)
+        if path not in self._index:
+            index = {}
+            for root, dirs, files in os.walk(path):
+                for name in files:
+                    if name not in index:
+                        index[name] = os.path.join(root, name)
+            self._index[path] = index
+        index = self._index[path]
+        for name in names:
+            if name in index:
+                return index[name]
         return None
 
     def resolve(self, info):

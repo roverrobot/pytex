@@ -6,6 +6,7 @@ Module level fixtures
 import pytest
 import types
 from pytex.parser import Parser
+from pytex import page
 from pytex.token import CATCODE
 from pytex.resolver import InMemoryTextFile
 
@@ -13,6 +14,7 @@ from pytex.resolver import InMemoryTextFile
 @pytest.fixture()
 def parser():
     p = Parser()
+    p.shipout = page.Shipout(p)
     p.state.catcode[ord("{")] = CATCODE.BEGIN_GROUP
     p.state.catcode[ord("}")] = CATCODE.END_GROUP
     p.state.catcode[ord("$")] = CATCODE.MATH_SHIFT

@@ -106,6 +106,12 @@ class FileResolver:
                     "binary": True,
                 },
             },
+            "shipout": {
+                "dvi": {
+                    "extensions": ["dvi"],
+                    "binary": True,
+                },
+            },
             "source": {
                 "tex": {
                     "extensions": ["tex"], 
@@ -265,8 +271,6 @@ class FileResolver:
         Resolve the file name for writing
 
         The output file cannot be an absolute path. The file is created in memory.
-        Note that shipout files are not opened by this method.
-
         @param name: the file name
         @param type: the file type. If None, the file type is inferred from the file extension
         @param shipout: whether the file is an output file

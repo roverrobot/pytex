@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from pytex import dvi
+from pytex import resolver
 from pytex import texlive
 
 
@@ -67,3 +68,15 @@ def test_dvi_hlist_rule_emits_depth_offset(cmr10, tmp_path):
         160, 255, 254, 0, 0,  # down4 -2pt
     ))
     assert _find_subsequence(data, sequence) != -1
+
+
+def test_dvi_shipout_accepts_binary_file_handle(parser):
+    handle = parser.resolver.openOut("memory", "shipout/dvi")
+    parser.shipout = dvi.DVIShipout(parser, handle)
+    parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="memory")
+    parser.end()
+    stored = parser.resolver.in_memory_files["memory.dvi"]
+    assert isinstance(stored, resolver.InMemoryBinaryFile)
+    data = stored.content
+    assert data[:2] == bytes((247, 2))
+    assert 248 in data

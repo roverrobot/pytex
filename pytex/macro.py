@@ -181,7 +181,7 @@ class Macro(Command):
                 if t.catcode != CATCODE.SPACE:
                     break
             if t.catcode == CATCODE.BEGIN_GROUP:
-                result = parser.readBalancedText([], expand=False, macro=False)
+                result = parser.readBalancedText([])
                 result.pop()
             else:
                 result = [t]
@@ -193,7 +193,7 @@ class Macro(Command):
         if t is None:
             return []
         if t.catcode == CATCODE.BEGIN_GROUP:
-            result = parser.readBalancedText([t], expand=False, macro=False)
+            result = parser.readBalancedText([t])
             t = self.matchDelimited(parser, bracket, bracket_len)
             if t is None:
                 # matched the bracket: the argument is enclosed in {}. Drop them
@@ -207,7 +207,7 @@ class Macro(Command):
                 return result
             result.append(t)
             if t.catcode == CATCODE.BEGIN_GROUP:
-                result = parser.readBalancedText(result, expand=False, macro=False)
+                result = parser.readBalancedText(result)
 
     def expand(self, parser):
         """
@@ -313,7 +313,8 @@ class MacroAccessor(ParameterAccessor):
             else:
                 bracket.append(t)
         # read the replacement text
-        replacement = parser.readBalancedText([], expand=self.expand_body, macro=True)
+        balanced = parser.readMacroBodyExpanded if self.expand_body else parser.readMacroBody
+        replacement = balanced()
         # remove the trailing }
         replacement.pop()
         if tail:

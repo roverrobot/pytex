@@ -284,7 +284,7 @@ def readFileName(parser) -> str:
         # skip an optional space
         parser.skipSpace(expand=True)
     elif t.catcode == CATCODE.BEGIN_GROUP:
-        toks = parser.readBalancedText([], expand=True, macro=False)
+        toks = parser.readBalancedTextExpanded([])
         # pop the trailing }
         toks.pop()
     else:
@@ -299,7 +299,7 @@ def readFileName(parser) -> str:
                 break
             toks.append(t)
             if t.catcode == CATCODE.BEGIN_GROUP:
-                toks = parser.readBalancedText(toks, expand=True, macro=False)
+                toks = parser.readBalancedTextExpanded(toks)
     for t in toks:
         name += t.name
     return name

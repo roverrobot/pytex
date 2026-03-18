@@ -9,7 +9,7 @@ from tests.test_vmode import _test_hbox
 
 def test_read_toks(parser):
     parser.readFrom("abcd}")
-    k = parser.readBalancedText([], expand=False, macro=False)
+    k = parser.readBalancedText([])
     # a, b, c, d, }, space
     assert len(k) == 5
     assert k[3].name == "d"

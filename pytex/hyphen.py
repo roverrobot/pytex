@@ -86,7 +86,9 @@ class Hyphenator:
         """
         Insert one normalized TeX pattern into a trie root.
 
-        @return True if this pattern key already existed.
+        If the same letter pattern is declared multiple times, keep the
+        element-wise maximum weights. That matches TeX's effective behavior,
+        since all matching patterns contribute maxima during hyphenation.
         """
         if not letters:
             return False
@@ -97,10 +99,16 @@ class Hyphenator:
                 child = _PatternTrieNode()
                 node.children[c] = child
             node = child
-        duplicate = node.weights is not None
-        # For now we keep the latter declaration when duplicates occur.
-        node.weights = list(weights)
-        return duplicate
+        if node.weights is None:
+            node.weights = list(weights)
+            return False
+        existing = node.weights
+        if len(existing) < len(weights):
+            existing.extend([0] * (len(weights) - len(existing)))
+        for i, weight in enumerate(weights):
+            if weight > existing[i]:
+                existing[i] = weight
+        return True
 
     @staticmethod
     def _parsePattern(pattern):
@@ -122,17 +130,12 @@ class Hyphenator:
     def addPatterns(self, patterns):
         """
         Add normalized pattern tokens to the trie of the current language.
-
-        @return list of duplicate pattern letter-keys.
         """
         root = self.pattern_trie
-        duplicates = []
         for pattern in patterns:
             letters, weights = self._parsePattern(pattern)
-            if self._insertPattern(root, letters, weights):
-                duplicates.append(letters)
+            self._insertPattern(root, letters, weights)
         self.cache.clear()
-        return duplicates
 
     @staticmethod
     def _dumpPatternTrie(root):
@@ -299,12 +302,7 @@ class Patterns(token.Command):
         if current:
             patterns.append(current)
 
-        duplicates = parser.hyphenator.addPatterns(patterns)
-        for letters in duplicates:
-            parser.message(
-                f"warning: duplicate hyphenation pattern '{letters}', using latter weights",
-                console=False,
-            )
+        parser.hyphenator.addPatterns(patterns)
 
 
 def init(parser):

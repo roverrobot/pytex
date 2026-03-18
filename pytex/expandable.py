@@ -17,11 +17,15 @@ class NoExpandToken(CommandToken):
         self.saved = parser.state.equitable.entry("noexpand")
         if self.saved.value is None:
             self.saved.value = relax
+        # Trigger __getattr__("entry") on first read so the token initially
+        # behaves like \relax, then falls back to the wrapped token's entry.
+        del self.entry
 
     def __getattr__(self, name):
         if name == "entry":
             self.entry = self._entry
             return self.saved
+        raise AttributeError(name)
         
     def saveInfo(self):
         return {"name": self.name}, None

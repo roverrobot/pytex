@@ -132,10 +132,13 @@ class Token(Command):
         self.name = name
         self.catcode = catcode
         self.definition = None
+        # only command tokens have entry, pointing to the entry in equitable. However, we can use this field to
+        # distinguish if a tokan is a command or not
+        self.entry = None
 
     # the token is not a command
     is_command = False
-    
+
     # not expandable by default
     expand = None
 

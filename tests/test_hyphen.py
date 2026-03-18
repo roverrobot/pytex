@@ -63,11 +63,11 @@ def test_patterns_parsed_into_trie(parser):
     )
 
 
-def test_patterns_duplicate_uses_latter_weights(parser):
-    parser.parse("\\patterns{a3b4c a1bc}")
+def test_patterns_duplicate_merges_weights_silently(parser):
+    parser.parse("\\patterns{a3b4c a1bc ab5c}")
     got = parser.hyphenator._dumpPatternTrie(parser.hyphenator.pattern_tries[0])
-    assert got == [["abc", [0, 1, 0, 0]]]
-    assert "duplicate hyphenation pattern 'abc'" in parser.logContent()
+    assert got == [["abc", [0, 3, 5, 0]]]
+    assert "duplicate hyphenation pattern 'abc'" not in parser.logContent()
 
 
 def test_patterns_are_language_scoped(parser):
@@ -92,6 +92,11 @@ def test_pattern_hyphenation_uses_max_weights(parser):
     parser.parse("\\patterns{b3c}")
     # now max becomes 3 (odd) -> break at position 2
     assert parser.hyphenator.hyphenate("abc") == [2]
+
+
+def test_pattern_hyphenation_merges_duplicate_letter_patterns(parser):
+    parser.parse("\\patterns{a1bc ab3c}")
+    assert parser.hyphenator.hyphenate("abc") == [1, 2]
 
 
 def test_pattern_hyphenation_respects_boundary_dot(parser):

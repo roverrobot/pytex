@@ -6,7 +6,24 @@ This module implements various expandable commands.
 from pytex.token import Command, CATCODE, CommandToken, ActiveToken, relax, SpaceToken, CharToken
 from pytex.module import Module
 from pytex.lexer import TokenListScanner, Scanner
+from pytex.state import NamedEntry
 import pathlib
+
+
+class NoExpandToken(CommandToken):
+    def __init__(self, parser, inner):
+        super().__init__(inner.name)
+        self._entry = inner.entry
+        self.saved = parser.state.equitable.entry("noexpand")
+        if self.saved.value is None:
+            self.saved.value = relax
+
+    def __getattr__(self, name):
+        if name == "entry":
+            self.entry = self._entry
+            return self.saved
+
+
 
 class NoExpand(Command):
     """
@@ -23,9 +40,7 @@ class NoExpand(Command):
         if t.is_command:
             entry = t.entry
             if entry.value is None or entry.value.expand:
-                t = CommandToken(t.name) if t.catcode is None else ActiveToken(t.name, t.catcode)
-                t.entry = entry
-                t.noexpand = True
+                t = NoExpandToken(parser, t)
         parser.input.unread(t)
 
 

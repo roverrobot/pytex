@@ -45,6 +45,7 @@ class Parser:
         self.builtin = {}
         # now we are at a similar stage to INITEX. We do not need to keep the current state.
         self.input = lexer.InputStack()
+        self.token = self.input.read
         # the stack of if levels. Each element is a tuple containing the conditional 
         # command and its position in the input.
         self.ifstack = []
@@ -94,20 +95,6 @@ class Parser:
         print(message, file=self.log)
         if console:
             print(message, file=self.console)
-    
-    def token(self):
-        """
-        get the next token from the input stack
-        @return: the next token
-        """
-        t = self.input.read()
-        if t is not None and t.is_command:
-            if t.noexpand:
-                t.noexpand = False
-                t.definition = token.relax
-            else:
-                t.definition = t.entry.value
-        return t
     
     def token_expand(self):
         """

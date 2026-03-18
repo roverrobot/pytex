@@ -302,14 +302,22 @@ class InputStack:
         @return: the next token, or None if the end of the stack is reached
         """
         if self.saved:
-            return self.saved.pop()
+            t = self.saved.pop()
+            if getattr(t, "is_command", False):
+                t.definition = t.entry.value
+            return t
         while self.top:
             t = self.top.read()
             if t:
+                if getattr(t, "is_command", False):
+                    t.definition = t.entry.value
                 return t
             self.top, self.active, self.saved = self.stack.pop()
             if self.saved:
-                return self.saved.pop()
+                t = self.saved.pop()
+                if getattr(t, "is_command", False):
+                    t.definition = t.entry.value
+                return t
 
     def unread(self, token):
         """

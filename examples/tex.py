@@ -78,9 +78,7 @@ if args.format == "initex":
     )
 else:
     parser.resolver.format = args.format
-    fmt = parser.resolver.openIn(args.format, "dump/pfmt")
-    if fmt is None:
-        fmt = parser.resolver.openIn(args.format, "dump/json")
+    fmt = parser.resolver.openIn(args.format, "dump")
     if fmt is None:
         raise ValueError(f"cannot find format {args.format}")
     parser.load(fmt)
@@ -104,7 +102,7 @@ else:
 input.close()
 
 if args.format == "initex":
-    parser.dumper(parser.dumpContainer())
+    parser.dumper(parser.dump())
 else:
     parser.end()
 

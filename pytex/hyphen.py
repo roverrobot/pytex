@@ -160,23 +160,6 @@ class Hyphenator:
                 stack.append((letters + c, node.children[c]))
         return out
 
-    def dump(self):
-        """
-        Dump hyphenator data for parser format files.
-        """
-        words = {}
-        patterns = {}
-        for i, data in self.dumpLanguages():
-            if data["words"]:
-                words[str(i)] = data["words"]
-            if data["patterns"]:
-                patterns[str(i)] = data["patterns"]
-        return {
-            "language": self.language,
-            "words": words,
-            "patterns": patterns,
-        }
-
     def dumpLanguage(self, language):
         """
         Dump one language's hyphenation data, or None if it is empty.
@@ -231,33 +214,6 @@ class Hyphenator:
         self._loadLanguageData(language, data)
 
     def load(self, data):
-        """
-        Load hyphenator data previously produced by dump().
-        """
-        self._reset()
-        words = data.get("words", {})
-        for key, d in words.items():
-            i = int(key)
-            if i < 0 or i >= self.LANGUAGES:
-                continue
-        patterns = data.get("patterns", {})
-        for key in set(words.keys()) | set(patterns.keys()):
-            i = int(key)
-            if i < 0 or i >= self.LANGUAGES:
-                continue
-            self._loadLanguageData(
-                i,
-                {
-                    "words": words.get(key, {}),
-                    "patterns": patterns.get(key, []),
-                },
-            )
-        language = data.get("language", 0)
-        if not isinstance(language, int) or language < 0 or language >= self.LANGUAGES:
-            language = 0
-        self.setLanguage(language)
-
-    def loadContainer(self, data):
         """
         Load container metadata and defer per-language payloads until used.
         """

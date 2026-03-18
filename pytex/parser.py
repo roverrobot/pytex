@@ -1,5 +1,4 @@
 import typing
-import json
 import datetime
 from fractions import Fraction
 from pytex import serialization
@@ -54,11 +53,11 @@ class Parser:
         self.log = self.getLogFile()
         # the console file. None to standard output, or os.devnull for no output
         self.console = None
-        # the dumper instance variable should point to a function that takes the content of 
-        # a dump file and writes it to a file. The \dump command (vmode.Dump) handles the 
+        # the dumper instance variable should point to a function that takes the content of
+        # a binary format file and writes it to a file. The \dump command (vmode.Dump) handles the
         # dump and uses this variable. Here is an example of setting it.
         # def dumper:
-        #     with open("dump.fmt", "w") as format:
+        #     with open("dump.pfmt", "wb") as format:
         #         format.write(content)
         # parser.dumper = dumper
         self.dumper = None
@@ -436,47 +435,25 @@ class Parser:
         c = font.fontchar["hyphenchar"]
         return self.state.parameters["defaulthyphenchar"] if c == 0 else c
 
-    def dump(self) -> str:
+    def dump(self) -> bytes:
         """
-        dump the state as a format (JSON) file
+        Dump the state as a format container.
         @return: the format file content
         """
-        dump = {
-            "state": serialization.serialize(self.state.dump()),
-        }
-        if hasattr(self, "hyphenator"):
-            dump["hyphenator"] = self.hyphenator.dump()
-        return json.dumps(dump)
-
-    def dumpContainer(self) -> bytes:
-        """
-        Dump the state as a zip-based format container.
-        """
-        return formatfile.dumpContainer(self)
+        return formatfile.dump(self)
 
     def load(self, file):
         """
         load the state from a format file
         @param file: the file to load the state
         """
-        data = file.read()
-        if isinstance(data, bytes):
-            if formatfile.isContainer(data):
-                formatfile.loadContainer(self, data)
-                return
-            data = data.decode("utf-8")
         self.formatfile = None
-        format = json.loads(data)
-        # Backward compatible: old dumps stored only state data at top level.
-        if "state" in format:
-            state_data = format["state"]
-            hyphen_data = format.get("hyphenator", None)
-        else:
-            state_data = format
-            hyphen_data = None
-        self.state.load(serialization.deserialize(self, state_data))
-        if hyphen_data is not None and hasattr(self, "hyphenator"):
-            self.hyphenator.load(hyphen_data)
+        data = file.read()
+        if not isinstance(data, (bytes, bytearray)):
+            raise ValueError("format files must be opened in binary mode")
+        if not formatfile.isContainer(data):
+            raise ValueError("unsupported format file")
+        formatfile.load(self, data)
 
     def end(self):
         """

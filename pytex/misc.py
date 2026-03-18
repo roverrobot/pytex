@@ -14,15 +14,12 @@ from pytex import token
 class Dump(token.Command):
     """
     Dump the current parser state as a format file.
-
-    The default dumper used by examples/tex.py writes the state as a versioned
-    format container. Legacy JSON dumps remain available through parser.dump().
     """
     def execute(self, parser):
         parser.end()
         if parser.dumper is None:
             raise ValueError("no dumper is available", parser.input.position())
-        parser.dumper(parser.dumpContainer())
+        parser.dumper(parser.dump())
 
 
 mod = Module("misc",

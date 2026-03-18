@@ -1,8 +1,6 @@
 import io
-import json
 
 from pytex.parser import Parser
-from pytex import serialization
 from pytex.token import CATCODE
 
 
@@ -30,11 +28,14 @@ def test_hyphenator_dump_load_roundtrip(parser):
 
     loaded = Parser()
     _set_common_catcodes(loaded)
-    loaded.load(io.StringIO(data))
+    loaded.load(io.BytesIO(data))
 
-    assert loaded.hyphenator.dicts[0]["technical"] == [4, 6]
-    assert loaded.hyphenator.dicts[1]["microwave"] == [5]
+    assert loaded.formatfile is not None
     assert loaded.hyphenator.language == 1
+    loaded.hyphenator.setLanguage(0)
+    assert loaded.hyphenator.dicts[0]["technical"] == [4, 6]
+    loaded.hyphenator.setLanguage(1)
+    assert loaded.hyphenator.dicts[1]["microwave"] == [5]
     assert loaded.hyphenator.words is loaded.hyphenator.dicts[1]
     assert loaded.hyphenator._dumpPatternTrie(loaded.hyphenator.pattern_tries[1]) == [
         ["abc", [0, 1, 0, 2]]
@@ -45,7 +46,7 @@ def test_hyphenator_container_dump_load_is_lazy(parser, monkeypatch):
     parser.parse("\\count0=123")
     parser.parse("\\patterns{a1b}")
     parser.parse("\\language 1 \\hyphenation{mi-cro-wave}\\patterns{c3d}")
-    data = parser.dumpContainer()
+    data = parser.dump()
 
     loaded = Parser()
     _set_common_catcodes(loaded)
@@ -72,18 +73,6 @@ def test_hyphenator_container_dump_load_is_lazy(parser, monkeypatch):
     loaded.hyphenator.setLanguage(0)
     assert loaded.hyphenator.hyphenate("ab") == [1]
     assert calls == ["cd", "ab"]
-
-
-def test_parser_load_backward_compatible_state_only_dump(parser):
-    parser.parse("\\count0=123")
-    old_style = json.dumps(serialization.serialize(parser.state.dump()))
-
-    loaded = Parser()
-    _set_common_catcodes(loaded)
-    loaded.load(io.StringIO(old_style))
-
-    assert loaded.state.count[0] == 123
-
 
 def test_patterns_parsed_into_trie(parser):
     parser.parse("\\patterns{a1bc .T2e}")

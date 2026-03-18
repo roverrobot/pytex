@@ -52,7 +52,7 @@ def isContainer(data: bytes) -> bool:
     return zipfile.is_zipfile(io.BytesIO(data))
 
 
-def dumpContainer(parser) -> bytes:
+def dump(parser) -> bytes:
     """
     Dump the current parser state as an uncompressed zip container.
     """
@@ -79,7 +79,7 @@ def dumpContainer(parser) -> bytes:
     return buffer.getvalue()
 
 
-def loadContainer(parser, data: bytes):
+def load(parser, data: bytes):
     """
     Load a parser state from a format container.
     """
@@ -90,4 +90,4 @@ def loadContainer(parser, data: bytes):
     parser.state.load(serialization.deserialize(parser, state_data))
     hyphen_data = manifest.get("hyphenator", None)
     if hyphen_data is not None and hasattr(parser, "hyphenator"):
-        parser.hyphenator.loadContainer(hyphen_data)
+        parser.hyphenator.load(hyphen_data)

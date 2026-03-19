@@ -49,6 +49,17 @@ def test_openout_immediate(parser):
     assert file.content == "123xyz\n"
 
 
+def test_openout_preserves_aux_macro_hashes(parser):
+    parser.parse(
+        "\\let\\a=\\relax"
+        "\\immediate\\openout 1=output-hash.tex"
+        "\\immediate\\write1{\\string\\gdef\\string\\a\\string#1{\\string#1}}"
+        "\\immediate\\closeout 1"
+    )
+    file = parser.resolver.in_memory_files["output-hash.tex"]
+    assert file.content == "\\gdef\\a#1{#1}\n"
+
+
 def test_openout(parser):
     parser.parse("\\def\\a{123}\\openout 1=output1.tex \\write1{\\a xyz}\\closeout 1")
     file = parser.state.globals["openout"][1]
@@ -79,6 +90,12 @@ def test_deferred_shipout_flushes_write_before_closeout(parser, tmp_path):
     parser.end()
     file = parser.resolver.in_memory_files["output2.tex"]
     assert file.content == "abc\n"
+
+
+@pytest.mark.parametrize("cmd", ["\\message", "\\errmessage"])
+def test_message_family_preserves_single_hash(parser, cmd):
+    parser.parse(f"{cmd}{{\\string#}}")
+    assert parser.logContent().strip() == "#"
 
 
 def test_read(read_tex):

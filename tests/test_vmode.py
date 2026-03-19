@@ -89,6 +89,12 @@ def test_mark(cmr10):
     assert toksToString(cmr10, node.tokens) == "123"
 
 
+def test_mark_preserves_single_hash(cmr10):
+    cmr10.parse("\\mark{\\string#}")
+    node = cmr10.lists[-1][0]
+    assert toksToString(cmr10, node.tokens) == "#"
+
+
 def test_special(cmr10):
     cmr10.parse("\\special{abc}")
     top = cmr10.lists[-1]
@@ -106,6 +112,15 @@ def test_special_outputs_string(parser):
     device = types.SimpleNamespace(special=lambda text: seen.append(text))
     node.output(parser, device)
     assert seen == ["abc"]
+
+
+def test_special_outputs_single_hash(parser):
+    parser.parse("\\special{\\string#}")
+    seen = []
+    node = parser.lists[-1][0]
+    device = types.SimpleNamespace(special=lambda text: seen.append(text))
+    node.output(parser, device)
+    assert seen == ["#"]
 
 
 @pytest.mark.parametrize("cmd, type", [

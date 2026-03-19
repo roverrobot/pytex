@@ -80,6 +80,11 @@ def test_string(collector):
     assert collector.getString() == "!test"
 
 
+def test_string_parameter_token(collector):
+    collector.parse("\\string#")
+    assert collector.getString() == "# "
+
+
 def test_the(collector):
     collector.parse("\\count0=0 \\the\\count0")
     assert collector.getString() == "0"

@@ -35,6 +35,7 @@ from pytex import tracing
 from pytex import page
 import os
 
+
 class Parser:
     """
     The parser is the main class that processes the input and executes the commands.
@@ -381,7 +382,7 @@ class Parser:
 
     def endParagraph(self):
         """
-        end a paragraph
+        End the current paragraph using TeX's primitive paragraph builder.
         """
         hlist = self.lists[-1]
         if hlist.type != lists.LISTTYPE.HORIZONTAL or hlist.inner:
@@ -425,7 +426,7 @@ class Parser:
         volatile["looseness"] = 0
         volatile["hangindent"] = dimen.Dimen()
         volatile["hangafter"] = 1
-        self.state.globals["parshape"] = []
+        volatile["parshape"] = []
 
     def hyphenChar(self):
         """

@@ -382,6 +382,54 @@ def test_paragraph_settings_reset_after_paragraph(parser):
     assert parser.state.volatile["looseness"] == 0
 
 
+def test_parshape_resets_after_paragraph_end(parser):
+    parser.parse("\\input plain")
+    parser.parse(
+        "\\hsize=200pt "
+        "\\parshape 1 20pt 100pt "
+        "A bit of text.\\par "
+        "\\noindent B bit of text.\\par"
+    )
+    paras = [node for node in parser.lists[-1] if isinstance(node, paragraph.Paragraph)]
+    assert len(paras) == 2
+    first = [
+        node for node in parser.lists[-1].expanded
+        if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is paras[0]
+    ]
+    second = [
+        node for node in parser.lists[-1].expanded
+        if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is paras[1]
+    ]
+    assert len(first) == 1
+    assert len(second) == 1
+    assert first[0].width == 100
+    assert first[0].list[0].node_type == nd.NODE_TYPE.GLUE
+    assert first[0].list[0].glue.dimen == 20
+    assert second[0].width == 200
+    assert second[0].list[0].node_type == nd.NODE_TYPE.CHAR
+    assert second[0].list[0].char == "B"
+
+
+def test_internal_paragraph_end_uses_current_par_definition(parser):
+    parser.parse("\\input plain")
+    parser.parse(
+        "\\count0=0 "
+        "\\def\\par{\\global\\advance\\count0 by 1 \\endgraf}"
+        "a\\vskip0pt"
+    )
+    assert parser.state.count[0] == 1
+
+
+def test_display_math_ends_paragraph_with_primitive_path(parser):
+    parser.parse("\\input plain")
+    parser.parse(
+        "\\count0=0 "
+        "\\def\\par{\\global\\advance\\count0 by 1 \\endgraf}"
+        "a$$x$$"
+    )
+    assert parser.state.count[0] == 0
+
+
 def test_noindent_with_hanging_label_does_not_add_first_line_indent(parser):
     parser.parse("\\input plain \\hsize=200pt \\hangindent=20pt \\noindent\\hbox{1\\quad}Introduction\\par")
     para = next(n for n in reversed(parser.lists[-1]) if isinstance(n, paragraph.Paragraph))

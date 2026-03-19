@@ -7,7 +7,7 @@ from pytex import node as nd
 from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
-from pytex.token import Command
+from pytex.token import Command, CommandToken
 from pytex.dimen import Dimen, DimenCommand
 from pytex.accessor import Accessor
 
@@ -485,15 +485,18 @@ class VerticalCommand(lists.ModeDependentCommand):
     def horizontal(self, parser, hlist):
         """
         In unrestricterd horizontal mode, a vertical command should terminate the 
-        current list and return to the enclosing vertical list.
+        current list by inserting a \par token, then re-read the vertical
+        command after that paragraph ends.
         @param parser: the parser
         @param hlist: the current list
         """
         if hlist.inner:
             # raise an error
             super().horizontal(parser, hlist)
-        parser.endParagraph()
-        self.execute(parser)
+        par = CommandToken("\\par")
+        par.entry = parser.state.equitable.entry("\\par")
+        parser.input.unread(parser.current_token)
+        parser.input.unread(par)
 
 
 class VSkip(lists.GlueCommand, VerticalCommand):

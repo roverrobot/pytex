@@ -97,7 +97,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     def lineShape(self, parser, line_no):
         return self._lineShape(
-            parser.state.globals["parshape"],
+            parser.state.volatile["parshape"],
             parser.state.layout["hsize"],
             parser.state.volatile["hangindent"],
             parser.state.volatile["hangafter"],

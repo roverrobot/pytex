@@ -77,11 +77,11 @@ class ModeDependentCommand(Command):
         top = parser.lists[-1]
         mode = top.type
         if mode == LISTTYPE.HORIZONTAL:
-            self.horizontal(parser, top)
+            return self.horizontal(parser, top)
         elif mode == LISTTYPE.VERTICAL:
-            self.vertical(parser, top)
+            return self.vertical(parser, top)
         elif mode == LISTTYPE.MATH:
-            self.math(parser, top)
+            return self.math(parser, top)
     
     def modeError(self, parser, mode):
         pos = parser.input.position()

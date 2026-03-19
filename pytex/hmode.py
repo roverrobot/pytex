@@ -297,14 +297,14 @@ class Par(HorizontalCommand):
         if hlist.inner:
             return
         # end the current paragraph:
-        parser.endParagraph()
+        return parser.endParagraph()
 
     def vertical(self, parser, vlist):
         # The primitive \par command has no eﬀect when TeX is in vertical
         # mode, except that the page builder is exercised in case something 
         # is present on the contribution list, and the paragraph shape 
         # parameters are cleared.
-        parser.state.globals["parshape"] = []
+        parser.state.volatile["parshape"] = []
         pass
 
 
@@ -360,7 +360,7 @@ class ParShape(Command):
             indent = parser.readDimen()
             width = parser.readDimen()
             parshape.append((indent, width))
-        parser.state.globals["parshape"] = parshape
+        parser.state.volatile["parshape"] = parshape
 
 
 class ControlledSpace(HorizontalCommand):
@@ -586,6 +586,6 @@ mod = Module("hmode",
         "spacefactor": SpaceFactor(),
     },
     parameters={
-        "parshape": {"value": list, "accessor": None, "domain": "globals"},
+        "parshape": {"value": list, "accessor": None, "domain": "volatile"},
     },
 )

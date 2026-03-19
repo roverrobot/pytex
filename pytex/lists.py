@@ -275,15 +275,36 @@ class Remove(Command):
                 top.pop()
 
 
+def _lastConcreteNode(top):
+    """
+    Return the concrete tail node of the current list.
+
+    For live vertical lists, raw nodes and concrete contributed nodes differ:
+    the raw tail may be a paragraph/display node while TeX's \\lastskip,
+    \\lastkern, and \\lastpenalty inspect the already-expanded vertical tail.
+    """
+    expanded = getattr(top, "expanded", None)
+    if expanded is not None:
+        realize_ready = getattr(top, "_realizeReadyTailNodes", None)
+        if realize_ready is not None:
+            realize_ready()
+        if expanded:
+            return expanded[-1]
+        return None
+    if len(top) == 0:
+        return None
+    return top[-1]
+
+
 class LastPenalty(Command):
     """
     The \\lastpenalty command.
     """
     def intValue(self, parser):
-        top = parser.lists[-1]
-        if len(top) == 0 or top[-1].node_type != nd.NODE_TYPE.PENALTY:
+        node = _lastConcreteNode(parser.lists[-1])
+        if node is None or node.node_type != nd.NODE_TYPE.PENALTY:
             return 0
-        return top[-1].penalty
+        return node.penalty
 
 
 class LastKern(Command, DimenCommand):
@@ -291,10 +312,10 @@ class LastKern(Command, DimenCommand):
     The \\lastkern command.
     """
     def dimenValue(self, parser):
-        top = parser.lists[-1]
-        if len(top) == 0 or top[-1].node_type != nd.NODE_TYPE.KERN:
+        node = _lastConcreteNode(parser.lists[-1])
+        if node is None or node.node_type != nd.NODE_TYPE.KERN:
             return Dimen()
-        return top[-1].kern
+        return node.kern
 
 
 class LastSkip(Command, GlueValueCommand):
@@ -302,10 +323,10 @@ class LastSkip(Command, GlueValueCommand):
     The \\lastskip command.
     """
     def glueValue(self, parser):
-        top = parser.lists[-1]
-        if len(top) == 0 or top[-1].node_type != nd.NODE_TYPE.GLUE:
+        node = _lastConcreteNode(parser.lists[-1])
+        if node is None or node.node_type != nd.NODE_TYPE.GLUE:
             return Glue()
-        return deepcopy(top[-1].glue)
+        return deepcopy(node.glue)
 
 
 class ItalicCorrection(ModeDependentCommand):

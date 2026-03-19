@@ -184,6 +184,13 @@ def test_last_item_quantities_vmode(cmr10):
     assert cmr10.state.count[3] == 77
 
 
+def test_lastskip_after_display_math_uses_concrete_vertical_tail(cmr10):
+    cmr10.parse("$$a$$\\par\\skip0=\\lastskip\\dimen0=\\lastkern\\count0=\\lastpenalty\\end")
+    assert cmr10.state.skip[0] == cmr10.state.layout["belowdisplayshortskip"]
+    assert cmr10.state.dimen[0] == 0
+    assert cmr10.state.count[0] == 0
+
+
 class _LeafHBox(nd.Box):
     node_type = nd.NODE_TYPE.HLIST
     typeset = None

@@ -75,7 +75,7 @@ def test_showlists_omits_main_vlist_wrapper(cmr10):
     log = cmr10.logContent()
     assert "VList(outer)" not in log
     assert "### list 0" not in log
-    assert "HList" in log
+    assert "\\hbox" in log
 
 
 def test_showlists_expands_inline_math_nodes(cmr10):

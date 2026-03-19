@@ -10,6 +10,11 @@ from pytex import texlive
 from pytex import dimen
 from pytex.expandable import toksToString
 
+
+def _raw_nodes(vlist):
+    return getattr(vlist, "raw", vlist)
+
+
 def test_new_paragraph(cmr10):
     s = "Hello, world!"
     cmr10.parse(s)
@@ -41,7 +46,7 @@ def test_par(cmr10):
     assert len(cmr10.lists) == 1
     vlist = cmr10.lists[-1]
     assert vlist.type == lists.LISTTYPE.VERTICAL
-    hlist = vlist[0].list
+    hlist = _raw_nodes(vlist)[0].list
     assert len(hlist) == 8 # indent, h, e, l, l, o, penalty(10000), glue,
     node = hlist[0]
     assert isinstance(node, hmode.IndentBox)
@@ -67,10 +72,10 @@ def test_vskip(cmr10):
     assert len(cmr10.lists) == 1
     vlist = cmr10.lists[-1]
     assert vlist.type == lists.LISTTYPE.VERTICAL
-    hlists = [node for node in vlist if isinstance(node, paragraph.Paragraph)]
+    hlists = [node for node in _raw_nodes(vlist) if isinstance(node, paragraph.Paragraph)]
     assert len(hlists) == 2
     assert len(hlists[0].list) == 8
-    vs = [node for node in vlist if node.node_type == nd.NODE_TYPE.GLUE and node.glue.dimen == 72.26999]
+    vs = [node for node in _raw_nodes(vlist) if node.node_type == nd.NODE_TYPE.GLUE and node.glue.dimen == 72.26999]
     assert len(vs) == 1
 
 

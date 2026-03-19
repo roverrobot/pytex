@@ -270,9 +270,12 @@ class Remove(Command):
 
     def execute(self, parser):
         top = parser.lists[-1]
-        if len(top) > 0:
-            if top[-1].node_type == self.node_type:
-                top.pop()
+        remove = getattr(top, "removeLastConcrete", None)
+        if remove is not None:
+            remove(self.node_type)
+            return
+        if len(top) > 0 and top[-1].node_type == self.node_type:
+            top.pop()
 
 
 def _lastConcreteNode(top):

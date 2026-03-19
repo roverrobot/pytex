@@ -171,9 +171,9 @@ def typesetVerticalNodes(parser, nodes, packed):
     if realize_ready is not None:
         realize_ready()
         expanded_raw_count = getattr(nodes, "_expanded_raw_count", None)
-        raw_nodes = getattr(nodes, "list", None)
+        raw_nodes = getattr(nodes, "raw", None)
         if expanded_raw_count is not None and raw_nodes is not None and expanded_raw_count == len(raw_nodes):
-            packed.extend(nodes.expanded)
+            packed.extend(nodes.list)
             return packed
     state = {
         "prevdepth": init_prevdepth,
@@ -238,8 +238,9 @@ class VList(lists.List):
 
     def __init__(self, parser, nodes, inner=True):
         self.parser = parser
-        self.list = nodes
-        self.expanded = []
+        self.raw = nodes
+        self.list = []
+        self.expanded = self.list
         self._expanded_raw_count = 0
         self._local_prevdepth = init_prevdepth
         self._parser_prevdepth_active = False
@@ -270,28 +271,8 @@ class VList(lists.List):
             self.parser.state.volatile["prevdepth"] = self._local_prevdepth
             self._parser_prevdepth_active = True
 
-    def _appendInterlineMaterial(self, node, prior_prevdepth):
-        interline_penalty = getattr(node, "interline_penalty", None)
-        interline_glue = getattr(node, "interline_glue", None)
-        if interline_glue is None:
-            default_penalty, interline_glue = _compute_interline_material(
-                self.parser.state.layout,
-                prior_prevdepth,
-                node.height,
-            )
-            if interline_penalty is None:
-                interline_penalty = default_penalty
-        if interline_penalty != 0 and float(prior_prevdepth) > float(init_prevdepth):
-            penalty = nd.Penalty(interline_penalty)
-            penalty.interline_generated = True
-            self.list.append(penalty)
-        if float(prior_prevdepth) > float(init_prevdepth) and interline_glue.glue is not None:
-            glue_node = nd.Glue(interline_glue.glue, interline_glue.name)
-            glue_node.interline_generated = True
-            self.list.append(glue_node)
-
     def _expandedPrevDepth(self):
-        for node in reversed(self.expanded):
+        for node in reversed(self.list):
             if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 return node.depth
             if node.node_type == nd.NODE_TYPE.RULE:
@@ -299,7 +280,7 @@ class VList(lists.List):
         return init_prevdepth
 
     def _expandedLastBox(self):
-        for node in reversed(self.expanded):
+        for node in reversed(self.list):
             if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 return node
         return None
@@ -307,86 +288,98 @@ class VList(lists.List):
     def _syncExpandedTailState(self):
         self.lastbox = self._expandedLastBox()
 
+    def _currentExpandedState(self):
+        pending = bool(self.list and getattr(self.list[-1], "interline_generated", False))
+        prevdepth = self.prevdepth
+        if prevdepth is None:
+            prevdepth = self._expandedPrevDepth() if self.list else init_prevdepth
+        return {
+            "prevdepth": prevdepth,
+            "seen_box": self.lastbox is not None,
+            "pending_interline": pending,
+            "builder_mode": True,
+        }
+
+    def _dropDrainedRawTail(self, source):
+        if not self.raw or self.raw[-1] is not source:
+            return False
+        if self.list and getattr(self.list[-1], "source", None) is source:
+            return False
+        self.raw.pop()
+        if self._expanded_raw_count > len(self.raw):
+            self._expanded_raw_count = len(self.raw)
+        return True
+
     def _expandReadyNode(self, node):
-        start = len(self.expanded)
-        state = _rebuild_expanded_state(self.expanded)
-        _append_expanded_node(self.parser, self.expanded, state, node)
+        start = len(self.list)
+        state = self._currentExpandedState()
+        _append_expanded_node(self.parser, self.list, state, node)
         self._syncExpandedTailState()
-        return self.expanded[start:]
+        self.prevdepth = state["prevdepth"]
+        return self.list[start:]
 
     def _realizeReadyTailNodes(self):
-        while self._expanded_raw_count < len(self.list):
-            node = self.list[self._expanded_raw_count]
+        while self._expanded_raw_count < len(self.raw):
+            node = self.raw[self._expanded_raw_count]
             self._expandReadyNode(node)
             self._expanded_raw_count += 1
 
     def _appendBuiltNode(self, node):
         node.source = node
+        self.raw.append(node)
         self.list.append(node)
-        self.expanded.append(node)
-        self._expanded_raw_count += 1
+        self._expanded_raw_count = len(self.raw)
         if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
             self.lastbox = node
             self.prevdepth = node.depth
         elif node.node_type == nd.NODE_TYPE.RULE:
             self.prevdepth = init_prevdepth
-        elif self._expanded_raw_count == len(self.list):
-            self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
+        elif self._expanded_raw_count == len(self.raw):
+            self.prevdepth = self._expandedPrevDepth() if self.list else init_prevdepth
 
     def extendBuilt(self, nodes):
-        self._realizeReadyTailNodes()
         for node in nodes:
-            self._appendBuiltNode(node)
+            self.append(node)
 
     def append(self, node):
         self.can_lastbox = False
         self._realizeReadyTailNodes()
-        base_prevdepth = self.resolvePrevDepth()
-        is_box = node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
-        if is_box:
-            self._appendInterlineMaterial(node, base_prevdepth)
-            if getattr(node, "interline_penalty", None) is not None:
-                node.interline_penalty = None
-            if getattr(node, "interline_glue", None) is not None:
-                node.interline_glue = None
-            self.prevdepth = getattr(node, "depth", None)
-        elif node.node_type == nd.NODE_TYPE.RULE:
-            self.prevdepth = init_prevdepth
-        if (not is_box and node.node_type != nd.NODE_TYPE.RULE) and getattr(node, "box_materializable", False):
-            self.prevdepth = None
-        self.list.append(node)
+        self.raw.append(node)
         self._realizeReadyTailNodes()
-        if self.prevdepth is None and self._expanded_raw_count == len(self.list):
-            self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
 
     def resolvePrevDepth(self):
-        if self.prevdepth is not None:
-            return self.prevdepth
         self._realizeReadyTailNodes()
         if self.prevdepth is not None:
             return self.prevdepth
-        for i in range(len(self) - 1, -1, -1):
-            node = self[i]
-            if getattr(node, "box_materializable", False):
-                return _expanded_tail_depth(self.parser, node)
-            elif node.node_type == nd.NODE_TYPE.RULE:
-                break
-        return self._expandedPrevDepth()
+        return self._expandedPrevDepth() if self.list else init_prevdepth
+
+    def removeLastConcrete(self, node_type):
+        self._realizeReadyTailNodes()
+        if not self.list or self.list[-1].node_type != node_type:
+            return None
+        node = self.list.pop()
+        source = getattr(node, "source", None) or node
+        self._dropDrainedRawTail(source)
+        self._syncExpandedTailState()
+        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            self.prevdepth = self.lastbox.depth if self.lastbox is not None else init_prevdepth
+        elif node.node_type == nd.NODE_TYPE.RULE:
+            self.prevdepth = self._expandedPrevDepth() if self.list else init_prevdepth
+        return node
 
     def pop(self, *args):
         index = args[0] if args else -1
         if index not in (-1, len(self.list) - 1):
             raise NotImplementedError("VList.pop only supports removing the tail")
-        node = self.list.pop(*args)
-        if self._expanded_raw_count > len(self.list):
-            self._expanded_raw_count = len(self.list)
-        while self.expanded and getattr(self.expanded[-1], "source", None) is node:
-            self.expanded.pop()
+        self._realizeReadyTailNodes()
+        node = self.list.pop()
+        source = getattr(node, "source", None) or node
+        self._dropDrainedRawTail(source)
         self._syncExpandedTailState()
-        if self._expanded_raw_count < len(self.list):
-            self.prevdepth = None
-        else:
-            self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
+        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            self.prevdepth = self.lastbox.depth if self.lastbox is not None else init_prevdepth
+        elif node.node_type == nd.NODE_TYPE.RULE:
+            self.prevdepth = self._expandedPrevDepth() if self.list else init_prevdepth
         return node
 
 

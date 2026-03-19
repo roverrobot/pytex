@@ -12,6 +12,10 @@ from pytex.dimen import Dimen
 from pytex.expandable import toToks, toksToString
 
 
+def _raw_nodes(vlist):
+    return getattr(vlist, "raw", vlist)
+
+
 @pytest.fixture()
 def box(cmr10):
     cmr10.parse("\\setbox0=\\hbox{Hello, world!}\\relax")
@@ -32,7 +36,7 @@ def test_box_command(box):
     box0 = box.state.box[0]
     box.parse("\\box0")
     top = box.lists[-1]
-    assert top[-1] == box0
+    assert top[-1] == box0.typeset(box)
     assert box.state.box[0] is None
 
 
@@ -539,7 +543,7 @@ def test_unhbox_enters_horizontal_mode_from_vmode(box):
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     assert box.state.box[0] is None
-    assert any(isinstance(node, paragraph.Paragraph) for node in top)
+    assert any(isinstance(node, paragraph.Paragraph) for node in _raw_nodes(top))
 
 
 def test_unvbox_wrongbox(box):

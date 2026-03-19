@@ -465,7 +465,7 @@ class HAlignment(Alignment):
             vbuild.append(rowbox)
             if row.noalign is not None:
                 self._appendVerticalMaterial(parser, vbuild, row.noalign)
-        packed.extend(list(cache))
+        packed.extend(list(vbuild))
 
 
 class VAlignment(Alignment):

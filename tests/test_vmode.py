@@ -12,6 +12,10 @@ from pytex.box import LEADERS_TYPE
 from pytex.expandable import toksToString
 
 
+def _raw_nodes(vlist):
+    return getattr(vlist, "raw", vlist)
+
+
 @pytest.mark.parametrize(
     "input,g", [
         ["\\vskip 10pt", glue.Glue(10)],
@@ -728,12 +732,12 @@ def test_mark(cmr10):
     cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    box = top[0]
+    raw = _raw_nodes(top)
+    assert len(raw) == 1
+    box = raw[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
     assert len(box.list) == 1
-    packed = []
-    vmode.typesetVerticalNodes(cmr10, top.list, packed)
+    packed = list(top)
     assert len(packed) == 2
     migrate = packed[1]
     assert migrate.node_type == nd.NODE_TYPE.MARK
@@ -744,12 +748,12 @@ def test_insert_migrate(cmr10):
     cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    box = top[0]
+    raw = _raw_nodes(top)
+    assert len(raw) == 1
+    box = raw[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
     assert len(box.list) == 2
-    packed = []
-    vmode.typesetVerticalNodes(cmr10, top.list, packed)
+    packed = list(top)
     assert len(packed) == 2
     node = packed[1]
     assert node.node_type == nd.NODE_TYPE.INS
@@ -762,8 +766,7 @@ def test_insert_migrate(cmr10):
 def test_vadjust_merges_into_vertical_material(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent a\\vadjust{\\hrule height 1pt}b\\par")
     top = cmr10.lists[-1]
-    packed = []
-    vmode.typesetVerticalNodes(cmr10, top.list, packed)
+    packed = list(top)
     assert packed[0].node_type == nd.NODE_TYPE.HLIST
     assert packed[1].node_type == nd.NODE_TYPE.RULE
     assert packed[1].height == 1

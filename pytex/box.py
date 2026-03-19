@@ -1012,7 +1012,7 @@ class LastBox(Command):
 
 mod = Module("hbox", 
     domains={
-        "box": {"generator": Array, "accessor": SetBox},
+        "box": {"generator": lambda state: Array("box", state), "accessor": SetBox},
     },
     parameters={
         "badness": {"value": 0, "accessor": BadnessAccessor, "domain": "globals"},

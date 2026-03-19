@@ -29,6 +29,13 @@ def test_toks_register(parser):
     assert k[3].name == "d"
 
 
+def test_toks_register_is_local_to_group(parser):
+    parser.parse("\\toks0={a}{\\toks0={b}}")
+    k = parser.state.toks[0]
+    assert len(k) == 1
+    assert k[0].name == "a"
+
+
 def test_aftergroup(collector):
     collector.parse("{\\aftergroup a\\aftergroup b\\count0=1}")
     assert collector.getString() == "ab "

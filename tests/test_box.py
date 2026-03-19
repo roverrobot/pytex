@@ -44,6 +44,12 @@ def test_copy(box):
     assert box1 is not box0
 
 
+def test_setbox_is_local_to_group(cmr10):
+    cmr10.parse("{\\setbox0=\\hbox{a}\\global\\dimen0=\\wd0}\\dimen1=\\wd0")
+    assert cmr10.state.dimen[0] == Dimen(5.00002)
+    assert cmr10.state.dimen[1] == Dimen()
+
+
 def test_ifvoid(box):
     box0 = box.state.box[0]
     box.parse("\\ifvoid0 a\\else b\\fi")

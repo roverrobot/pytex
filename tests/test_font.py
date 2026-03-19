@@ -58,6 +58,14 @@ def test_fontname(collector):
     assert collector.getString() == "cmr10"
 
 
+def test_textfont_assignment_is_local_to_group(collector):
+    collector.parse("\\font\\a=cmr10 \\font\\b=cmr12 \\textfont0=\\a")
+    collector.parse("{\\textfont0=\\b\\fontname\\textfont0}")
+    assert collector.getString().strip() == "cmr12"
+    collector.parse("\\fontname\\textfont0")
+    assert collector.getString().strip() == "cmr10"
+
+
 def test_fontdimen(collector):
     collector.parse("\\font\\f=cmr10 \\fontdimen1\\f10pt \\the\\fontdimen1\\f")
     assert collector.getString() == "10.0pt"

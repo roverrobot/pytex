@@ -201,16 +201,19 @@ def formatName(parser, name: str) -> str:
     return s + name[1:]
 
 
-def tokenToString(parser, token):
+def tokenToString(parser, token, expanded: bool = False):
     """
     Convert a token to a string.
     @param parser: the parser
     @param token: the token to convert
+    @param expanded: whether to use TeX's expanded-text form
     @return: the string representation of the token
     """
     if token.catcode is None:
         return formatName(parser, token.name)
     if token.catcode == CATCODE.PARAMETER:
+        if expanded:
+            return "#" if token.parameter is None else "#" + str(token.parameter + 1)
         return "##" if token.parameter is None else "#" + str(token.parameter+1)
     return token.name
 
@@ -220,22 +223,19 @@ def expandedTokenToString(parser, token):
     Convert a token as TeX does in expanded-text contexts such as \\string,
     \\write, \\message, \\errmessage, and \\special.
     """
-    if token.catcode is None:
-        return formatName(parser, token.name)
-    if token.catcode == CATCODE.PARAMETER:
-        return "#" if token.parameter is None else "#" + str(token.parameter + 1)
-    return token.name
+    return parser.tokenToString(token, expanded=True)
 
 
-def toksToString(parser, tokens):
+def toksToString(parser, tokens, expanded: bool = False):
     """
     Convert a list of tokens to a string
     @param parser: the parser
     @param tokens: the list of tokens
+    @param expanded: whether to use TeX's expanded-text form
     @return: the string
     """
     def f(token):
-        s = parser.tokenToString(token)
+        s = parser.tokenToString(token, expanded=expanded)
         return s + " " if token.catcode is None else s
     return "".join(map(f, tokens))
 
@@ -244,10 +244,7 @@ def expandedToksToString(parser, tokens):
     """
     Convert a token list as TeX does in expanded-text contexts such as \\write.
     """
-    def f(token):
-        s = parser.expandedTokenToString(token)
-        return s + " " if token.catcode is None else s
-    return "".join(map(f, tokens))
+    return parser.toksToString(tokens, expanded=True)
 
 
 class String(Command):

@@ -2,6 +2,7 @@ import pytest
 from pytex.resolver import InMemoryTextFile
 from pytex import lexer
 from pytex import macro
+from pytex.token import ParameterToken, CATCODE
 
 
 def test_noexpand(parser):
@@ -83,6 +84,14 @@ def test_string(collector):
 def test_string_parameter_token(collector):
     collector.parse("\\string#")
     assert collector.getString() == "# "
+
+
+def test_toks_to_string_expanded_flag(parser):
+    t = ParameterToken("#", CATCODE.PARAMETER)
+    assert parser.tokenToString(t) == "##"
+    assert parser.tokenToString(t, expanded=True) == "#"
+    assert parser.toksToString([t]) == "##"
+    assert parser.toksToString([t], expanded=True) == "#"
 
 
 def test_the(collector):

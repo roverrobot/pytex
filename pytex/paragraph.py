@@ -57,6 +57,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
     node_type = None
     # This node can be realized into concrete box nodes on demand.
     box_materializable = True
+    _migratory_node_types = (nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS, nd.NODE_TYPE.ADJUST)
 
     def saveInfo(self):
         return {
@@ -114,44 +115,40 @@ class Paragraph(nd.Node, hmode.HListHolder):
         hlist, lines = self.lineBreak(parser, hlist, scan.candidates)
         self.line_count = len(lines)
         self._line_boxes = []
-        cache = []
-        saved_prevdepth = parser.state.volatile["prevdepth"]
-        vbuild = vmode.VList(parser, cache, inner=True)
-        parser.state.volatile["prevdepth"] = vmode.init_prevdepth
-        try:
-            for i, line in enumerate(lines):
-                packed = []
-                indent, measure = self.lineShape(parser, i + 1)
-                if indent != 0:
-                    packed.append(nd.Glue(Glue(indent), "\\parindent"))
-                leftskip = parser.state.layout["leftskip"]
-                if leftskip != Glue():
-                    packed.append(nd.Glue(leftskip, "\\leftskip"))
-                if line.begin.disc is not None:
-                    packed.extend(line.begin.disc.post)
-                for node in hlist[line.begin.line_start_index:line.end.break_index]:
-                    if node.node_type == nd.NODE_TYPE.DISC:
-                        packed.append(self._lineDisc(parser, node, broken=False))
-                    else:
-                        packed.append(node)
-                if line.end.break_index < len(hlist):
-                    end_node = hlist[line.end.break_index]
-                    if line.end.at_penalty:
-                        packed.append(end_node)
-                if line.end.disc is not None:
-                    packed.append(self._lineDisc(parser, line.end.disc, broken=True))
-                packed.append(nd.Glue(parser.state.layout["rightskip"], "\\rightskip"))
-                hbox = bx.HBox(parser, measure, None)
-                hbox.list[:] = packed
-                hbox = hbox.typeset(parser)
-                hbox.source = self
-                self._line_boxes.append(hbox)
-                if i != 0:
-                    hbox.interline_penalty = self._interlinePenalty(parser, line)
-                vbuild.append(hbox)
-        finally:
-            parser.state.volatile["prevdepth"] = saved_prevdepth
-        return list(vbuild.expanded)
+        for i, line in enumerate(lines):
+            packed = []
+            indent, measure = self.lineShape(parser, i + 1)
+            if indent != 0:
+                packed.append(nd.Glue(Glue(indent), "\\parindent"))
+            leftskip = parser.state.layout["leftskip"]
+            if leftskip != Glue():
+                packed.append(nd.Glue(leftskip, "\\leftskip"))
+            if line.begin.disc is not None:
+                packed.extend(line.begin.disc.post)
+            for node in hlist[line.begin.line_start_index:line.end.break_index]:
+                if node.node_type == nd.NODE_TYPE.DISC:
+                    packed.append(self._lineDisc(parser, node, broken=False))
+                else:
+                    packed.append(node)
+            if line.end.break_index < len(hlist):
+                end_node = hlist[line.end.break_index]
+                if line.end.at_penalty:
+                    packed.append(end_node)
+            if line.end.disc is not None:
+                packed.append(self._lineDisc(parser, line.end.disc, broken=True))
+            packed.append(nd.Glue(parser.state.layout["rightskip"], "\\rightskip"))
+            hbox = bx.HBox(parser, measure, None)
+            hbox.list[:] = packed
+            hbox = hbox.typeset(parser)
+            migratory = [n for n in hbox.list if n.node_type in self._migratory_node_types]
+            if migratory:
+                hbox.list[:] = [n for n in hbox.list if n.node_type not in self._migratory_node_types]
+            hbox.migratory = migratory
+            hbox.source = self
+            self._line_boxes.append(hbox)
+            if i != 0:
+                hbox.interline_penalty = self._interlinePenalty(parser, line)
+        return list(self._line_boxes)
 
     def _interlinePenalty(self, parser, line):
         penalty = parser.state.layout["interlinepenalty"]
@@ -189,6 +186,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
     def typeset(self, parser, vlist):
         for node in self._buildExpanded(parser):
             vlist.append(node)
+            for extra in getattr(node, "migratory", ()):
+                vlist.append(extra)
 
     @staticmethod
     def _lineDisc(parser, disc, broken):

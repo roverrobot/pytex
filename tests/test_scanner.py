@@ -151,6 +151,20 @@ def test_ignore(state):
     assert t is None
 
 
+def test_leading_ignore_does_not_preserve_space(state):
+    state.catcode[ord("&")] = CATCODE.IGNORE
+    scanner = lexer.StringScanner(state, "& A")
+    t = scanner.read()
+    assert t is not None
+    assert t.catcode == CATCODE.LETTER
+    assert t.name == "A"
+    t = scanner.read()
+    assert t is not None
+    assert t.catcode == CATCODE.SPACE
+    t = scanner.read()
+    assert t is None
+
+
 def test_command(state):
     scanner = lexer.StringScanner(state, "\\: ")
     t = scanner.read()

@@ -32,7 +32,9 @@ class Tokenizer:
         # catcode is a dictionary that maps characters to their category codes
         self.catcode = state.catcode
         self.equitable = state.equitable
-        # skip the leading spaces in line and set self.pos to the first non-space character
+        # Skip leading spaces, and also ignored characters that can expose more
+        # leading spaces (for example kvsetkeys uses lines that begin with an
+        # ignored '&' in e-TeX mode).
         self.line = enumerate(line)
         self.pos = -1
         self.first = -1
@@ -42,7 +44,8 @@ class Tokenizer:
         for self.pos, c in self.line:
             last = c
             last_pos = self.pos
-            if self.catcode[ord(c)] != CATCODE.SPACE:
+            catcode = self.catcode[ord(c)]
+            if catcode != CATCODE.SPACE and catcode != CATCODE.IGNORE:
                 self.first = self.pos
                 self.saved = [c]
                 break

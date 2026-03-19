@@ -242,10 +242,7 @@ class VList(lists.List):
         self.list = []
         self.expanded = self.list
         self._expanded_raw_count = 0
-        self._local_prevdepth = init_prevdepth
-        self._parser_prevdepth_active = False
         self.inner = inner
-        self.prevdepth = init_prevdepth
         self.lastbox = None
         self.can_lastbox = False
         self.type = lists.LISTTYPE.VERTICAL
@@ -254,22 +251,14 @@ class VList(lists.List):
 
     @property
     def prevdepth(self):
-        if self._parser_prevdepth_active and self.parser.lists and self.parser.lists[-1] is self:
-            return self.parser.state.volatile["prevdepth"]
-        return self._local_prevdepth
+        return self.parser.state.volatile["prevdepth"]
 
     @prevdepth.setter
     def prevdepth(self, value):
-        self._local_prevdepth = value
-        if self._parser_prevdepth_active and self.parser.lists and self.parser.lists[-1] is self:
-            self.parser.state.volatile["prevdepth"] = value
+        self.parser.state.volatile["prevdepth"] = value
 
     def _activateParserState(self):
-        if self._parser_prevdepth_active:
-            return
-        if self.parser.lists and self.parser.lists[-1] is self:
-            self.parser.state.volatile["prevdepth"] = self._local_prevdepth
-            self._parser_prevdepth_active = True
+        self.parser.state.volatile["prevdepth"] = init_prevdepth
 
     def _expandedPrevDepth(self):
         for node in reversed(self.list):

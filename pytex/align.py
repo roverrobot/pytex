@@ -454,17 +454,21 @@ class HAlignment(Alignment):
         else:
             W += self.spread
         cache = []
+        saved_prevdepth = parser.state.volatile["prevdepth"]
         vbuild = vmode.VList(parser, cache, inner=True)
-        vbuild.prevdepth = self.initial_prevdepth
-        if self.noalign is not None:
-            self._appendVerticalMaterial(parser, vbuild, self.noalign)
-        for row, rowbox, row_total, row_width in prepared:
-            rowbox.to = W
-            rowbox.spread = W - row_width
-            rowbox = rowbox.typeset(parser)
-            vbuild.append(rowbox)
-            if row.noalign is not None:
-                self._appendVerticalMaterial(parser, vbuild, row.noalign)
+        parser.state.volatile["prevdepth"] = self.initial_prevdepth
+        try:
+            if self.noalign is not None:
+                self._appendVerticalMaterial(parser, vbuild, self.noalign)
+            for row, rowbox, row_total, row_width in prepared:
+                rowbox.to = W
+                rowbox.spread = W - row_width
+                rowbox = rowbox.typeset(parser)
+                vbuild.append(rowbox)
+                if row.noalign is not None:
+                    self._appendVerticalMaterial(parser, vbuild, row.noalign)
+        finally:
+            parser.state.volatile["prevdepth"] = saved_prevdepth
         packed.extend(list(vbuild))
 
 

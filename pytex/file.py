@@ -10,9 +10,6 @@ from pytex import token
 from pytex import macro
 from pytex.module import Module
 from pytex import conditional
-from pytex.expandable import toksToString
-
-
 class EndFileScanToken(token.Token):
     """
     Internal token that terminates a temporary file-token scan.
@@ -127,11 +124,8 @@ class WriteOp(FileOp):
                 break
             if t is None:
                 break
-            # "#" will be written as "##"
-            if t.catcode == token.CATCODE.PARAMETER:
-                tokens.append(t)
             tokens.append(t)
-        s = toksToString(parser, tokens)
+        s = parser.expandedToksToString(tokens)
         if file is None:
             print(s, file=parser.log)
             if self.file_id >= 0:
@@ -321,11 +315,11 @@ class Message(token.Command):
 
     def execute(self, parser):
         tokens = parser.readGeneralText(expand=True)
-        self.write(parser, toksToString(parser, tokens))
+        self.write(parser, parser.expandedToksToString(tokens))
         if self.error:
             help = parser.state.parameters["errhelp"]
             if len(help) > 0:
-                self.write(parser, toksToString(parser, help))
+                self.write(parser, parser.expandedToksToString(help))
 
 
 class IfEof(conditional.Conditional):

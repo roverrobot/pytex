@@ -215,6 +215,18 @@ def tokenToString(parser, token):
     return token.name
 
 
+def expandedTokenToString(parser, token):
+    """
+    Convert a token as TeX does in expanded-text contexts such as \\string,
+    \\write, \\message, \\errmessage, and \\special.
+    """
+    if token.catcode is None:
+        return formatName(parser, token.name)
+    if token.catcode == CATCODE.PARAMETER:
+        return "#" if token.parameter is None else "#" + str(token.parameter + 1)
+    return token.name
+
+
 def toksToString(parser, tokens):
     """
     Convert a list of tokens to a string
@@ -224,6 +236,16 @@ def toksToString(parser, tokens):
     """
     def f(token):
         s = parser.tokenToString(token)
+        return s + " " if token.catcode is None else s
+    return "".join(map(f, tokens))
+
+
+def expandedToksToString(parser, tokens):
+    """
+    Convert a token list as TeX does in expanded-text contexts such as \\write.
+    """
+    def f(token):
+        s = parser.expandedTokenToString(token)
         return s + " " if token.catcode is None else s
     return "".join(map(f, tokens))
 
@@ -240,7 +262,7 @@ class String(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token", parser.input.position())
-        parser.input.push(TokenListScanner(toToks(parser.tokenToString(t))))
+        parser.input.push(TokenListScanner(toToks(parser.expandedTokenToString(t))))
 
 
 class Input(Command):
@@ -303,6 +325,8 @@ mod = Module("expandable",
     attributes={
         "toksToString": toksToString,
         "tokenToString": tokenToString,
+        "expandedToksToString": expandedToksToString,
+        "expandedTokenToString": expandedTokenToString,
         "formatName": formatName,
     }
 )

@@ -258,8 +258,5 @@ class Special(WhatsIt):
     def output(self, parser, device):
         text = self.text
         if isinstance(text, list):
-            def token_text(token):
-                s = parser.tokenToString(token)
-                return s + " " if token.catcode is None else s
-            text = "".join(token_text(token) for token in text)
+            text = parser.expandedToksToString(text)
         device.special(text)

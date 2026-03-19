@@ -96,10 +96,13 @@ def _should_insert_default_interline(packed, state):
 
 def _append_expanded_item(parser, packed, state, item, source):
     if item.node_type == nd.NODE_TYPE.ADJUST:
-        subitems = []
-        typesetVerticalNodes(parser, item.vlist, subitems)
+        realize_ready = getattr(item.vlist, "_realizeReadyTailNodes", None)
+        if realize_ready is not None:
+            realize_ready()
+            subitems = item.vlist.list
+        else:
+            subitems = item.vlist
         for sub in subitems:
-            sub.source = source
             _append_concrete_vertical(packed, state, sub)
         return
     if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
@@ -163,29 +166,6 @@ def expandVerticalNode(parser, node):
     return packed
 
 
-def typesetVerticalNodes(parser, nodes, packed):
-    """
-    Typeset a raw vertical node list into packed output.
-    """
-    realize_ready = getattr(nodes, "_realizeReadyTailNodes", None)
-    if realize_ready is not None:
-        realize_ready()
-        expanded_raw_count = getattr(nodes, "_expanded_raw_count", None)
-        raw_nodes = getattr(nodes, "raw", None)
-        if expanded_raw_count is not None and raw_nodes is not None and expanded_raw_count == len(raw_nodes):
-            packed.extend(nodes.list)
-            return packed
-    state = {
-        "prevdepth": init_prevdepth,
-        "seen_box": False,
-        "pending_interline": False,
-        "builder_mode": False,
-    }
-    for node in nodes:
-        _append_expanded_node(parser, packed, state, node)
-    return packed
-
-
 class VListHolder:
     """
     Common holder for vertical node lists.
@@ -222,10 +202,6 @@ class VListHolder:
 
     def clear(self):
         self.list.clear()
-
-    def typesetNodes(self, parser, packed):
-        return typesetVerticalNodes(parser, self.list, packed)
-
 
 class VList(lists.List):
     """

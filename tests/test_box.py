@@ -16,6 +16,20 @@ def _raw_nodes(vlist):
     return getattr(vlist, "raw", vlist)
 
 
+def _expanded_vbox(parser, nodes):
+    saved_prevdepth = parser.state.volatile["prevdepth"]
+    try:
+        parser.state.volatile["prevdepth"] = vmode.init_prevdepth
+        vlist = vmode.VList(parser, [])
+        for node in nodes:
+            vlist.append(node)
+        box = bx.VBox(parser, None, 0)
+        box.list[:] = list(vlist.list)
+        return box
+    finally:
+        parser.state.volatile["prevdepth"] = saved_prevdepth
+
+
 @pytest.fixture()
 def box(cmr10):
     cmr10.parse("\\setbox0=\\hbox{Hello, world!}\\relax")
@@ -328,9 +342,10 @@ def test_vsplit_void(parser):
 
 def test_vsplit_splits_box_and_reinserts_splittopskip(parser):
     parser.state.layout["splittopskip"] = glue.Glue(10)
-    source = bx.VBox(parser, None, 0)
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source = _expanded_vbox(parser, [
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+    ])
     parser.state.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 10pt")
     split = parser.state.box[2].typeset(parser)
@@ -343,9 +358,10 @@ def test_vsplit_splits_box_and_reinserts_splittopskip(parser):
 
 
 def test_vsplit_takes_whole_box_when_target_is_large(parser):
-    source = bx.VBox(parser, None, 0)
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source = _expanded_vbox(parser, [
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+    ])
     parser.state.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 50pt")
     assert parser.state.box[1] is None
@@ -354,12 +370,13 @@ def test_vsplit_takes_whole_box_when_target_is_large(parser):
 
 
 def test_vsplit_sets_split_marks_from_split_box(parser):
-    source = bx.VBox(parser, None, 0)
-    source.list.append(_mark_node("A"))
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
-    source.list.append(nd.Glue(glue.Glue(0), None))
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
-    source.list.append(_mark_node("B"))
+    source = _expanded_vbox(parser, [
+        _mark_node("A"),
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+        nd.Glue(glue.Glue(0), None),
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+        _mark_node("B"),
+    ])
     parser.state.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 10pt")
     assert toksToString(parser, parser.state.globals["splitfirstmark"]) == "A"
@@ -367,11 +384,12 @@ def test_vsplit_sets_split_marks_from_split_box(parser):
 
 
 def test_vsplit_whole_box_sets_splitbotmark_to_last_mark(parser):
-    source = bx.VBox(parser, None, 0)
-    source.list.append(_mark_node("A"))
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
-    source.list.append(_mark_node("B"))
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source = _expanded_vbox(parser, [
+        _mark_node("A"),
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+        _mark_node("B"),
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+    ])
     parser.state.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 50pt")
     assert toksToString(parser, parser.state.globals["splitfirstmark"]) == "A"
@@ -379,12 +397,13 @@ def test_vsplit_whole_box_sets_splitbotmark_to_last_mark(parser):
 
 
 def test_vsplit_nonzero_marks_require_etex(parser):
-    source = bx.VBox(parser, None, 0)
-    source.list.append(_mark_node("X", 2))
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
-    source.list.append(nd.Glue(glue.Glue(0), None))
-    source.list.append(_mark_node("Y", 2))
-    source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
+    source = _expanded_vbox(parser, [
+        _mark_node("X", 2),
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+        nd.Glue(glue.Glue(0), None),
+        _mark_node("Y", 2),
+        _synthetic_hbox(parser, height=6, depth=2, width=10),
+    ])
     parser.state.box[1] = source
     with pytest.raises(AssertionError):
         parser.parse("\\setbox2=\\vsplit1 to 10pt")

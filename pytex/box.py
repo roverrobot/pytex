@@ -627,11 +627,12 @@ class VBox(Box, vmode.VListHolder):
             self.expanded = list(self.expanded)
         else:
             self.expanded = []
-            typeset_nodes = getattr(self.list, "typesetNodes", None)
-            if typeset_nodes is None:
-                self.typesetNodes(parser, self.expanded)
+            realize_ready = getattr(self.list, "_realizeReadyTailNodes", None)
+            if realize_ready is not None:
+                realize_ready()
+                self.expanded.extend(self.list.list)
             else:
-                typeset_nodes(parser, self.expanded)
+                self.expanded.extend(self.list)
         content = self.expanded
         natural = Glue()
         self.width = Dimen()

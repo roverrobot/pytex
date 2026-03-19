@@ -325,7 +325,15 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     para = _raw_nodes(cmr10.lists[-1])[-1]
     out = []
     para.typeset(cmr10, out)
-    packed = vmode.typesetVerticalNodes(cmr10, out, [])
+    saved_prevdepth = cmr10.state.volatile["prevdepth"]
+    try:
+        cmr10.state.volatile["prevdepth"] = vmode.init_prevdepth
+        vlist = vmode.VList(cmr10, [])
+        for node in out:
+            vlist.append(node)
+        packed = list(vlist.list)
+    finally:
+        cmr10.state.volatile["prevdepth"] = saved_prevdepth
     lines = _lineBoxes(packed)
     assert len(lines) > 1
     interline = [node for node in packed if node.node_type == nd.NODE_TYPE.GLUE]

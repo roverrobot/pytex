@@ -267,6 +267,20 @@ def _break_pages(parser):
     return pages
 
 
+def _concrete_vlist(parser, nodes):
+    if isinstance(nodes, vmode.VList):
+        return list(nodes.list)
+    saved_prevdepth = parser.state.volatile["prevdepth"]
+    try:
+        parser.state.volatile["prevdepth"] = vmode.init_prevdepth
+        vlist = vmode.VList(parser, [])
+        for node in nodes:
+            vlist.append(node)
+        return list(vlist.list)
+    finally:
+        parser.state.volatile["prevdepth"] = saved_prevdepth
+
+
 class _ProbeWhatsit(nd.WhatsIt):
     node_type = nd.NODE_TYPE.WHATSIT
 
@@ -286,7 +300,7 @@ def test_prevdepth_penalty_does_not_reset(parser):
     vlist.append(_test_hbox(parser))
     vlist.append(nd.Penalty(0))
     vlist.append(_test_hbox(parser))
-    packed = vmode.typesetVerticalNodes(parser, vlist, [])
+    packed = _concrete_vlist(parser, vlist)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 1
     assert glues[0].glue.dimen == 4
@@ -323,7 +337,7 @@ def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
     vlist.append(_test_hbox(parser))
     vlist.append(nd.Rule(0, 4, 0))
     vlist.append(_test_hbox(parser))
-    packed = vmode.typesetVerticalNodes(parser, vlist, [])
+    packed = _concrete_vlist(parser, vlist)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
     assert len(glues) == 0
@@ -345,7 +359,7 @@ def test_box_interline_penalty_override(parser):
     second.interline_penalty = 123
     vlist.append(first)
     vlist.append(second)
-    packed = vmode.typesetVerticalNodes(parser, vlist, [])
+    packed = _concrete_vlist(parser, vlist)
     penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
     assert len(penalties) == 1
     assert penalties[0].penalty == 123
@@ -364,7 +378,7 @@ def test_prevdepth_assignment_affects_next_box_context(parser):
     vlist.append(first)
     vlist.prevdepth = Dimen(10)
     vlist.append(second)
-    packed = vmode.typesetVerticalNodes(parser, vlist, [])
+    packed = _concrete_vlist(parser, vlist)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 1
     assert glues[0].name == "\\lineskip"
@@ -489,8 +503,7 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     )
     main = parser.lists[0]
     main.append(_test_hbox(parser, height=1, depth=0))
-    material = []
-    vmode.typesetVerticalNodes(parser, main.list, material)
+    material = list(main.list)
     breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
     start, context = breaker.pruneTop(0, main.page_initial_context)
     end, _, _, _ = breaker.bestBreak(start, context)

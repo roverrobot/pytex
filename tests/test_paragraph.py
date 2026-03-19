@@ -116,6 +116,18 @@ def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
     )
 
 
+def test_group_in_vmode_does_not_reset_prevdepth(cmr10):
+    cmr10.parse("\\parskip=0pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt a\\par\\begingroup\\endgroup b\\par")
+    main = cmr10.lists[-1]
+    names = [getattr(n, "name", None) for n in main if n.node_type == nd.NODE_TYPE.GLUE]
+    assert names == ["\\parskip", "\\baselineskip"]
+    assert main[2].glue.dimen == (
+        cmr10.state.layout["baselineskip"].dimen
+        - main[0].depth
+        - main[3].height
+    )
+
+
 def test_linebreak_discards_leading_discardables(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
     para = _raw_nodes(cmr10.lists[-1])[-1]

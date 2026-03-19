@@ -222,6 +222,7 @@ class VList(lists.List):
         self.lastbox = None
         self.can_lastbox = False
         self.type = lists.LISTTYPE.VERTICAL
+        self.prevdepth = init_prevdepth
 
     list_type_name = "VList"
 
@@ -232,9 +233,6 @@ class VList(lists.List):
     @prevdepth.setter
     def prevdepth(self, value):
         self.parser.state.volatile["prevdepth"] = value
-
-    def _activateParserState(self):
-        self.parser.state.volatile["prevdepth"] = init_prevdepth
 
     def _expandedPrevDepth(self):
         for node in reversed(self.list):
@@ -443,7 +441,7 @@ class VerticalCommand(lists.ModeDependentCommand):
     def horizontal(self, parser, hlist):
         """
         In unrestricterd horizontal mode, a vertical command should terminate the 
-        current list by inserting a \par token, then re-read the vertical
+        current list by inserting a \\par token, then re-read the vertical
         command after that paragraph ends.
         @param parser: the parser
         @param hlist: the current list

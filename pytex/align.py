@@ -115,9 +115,10 @@ class RowBuildState:
             templates = [column.v, column.u]
         self.current_cell = CellBuildState(cell, column_no, templates)
         if cell.node_type == nd.NODE_TYPE.HLIST:
-            parser.lists.append(hmode.HList(parser, cell.list, inner=True))
+            state = hmode.HList(parser, cell.list, inner=True)
         else:
-            parser.lists.append(vmode.VList(parser, cell.list, inner=True))
+            state = vmode.VList(parser, cell.list, inner=True)
+        parser.lists.append(state)
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         self.current_cell.pushTemplate(parser)
 

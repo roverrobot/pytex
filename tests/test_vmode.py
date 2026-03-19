@@ -270,15 +270,15 @@ def _break_pages(parser):
 def _concrete_vlist(parser, nodes):
     if isinstance(nodes, vmode.VList):
         return list(nodes.list)
-    saved_prevdepth = parser.state.volatile["prevdepth"]
+    saved_prevdepth = parser.state.globals["prevdepth"]
     try:
-        parser.state.volatile["prevdepth"] = vmode.init_prevdepth
+        parser.state.globals["prevdepth"] = vmode.init_prevdepth
         vlist = vmode.VList(parser, [])
         for node in nodes:
             vlist.append(node)
         return list(vlist.list)
     finally:
-        parser.state.volatile["prevdepth"] = saved_prevdepth
+        parser.state.globals["prevdepth"] = saved_prevdepth
 
 
 class _ProbeWhatsit(nd.WhatsIt):
@@ -370,6 +370,11 @@ def test_prevdepth_accessor_is_vlist_local(parser):
     assert parser.state.dimen[0] == 5
 
 
+def test_prevdepth_assignment_is_not_grouped(parser):
+    parser.parse("{\\prevdepth=100pt}\\dimen0=\\prevdepth")
+    assert parser.state.dimen[0] == 100
+
+
 def test_prevdepth_assignment_affects_next_box_context(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
     vlist = parser.lists[0]
@@ -385,12 +390,9 @@ def test_prevdepth_assignment_affects_next_box_context(parser):
     assert glues[0].glue.dimen == 1
 
 
-def test_prevdepth_accessor_wrong_mode(cmr10):
-    try:
-        cmr10.parse("a\\prevdepth=1pt")
-        assert False
-    except ValueError as e:
-        assert "vertical mode" in str(e)
+def test_prevdepth_assignment_is_allowed_in_horizontal_mode(cmr10):
+    cmr10.parse("a\\prevdepth=1pt\\dimen0=\\prevdepth")
+    assert cmr10.state.dimen[0] == 1
 
 
 def test_page_break_inserts_topskip_and_splits_pages(parser):

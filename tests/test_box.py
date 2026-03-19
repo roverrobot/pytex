@@ -17,9 +17,9 @@ def _raw_nodes(vlist):
 
 
 def _expanded_vbox(parser, nodes):
-    saved_prevdepth = parser.state.volatile["prevdepth"]
+    saved_prevdepth = parser.state.globals["prevdepth"]
     try:
-        parser.state.volatile["prevdepth"] = vmode.init_prevdepth
+        parser.state.globals["prevdepth"] = vmode.init_prevdepth
         vlist = vmode.VList(parser, [])
         for node in nodes:
             vlist.append(node)
@@ -27,7 +27,7 @@ def _expanded_vbox(parser, nodes):
         box.list[:] = list(vlist.list)
         return box
     finally:
-        parser.state.volatile["prevdepth"] = saved_prevdepth
+        parser.state.globals["prevdepth"] = saved_prevdepth
 
 
 @pytest.fixture()
@@ -528,6 +528,71 @@ def test_vtop_spread(box):
     assert typed.height == 6.94444
     assert typed.depth == 1.94444 + 10.00002 + 6.94444 + 1.94444 + 10
     assert len(typed.list) == 4
+
+
+def test_vtop_uses_first_packed_row_height_for_halign(cmr10):
+    cmr10.parse("\\vtop{\\halign{#\\hfil\\cr A\\cr B\\cr}}\\relax")
+    top = cmr10.lists[-1]
+    b = top[-1]
+    typed = b.typeset(cmr10)
+    assert typed.node_type == NODE_TYPE.VLIST
+    assert typed.list
+    assert typed.list[0].node_type == NODE_TYPE.HLIST
+    assert typed.height == typed.list[0].height
+    assert typed.height > 0
+    total = sum(getattr(n, "height", 0) + getattr(n, "depth", 0) for n in typed.list if getattr(n, "node_type", None) != NODE_TYPE.GLUE)
+    assert typed.depth < total
+
+
+def test_maketitle_date_uses_lineskip_after_tabular_vtop():
+    import pytex.etex as etex_mod
+    import pytex.pdftex as pdftex_mod
+    from pytex.parser import Parser
+
+    def text_of(node):
+        out = []
+        for child in getattr(node, "list", []):
+            if child.node_type == NODE_TYPE.CHAR:
+                out.append(child.char)
+            elif child.node_type == NODE_TYPE.LIGATURE:
+                out.append("".join(c.char for c in child.source))
+            elif child.node_type in (NODE_TYPE.HLIST, NODE_TYPE.VLIST):
+                out.append(text_of(child))
+        return "".join(out)
+
+    def find_parent(items):
+        for i, node in enumerate(items):
+            if node.node_type == NODE_TYPE.HLIST and "March19,2026" in text_of(node):
+                return items, i
+            sub = getattr(node, "list", None)
+            if sub:
+                found = find_parent(sub)
+                if found is not None:
+                    return found
+        return None
+
+    parser = Parser()
+    etex_mod.mod.populate(parser)
+    pdftex_mod.mod.populate(parser)
+    parser.resolver.format = "latex"
+    fmt = parser.resolver.openIn("latex", "dump")
+    parser.load(fmt)
+    fmt.close()
+    parser.parse(
+        "\\documentclass[12pt]{article}"
+        "\\title{An Edge Based SIS Model on Random Networks}"
+        "\\author{Sanling Yuan\\and Junling Ma}"
+        "\\date{March 19, 2026}"
+        "\\begin{document}\\maketitle\\end{document}"
+    )
+    parser.end()
+    page_box = parser.shipout.pages[0]
+    found = find_parent(page_box.list)
+    assert found is not None
+    items, index = found
+    assert items[index - 1].node_type == NODE_TYPE.GLUE
+    assert items[index - 1].name == "\\lineskip"
+    assert items[index - 1].glue == glue.Glue(1)
 
 
 @pytest.mark.parametrize("cmd, attr", [

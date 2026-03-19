@@ -139,6 +139,7 @@ class Parser:
         # we first set up today etc.
         if self.lists is None:
             self.lists = [page.MainVList(self)]
+            self.lists[0].enter()
         date = datetime.datetime.now()
         self.state.volatile["year"] = date.year
         self.state.volatile["month"] = date.month
@@ -364,7 +365,7 @@ class Parser:
         top = self.lists[-1]
         para = paragraph.Paragraph(self, indent)
         if parskip and top:
-            para.parskip = node.Glue(self.state.parameters["parskip"], "\\parskip")
+            top.append(node.Glue(self.state.parameters["parskip"], "\\parskip"))
         self.lists.append(paragraph.ParagraphList(self, para))
         everypar = self.everypar.value
         if everypar:
@@ -396,8 +397,6 @@ class Parser:
         updates_display_state = True
         if len(hlist) == 0:
             if para.keep_empty:
-                if para.parskip is not None:
-                    top.append(para.parskip)
                 top.append(para)
                 updates_display_state = False
             else:
@@ -407,8 +406,6 @@ class Parser:
             hlist.append(node.Penalty(10000))
             # \hskip\parfillskip
             hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
-            if para.parskip is not None:
-                top.append(para.parskip)
             top.append(para)
         if para is not None:
             if updates_display_state:

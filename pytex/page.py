@@ -420,7 +420,8 @@ class OutputRoutineEndCallback:
 
     def __call__(self):
         if self.parser.lists and self.parser.lists[-1] is self.vlist:
-            self.parser.lists.pop()
+            state = self.parser.lists.pop()
+            state.restorePrevdepth()
 
 
 class EndOutputRoutineToken(Token):
@@ -810,9 +811,9 @@ class MainVList(vmode.VList):
 
     def _rebuildRawState(self):
         if self._expanded_raw_count < len(self.raw):
-            self.prevdepth = None
+            self.setBuilderPrevdepth(None)
         else:
-            self.prevdepth = self._expandedPrevDepth() if self.list else vmode.init_prevdepth
+            self.setBuilderPrevdepth(self._expandedPrevDepth() if self.list else vmode.init_prevdepth)
         context = self.page_initial_context
         for node in self.raw:
             if isinstance(node, PageStateNode):
@@ -1340,6 +1341,7 @@ class MainVList(vmode.VList):
             GROUP_TYPE.OUTPUT,
             ended=OutputRoutineEndCallback(parser, outlist),
         )
+        outlist.enter()
         parser.input.push(lexer.TokenListScanner([EndOutputRoutineToken()]))
         parser.input.push(lexer.TokenListScanner(output))
         self._runNestedLoop(parser)

@@ -128,6 +128,25 @@ def test_group_in_vmode_does_not_reset_prevdepth(cmr10):
     )
 
 
+def test_latex_noindent_hook_preserves_outer_parskip():
+    import pytex.etex as etex_mod
+    import pytex.pdftex as pdftex_mod
+
+    parser = Parser()
+    etex_mod.mod.populate(parser)
+    pdftex_mod.mod.populate(parser)
+    parser.resolver.format = "latex"
+    fmt = parser.resolver.openIn("latex", "dump")
+    parser.load(fmt)
+    fmt.close()
+    parser.parse("\\documentclass[12pt]{article}\\begin{document}A\\par\\noindent\\par")
+    main = parser.lists[-1]
+    glues = [n for n in main if n.node_type == nd.NODE_TYPE.GLUE and n.name == "\\parskip"]
+    assert len(glues) >= 2
+    assert glues[-2].glue == glue.Glue(0, glue.Stretchness(1, 0), glue.Stretchness(0, 0))
+    assert glues[-1].glue == glue.Glue()
+
+
 def test_linebreak_discards_leading_discardables(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
     para = _raw_nodes(cmr10.lists[-1])[-1]
@@ -337,15 +356,15 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     para = _raw_nodes(cmr10.lists[-1])[-1]
     out = []
     para.typeset(cmr10, out)
-    saved_prevdepth = cmr10.state.volatile["prevdepth"]
+    saved_prevdepth = cmr10.state.globals["prevdepth"]
     try:
-        cmr10.state.volatile["prevdepth"] = vmode.init_prevdepth
+        cmr10.state.globals["prevdepth"] = vmode.init_prevdepth
         vlist = vmode.VList(cmr10, [])
         for node in out:
             vlist.append(node)
         packed = list(vlist.list)
     finally:
-        cmr10.state.volatile["prevdepth"] = saved_prevdepth
+        cmr10.state.globals["prevdepth"] = saved_prevdepth
     lines = _lineBoxes(packed)
     assert len(lines) > 1
     interline = [node for node in packed if node.node_type == nd.NODE_TYPE.GLUE]

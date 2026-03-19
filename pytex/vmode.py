@@ -8,8 +8,7 @@ from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command, CommandToken
-from pytex.dimen import Dimen, DimenCommand
-from pytex.accessor import Accessor
+from pytex.dimen import Dimen, DimenArrayItemAccessor
 
 
 # initializer for prevdepth as -1000pt
@@ -221,18 +220,28 @@ class VList(lists.List):
         self.inner = inner
         self.lastbox = None
         self.can_lastbox = False
+        self.saved_prevdepth = parser.state.globals.get("prevdepth", init_prevdepth)
         self.type = lists.LISTTYPE.VERTICAL
-        self.prevdepth = init_prevdepth
+        self.parser.state.globals["prevdepth"] = init_prevdepth
+
+    def enter(self):
+        return
 
     list_type_name = "VList"
 
+    def setBuilderPrevdepth(self, value):
+        self.parser.state.globals["prevdepth"] = value
+
+    def restorePrevdepth(self):
+        self.parser.state.globals["prevdepth"] = self.saved_prevdepth
+
     @property
     def prevdepth(self):
-        return self.parser.state.volatile["prevdepth"]
+        return self.parser.state.globals["prevdepth"]
 
     @prevdepth.setter
     def prevdepth(self, value):
-        self.parser.state.volatile["prevdepth"] = value
+        self.parser.state.globals["prevdepth"] = value
 
     def _expandedPrevDepth(self):
         for node in reversed(self.list):
@@ -278,7 +287,7 @@ class VList(lists.List):
         state = self._currentExpandedState()
         _append_expanded_node(self.parser, self.list, state, node)
         self._syncExpandedTailState()
-        self.prevdepth = state["prevdepth"]
+        self.setBuilderPrevdepth(state["prevdepth"])
         return self.list[start:]
 
     def _realizeReadyTailNodes(self):
@@ -294,15 +303,15 @@ class VList(lists.List):
         self._expanded_raw_count = len(self.raw)
         if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
             self.lastbox = node
-            self.prevdepth = node.depth
+            self.setBuilderPrevdepth(node.depth)
         elif node.node_type == nd.NODE_TYPE.RULE:
-            self.prevdepth = init_prevdepth
+            self.setBuilderPrevdepth(init_prevdepth)
         elif self._expanded_raw_count == len(self.raw):
-            self.prevdepth = self._expandedPrevDepth() if self.list else init_prevdepth
+            self.setBuilderPrevdepth(self._expandedPrevDepth() if self.list else init_prevdepth)
 
     def extendBuilt(self, nodes):
         for node in nodes:
-            self.append(node)
+            self._appendBuiltNode(node)
 
     def append(self, node):
         self.can_lastbox = False
@@ -325,9 +334,9 @@ class VList(lists.List):
         self._dropDrainedRawTail(source)
         self._syncExpandedTailState()
         if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            self.prevdepth = self.lastbox.depth if self.lastbox is not None else init_prevdepth
+            self.setBuilderPrevdepth(self.lastbox.depth if self.lastbox is not None else init_prevdepth)
         elif node.node_type == nd.NODE_TYPE.RULE:
-            self.prevdepth = self._expandedPrevDepth() if self.list else init_prevdepth
+            self.setBuilderPrevdepth(self._expandedPrevDepth() if self.list else init_prevdepth)
         return node
 
     def pop(self, *args):
@@ -340,9 +349,9 @@ class VList(lists.List):
         self._dropDrainedRawTail(source)
         self._syncExpandedTailState()
         if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            self.prevdepth = self.lastbox.depth if self.lastbox is not None else init_prevdepth
+            self.setBuilderPrevdepth(self.lastbox.depth if self.lastbox is not None else init_prevdepth)
         elif node.node_type == nd.NODE_TYPE.RULE:
-            self.prevdepth = self._expandedPrevDepth() if self.list else init_prevdepth
+            self.setBuilderPrevdepth(self._expandedPrevDepth() if self.list else init_prevdepth)
         return node
 
 
@@ -409,29 +418,6 @@ class Insert(nd.Node, VListHolder):
 nd.VAdjust = VAdjust
 nd.Mark = Mark
 nd.Insert = Insert
-
-
-class PrevDepth(Accessor, DimenCommand):
-    """
-    The \\prevdepth command. This is current vertical-builder state.
-    """
-    def readValue(self, parser):
-        return parser.readDimen()
-
-    def setGlobal(self, parser, value):
-        return self.set(parser, value)
-
-    def set(self, parser, value):
-        top = parser.lists[-1]
-        if top.type != lists.LISTTYPE.VERTICAL:
-            raise ValueError("\\prevdepth can only be used in vertical mode")
-        top.prevdepth = value
-
-    def dimenValue(self, parser):
-        top = parser.lists[-1]
-        if top.type != lists.LISTTYPE.VERTICAL:
-            raise ValueError("\\prevdepth can only be used in vertical mode")
-        return top.resolvePrevDepth()
 
 
 class VerticalCommand(lists.ModeDependentCommand):
@@ -501,10 +487,12 @@ mod = Module("vmode",
         "vfill": VSkip(Glue(0, Stretchness(1, 2))),
         "vss": VSkip(Glue(0, Stretchness(1, 1), Stretchness(1, 1))),
         "vnegfil": VSkip(Glue(0, Stretchness(-1, 1))),
-        "prevdepth": PrevDepth(),
         "end": End(),
     },
     attributes={
         "readVList": readVList
-    }
+    },
+    parameters={
+        "prevdepth": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "globals"},
+    },
 )

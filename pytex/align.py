@@ -81,7 +81,9 @@ class CellBuildState:
         if self.node._packed is None:
             self.node.typeset(parser)
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-        parser.lists.pop()
+        state = parser.lists.pop()
+        if getattr(state, "type", None) == lists.LISTTYPE.VERTICAL:
+            state.restorePrevdepth()
         return self.node
 
 
@@ -120,6 +122,8 @@ class RowBuildState:
             state = vmode.VList(parser, cell.list, inner=True)
         parser.lists.append(state)
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+        if state.type == lists.LISTTYPE.VERTICAL:
+            state.enter()
         self.current_cell.pushTemplate(parser)
 
     def startNextRow(self, parser):

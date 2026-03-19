@@ -295,7 +295,7 @@ def test_everydisplay_can_read_prevgraf_from_previous_paragraph(math):
 def test_display_metrics_realized_when_prevdepth_is_queried(math):
     math.parse("$$a$$\\par")
     mlist = next(node for node in _raw_nodes(math.lists[0]) if isinstance(node, mmode.DisplayMathNode))
-    assert math.state.volatile["prevdepth"] is not None
+    assert math.state.globals["prevdepth"] is not None
     assert math.state.volatile["displaywidth"] is not None
     assert math.state.volatile["predisplaysize"] is not None
 

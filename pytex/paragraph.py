@@ -40,8 +40,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
     def __init__(self, parser, indent: bool):
         hmode.HListHolder.__init__(self, [])
         self.indent = indent
-        # the parskip that is appended before the paragraph
-        self.parskip = None
         # \prevgraf for this paragraph (set by display-math machinery when needed).
         self.prevgraf = 0
         self.line_count = 0
@@ -50,7 +48,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
         self.keep_empty = False
         if indent:
             self.list.append(bx.IndentBox(parser))
-        self.parskip
         self._line_boxes = None
 
     # not a proper node

@@ -242,6 +242,13 @@ class WhatsIt(Node):
         raise NotImplementedError("output method should be implemented in subclass")
 
 
+def toText(tokens):
+    def text(token):
+        if token.catcode is None:
+            return token.name+" "
+        return token.name
+    return "".join([text(t) for t in tokens])
+
 class Special(WhatsIt):
     """
     A special node.
@@ -253,7 +260,7 @@ class Special(WhatsIt):
         return {"text": self.text}, None
 
     def __repr__(self):
-        return f"Special({self.text})"
+        return f"Special({toText(self.text)})"
 
     def output(self, parser, device):
         text = self.text

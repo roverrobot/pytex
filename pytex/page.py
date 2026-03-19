@@ -885,7 +885,7 @@ class MainVList(vmode.VList):
                     next_start = end
                     break_context = breaker.advanceContext(start, end, start_context)
                     break_penalty = 0
-                page = bx.VBox(self.parser, break_context.vsize, Dimen())
+                page = bx.VBox(self.parser, break_context.vsize, None)
                 topmark = list(self.parser.state.parameters["botmark"])
                 firstmark, botmark = self._pageMarks(self.expanded, start, end, topmark)
                 self._updatePageMarksByClass(self.parser, self.expanded, start, end, topmark)
@@ -1474,7 +1474,7 @@ class VSplit(Command):
         if splitfirstmarks is not None:
             parser.state.globals["splitfirstmarks"] = splitfirstmarks
             parser.state.globals["splitbotmarks"] = splitbotmarks
-        result = bx.VBox(parser, break_context.vsize, Dimen())
+        result = bx.VBox(parser, break_context.vsize, None)
         result.list[:] = breaker.buildRawSlice(start, end, split_context)
         remainder_context = VSplitContext(
             Dimen(),

@@ -356,7 +356,7 @@ class VList(lists.List):
             self.prevdepth = None
         self.list.append(node)
         self._realizeReadyTailNodes()
-        if self._expanded_raw_count == len(self.list):
+        if self.prevdepth is None and self._expanded_raw_count == len(self.list):
             self.prevdepth = self._expandedPrevDepth() if self.expanded else init_prevdepth
 
     def resolvePrevDepth(self):

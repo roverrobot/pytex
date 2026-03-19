@@ -165,6 +165,7 @@ class Alignment(nd.Node):
         self.tabskips = []
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
+        self.initial_prevdepth = vmode.init_prevdepth
         self._typeset_cache = None
 
     node_type = nd.NODE_TYPE.ALIGNMENT
@@ -454,7 +455,7 @@ class HAlignment(Alignment):
             W += self.spread
         cache = []
         vbuild = vmode.VList(parser, cache, inner=True)
-        vbuild.prevdepth = vmode.init_prevdepth
+        vbuild.prevdepth = self.initial_prevdepth
         if self.noalign is not None:
             self._appendVerticalMaterial(parser, vbuild, self.noalign)
         for row, rowbox, row_total, row_width in prepared:
@@ -659,6 +660,13 @@ class AlignmentEndCallback:
     def __call__(self):
         if self.parser.alignments.currentCell() is not None:
             raise ValueError("expecting \\cr", self.parser.input.position())
+        prevdepth = vmode.init_prevdepth
+        for current in reversed(self.parser.lists):
+            if getattr(current, "type", None) == lists.LISTTYPE.VERTICAL:
+                resolver = getattr(current, "resolvePrevDepth", None)
+                prevdepth = resolver() if resolver is not None else getattr(current, "prevdepth", vmode.init_prevdepth)
+                break
+        self.builder.alignment.initial_prevdepth = prevdepth
         self.builder.alignment.pretypeset(self.parser)
         self.target.append(self.builder.alignment)
         top = self.parser.lists[-1]

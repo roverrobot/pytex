@@ -243,7 +243,7 @@ def _break_pages(parser):
             next_start = end
             break_context = breaker.advanceContext(start, end, context)
             break_penalty = 0
-        box = bx.VBox(parser, break_context.vsize, Dimen())
+        box = bx.VBox(parser, break_context.vsize, None)
         firstmark, botmark = main._pageMarks(material, start, end, topmark)
         main._updatePageMarksByClass(parser, material, start, end, topmark)
         page_nodes = breaker.buildSlice(start, end, context, "\\topskip")

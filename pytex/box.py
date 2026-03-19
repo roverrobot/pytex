@@ -650,10 +650,9 @@ class VBox(Box, vmode.VListHolder):
                 last_depth = Dimen()
                 continue
             if isinstance(n, nd.Box):
-                shifted = n.shifted if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) else 0
                 w = n.width
-                h = n.height - shifted
-                d = n.depth + shifted
+                h = n.height
+                d = n.depth
                 natural = self.calculate(n, natural, (w, h, d))
                 natural.dimen += h + last_depth
                 last_depth = d

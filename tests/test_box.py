@@ -246,6 +246,16 @@ def test_vbox_trailing_penalty_keeps_depth(parser):
     assert typed.depth == 3
 
 
+def test_vbox_ignores_horizontal_shift_for_vertical_metrics(parser):
+    vbox = bx.VBox(parser, None, 0)
+    shifted = _synthetic_hbox(parser, height=6, depth=3, width=10)
+    shifted.shifted = Dimen(40)
+    vbox.list.append(shifted)
+    typed = vbox.typeset(parser)
+    assert typed.height == 6
+    assert typed.depth == 3
+
+
 def test_vbox_preserves_prevdepth_across_explicit_glue(parser):
     parser.state.layout["baselineskip"] = glue.Glue(12)
     parser.state.layout["lineskip"] = glue.Glue(1)

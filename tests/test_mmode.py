@@ -1451,6 +1451,16 @@ def test_delim_typeset_order_uses_style_fonts(math):
     assert b_scriptscript.list[0].font is mmode.mathfont(math, mmode.Style(mmode.MATH_STYLE.SS), 1)
 
 
+def test_displaystyle_sum_with_limits_uses_correct_rule13a_baseline(math):
+    math.parse("\\mathchardef\\SUM=\"1350")
+    math.parse("\\setbox0=\\hbox{$\\displaystyle \\SUM_a^b$}")
+    b = math.state.box[0].typeset(math)
+    assert float(b.height) > float(b.depth)
+    assert float(b.height) > 15
+    assert float(b.depth) < 15
+    assert float(b.width) == pytest.approx(14.44447, abs=1e-4)
+
+
 def test_delim_typeset_adds_italic_correction(math):
     # family 1 is cmmi in the math fixture; many letters (e.g., l) have italic correction.
     code = ((1 << 8) | ord("l")) << 12
@@ -1461,6 +1471,14 @@ def test_delim_typeset_adds_italic_correction(math):
     assert len(kerns) <= 1
     if kerns:
         assert float(kerns[0].kern) > 0
+
+
+def test_extensible_delimiter_uses_boxed_pieces(math):
+    delim = mmode.Delim(int("028300", 16), 0)
+    b = delim.typeset(math, Dimen(45), display_context(math), mmode.Style(mmode.MATH_STYLE.T))
+    assert b.node_type == nd.NODE_TYPE.VLIST
+    assert len(b.list) > 1
+    assert all(n.node_type == nd.NODE_TYPE.HLIST for n in b.list)
 
 
 def test_rule19_uses_live_delimiter_parameters(math):

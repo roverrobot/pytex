@@ -615,15 +615,18 @@ class VBox(Box, vmode.VListHolder):
     def _typesetSelf(self, parser):
         if self._packed is not None:
             return
-        self.expanded = []
         build_state = self._build_state
         if build_state is not None:
+            self.expanded = []
             realize_ready = getattr(build_state, "_realizeReadyTailNodes", None)
             if realize_ready is not None:
                 realize_ready()
             self.expanded.extend(build_state.expanded)
             self._build_state = None
+        elif self.expanded:
+            self.expanded = list(self.expanded)
         else:
+            self.expanded = []
             typeset_nodes = getattr(self.list, "typesetNodes", None)
             if typeset_nodes is None:
                 self.typesetNodes(parser, self.expanded)

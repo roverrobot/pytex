@@ -1140,9 +1140,10 @@ class Atom(nd.Node):
         if italic is not None and int(italic) != 0:
             out.list.append(nd.Kern(italic, automatic=True))
         out.list.append(nd.Glue(hss, None))
+        result = out.typeset(parser)
         if hasattr(b, "math_axis_shift"):
-            out.math_axis_shift = b.math_axis_shift
-        return out.typeset(parser)
+            result.math_axis_shift = b.math_axis_shift
+        return result
     
 
 class Op(Atom):
@@ -1867,7 +1868,9 @@ class Delim(serialization.Serializable):
             if code == 0:
                 return None
             _, n = self._lookupChar(chosen["font"], code)
-            return n
+            b = box.HBox(parser, None, 0)
+            b.list.append(n)
+            return b.typeset(parser)
 
         top = piece(ext.top)
         mid = piece(ext.mod)
@@ -1916,6 +1919,7 @@ class Delim(serialization.Serializable):
 
         v = box.VTop(parser, None, 0)
         v.list.extend(parts)
+        v.expanded = list(parts)
         v = v.typeset(parser)
         # TeX uses the repeatable piece width for extensible delimiters.
         v.width = rep.width

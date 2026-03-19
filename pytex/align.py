@@ -78,8 +78,11 @@ class CellBuildState:
                 parser.endParagraph()
                 continue
             break
+        if self.node._packed is None:
+            self.node.typeset(parser)
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         parser.lists.pop()
+        return self.node
 
 
 class RowBuildState:
@@ -162,6 +165,7 @@ class Alignment(nd.Node):
         self.tabskips = []
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
+        self._typeset_cache = None
 
     node_type = nd.NODE_TYPE.ALIGNMENT
     box_materializable = True
@@ -182,7 +186,18 @@ class Alignment(nd.Node):
     def newBox(self, parser):
         raise NotImplementedError
 
+    def pretypeset(self, parser):
+        if self._typeset_cache is not None:
+            return
+        cache = []
+        self._typesetSelf(parser, cache)
+        self._typeset_cache = cache
+
     def typeset(self, parser, packed):
+        self.pretypeset(parser)
+        packed.extend(self._typeset_cache)
+
+    def _typesetSelf(self, parser, packed):
         raise NotImplementedError
 
     def _collectEntries(self, parser):
@@ -380,7 +395,7 @@ class HAlignment(Alignment):
         box = bx.HBox(parser, width, None)
         return box.typeset(parser)
 
-    def typeset(self, parser, packed):
+    def _typesetSelf(self, parser, packed):
         rows, w, t = self._collectEntries(parser)
         prepared = []
         W = Dimen()
@@ -479,7 +494,7 @@ class VAlignment(Alignment):
         out.list.append(nd.Glue(vss, None))
         return out.typeset(parser)
 
-    def typeset(self, parser, packed):
+    def _typesetSelf(self, parser, packed):
         rows, w, t = self._collectEntries(parser)
         out = bx.HBox(parser, self.to, self.spread)
         for row, entries in rows:
@@ -513,8 +528,7 @@ class EndCellToken(Token):
 
     def execute(self, parser):
         row: RowBuildState = parser.alignments[-1].row_state
-        row.current_cell.close(parser)
-        row.row.cells.append(row.current_cell.node)
+        row.row.cells.append(row.current_cell.close(parser))
         row.current_cell = None
         if not self.is_last:
             row.newCell(parser, len(row.row.cells))
@@ -645,6 +659,7 @@ class AlignmentEndCallback:
     def __call__(self):
         if self.parser.alignments.currentCell() is not None:
             raise ValueError("expecting \\cr", self.parser.input.position())
+        self.builder.alignment.pretypeset(self.parser)
         self.target.append(self.builder.alignment)
         top = self.parser.lists[-1]
         if top.type == lists.LISTTYPE.MATH:
@@ -758,14 +773,14 @@ class AlignmentBuilder:
 
 
 class MAlignment(HAlignment):
-    def typeset(self, parser, packed):
+    def _typesetSelf(self, parser, packed):
         cache = []
         displaywidth = parser.state.volatile["displaywidth"]
         displayindent = parser.state.volatile["displayindent"]
         cache.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
         cache.append(nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip"))
         inner = []
-        super().typeset(parser, inner)
+        super()._typesetSelf(parser, inner)
         for n in inner:
             if n.node_type == nd.NODE_TYPE.HLIST:
                 n.shifted = displayindent + (displaywidth - n.width) / 2

@@ -247,7 +247,7 @@ class CommandToken(Token):
         """
         # up to this point, the meaning has been found
         if self.definition is not None:
-            self.definition.execute(parser)
+            return self.definition.execute(parser)
 
     def isSpace(self, expand):
         """ 

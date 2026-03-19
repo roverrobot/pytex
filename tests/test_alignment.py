@@ -174,6 +174,14 @@ def test_halign_typesets_directly_to_rows(cmr10):
     assert packed[0].node_type == nd.NODE_TYPE.HLIST
 
 
+def test_alignment_cells_are_pretypeset_when_closed(cmr10):
+    cmr10.parse("\\halign{#&#\\cr a&bc\\cr}")
+    node = cmr10.lists[-1][0]
+    row = node.rows[0]
+    assert row.cells[0]._packed is not None
+    assert row.cells[1]._packed is not None
+
+
 def test_halign_span_widths_follow_tex_formula(cmr10):
     cmr10.parse(
         "\\tabskip 0pt"

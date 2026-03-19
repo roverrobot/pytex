@@ -280,20 +280,11 @@ class Remove(Command):
 
 def _lastConcreteNode(top):
     """
-    Return the concrete tail node of the current list.
-
-    For live vertical lists, raw nodes and concrete contributed nodes differ:
-    the raw tail may be a paragraph/display node while TeX's \\lastskip,
-    \\lastkern, and \\lastpenalty inspect the already-expanded vertical tail.
+    Return the tail node of the current TeX-visible list.
     """
-    expanded = getattr(top, "expanded", None)
-    if expanded is not None:
-        realize_ready = getattr(top, "_realizeReadyTailNodes", None)
-        if realize_ready is not None:
-            realize_ready()
-        if expanded:
-            return expanded[-1]
-        return None
+    realize_ready = getattr(top, "_realizeReadyTailNodes", None)
+    if realize_ready is not None:
+        realize_ready()
     if len(top) == 0:
         return None
     return top[-1]

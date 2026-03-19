@@ -174,10 +174,12 @@ def test_display_halign_typesets_with_display_wrapper(math):
 def test_display_halign_uses_display_local_baselineskip_for_first_row(math):
     math.parse("A$$\\baselineskip=15pt\\halign{#\\cr 1\\cr 2\\cr}$$\\par")
     top = math.lists[0]
-    node = next(n for n in _raw_nodes(top) if isinstance(n, align.MAlignment))
-    packed = []
-    node.typeset(math, packed)
-    baseline_glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE and n.name == "\\baselineskip"]
+    packed = list(top)
+    baseline_glues = [
+        n for n in packed
+        if n.node_type == nd.NODE_TYPE.GLUE
+        and n.name == "\\baselineskip"
+    ]
     assert len(baseline_glues) >= 2
     assert float(baseline_glues[0].glue.dimen) == pytest.approx(8.55556, abs=1e-4)
     assert float(baseline_glues[1].glue.dimen) == pytest.approx(8.55556, abs=1e-4)

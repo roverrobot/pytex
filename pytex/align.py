@@ -165,8 +165,8 @@ class Alignment(nd.Node):
         self.tabskips = []
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
-        self.initial_prevdepth = vmode.init_prevdepth
         self._typeset_cache = None
+        self.initial_prevdepth = vmode.init_prevdepth
 
     node_type = nd.NODE_TYPE.ALIGNMENT
     box_materializable = True
@@ -323,11 +323,11 @@ class Alignment(nd.Node):
         box.list[:] = list(cells)
         return box.typeset(parser)
 
-    def _appendVerticalMaterial(self, parser, vlist, nodes):
+    def _appendVerticalMaterial(self, parser, packed, nodes):
         for node in nodes:
             if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 node = node.typeset(parser)
-            vlist.append(node)
+            packed.append(node)
 
     def _glueSet(self, total, delta):
         if delta > 0 and total.stretch.factor != 0:
@@ -453,23 +453,14 @@ class HAlignment(Alignment):
             W = self.to
         else:
             W += self.spread
-        cache = []
-        saved_prevdepth = parser.state.volatile["prevdepth"]
-        vbuild = vmode.VList(parser, cache, inner=True)
-        parser.state.volatile["prevdepth"] = self.initial_prevdepth
-        try:
-            if self.noalign is not None:
-                self._appendVerticalMaterial(parser, vbuild, self.noalign)
-            for row, rowbox, row_total, row_width in prepared:
-                rowbox.to = W
-                rowbox.spread = W - row_width
-                rowbox = rowbox.typeset(parser)
-                vbuild.append(rowbox)
-                if row.noalign is not None:
-                    self._appendVerticalMaterial(parser, vbuild, row.noalign)
-        finally:
-            parser.state.volatile["prevdepth"] = saved_prevdepth
-        packed.extend(list(vbuild))
+        if self.noalign is not None:
+            self._appendVerticalMaterial(parser, packed, self.noalign)
+        for row, rowbox, row_total, row_width in prepared:
+            rowbox.to = W
+            rowbox.spread = W - row_width
+            packed.append(rowbox.typeset(parser))
+            if row.noalign is not None:
+                self._appendVerticalMaterial(parser, packed, row.noalign)
 
 
 class VAlignment(Alignment):
@@ -791,11 +782,21 @@ class MAlignment(HAlignment):
         displayindent = parser.state.volatile["displayindent"]
         cache.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
         cache.append(nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip"))
-        inner = []
-        super()._typesetSelf(parser, inner)
-        for n in inner:
+        inner_raw = []
+        super()._typesetSelf(parser, inner_raw)
+        for n in inner_raw:
             if n.node_type == nd.NODE_TYPE.HLIST:
                 n.shifted = displayindent + (displaywidth - n.width) / 2
+        inner = []
+        state = {
+            "prevdepth": self.initial_prevdepth,
+            "seen_box": float(self.initial_prevdepth) > float(vmode.init_prevdepth),
+            "pending_interline": False,
+            "builder_mode": True,
+        }
+        for n in inner_raw:
+            vmode._append_expanded_item(parser, inner, state, n, getattr(n, "source", None) or self)
+        for n in inner:
             n.source = self
         cache.extend(inner)
         cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))

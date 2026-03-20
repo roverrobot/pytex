@@ -305,7 +305,7 @@ class VList(lists.List):
             self._expanded_raw_count += 1
 
     def _appendBuiltNode(self, node):
-        node.source = node
+        _mark_source(node, node)
         self.raw.append(node)
         self.list.append(node)
         self._expanded_raw_count = len(self.raw)

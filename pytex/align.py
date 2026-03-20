@@ -421,8 +421,7 @@ class HAlignment(Alignment):
         self.pretypeset(parser)
         if not isinstance(packed, vmode.VList):
             raise TypeError("HAlignment.typeset expects a VList")
-        for node in self._typeset_cache:
-            packed.append(node)
+        packed.extendBuilt(self._typeset_cache)
 
     def _typesetToVList(self, parser, vlist):
         rows, w, t = self._collectEntries(parser)
@@ -812,10 +811,10 @@ class MAlignment(HAlignment):
         displayindent = parser.state.volatile["displayindent"]
         penalty = nd.Penalty(parser.state.layout["predisplaypenalty"])
         penalty.source = self
-        vlist.append(penalty)
+        vlist.extendBuilt([penalty])
         above = nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip")
         above.source = self
-        vlist.append(above)
+        vlist.extendBuilt([above])
         inner = vmode.VList(parser, [], inner=True)
         try:
             inner.setBuilderPrevdepth(self._typesetPrevdepth())
@@ -824,15 +823,15 @@ class MAlignment(HAlignment):
                 if node.node_type == nd.NODE_TYPE.HLIST:
                     node.shifted = displayindent + (displaywidth - node.width) / 2
                 node.source = self
-                vlist.append(node)
+            vlist.extendBuilt(inner.list)
         finally:
             inner.restorePrevdepth()
         penalty = nd.Penalty(parser.state.layout["postdisplaypenalty"])
         penalty.source = self
-        vlist.append(penalty)
+        vlist.extendBuilt([penalty])
         below = nd.Glue(parser.state.layout["belowdisplayskip"], "\\belowdisplayskip")
         below.source = self
-        vlist.append(below)
+        vlist.extendBuilt([below])
             
 
 class Align(lists.ModeDependentCommand):

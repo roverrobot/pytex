@@ -157,20 +157,18 @@ def test_display_halign_typesets_with_display_wrapper(math):
     node = next(n for n in _raw_nodes(top) if isinstance(n, align.MAlignment))
     packed = list(top)
     display = [n for n in packed if getattr(n, "source", None) is node]
-    assert len(display) == 6
+    assert len(display) == 5
     assert display[0].node_type == nd.NODE_TYPE.PENALTY
     assert display[0].penalty == math.state.layout["predisplaypenalty"]
     assert display[1].node_type == nd.NODE_TYPE.GLUE
     assert display[1].glue == math.state.layout["abovedisplayskip"]
-    assert display[2].node_type == nd.NODE_TYPE.GLUE
-    assert display[2].name == "\\baselineskip"
-    assert display[3].node_type == nd.NODE_TYPE.HLIST
-    assert display[4].node_type == nd.NODE_TYPE.PENALTY
-    assert display[4].penalty == math.state.layout["postdisplaypenalty"]
-    assert display[5].node_type == nd.NODE_TYPE.GLUE
-    assert display[5].glue == math.state.layout["belowdisplayskip"]
-    expected = math.state.volatile["displayindent"] + (math.state.volatile["displaywidth"] - display[3].width) / 2
-    assert display[3].shifted == expected
+    assert display[2].node_type == nd.NODE_TYPE.HLIST
+    assert display[3].node_type == nd.NODE_TYPE.PENALTY
+    assert display[3].penalty == math.state.layout["postdisplaypenalty"]
+    assert display[4].node_type == nd.NODE_TYPE.GLUE
+    assert display[4].glue == math.state.layout["belowdisplayskip"]
+    expected = math.state.volatile["displayindent"] + (math.state.volatile["displaywidth"] - display[2].width) / 2
+    assert display[2].shifted == expected
 
 
 def test_display_halign_uses_display_local_baselineskip_for_first_row(math):

@@ -207,6 +207,24 @@ class MList(lists.List):
             raise ValueError("double field", self.parser.input.position())
         self.building_atom = (atom, field)
 
+    @staticmethod
+    def _normalizeNode(node):
+        if isinstance(node, MList):
+            subformula = Subformula()
+            subformula.list = node.list
+            node = subformula
+        if isinstance(node, box.Box):
+            return Box(node)
+        if isinstance(node, Subformula):
+            atom = Atom(ATOM_TYPE.ORD)
+            atom.nucleus = node
+            return atom
+        if isinstance(node, MathSymbol):
+            atom = Op() if node.type == ATOM_TYPE.OP else Atom(node.type)
+            atom.nucleus = node
+            return atom
+        return node
+
     def append(self, node):
         if self.isalign:
             raise ValueError("improper \\halign inside math mode", self.parser.input.position())
@@ -219,20 +237,7 @@ class MList(lists.List):
             setattr(atom, field, node)
             self.building_atom = None
             return
-        if isinstance(node, MList):
-            subformula = Subformula()
-            subformula.list = node.list
-            node = subformula
-        if isinstance(node, box.Box):
-            node = Box(node)
-        elif isinstance(node, Subformula):
-            n = Atom(ATOM_TYPE.ORD)
-            n.nucleus = node
-            node = n
-        elif isinstance(node, MathSymbol):
-            n = Op() if node.type == ATOM_TYPE.OP else Atom(node.type)
-            n.nucleus = node
-            node = n
+        node = self._normalizeNode(node)
         super().append(node)
 
 
@@ -910,8 +915,8 @@ class Atom(nd.Node):
             packed.append(b)
             return delta
 
-        self.nucleus.typeset(parser, packed, context, style)
         if isinstance(self.nucleus, MathSymbol):
+            self.nucleus.typeset(parser, packed, context, style, include_italic=False)
             # Rule 17 (common symbol case).
             node = packed[-1]
             font = node.font
@@ -922,6 +927,8 @@ class Atom(nd.Node):
             if int(delta) != 0 and self.sub is None:
                 packed.append(nd.Kern(delta, automatic=True))
                 delta = Dimen()
+        else:
+            self.nucleus.typeset(parser, packed, context, style)
         return delta
 
     def _rule18aIsCharTranslation(self, translated):
@@ -966,13 +973,28 @@ class Atom(nd.Node):
         """
         Typeset a script field in style and return it as a box.
         """
+        if isinstance(field, MathSymbol):
+            x = box.HBox(parser, None, 0)
+            field.typeset(parser, x.list, context, style, include_italic=True)
+            x = x.typeset(parser)
+            x.width += mathlayout(parser, "scriptspace")
+            if hasattr(x, "to"):
+                x.to = x.width
+            return x
+        local = AtomState(parser)
+        if isinstance(field, Atom):
+            x = field.assemble(parser, local, style)
+            x.width += mathlayout(parser, "scriptspace")
+            if hasattr(x, "to"):
+                x.to = x.width
+            return x
         x = box.HBox(parser, None, 0)
         if field is not None:
             typeset = field.typeset
             if typeset is None:
                 x.list.append(field)
             else:
-                typeset(parser, x.list, context, style)
+                typeset(parser, x.list, local, style)
         x = _drop_redundant_wrapper(x.typeset(parser), allow_char=False)
         x.width += mathlayout(parser, "scriptspace")
         if hasattr(x, "to"):
@@ -1163,14 +1185,23 @@ class Op(Atom):
         return style.style == MATH_STYLE.D
 
     def _typesetLimitField(self, parser, field, context, style):
-        out = box.HBox(parser, None, 0)
-        if field is not None:
-            typeset = getattr(field, "typeset", None)
-            if typeset is None:
-                out.list.append(field)
+        if isinstance(field, MathSymbol):
+            out = box.HBox(parser, None, 0)
+            field.typeset(parser, out.list, context, style, include_italic=True)
+            out = out.typeset(parser)
+        else:
+            local = AtomState(parser)
+            if isinstance(field, Atom):
+                out = field.assemble(parser, local, style)
             else:
-                typeset(parser, out.list, context, style)
-        out = out.typeset(parser)
+                out = box.HBox(parser, None, 0)
+                if field is not None:
+                    typeset = getattr(field, "typeset", None)
+                    if typeset is None:
+                        out.list.append(field)
+                    else:
+                        typeset(parser, out.list, local, style)
+                out = out.typeset(parser)
         if field is not None:
             out.width += mathlayout(parser, "scriptspace")
             out.to = out.width
@@ -1327,9 +1358,12 @@ class MathSymbol(serialization.Serializable):
                 family = fam
         return ATOM_TYPE(type), family, chr(char)
 
-    def typeset(self, parser, packed, context, style):
+    def typeset(self, parser, packed, context, style, include_italic=True):
         font = mathfont(parser, style, self.fam)
-        packed.append(font[self.char])
+        node = font[self.char]
+        packed.append(node)
+        if include_italic and int(node.italic) != 0:
+            packed.append(nd.Kern(node.italic, automatic=True))
 
 
 class Box(Atom):

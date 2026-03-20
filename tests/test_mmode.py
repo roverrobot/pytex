@@ -896,6 +896,15 @@ def test_rule18_substeps(math):
     def close(actual, expected, stage):
         assert float(actual) == pytest.approx(float(expected), abs=1e-4), stage
 
+    def expected_script_box(field, style):
+        if isinstance(field, mmode.MathSymbol):
+            atom = mmode.Atom(field.type)
+            atom.nucleus = field
+            return atom.assemble(math, ctx, style)
+        out = box.HBox(math, None, 0)
+        field.typeset(math, out.list, ctx, style)
+        return out.typeset(math)
+
     ctx = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
 
@@ -942,9 +951,7 @@ def test_rule18_substeps(math):
     assert len(b.list) == 2, "rule18b should append one subscript box"
     sub_box = b.list[1]
     assert sub_box.node_type == nd.NODE_TYPE.HLIST and float(sub_box.shifted) >= 0, "rule18b sub box shape/shift"
-    raw = box.HBox(math, None, 0)
-    atom.sub.typeset(math, raw.list, ctx, style.subscript())
-    raw.typeset(math, [])
+    raw = expected_script_box(atom.sub, style.subscript())
     close(sub_box.width, raw.width + math.state.layout["scriptspace"], "rule18b should add scriptspace")
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
@@ -963,9 +970,7 @@ def test_rule18_substeps(math):
     assert len(b.list) == 2, "rule18c should append one superscript box"
     sup_box = b.list[1]
     assert sup_box.node_type == nd.NODE_TYPE.HLIST and float(sup_box.shifted) <= 0, "rule18c sup box shape/shift"
-    raw = box.HBox(math, None, 0)
-    atom.sup.typeset(math, raw.list, ctx, style.superscript())
-    raw.typeset(math, [])
+    raw = expected_script_box(atom.sup, style.superscript())
     close(sup_box.width, raw.width + math.state.layout["scriptspace"], "rule18c should add scriptspace")
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
@@ -1001,9 +1006,7 @@ def test_rule18_substeps(math):
     x = atom._typesetScriptField(math, atom.sup, ctx, style.superscript())
     u = atom.rule18c(math, x, ctx, style, u)
     y, v2 = atom.rule18d(math, ctx, style, v)
-    raw = box.HBox(math, None, 0)
-    atom.sub.typeset(math, raw.list, ctx, style.subscript())
-    raw.typeset(math, [])
+    raw = expected_script_box(atom.sub, style.subscript())
     close(y.width, raw.width + math.state.layout["scriptspace"], "rule18d sub box should include scriptspace")
     assert v2 >= v and v2 >= Dimen(mmode.mathsigma(math, style)[16]), "rule18d should enforce v>=max(v,sigma17)"
 

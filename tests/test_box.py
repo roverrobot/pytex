@@ -412,6 +412,19 @@ def test_vsplit_takes_whole_box_when_target_is_large(parser):
     assert split.height == 50
 
 
+def test_vsplit_does_not_clamp_box_depth_when_trailing_glue_remains(parser):
+    parser.state.layout["splitmaxdepth"] = Dimen(2)
+    source = _expanded_vbox(parser, [
+        _synthetic_hbox(parser, height=6, depth=3, width=10),
+        nd.Glue(glue.Glue(4), None),
+    ])
+    parser.state.box[1] = source
+    parser.parse("\\setbox2=\\vsplit1 to 50pt")
+    split = parser.state.box[2].typeset(parser)
+    assert split.list[0].node_type == NODE_TYPE.HLIST
+    assert split.list[0].depth == 3
+
+
 def test_vsplit_sets_split_marks_from_split_box(parser):
     source = _expanded_vbox(parser, [
         _mark_node("A"),

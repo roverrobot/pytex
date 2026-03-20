@@ -268,12 +268,16 @@ class VListBreaker:
                     return end, next_start, best_context, best_penalty
                 continue
             before_total = total.copy()
+            before_bottom_depth = bottom_depth
             self.measure(total, node)
             if self.hasDepth(node):
                 bottom_depth = node.depth
+            elif node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                bottom_depth = None
             if self.isLegalBreak(start, i):
                 break_total = before_total if node.node_type == nd.NODE_TYPE.GLUE else total
-                effective = self.pendingTotal(break_total, bottom_depth)
+                break_depth = before_bottom_depth if node.node_type == nd.NODE_TYPE.GLUE else bottom_depth
+                effective = self.pendingTotal(break_total, break_depth)
                 cost = self.cost(effective, current_context.vsize, 0)
                 if best is None or cost <= best[0]:
                     best = (cost, i, node.node_type.name.lower(), current_context, 0)
@@ -320,6 +324,8 @@ class VListBreaker:
             built.append(node)
             if self.hasDepth(node):
                 last_box = node
+            elif node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                last_box = None
         if last_box is not None and last_box.depth > current_context.maxdepth:
             last_box.depth = current_context.maxdepth
         return built
@@ -1119,12 +1125,16 @@ class MainVList(vmode.VList):
                     return end, next_start, best_context, best_penalty
                 continue
             before_total = total.copy()
+            before_bottom_depth = bottom_depth
             self._pageMeasure(total, node)
             if self._hasDepth(node):
                 bottom_depth = node.depth
+            elif node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                bottom_depth = None
             if self._isLegalBreak(nodes, start, i):
                 break_total = before_total if node.node_type == nd.NODE_TYPE.GLUE else total
-                effective = self._pendingTotal(break_total, bottom_depth)
+                break_depth = before_bottom_depth if node.node_type == nd.NODE_TYPE.GLUE else bottom_depth
+                effective = self._pendingTotal(break_total, break_depth)
                 cost = self._pageCost(effective, current_context.vsize, 0)
                 if best is None or cost <= best[0]:
                     best = (cost, i, node.node_type.name.lower(), current_context, 0)
@@ -1153,6 +1163,8 @@ class MainVList(vmode.VList):
             built.append(node)
             if self._hasDepth(node):
                 last_box = node
+            elif node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+                last_box = None
         if last_box is not None and last_box.depth > current_context.maxdepth:
             last_box.depth = current_context.maxdepth
         return built

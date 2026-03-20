@@ -607,6 +607,28 @@ def test_page_break_uses_maxdepth_in_cost_and_page_box(parser):
     assert first.depth == 2
 
 
+def test_page_box_does_not_clamp_depth_when_glue_follows(parser):
+    parser.parse("\\maxdepth=2pt")
+    main = parser.lists[0]
+    first = _test_hbox(parser, height=6, depth=3)
+    trailing = nd.Glue(glue.Glue(4), None)
+    page_nodes = main._buildPage(parser, [first, trailing], 0, 2, page.PageBuilderContext(parser.state.layout))
+    assert page_nodes[1] is first
+    assert page_nodes[2] is trailing
+    assert first.depth == 3
+
+
+def test_page_box_does_not_clamp_depth_when_kern_follows(parser):
+    parser.parse("\\maxdepth=2pt")
+    main = parser.lists[0]
+    first = _test_hbox(parser, height=6, depth=3)
+    trailing = nd.Kern(4)
+    page_nodes = main._buildPage(parser, [first, trailing], 0, 2, page.PageBuilderContext(parser.state.layout))
+    assert page_nodes[1] is first
+    assert page_nodes[2] is trailing
+    assert first.depth == 3
+
+
 def test_page_topskip_includes_rule(parser):
     parser.parse("\\vsize=20pt\\topskip=10pt")
     main = parser.lists[0]

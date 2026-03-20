@@ -158,8 +158,16 @@ def expandVerticalNode(parser, node):
     if typeset is None:
         _mark_source(node, node)
         return [node]
-    packed = []
-    node.typeset(parser, packed)
+    if getattr(node, "typeset_to_vlist", False):
+        packed_vlist = VList(parser, [], inner=True)
+        try:
+            node.typeset(parser, packed_vlist)
+            packed = list(packed_vlist.list)
+        finally:
+            packed_vlist.restorePrevdepth()
+    else:
+        packed = []
+        node.typeset(parser, packed)
     for n in packed:
         _mark_source(n, node)
     return packed

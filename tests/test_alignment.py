@@ -2,6 +2,7 @@ import pytest
 from pytex import align
 from pytex import texlive
 from pytex import lists
+from pytex import vmode
 from pytex import glue
 from pytex import node as nd
 from pytex.dimen import Dimen
@@ -9,6 +10,15 @@ from pytex.dimen import Dimen
 
 def _raw_nodes(vlist):
     return getattr(vlist, "raw", vlist)
+
+
+def _typeset_halign(parser, node):
+    packed = vmode.VList(parser, [], inner=True)
+    try:
+        node.typeset(parser, packed)
+        return list(packed.list)
+    finally:
+        packed.restorePrevdepth()
 
 
 def test_halign(cmr10):
@@ -168,8 +178,7 @@ def test_everycr_runs_between_alignment_rows(cmr10):
 def test_halign_typesets_directly_to_rows(cmr10):
     cmr10.parse("\\halign{#&#\\cr a&bc\\cr}")
     node = _raw_nodes(cmr10.lists[-1])[0]
-    packed = []
-    node.typeset(cmr10, packed)
+    packed = _typeset_halign(cmr10, node)
     assert len(packed) == 1
     assert packed[0].node_type == nd.NODE_TYPE.HLIST
 
@@ -191,8 +200,7 @@ def test_halign_span_widths_follow_tex_formula(cmr10):
         "\\kern1pt\\span\\kern3pt\\cr}"
     )
     node = _raw_nodes(cmr10.lists[-1])[0]
-    packed = []
-    node.typeset(cmr10, packed)
+    packed = _typeset_halign(cmr10, node)
     rows = [item for item in packed if item.node_type == nd.NODE_TYPE.HLIST]
     assert len(rows) == 3
     assert rows[0].width == 6
@@ -209,8 +217,7 @@ def test_halign_spanned_box_uses_row_glue_setting(cmr10):
     )
     node = _raw_nodes(cmr10.lists[-1])[0]
     assert isinstance(node.to, Dimen)
-    packed = []
-    node.typeset(cmr10, packed)
+    packed = _typeset_halign(cmr10, node)
     rows = [item for item in packed if item.node_type == nd.NODE_TYPE.HLIST]
     assert len(rows) == 2
     assert rows[0].width == 10

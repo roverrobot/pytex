@@ -1486,7 +1486,7 @@ class VSplit(Command):
             remainder = bx.VBox(parser, None, Dimen())
             remainder.list[:] = breaker.buildSlice(next_start, len(nodes), remainder_context, "\\splittopskip")
             parser.state.box[index] = remainder.typeset(parser)
-        return result
+        return result.typeset(parser)
 
     def execute(self, parser):
         box = self.boxValue(parser, False)

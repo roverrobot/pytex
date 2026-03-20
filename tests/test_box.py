@@ -264,6 +264,32 @@ def test_vbox_trailing_penalty_keeps_depth(parser):
     assert typed.depth == 3
 
 
+def test_packed_vbox_uses_packed_child_boxes(parser):
+    inner = bx.VBox(parser, None, 0)
+    inner.width = Dimen(10)
+    inner.height = Dimen(20)
+    inner.depth = Dimen()
+    inner.list[:] = [_synthetic_hbox(parser, height=6, depth=0, width=10)]
+    inner._packed = inner.copy(
+        [
+            _synthetic_hbox(parser, height=6, depth=0, width=10),
+            nd.Glue(glue.Glue(23.5), "\\baselineskip"),
+            _synthetic_hbox(parser, height=6, depth=0, width=10),
+        ]
+    )
+
+    outer = bx.VBox(parser, None, 0)
+    outer.list[:] = [nd.Glue(glue.Glue(17), None), inner]
+    typed = outer.typeset(parser)
+
+    assert typed.list[1] is inner._packed
+    assert [node.node_type for node in typed.list[1].list] == [
+        NODE_TYPE.HLIST,
+        NODE_TYPE.GLUE,
+        NODE_TYPE.HLIST,
+    ]
+
+
 def test_vbox_ignores_horizontal_shift_for_vertical_metrics(parser):
     vbox = bx.VBox(parser, None, 0)
     shifted = _synthetic_hbox(parser, height=6, depth=3, width=10)
@@ -323,6 +349,23 @@ def test_vbox_is_pretypeset_with_current_boxmaxdepth(parser):
     typed = parser.state.box[0].typeset(parser)
     assert typed.height == 8
     assert typed.depth == 1
+
+
+def test_setbox_vbox_packs_into_itself_and_keeps_raw_source(cmr10):
+    cmr10.parse("\\setbox0=\\vbox{\\hbox{A}\\hbox{B}}")
+    box0 = cmr10.state.box[0]
+    assert box0._packed is box0
+    assert isinstance(box0.source, list)
+    assert box0.source is not box0.list
+    assert [node.node_type for node in box0.source] == [
+        NODE_TYPE.HLIST,
+        NODE_TYPE.HLIST,
+    ]
+    assert [node.node_type for node in box0.list] == [
+        NODE_TYPE.HLIST,
+        NODE_TYPE.GLUE,
+        NODE_TYPE.HLIST,
+    ]
 
 
 def test_vbox_closes_internal_paragraph_before_packing(cmr10):

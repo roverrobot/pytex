@@ -203,7 +203,13 @@ class Box(nd.Box):
         if content is None:
             box.list = self.list
         else:
-            box.list[:] = content
+            normalized = []
+            for node in content:
+                packed = getattr(node, "_packed", None)
+                if packed is not None and packed is not node:
+                    node = packed
+                normalized.append(node)
+            box.list[:] = normalized
         box.source = self.source
         box.natural = self.natural
         box.glue_ratio = self.glue_ratio
@@ -624,6 +630,7 @@ class VBox(Box, vmode.VListHolder):
         if self._packed is not None:
             return
         saved_prevdepth = parser.state.globals["prevdepth"]
+        raw_source = self.list
         try:
             build_state = self._build_state
             if build_state is not None:
@@ -686,9 +693,27 @@ class VBox(Box, vmode.VListHolder):
             self.natural = natural
             self._set_badness(parser, spread, natural)
             self.height = self.to
-            self._packed = self.copy(content)
+            normalized = []
+            for node in content:
+                packed = getattr(node, "_packed", None)
+                if packed is not None and packed is not node:
+                    node = packed
+                normalized.append(node)
+            self.list = normalized
+            self.expanded = self.list
+            if self.source is None:
+                self.source = raw_source
+            self._build_state = None
+            self._packed = self
         finally:
             parser.state.globals["prevdepth"] = saved_prevdepth
+
+    def copy(self, content=None):
+        box = super().copy(content)
+        if content is None and self._packed is self:
+            box._packed = box
+            box.expanded = box.list
+        return box
 
     def __repr__(self):
         return f"VBox({self.width}, {self.height}, {self.depth}, {self.list})"

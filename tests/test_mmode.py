@@ -1538,6 +1538,22 @@ def test_rule19_uses_live_delimiter_parameters(math):
     assert right.total == 0
 
 
+def test_left_right_keeps_inner_translation_box(math):
+    math.parse("$\\left(a\\right)")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    node = top[0]
+    assert isinstance(node, mmode.Atom)
+    packed = []
+    ctx = display_context(math)
+    ctx.prev_atom_type = None
+    ctx.atom_type = node.atom_type
+    node.typeset(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    boxes = [n for n in packed if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)]
+    assert len(boxes) == 3
+    assert boxes[1].node_type == nd.NODE_TYPE.HLIST
+
+
 @pytest.mark.parametrize("cmd, bar, thickness, left, right", [
     ["\\over", True, None, None, None],
     ["\\overwithdelims()", True, None, (0, chr(0x28)), (0, chr(0x29))],

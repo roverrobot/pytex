@@ -848,9 +848,14 @@ class Atom(nd.Node):
             self.typsetSpace(parser, packed, context, style, atom_type)
         else:
             self.typsetSpace(parser, packed, context, style, atom_type)
-        for n in b.list:
-            # packed needs to handle ligatures automatically. So we cannot use extend, but to add them invididually
-            packed.append(n)
+        if self.left is not None or self.right is not None:
+            if getattr(b, "source", None) is None:
+                b.source = self
+            packed.append(b)
+        else:
+            for n in b.list:
+                # packed needs to handle ligatures automatically. So we cannot use extend, but to add them invididually
+                packed.append(n)
         context.prev_atom_type = atom_type
         if self.right:
             right = self.right.typeset(parser, total, context, style, axis)

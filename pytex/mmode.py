@@ -1374,6 +1374,14 @@ class MathEndGroupCallback:
 
 
 class MathShiftEndGroupCallback(MathEndGroupCallback):    
+    def prepare(self):
+        parser = self.parser
+        mlist = parser.lists[-1]
+        if mlist.type != lists.LISTTYPE.MATH or mlist.inner or not mlist.isalign:
+            return
+        self.node = mlist[0]
+        self.node.captureDisplayWrapper(parser)
+
     def finalize(self, parser, top, mlist):
         # here top points to the enclosing horizontal list
         # if mlist is inline math, then we simply add it to the enclosing list
@@ -1467,10 +1475,12 @@ def mathShift(parser):
     parser.lists.append(MList(parser, node.list, inner=inner))
     # \fam=-1 when entering math mode
     parser.state.parameters["fam"] = -1
+    callback = MathShiftEndGroupCallback(parser, node)
     parser.beginGroup(
         parser.input.position(),
         GROUP_TYPE.MATH_SHIFT,
-        ended=MathShiftEndGroupCallback(parser, node),
+        to_end=callback.prepare,
+        ended=callback,
     )
     every = parser.everymath.value if inner else parser.everydisplay.value
     if every:

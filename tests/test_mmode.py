@@ -185,6 +185,19 @@ def test_display_halign_uses_display_local_baselineskip_for_first_row(math):
     assert float(baseline_glues[1].glue.dimen) == pytest.approx(8.55556, abs=1e-4)
 
 
+def test_display_halign_ignores_post_halign_baselineskip_assignment(math):
+    math.parse("$$\\baselineskip=15pt\\halign{#\\cr 1\\cr 2\\cr}\\baselineskip=30pt$$\\par")
+    top = math.lists[0]
+    packed = list(top)
+    baseline_glues = [
+        n for n in packed
+        if n.node_type == nd.NODE_TYPE.GLUE
+        and n.name == "\\baselineskip"
+    ]
+    assert len(baseline_glues) >= 1
+    assert float(baseline_glues[-1].glue.dimen) == pytest.approx(8.55556, abs=1e-4)
+
+
 def test_subformula_single_char_drops_outer_hbox(math):
     math.parse("${a}$")
     mlist = math.lists[-1][1]

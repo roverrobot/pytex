@@ -170,7 +170,6 @@ class Alignment(nd.Node):
         self.tabskips = []
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
-        self._typeset_cache = None
         self.initial_prevdepth = vmode.init_prevdepth
 
     node_type = nd.NODE_TYPE.ALIGNMENT
@@ -190,20 +189,6 @@ class Alignment(nd.Node):
         return f"{self.__class__.__name__}({self.rows})"
     
     def newBox(self, parser):
-        raise NotImplementedError
-
-    def pretypeset(self, parser):
-        if self._typeset_cache is not None:
-            return
-        cache = []
-        self._typesetSelf(parser, cache)
-        self._typeset_cache = cache
-
-    def typeset(self, parser, packed):
-        self.pretypeset(parser)
-        packed.extend(self._typeset_cache)
-
-    def _typesetSelf(self, parser, packed):
         raise NotImplementedError
 
     def _collectEntries(self, parser):
@@ -406,22 +391,10 @@ class HAlignment(Alignment):
     def _typesetPrevdepth(self):
         return vmode.init_prevdepth
 
-    def pretypeset(self, parser):
-        if self._typeset_cache is not None:
-            return
-        vlist = vmode.VList(parser, [], inner=True)
-        try:
-            vlist.setBuilderPrevdepth(self._typesetPrevdepth())
-            self._typesetToVList(parser, vlist)
-            self._typeset_cache = list(vlist.list)
-        finally:
-            vlist.restorePrevdepth()
-
     def typeset(self, parser, packed):
-        self.pretypeset(parser)
         if not isinstance(packed, vmode.VList):
             raise TypeError("HAlignment.typeset expects a VList")
-        packed.extendBuilt(self._typeset_cache)
+        self._typesetToVList(parser, packed)
 
     def _typesetToVList(self, parser, vlist):
         rows, w, t = self._collectEntries(parser)
@@ -516,6 +489,9 @@ class VAlignment(Alignment):
         out.list.append(box)
         out.list.append(nd.Glue(vss, None))
         return out.typeset(parser)
+
+    def typeset(self, parser, packed):
+        self._typesetSelf(parser, packed)
 
     def _typesetSelf(self, parser, packed):
         rows, w, t = self._collectEntries(parser)
@@ -682,16 +658,14 @@ class AlignmentEndCallback:
     def __call__(self):
         if self.parser.alignments.currentCell() is not None:
             raise ValueError("expecting \\cr", self.parser.input.position())
-        prevdepth = vmode.init_prevdepth
-        for current in reversed(self.parser.lists):
-            if getattr(current, "type", None) == lists.LISTTYPE.VERTICAL:
-                resolver = getattr(current, "resolvePrevDepth", None)
-                prevdepth = resolver() if resolver is not None else getattr(current, "prevdepth", vmode.init_prevdepth)
-                break
-        self.builder.alignment.initial_prevdepth = prevdepth
-        self.builder.alignment.pretypeset(self.parser)
-        self.target.append(self.builder.alignment)
         top = self.parser.lists[-1]
+        if top.type == lists.LISTTYPE.MATH:
+            if isinstance(self.builder.alignment, MAlignment):
+                self.builder.alignment.freezeRows(
+                    self.parser,
+                    self.parser.state.globals["prevdepth"],
+                )
+        self.target.append(self.builder.alignment)
         if top.type == lists.LISTTYPE.MATH:
             top.isalign = True
         if self.parser.alignments and self.parser.alignments[-1] is self.builder:
@@ -803,35 +777,92 @@ class AlignmentBuilder:
 
 
 class MAlignment(HAlignment):
+    def __init__(self, to=None, spread=Dimen()):
+        super().__init__(to, spread)
+        self._row_cache = None
+        self._display_wrapper = None
+
     def _typesetPrevdepth(self):
         return self.initial_prevdepth
 
-    def _typesetToVList(self, parser, vlist):
+    def freezeRows(self, parser, prevdepth):
+        self.initial_prevdepth = prevdepth
+        vlist = vmode.VList(parser, [], inner=True)
+        try:
+            vlist.setBuilderPrevdepth(self._typesetPrevdepth())
+            super()._typesetToVList(parser, vlist)
+            nodes = list(vlist.list)
+            first_box_index = None
+            for i, node in enumerate(nodes):
+                if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                    first_box_index = i
+                    break
+            if first_box_index is not None:
+                start = first_box_index
+                while start > 0 and getattr(nodes[start - 1], "interline_generated", False):
+                    start -= 1
+                first_box = nodes[first_box_index]
+                for generated in nodes[start:first_box_index]:
+                    if generated.node_type == nd.NODE_TYPE.PENALTY:
+                        first_box.interline_penalty = generated.penalty
+                    elif generated.node_type == nd.NODE_TYPE.GLUE:
+                        first_box.interline_glue = nd.Glue(generated.glue, generated.name)
+                if start != first_box_index:
+                    del nodes[start:first_box_index]
+            self._row_cache = nodes
+        finally:
+            vlist.restorePrevdepth()
+
+    def captureDisplayWrapper(self, parser):
         displaywidth = parser.state.volatile["displaywidth"]
         displayindent = parser.state.volatile["displayindent"]
-        penalty = nd.Penalty(parser.state.layout["predisplaypenalty"])
-        penalty.source = self
-        vlist.extendBuilt([penalty])
-        above = nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip")
-        above.source = self
-        vlist.extendBuilt([above])
-        inner = vmode.VList(parser, [], inner=True)
-        try:
-            inner.setBuilderPrevdepth(self._typesetPrevdepth())
-            super()._typesetToVList(parser, inner)
-            for node in inner.list:
+        self._display_wrapper = {
+            "predisplaypenalty": parser.state.layout["predisplaypenalty"],
+            "abovedisplayskip": parser.state.layout["abovedisplayskip"],
+            "postdisplaypenalty": parser.state.layout["postdisplaypenalty"],
+            "belowdisplayskip": parser.state.layout["belowdisplayskip"],
+            "displaywidth": displaywidth,
+            "displayindent": displayindent,
+        }
+        if self._row_cache is not None:
+            for node in self._row_cache:
                 if node.node_type == nd.NODE_TYPE.HLIST:
                     node.shifted = displayindent + (displaywidth - node.width) / 2
                 node.source = self
-            vlist.extendBuilt(inner.list)
-        finally:
-            inner.restorePrevdepth()
-        penalty = nd.Penalty(parser.state.layout["postdisplaypenalty"])
+
+    def typeset(self, parser, packed):
+        if not isinstance(packed, vmode.VList):
+            raise TypeError("MAlignment.typeset expects a VList")
+        if self._row_cache is None:
+            self.freezeRows(parser, parser.state.globals["prevdepth"])
+        if self._display_wrapper is None:
+            self.captureDisplayWrapper(parser)
+        wrapper = self._display_wrapper
+        penalty = nd.Penalty(wrapper["predisplaypenalty"])
         penalty.source = self
-        vlist.extendBuilt([penalty])
-        below = nd.Glue(parser.state.layout["belowdisplayskip"], "\\belowdisplayskip")
+        packed.extendBuilt([penalty])
+        above = nd.Glue(wrapper["abovedisplayskip"], "\\abovedisplayskip")
+        above.source = self
+        packed.extendBuilt([above])
+        first_box_index = None
+        for i, node in enumerate(self._row_cache):
+            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                first_box_index = i
+                break
+        if first_box_index is None:
+            packed.extendBuilt(self._row_cache)
+        else:
+            if first_box_index > 0:
+                packed.extendBuilt(self._row_cache[:first_box_index])
+            packed.append(self._row_cache[first_box_index])
+            if first_box_index + 1 < len(self._row_cache):
+                packed.extendBuilt(self._row_cache[first_box_index + 1 :])
+        penalty = nd.Penalty(wrapper["postdisplaypenalty"])
+        penalty.source = self
+        packed.extendBuilt([penalty])
+        below = nd.Glue(wrapper["belowdisplayskip"], "\\belowdisplayskip")
         below.source = self
-        vlist.extendBuilt([below])
+        packed.extendBuilt([below])
             
 
 class Align(lists.ModeDependentCommand):

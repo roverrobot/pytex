@@ -59,10 +59,14 @@ def _compute_interline_material(layout, prevdepth, height):
 
 def _append_interline_nodes(parser, packed, state, source, box):
     prevdepth = state["prevdepth"]
-    if float(prevdepth) <= float(init_prevdepth):
-        return
     interline_penalty = getattr(box, "interline_penalty", None)
     interline_glue = getattr(box, "interline_glue", None)
+    if (
+        float(prevdepth) <= float(init_prevdepth)
+        and interline_penalty is None
+        and interline_glue is None
+    ):
+        return
     default_penalty, default_glue = _compute_interline_material(
         parser.state.layout,
         prevdepth,

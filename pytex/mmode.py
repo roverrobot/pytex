@@ -1468,8 +1468,8 @@ def mathShift(parser):
     # and then the $ token is encountered again
     started_in_vmode = False
     if top.type == lists.LISTTYPE.VERTICAL:
-        parser.newParagraph()
         parser.input.unread(parser.current_token)
+        parser.newParagraph()
         return
     # if we are in restricted horizontal mode, only inline math is allowed. So we do not 
     # need to check for a second $ token

@@ -133,30 +133,24 @@ class RowBuildState:
         self.newCell(parser, 0)
 
     def finishRow(self, parser):
-        t = parser.skipSpaces()
-        if t is None:
-            raise ValueError("expecting }", parser.input.position())
-        meaning = parser.token_meaning(t)
-        command = getattr(meaning, "definition", None)
-        if command == noalign:
-            noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
-            noalign_owner.noalign = parser.readVList(
-                GROUP_TYPE.NO_ALIGN,
-                lambda: self.finishRow(parser),
-            )
-            return
-        if command in (cr, crcr):
-            # LaTeX wrappers may leave a trailing \crcr before the final \egroup.
-            # That token should not force an extra empty row.
-            u = parser.skipSpaces()
-            if u is not None:
-                parser.input.unread(u)
-                if parser.token_meaning(u).catcode == CATCODE.END_GROUP:
-                    self.finishRow(parser)
-                    return
-        parser.input.unread(t)
-        if meaning.catcode != CATCODE.END_GROUP:
-            self.startNextRow(parser)
+        while True:
+            t = parser.skipSpaces()
+            if t is None:
+                raise ValueError("expecting }", parser.input.position())
+            meaning = parser.token_meaning(t)
+            command = getattr(meaning, "definition", None)
+            if command == noalign:
+                noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
+                noalign_owner.noalign = parser.readVList(
+                    GROUP_TYPE.NO_ALIGN,
+                    lambda: self.finishRow(parser),
+                )
+                return
+            if command != crcr:
+                parser.input.unread(t)
+                if meaning.catcode != CATCODE.END_GROUP:
+                    self.startNextRow(parser)
+                return
 
 
 class Alignment(nd.Node):
@@ -572,18 +566,6 @@ class CrCr(Command):
             builder.row_state.finishRow(parser)
         
 
-class Cr(CrCr):
-    """
-    the \\cr command
-    """
-    def execute(self, parser):
-        # check if it is followed by a \crcr
-        t = parser.token_expand()
-        if t is not None and t.definition != crcr:
-            parser.input.unread(t)
-        super().execute(parser)
-
-
 class Span(Command):
     """
     The \\span command.
@@ -633,7 +615,7 @@ class NoAlign(Command):
         raise ValueError("unexpected \\noalign", parser.input.position())
 
 
-cr = Cr()
+cr = CrCr()
 crcr = CrCr()
 span = Span()
 noalign = NoAlign()

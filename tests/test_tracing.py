@@ -1,5 +1,6 @@
 from pytex import texlive
-
+from pytex.glue import Glue
+from pytex.dimen import Dimen
 
 def _init_math_fonts(parser):
     parser.parse(
@@ -89,9 +90,11 @@ def test_showlists_expands_inline_math_nodes(cmr10):
 
 def test_showlists_expands_display_math_nodes(cmr10):
     _init_math_fonts(cmr10)
-    cmr10.parse("$$a$$\\showlists")
+    cmr10.state.layout["baselineskip"] = Glue(Dimen(12))
+    cmr10.parse("\\hsize=200pt $$a$$\\showlists")
     log = cmr10.logContent()
     assert "\\glue(\\abovedisplayshortskip)" in log
+    assert "\\glue(\\baselineskip)" in log #
     assert "\\glue(\\belowdisplayshortskip)" in log
     assert ", display" in log
     assert "\\teni a" in log

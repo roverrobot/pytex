@@ -364,8 +364,26 @@ class Parser:
         # in Chapter 25. (The TeX Book pp.282)        """
         top = self.lists[-1]
         para = paragraph.Paragraph(self, indent)
-        if parskip and top:
-            top.append(node.Glue(self.state.parameters["parskip"], "\\parskip"))
+        if parskip:
+            # check if we are at the page start
+            at_top = True
+            for n in reversed(top):
+                if n.node_type in (
+                    node.NODE_TYPE.HLIST, 
+                    node.NODE_TYPE.VLIST, 
+                    node.NODE_TYPE.RULE, 
+                    node.NODE_TYPE.KERN, 
+                    node.NODE_TYPE.GLUE
+                ):
+                    at_top = False
+                    break
+                if isinstance(n, page.PageStateNode):
+                    at_top = True
+                    break
+            if not at_top:
+                parskip_node = node.Glue(self.state.parameters["parskip"], "\\parskip")
+                parskip_node.source = para
+                top._appendBuiltNode(parskip_node)
         self.lists.append(paragraph.ParagraphList(self, para))
         everypar = self.everypar.value
         if everypar:

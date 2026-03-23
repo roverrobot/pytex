@@ -687,18 +687,18 @@ class DisplayMathNode(MathListHolder):
         # the display. Otherwise a glue item ga is placed on the vertical list.
         cache.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
         if d + s <= p or left is True:
-            ga = parser.state.layout["abovedisplayskip"]
-            gb = parser.state.layout["belowdisplayskip"]
+            ga = nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip")
+            gb = nd.Glue(parser.state.layout["belowdisplayskip"], "\\belowdisplayskip")
         else:
-            ga = parser.state.layout["abovedisplayshortskip"]
-            gb = parser.state.layout["belowdisplayshortskip"]
+            ga = nd.Glue(parser.state.layout["abovedisplayshortskip"], "\\abovedisplayshortskip")
+            gb = nd.Glue(parser.state.layout["belowdisplayshortskip"], "\\belowdisplayshortskip")
         if e == 0 and left is True:
             a.interline_penalty = 0
             a.shifted = Dimen(s)
             cache.append(a)
             cache.append(nd.Penalty(10000))
         else:
-            cache.append(nd.Glue(ga, "\\abovedisplayskip" if d + s <= p or left is True else "\\abovedisplayshortskip"))
+            cache.append(ga)
         if e != 0:
             # Now comes the displayed equation itself. If e!= 0, the
             # equation number box a is combined with the formula box b as follows: Let k
@@ -739,7 +739,7 @@ class DisplayMathNode(MathListHolder):
             cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
         else:
             cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
-            cache.append(nd.Glue(gb, "\\belowdisplayskip" if d + s <= p or left is True else "\\belowdisplayshortskip"))
+            cache.append(gb)
         # TEX now adds 3 to \prevgraf and returns to horizontal mode.
         packed.extend(cache)
 

@@ -45,7 +45,6 @@ class Paragraph(nd.Node, hmode.HListHolder):
         self.line_count = 0
         self.actual_looseness = 0
         # Display math opens a synthetic following paragraph that may remain empty.
-        self.keep_empty = False
         if indent:
             self.list.append(bx.IndentBox(parser))
         self._line_boxes = None

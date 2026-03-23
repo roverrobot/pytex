@@ -396,11 +396,7 @@ class Parser:
         # TeX does not emit a synthetic empty line in this case.
         updates_display_state = True
         if len(hlist) == 0:
-            if para.keep_empty:
-                top.append(para)
-                updates_display_state = False
-            else:
-                para = None
+            para = None
         else:
             # \penalty10000
             hlist.append(node.Penalty(10000))

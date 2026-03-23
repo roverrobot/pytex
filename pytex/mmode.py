@@ -1437,7 +1437,6 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         # TeX is back in horizontal mode after a display, but the follow-on
         # paragraph is only added if it later receives content.
         new_par = parser.newParagraph(indent=False, parskip=False, reset_prevgraf=False)
-        new_par.keep_empty = True
 
 
 def mathShift(parser):
@@ -1469,15 +1468,9 @@ def mathShift(parser):
     # and then the $ token is encountered again
     started_in_vmode = False
     if top.type == lists.LISTTYPE.VERTICAL:
-        t = parser.token()
-        if t is None or t.catcode != CATCODE.MATH_SHIFT:
-            if t is not None:
-                parser.input.unread(t)
-            parser.input.unread(parser.current_token)
-            parser.newParagraph()
-            return
-        inner = False
-        started_in_vmode = True
+        parser.newParagraph()
+        parser.input.unread(parser.current_token)
+        return
     # if we are in restricted horizontal mode, only inline math is allowed. So we do not 
     # need to check for a second $ token
     prev_par = None

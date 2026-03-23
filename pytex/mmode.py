@@ -1436,7 +1436,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         parser.state.globals["prevgraf"] += 3
         # TeX is back in horizontal mode after a display, but the follow-on
         # paragraph is only added if it later receives content.
-        new_par = parser.newParagraph(indent=False, parskip=False, reset_prevgraf=False)
+        parser.newParagraph(indent=False, parskip=False, reset_prevgraf=False)
 
 
 def mathShift(parser):

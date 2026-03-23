@@ -147,6 +147,9 @@ class ArrayItemAccessor(Accessor):
         index = kargs["index"]
         return cls(getattr(parser.state, name), index)
 
+    def meaning(self, parser):
+        return f"{self.domain.name}{self.index}"
+    
     def set(self, parser, value):
         """
         set the value of the item in the array

@@ -95,17 +95,17 @@ def test_span(cmr10):
     cmr10.parse("\\halign{1 # & 2 #\\cr a \\span b\\cr}")
     node = _raw_nodes(cmr10.lists[-1])[0]
     row = node.rows[0]
-    assert len(row.cells) == 2
-    assert row.cells[0].span == 1
+    assert len(row.cells) == 1
+    assert row.cells[0].span == 2
 
 
 def test_omit(cmr10):
     cmr10.parse("\\halign{1 # & 2 #\\cr a \\span\\omit b\\cr}")
     node = _raw_nodes(cmr10.lists[-1])[0]
     row = node.rows[0]
-    assert len(row.cells) == 2
-    assert row.cells[0].span == 1
-    assert len(row.cells[1].list) == 1
+    assert len(row.cells) == 1
+    assert row.cells[0].span == 2
+    assert len(row.cells[0].list) == 6 # 1, ,a, , ,b
 
 
 def test_cell_leading_spaces_are_omitted(cmr10):

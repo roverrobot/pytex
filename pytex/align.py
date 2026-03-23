@@ -8,14 +8,12 @@ from pytex import node as nd
 from pytex import box as bx
 from pytex import hmode
 from pytex import vmode
-from pytex.token import Token, CATCODE, Command
+from pytex.token import Token, CATCODE, Command, CellEndType
 from pytex import lexer
 from pytex import glue
-from pytex import accessor
 from pytex.state import GROUP_TYPE
 from pytex.module import Module
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
-from pytex import tracing
 
 
 class Row(serialization.Serializable):
@@ -61,7 +59,7 @@ class CellBuildState:
     """
     def __init__(self, cell_box, column_no, templates):
         self.node = cell_box
-        self.node.span = False
+        self.node.span = 1
         self.column_no = column_no
         self.templates = templates
 
@@ -72,14 +70,7 @@ class CellBuildState:
                 parser.input.push(lexer.TokenListScanner(template))
 
     def close(self, parser):
-        while parser.lists[-1] is not self:
-            top = parser.lists[-1]
-            if top.type == lists.LISTTYPE.HORIZONTAL and not top.inner:
-                parser.endParagraph()
-                continue
-            break
-        if self.node._packed is None:
-            self.node.typeset(parser)
+        self.node.typeset(parser)
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         state = parser.lists.pop()
         if getattr(state, "type", None) == lists.LISTTYPE.VERTICAL:
@@ -99,7 +90,7 @@ class RowBuildState:
         self.builder = builder
         self.current_cell = None
 
-    def newCell(self, parser, column_no):
+    def newCell(self, parser, column_no, span:bool=False):
         cell = self.alignment.newBox(parser)
         preamble = self.preamble
         t = parser.skipSpaces(True)
@@ -115,15 +106,18 @@ class RowBuildState:
                 column_no %= len(preamble)
             column = preamble[column_no]
             templates = [column.v, column.u]
-        self.current_cell = CellBuildState(cell, column_no, templates)
-        if cell.node_type == nd.NODE_TYPE.HLIST:
-            state = hmode.HList(parser, cell.list, inner=True)
+        if span:
+            self.current_cell.node.span += 1
         else:
-            state = vmode.VList(parser, cell.list, inner=True)
-        parser.lists.append(state)
-        parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-        if state.type == lists.LISTTYPE.VERTICAL:
-            state.enter()
+            self.current_cell = CellBuildState(cell, column_no, templates)
+            if cell.node_type == nd.NODE_TYPE.HLIST:
+                state = hmode.HList(parser, cell.list, inner=True)
+            else:
+                state = vmode.VList(parser, cell.list, inner=True)
+            parser.lists.append(state)
+            parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
+            if state.type == lists.LISTTYPE.VERTICAL:
+                state.enter()
         self.current_cell.pushTemplate(parser)
 
     def startNextRow(self, parser):
@@ -195,23 +189,15 @@ class Alignment(nd.Node):
             entries = []
             i = 0
             column = 0
-            while i < len(row.cells):
+            for cell in row.cells:
                 start = column
                 cells = []
-                while True:
-                    cell = row.cells[i]
-                    cells.append(cell.typeset(parser))
-                    column += 1
-                    if not getattr(cell, "span"):
-                        break
-                    i += 1
-                    if i >= len(row.cells):
-                        raise ValueError("missing cell after \\span", parser.input.position())
+                column += cell.span
                 entry = {
                     "start": start,
-                    "span": len(cells),
-                    "cells": cells,
-                    "measure": self.entryMeasure(cells),
+                    "span": cell.span,
+                    "cell": cell,
+                    "measure": self.entryMeasure(cell),
                 }
                 entries.append(entry)
                 i += 1
@@ -220,6 +206,8 @@ class Alignment(nd.Node):
             rows.append((row, entries))
         if n_raw == 0:
             return rows, [], list(self.tabskips[:1])
+        for _, entries in rows:
+            entries[-1]["span"] = n_raw - entries[-1]["start"]
         merge = self._mergeColumns(rows, n_raw)
         column_map = []
         j = -1
@@ -300,13 +288,6 @@ class Alignment(nd.Node):
             merge_after[boundary] = seen and merged
         return merge_after
 
-    def _combineCells(self, parser, cells):
-        if len(cells) == 1:
-            return cells[0]
-        box = self.entryBox(parser)
-        box.list[:] = list(cells)
-        return box.typeset(parser)
-
     def _appendVerticalMaterial(self, parser, packed, nodes):
         for node in nodes:
             if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
@@ -353,11 +334,8 @@ class HAlignment(Alignment):
     def newBox(self, parser):
         return bx.HBox(parser, None, 0)
 
-    def entryMeasure(self, cells):
-        total = Dimen()
-        for cell in cells:
-            total += cell.width
-        return total
+    def entryMeasure(self, cell):
+        return cell.width
 
     def entryBox(self, parser):
         return bx.HBox(parser, None, 0)
@@ -371,12 +349,6 @@ class HAlignment(Alignment):
         out.list[:] = box.list
         out.source = box.source
         return out.typeset(parser)
-
-    def _buildSpanBox(self, parser, entry):
-        box = bx.HBox(parser, None, Dimen())
-        for item in entry["cells"]:
-            box.list.extend(item.typeset(parser).list)
-        return box
 
     def _emptyEntry(self, parser, width):
         box = bx.HBox(parser, width, None)
@@ -409,7 +381,7 @@ class HAlignment(Alignment):
                 i = entry["start"]
                 j = i + entry["span"] - 1
                 if entry["span"] == 1:
-                    box = self.reboxEntry(parser, self._combineCells(parser, entry["cells"]), w[i])
+                    box = self.reboxEntry(parser, entry["cell"], w[i])
                     row_entries.append(box)
                     if box.height > row_height:
                         row_height = box.height
@@ -418,7 +390,7 @@ class HAlignment(Alignment):
                     rowbox.list.append(box)
                     row_width += box.width
                 else:
-                    box = self.reboxEntry(parser, self._buildSpanBox(parser, entry), w[i])
+                    box = self.reboxEntry(parser, entry["cell"], w[i])
                     row_entries.append(box)
                     if box.height > row_height:
                         row_height = box.height
@@ -464,11 +436,8 @@ class VAlignment(Alignment):
     def newBox(self, parser):
         return bx.VBox(parser, None, 0)
 
-    def entryMeasure(self, cells):
-        total = Dimen()
-        for cell in cells:
-            total += cell.height + cell.depth
-        return total
+    def entryMeasure(self, cell):
+        return cell.height + cell.depth
 
     def entryBox(self, parser):
         return bx.VBox(parser, None, 0)
@@ -497,7 +466,7 @@ class VAlignment(Alignment):
             if t:
                 colbox.list.append(nd.Glue(t[0], "\\tabskip"))
             for entry in entries:
-                box = self._combineCells(parser, entry["cells"])
+                box = entry["cell"]
                 i = entry["start"]
                 j = i + entry["span"] - 1
                 target = self._spanTarget(w, t, i, j)
@@ -515,16 +484,20 @@ class VAlignment(Alignment):
 
 
 class EndCellToken(Token):
-    def __init__(self, is_last: bool):
+    def __init__(self, type: CellBuildState):
         super().__init__("\\endcell", None)
-        self.is_last = is_last
+        self.type = type
 
     def execute(self, parser):
+        top = parser.lists[-1]
+        if top.type == lists.LISTTYPE.HORIZONTAL and not top.inner:
+            parser.endParagraph()
         row: RowBuildState = parser.alignments[-1].row_state
-        row.row.cells.append(row.current_cell.close(parser))
-        row.current_cell = None
-        if not self.is_last:
-            row.newCell(parser, len(row.row.cells))
+        if self.type != CellEndType.SPAN:
+            row.row.cells.append(row.current_cell.close(parser))
+            row.current_cell = None
+        if self.type != CellEndType.CR:
+            row.newCell(parser, len(row.row.cells), self.type == CellEndType.SPAN)
         else:
             everycr = parser.everycr.value
             if everycr:
@@ -532,12 +505,11 @@ class EndCellToken(Token):
             row.finishRow(parser)
 
 
-def endCell(parser, is_last):
+def endCell(parser, type: CellEndType):
     cell = parser.alignments.currentCell()
     if cell is None:
-        message = "unexpected \\cr" if is_last else "expecting \\cr"
-        raise ValueError(message, parser.input.position())
-    parser.input.push(lexer.TokenListScanner([EndCellToken(is_last)]))
+        raise ValueError(f"unexpected {parser.current_token.name}", parser.input.position())
+    parser.input.push(lexer.TokenListScanner([EndCellToken(type)]))
     cell.pushTemplate(parser)
 
 
@@ -556,7 +528,7 @@ class CrCr(Command):
             raise ValueError("unexpected \\cr", parser.input.position())
         builder: AlignmentBuilder = alignments[-1]
         if builder.row_state is not None:
-            endCell(parser, is_last=True)
+            endCell(parser, CellEndType.CR)
         else:
             parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
             builder.row_state = RowBuildState(builder.alignment, builder)
@@ -579,8 +551,7 @@ class Span(Command):
         cell = parser.alignments.currentCell()
         if cell is None:
             raise ValueError("unexpected \\span", parser.input.position())
-        cell.node.span = True
-        endCell(parser, is_last=False)
+        endCell(parser, CellEndType.SPAN)
 
 
 class Omit(Command):

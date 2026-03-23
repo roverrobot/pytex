@@ -19,6 +19,7 @@ by calling the execute method of the meaning command.
 import typing
 from pytex.module import Module
 from pytex import serialization
+from enum import IntEnum
 
 class CATCODE:
     """
@@ -313,6 +314,13 @@ class ActiveToken(CommandToken):
         return self.name
 
 
+class CellEndType(IntEnum):
+    __slots__ = ()
+    TAB = 0 # &
+    SPAN = 1 # \span
+    CR = 2 # \cr or \crcr
+
+
 class AlignmentTabToken(Token):
     """ 
     a token that represents an alignment tab &.
@@ -330,7 +338,7 @@ class AlignmentTabToken(Token):
         """
         if parser.alignments.currentCell() is None:
             raise ValueError("unexpected &", parser.input.position())
-        parser.endCell(is_last=False)
+        parser.endCell(CellEndType.TAB)
 
 
 class ParameterToken(Token):

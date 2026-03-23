@@ -163,7 +163,7 @@ def trace(parser, t, mode: str):
     """
     if not parser.checkRange():
         return
-    if parser.tracingcommands > 1 and t.definition is not None:
+    if parser.tracingcommands and t.definition is not None:
         meaning = t.meaning(parser)
     else:
         meaning = ""

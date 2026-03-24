@@ -139,7 +139,6 @@ class Parser:
         # we first set up today etc.
         if self.lists is None:
             self.lists = [page.MainVList(self)]
-            self.lists[0].enter()
         date = datetime.datetime.now()
         self.state.volatile["year"] = date.year
         self.state.volatile["month"] = date.month
@@ -383,7 +382,7 @@ class Parser:
             if not at_top:
                 parskip_node = node.Glue(self.state.parameters["parskip"], "\\parskip")
                 parskip_node.source = para
-                top._appendBuiltNode(parskip_node)
+                top.append(parskip_node)
         self.lists.append(paragraph.ParagraphList(self, para))
         everypar = self.everypar.value
         if everypar:

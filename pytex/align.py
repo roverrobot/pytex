@@ -74,7 +74,7 @@ class CellBuildState:
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         state = parser.lists.pop()
         if getattr(state, "type", None) == lists.LISTTYPE.VERTICAL:
-            state.restorePrevdepth()
+            parser.state.globals["prevdepth"] = state.saved_prevdepth
         return self.node
 
 
@@ -116,8 +116,6 @@ class RowBuildState:
                 state = vmode.VList(parser, cell.list, inner=True)
             parser.lists.append(state)
             parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-            if state.type == lists.LISTTYPE.VERTICAL:
-                state.enter()
         self.current_cell.pushTemplate(parser)
 
     def startNextRow(self, parser):
@@ -288,12 +286,6 @@ class Alignment(nd.Node):
             merge_after[boundary] = seen and merged
         return merge_after
 
-    def _appendVerticalMaterial(self, parser, packed, nodes):
-        for node in nodes:
-            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                node = node.typeset(parser)
-            packed.append(node)
-
     def _glueSet(self, total, delta):
         if delta > 0 and total.stretch.factor != 0:
             return delta / total.stretch.factor, total.stretch.order, True
@@ -354,20 +346,14 @@ class HAlignment(Alignment):
         box = bx.HBox(parser, width, None)
         return box.typeset(parser)
 
-    def _typesetPrevdepth(self):
-        return vmode.init_prevdepth
-
-    def typeset(self, parser, packed):
-        if not isinstance(packed, vmode.VList):
+    def typeset(self, parser, vlist):
+        if not isinstance(vlist, vmode.VList):
             raise TypeError("HAlignment.typeset expects a VList")
-        self._typesetToVList(parser, packed)
-
-    def _typesetToVList(self, parser, vlist):
         rows, w, t = self._collectEntries(parser)
         prepared = []
         W = Dimen()
         for row, entries in rows:
-            rowbox = bx.HBox(parser, None, Dimen())
+            rowbox = bx.HBox(parser, self.to, self.spread)
             row_total = glue.Glue()
             row_width = Dimen()
             row_entries = []
@@ -413,21 +399,20 @@ class HAlignment(Alignment):
                 box.height = row_height
                 box.depth = row_depth
             prepared.append((row, rowbox, row_total, row_width))
-            if row_width > W:
-                W = Dimen(row_width)
-        if self.to is not None:
-            W = self.to
-        else:
-            W += self.spread
         if self.noalign is not None:
-            self._appendVerticalMaterial(parser, vlist, self.noalign)
+            self.appendNoAlign(self.noalign, vlist)
         for row, rowbox, row_total, row_width in prepared:
-            rowbox.to = W
-            rowbox.spread = W - row_width
+            rowbox.source = self
+            # no interline penalty
             vlist.append(rowbox.typeset(parser))
             if row.noalign is not None:
-                self._appendVerticalMaterial(parser, vlist, row.noalign)
+                self.appendNoAlign(row.noalign, vlist)
 
+    def appendNoAlign(self, noalign, vlist):
+        for n in noalign:
+            n.source = self
+            vlist.append(n, interline_glue=False)
+            
 
 class VAlignment(Alignment):
     """
@@ -454,9 +439,6 @@ class VAlignment(Alignment):
         return out.typeset(parser)
 
     def typeset(self, parser, packed):
-        self._typesetSelf(parser, packed)
-
-    def _typesetSelf(self, parser, packed):
         rows, w, t = self._collectEntries(parser)
         out = bx.HBox(parser, self.to, self.spread)
         for row, entries in rows:
@@ -612,14 +594,14 @@ class AlignmentEndCallback:
         if self.parser.alignments.currentCell() is not None:
             raise ValueError("expecting \\cr", self.parser.input.position())
         top = self.parser.lists[-1]
+        alignment = self.builder.alignment
+        self.target.append(alignment)
         if top.type == lists.LISTTYPE.MATH:
-            if isinstance(self.builder.alignment, MAlignment):
-                self.builder.alignment.freezeRows(
-                    self.parser,
-                    self.parser.state.globals["prevdepth"],
-                )
-        self.target.append(self.builder.alignment)
-        if top.type == lists.LISTTYPE.MATH:
+            parser = self.parser
+            initial_prevdepth = parser.state.globals["prevdepth"]
+            alignment._typeset_cache = vmode.VList(parser, [], inner=True)
+            parser.state.globals["prevdepth"] = initial_prevdepth        
+            HAlignment.typeset(alignment, parser, alignment._typeset_cache)
             top.isalign = True
         if self.parser.alignments and self.parser.alignments[-1] is self.builder:
             self.parser.alignments.pop()
@@ -732,90 +714,29 @@ class AlignmentBuilder:
 class MAlignment(HAlignment):
     def __init__(self, to=None, spread=Dimen()):
         super().__init__(to, spread)
-        self._row_cache = None
-        self._display_wrapper = None
-
-    def _typesetPrevdepth(self):
-        return self.initial_prevdepth
-
-    def freezeRows(self, parser, prevdepth):
-        self.initial_prevdepth = prevdepth
-        vlist = vmode.VList(parser, [], inner=True)
-        try:
-            vlist.setBuilderPrevdepth(self._typesetPrevdepth())
-            super()._typesetToVList(parser, vlist)
-            nodes = list(vlist.list)
-            first_box_index = None
-            for i, node in enumerate(nodes):
-                if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                    first_box_index = i
-                    break
-            if first_box_index is not None:
-                start = first_box_index
-                while start > 0 and getattr(nodes[start - 1], "interline_generated", False):
-                    start -= 1
-                first_box = nodes[first_box_index]
-                for generated in nodes[start:first_box_index]:
-                    if generated.node_type == nd.NODE_TYPE.PENALTY:
-                        first_box.interline_penalty = generated.penalty
-                    elif generated.node_type == nd.NODE_TYPE.GLUE:
-                        first_box.interline_glue = nd.Glue(generated.glue, generated.name)
-                if start != first_box_index:
-                    del nodes[start:first_box_index]
-            self._row_cache = nodes
-        finally:
-            vlist.restorePrevdepth()
-
-    def captureDisplayWrapper(self, parser):
-        displaywidth = parser.state.volatile["displaywidth"]
-        displayindent = parser.state.volatile["displayindent"]
-        self._display_wrapper = {
-            "predisplaypenalty": parser.state.layout["predisplaypenalty"],
-            "abovedisplayskip": parser.state.layout["abovedisplayskip"],
-            "postdisplaypenalty": parser.state.layout["postdisplaypenalty"],
-            "belowdisplayskip": parser.state.layout["belowdisplayskip"],
-            "displaywidth": displaywidth,
-            "displayindent": displayindent,
-        }
-        if self._row_cache is not None:
-            for node in self._row_cache:
-                if node.node_type == nd.NODE_TYPE.HLIST:
-                    node.shifted = displayindent + (displaywidth - node.width) / 2
-                node.source = self
+        self._typeset_cache = None
 
     def typeset(self, parser, packed):
         if not isinstance(packed, vmode.VList):
             raise TypeError("MAlignment.typeset expects a VList")
-        if self._row_cache is None:
-            self.freezeRows(parser, parser.state.globals["prevdepth"])
-        if self._display_wrapper is None:
-            self.captureDisplayWrapper(parser)
-        wrapper = self._display_wrapper
-        penalty = nd.Penalty(wrapper["predisplaypenalty"])
+        layout = parser.state.layout
+        indent = parser.state.volatile["displayindent"]
+        penalty = nd.Penalty(layout["predisplaypenalty"])
         penalty.source = self
-        packed.extendBuilt([penalty])
-        above = nd.Glue(wrapper["abovedisplayskip"], "\\abovedisplayskip")
+        packed.append(penalty)
+        above = nd.Glue(layout["abovedisplayskip"], "\\abovedisplayskip")
         above.source = self
-        packed.extendBuilt([above])
-        first_box_index = None
-        for i, node in enumerate(self._row_cache):
-            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                first_box_index = i
-                break
-        if first_box_index is None:
-            packed.extendBuilt(self._row_cache)
-        else:
-            if first_box_index > 0:
-                packed.extendBuilt(self._row_cache[:first_box_index])
-            packed.append(self._row_cache[first_box_index])
-            if first_box_index + 1 < len(self._row_cache):
-                packed.extendBuilt(self._row_cache[first_box_index + 1 :])
-        penalty = nd.Penalty(wrapper["postdisplaypenalty"])
+        packed.append(above)
+        for n in self._typeset_cache:
+            if n.node_type == nd.NODE_TYPE.HLIST:
+                n.shifted = indent
+        packed.extend(self._typeset_cache, interline_glue=False)
+        penalty = nd.Penalty(layout["postdisplaypenalty"])
         penalty.source = self
-        packed.extendBuilt([penalty])
-        below = nd.Glue(wrapper["belowdisplayskip"], "\\belowdisplayskip")
+        packed.append(penalty)
+        below = nd.Glue(layout["belowdisplayskip"], "\\belowdisplayskip")
         below.source = self
-        packed.extendBuilt([below])
+        packed.append(below)
             
 
 class Align(lists.ModeDependentCommand):

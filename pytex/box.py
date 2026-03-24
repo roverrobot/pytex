@@ -248,6 +248,7 @@ class HBox(Box, hmode.HListHolder):
     def __init__(self, parser, to, spread):
         super().__init__(parser, to, spread)
         hmode.HListHolder.__init__(self, self.list)
+        self.migratory = []
 
     init_needs_parser = True
 
@@ -257,6 +258,7 @@ class HBox(Box, hmode.HListHolder):
         if self._packed is not None:
             # it has been typeset. do nothing
             return
+        self.raw = self.list
         content = []
         typeset_nodes = getattr(self.list, "typesetNodes", None)
         if typeset_nodes is None:
@@ -281,6 +283,9 @@ class HBox(Box, hmode.HListHolder):
                 h = n.height - shifted
                 d = n.depth + shifted
                 natural = self.calculate(n, natural, (w, h, d))
+            elif n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
+                self.migratory.append(n)
+                n.source = self
             else:
                 natural = self.calculate(n, natural, None)
         # calculate the ratio
@@ -297,7 +302,8 @@ class HBox(Box, hmode.HListHolder):
         self.natural = natural
         self._set_badness(parser, spread, natural)
         self.width = self.to
-        self._packed = self.copy(content)
+        self.list = content
+        self._packed = self
     
     def calculate(self, node, natural, dim):
         if dim is None:
@@ -331,10 +337,6 @@ class HBox(Box, hmode.HListHolder):
     
     def typeset(self, parser, packed=None):
         x = super().typeset(parser, packed)
-        if packed is not None:
-            for n in self.list:
-                if n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
-                    packed.append(n)
         self.width = self.to
         return x
 
@@ -421,7 +423,7 @@ class ListEndCallback:
     def __call__(self):
         state = self.parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            state.restorePrevdepth()
+            self.parser.state.globals["prevdepth"] = state.saved_prevdepth
 
 
 class ReadBoxEndCallback(ListEndCallback):
@@ -447,8 +449,7 @@ class BoxPretypesetCallback:
             top = parser.lists[-1]
             if top.type == LISTTYPE.HORIZONTAL and not top.inner:
                 parser.endParagraph()
-        if self.box._packed is None:
-            self.box.typeset(parser)
+        self.box = self.box.typeset(parser)
 
 
 class BuildBox(Command):
@@ -493,8 +494,6 @@ class BuildBox(Command):
         if not setbox:
             callback = ReadBoxEndCallback(parser, box)
             parser.beginGroup(parser.input.position(), self.group_type, to_end=to_end, ended=callback)
-            if self.vertical:
-                state.enter()
             parser.loop()
             if callback.finished:
                 parser.run = True
@@ -533,10 +532,10 @@ class SetBoxEndCallback:
     def __call__(self):
         state = self.parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            state.restorePrevdepth()
+            self.parser.state.globals["prevdepth"] = state.saved_prevdepth
+        self.box = self.box.typeset(self.parser)
         self.parser.lastbox = self.box
         self.accessor._set(self.parser)
-
 
 
 class BoxArrayItemAccessor(ArrayItemAccessor):
@@ -572,8 +571,6 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
                 to_end=to_end,
                 ended=SetBoxEndCallback(parser, self, self.value[0]),
             )
-            if getattr(new, "type", None) == LISTTYPE.VERTICAL:
-                new.enter()
         else:
             self._set(parser)
 
@@ -626,93 +623,64 @@ class VBox(Box, vmode.VListHolder):
             self.width = w
         return natural
 
-    def _typesetSelf(self, parser):
+    def typeset(self, parser, packed=None, maxdepth=None):
         if self._packed is not None:
-            return
-        saved_prevdepth = parser.state.globals["prevdepth"]
-        raw_source = self.list
-        try:
-            build_state = self._build_state
-            if build_state is not None:
-                self.expanded = []
-                realize_ready = getattr(build_state, "_realizeReadyTailNodes", None)
-                if realize_ready is not None:
-                    realize_ready()
-                self.expanded.extend(build_state.expanded)
-                self._build_state = None
-            else:
-                if self.expanded:
-                    self.expanded = list(self.expanded)
-                else:
-                    self.expanded = []
-                    realize_ready = getattr(self.list, "_realizeReadyTailNodes", None)
-                    if realize_ready is not None:
-                        realize_ready()
-                        self.expanded.extend(self.list.list)
-                    else:
-                        self.expanded.extend(self.list)
-            content = self.expanded
-            natural = Glue()
-            self.width = Dimen()
-            self.height = Dimen()
-            self.depth = Dimen()
-            last_depth = Dimen()
-            for n in content:
-                node_type = n.node_type
-                if node_type == nd.NODE_TYPE.GLUE:
-                    natural += n.glue
-                    natural.dimen += last_depth
-                    last_depth = Dimen()
-                    continue
-                if node_type == nd.NODE_TYPE.KERN:
-                    natural.dimen += n.kern + last_depth
-                    last_depth = Dimen()
-                    continue
-                if isinstance(n, nd.Box):
-                    w = n.width
-                    h = n.height
-                    d = n.depth
-                    natural = self.calculate(n, natural, (w, h, d))
-                    natural.dimen += h + last_depth
-                    last_depth = d
-                    continue
-                self.calculate(n, natural, None)
-            self.depth = last_depth
-            maxdepth = self.boxmaxdepth
-            if self.depth > maxdepth:
-                natural.dimen += self.depth - maxdepth
-                self.depth = maxdepth
-            if self.spread is None:
-                if self.to is None:
-                    self.to = natural.dimen
-                self.spread = self.to - natural.dimen
-            elif self.to is None:
-                self.to = self.spread + natural.dimen
-            spread = self.spread
-            self._setGlueRatio(spread, natural)
-            self.natural = natural
-            self._set_badness(parser, spread, natural)
-            self.height = self.to
-            normalized = []
-            for node in content:
-                packed = getattr(node, "_packed", None)
-                if packed is not None and packed is not node:
-                    node = packed
-                normalized.append(node)
-            self.list = normalized
-            self.expanded = self.list
-            if self.source is None:
-                self.source = raw_source
-            self._build_state = None
-            self._packed = self
-        finally:
-            parser.state.globals["prevdepth"] = saved_prevdepth
+            if packed is not None:
+                packed.append(self._packed)
+            return self._packed
+        content = self.list
+        natural = Glue()
+        self.width = Dimen()
+        self.height = Dimen()
+        self.depth = Dimen()
+        last_depth = Dimen()
+        for n in content:
+            node_type = n.node_type
+            if node_type == nd.NODE_TYPE.GLUE:
+                natural += n.glue
+                natural.dimen += last_depth
+                last_depth = Dimen()
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                natural.dimen += n.kern + last_depth
+                last_depth = Dimen()
+                continue
+            if isinstance(n, nd.Box):
+                w = n.width
+                h = n.height
+                d = n.depth
+                natural = self.calculate(n, natural, (w, h, d))
+                natural.dimen += h + last_depth
+                last_depth = d
+                continue
+            self.calculate(n, natural, None)
+        self.depth = last_depth
+        if maxdepth is None:
+            maxdepth = parser.state.layout["boxmaxdepth"]
+        if self.depth > maxdepth:
+            natural.dimen += self.depth - maxdepth
+            self.depth = maxdepth
+        if self.spread is None:
+            if self.to is None:
+                self.to = natural.dimen
+            self.spread = self.to - natural.dimen
+        elif self.to is None:
+            self.to = self.spread + natural.dimen
+        spread = self.spread
+        self._setGlueRatio(spread, natural)
+        self.natural = natural
+        self._set_badness(parser, spread, natural)
+        self.height = self.to
+        self._packed = self
+        if packed is not None:
+            packed.append(self._packed)
+        return self._packed
+
 
     def copy(self, content=None):
         box = super().copy(content)
         if content is None and self._packed is self:
             box._packed = box
-            box.expanded = box.list
         return box
 
     def __repr__(self):
@@ -720,12 +688,13 @@ class VBox(Box, vmode.VListHolder):
 
 
 class VTop(VBox):
-    def _typesetSelf(self, parser):
-        super()._typesetSelf(parser)
+    def typeset(self, parser, packed=None):
+        box = super().typeset(parser, packed)
         total = self.height + self.depth
         first = self._packed.list[0] if self._packed.list else None
-        self._packed.height = self.height = getattr(first, "height", 0)
-        self._packed.depth = self.depth = total - self.height
+        box.height = self.height = getattr(first, "height", 0)
+        box.depth = self.depth = total - self.height
+        return box
 
 
 class VBoxCommand(BuildBox):
@@ -828,9 +797,8 @@ class UnBox(Command):
             for node in box.list:
                 if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
                     nodes.append(node)
-        extend_built = getattr(top, "extendBuilt", None) if self.vertical else None
-        if extend_built is not None:
-            extend_built(nodes)
+        if top.type == LISTTYPE.VERTICAL:
+            top.extend(nodes, interline_glue=False)
         else:
             top.extend(nodes)
         if self.vertical and top.type == LISTTYPE.VERTICAL:
@@ -987,7 +955,7 @@ class LeaderBoxCallback:
     def __call__(self):
         state = self.parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            state.restorePrevdepth()
+            self.parser.state.globals["prevdepth"] = state.saved_prevdepth
         self.parser.lastbox = self.box
         _appendLeader(self.parser, self.type, self.box)
 

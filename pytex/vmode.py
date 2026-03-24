@@ -9,172 +9,11 @@ from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command, CommandToken
 from pytex.dimen import Dimen, DimenArrayItemAccessor
+from pytex.state import GROUP_TYPE
 
 
 # initializer for prevdepth as -1000pt
 init_prevdepth = Dimen(-1000.0)
-
-
-def _mark_source(node, source):
-    if getattr(node, "source", None) is None:
-        node.source = source
-    return node
-
-
-def _append_concrete_vertical(packed, state, node):
-    packed.append(node)
-    if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-        state["prevdepth"] = node.depth
-        state["seen_box"] = True
-        state["pending_interline"] = False
-    elif node.node_type == nd.NODE_TYPE.RULE:
-        state["prevdepth"] = init_prevdepth
-        state["pending_interline"] = False
-    elif getattr(node, "interline_generated", False):
-        state["pending_interline"] = True
-
-
-def _append_interline_glue(packed, state, source, glue_node):
-    if glue_node.glue is None:
-        return
-    node = nd.Glue(glue_node.glue, glue_node.name)
-    node.source = source
-    node.interline_generated = True
-    _append_concrete_vertical(packed, state, node)
-
-
-def _compute_interline_material(layout, prevdepth, height):
-    interline_penalty = layout["interlinepenalty"]
-    if float(prevdepth) <= float(init_prevdepth):
-        return interline_penalty, nd.Glue(None, "\\baselineskip")
-    baselineskip = layout["baselineskip"]
-    diff = baselineskip.dimen - prevdepth - height
-    if diff < layout["lineskiplimit"]:
-        return interline_penalty, nd.Glue(layout["lineskip"], "\\lineskip")
-    return interline_penalty, nd.Glue(
-        Glue(diff, baselineskip.stretch, baselineskip.shrink),
-        "\\baselineskip",
-    )
-
-
-def _append_interline_nodes(parser, packed, state, source, box):
-    prevdepth = state["prevdepth"]
-    interline_penalty = getattr(box, "interline_penalty", None)
-    interline_glue = getattr(box, "interline_glue", None)
-    if (
-        float(prevdepth) <= float(init_prevdepth)
-        and interline_penalty is None
-        and interline_glue is None
-    ):
-        return
-    default_penalty, default_glue = _compute_interline_material(
-        parser.state.layout,
-        prevdepth,
-        box.height,
-    )
-    if interline_penalty is None:
-        interline_penalty = default_penalty
-    if interline_glue is None:
-        interline_glue = default_glue
-    if interline_penalty != 0:
-        penalty = nd.Penalty(interline_penalty)
-        penalty.source = source
-        penalty.interline_generated = True
-        _append_concrete_vertical(packed, state, penalty)
-    _append_interline_glue(packed, state, source, interline_glue)
-
-
-def _should_insert_default_interline(packed, state):
-    if state["pending_interline"]:
-        return False
-    if state["builder_mode"]:
-        return True
-    prev = packed[-1] if packed else None
-    return prev is not None and prev.node_type in (
-        nd.NODE_TYPE.HLIST,
-        nd.NODE_TYPE.VLIST,
-        nd.NODE_TYPE.RULE,
-    )
-
-
-def _append_expanded_item(parser, packed, state, item, source):
-    if item.node_type == nd.NODE_TYPE.ADJUST:
-        realize_ready = getattr(item.vlist, "_realizeReadyTailNodes", None)
-        if realize_ready is not None:
-            realize_ready()
-            subitems = item.vlist.list
-        else:
-            subitems = item.vlist
-        for sub in subitems:
-            _append_concrete_vertical(packed, state, sub)
-        return
-    if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-        if _should_insert_default_interline(packed, state):
-            _append_interline_nodes(parser, packed, state, source, item)
-        _append_concrete_vertical(packed, state, _mark_source(item, source))
-        return
-    _append_concrete_vertical(packed, state, _mark_source(item, source))
-
-
-def _append_expanded_node(parser, packed, state, node):
-    for item in expandVerticalNode(parser, node):
-        source = getattr(item, "source", None)
-        if source is None:
-            source = node
-        _append_expanded_item(parser, packed, state, item, source)
-
-
-def _rebuild_expanded_state(nodes):
-    state = {
-        "prevdepth": init_prevdepth,
-        "seen_box": False,
-        "pending_interline": False,
-        "builder_mode": True,
-    }
-    for node in nodes:
-        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            state["prevdepth"] = node.depth
-            state["seen_box"] = True
-            state["pending_interline"] = False
-        elif node.node_type == nd.NODE_TYPE.RULE:
-            state["prevdepth"] = init_prevdepth
-            state["pending_interline"] = False
-        elif getattr(node, "interline_generated", False):
-            state["pending_interline"] = True
-    return state
-
-
-def _expanded_tail_depth(parser, node):
-    for item in reversed(expandVerticalNode(parser, node)):
-        if item.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            return item.depth
-        if item.node_type == nd.NODE_TYPE.RULE:
-            return init_prevdepth
-    return init_prevdepth
-
-
-def expandVerticalNode(parser, node):
-    """
-    Expand one vertical-list item into concrete nodes without mutating the
-    containing list.
-    """
-    typeset = getattr(node, "typeset", None)
-    if typeset is None:
-        _mark_source(node, node)
-        return [node]
-    if getattr(node, "typeset_to_vlist", False):
-        packed_vlist = VList(parser, [], inner=True)
-        try:
-            node.typeset(parser, packed_vlist)
-            packed = list(packed_vlist.list)
-        finally:
-            packed_vlist.restorePrevdepth()
-    else:
-        packed = []
-        node.typeset(parser, packed)
-    for n in packed:
-        _mark_source(n, node)
-    return packed
 
 
 class VListHolder:
@@ -214,6 +53,7 @@ class VListHolder:
     def clear(self):
         self.list.clear()
 
+
 class VList(lists.List):
     """
     Vertical list build-state wrapper.
@@ -222,150 +62,91 @@ class VList(lists.List):
     It serves a concrete vertical list node and tracks \\prevdepth/\\lastbox
     build-time state.
     """
-
-    def __init__(self, parser, nodes, inner=True):
+    def __init__(self, parser, nodes, inner=True, add_interline_glue=True):
         self.parser = parser
-        self.raw = nodes
-        self.list = []
-        self.expanded = self.list
-        self._expanded_raw_count = 0
+        self.raw = []
+        self.list = nodes
         self.inner = inner
-        self.lastbox = None
         self.can_lastbox = False
         self.saved_prevdepth = parser.state.globals.get("prevdepth", init_prevdepth)
-        self.type = lists.LISTTYPE.VERTICAL
         self.parser.state.globals["prevdepth"] = init_prevdepth
-
-    def enter(self):
-        return
+        self.add_interline_glue = add_interline_glue
 
     list_type_name = "VList"
+    type = lists.LISTTYPE.VERTICAL
 
-    def setBuilderPrevdepth(self, value):
-        self.parser.state.globals["prevdepth"] = value
-
-    def restorePrevdepth(self):
-        self.parser.state.globals["prevdepth"] = self.saved_prevdepth
-
-    @property
-    def prevdepth(self):
-        return self.parser.state.globals["prevdepth"]
-
-    @prevdepth.setter
-    def prevdepth(self, value):
-        self.parser.state.globals["prevdepth"] = value
-
-    def _expandedPrevDepth(self):
-        for node in reversed(self.list):
-            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                return node.depth
-            if node.node_type == nd.NODE_TYPE.RULE:
-                return init_prevdepth
-        return init_prevdepth
-
-    def _expandedLastBox(self):
-        for node in reversed(self.list):
-            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                return node
-        return None
-
-    def _syncExpandedTailState(self):
-        self.lastbox = self._expandedLastBox()
-
-    def _currentExpandedState(self):
-        pending = bool(self.list and getattr(self.list[-1], "interline_generated", False))
-        prevdepth = self.prevdepth
-        if prevdepth is None:
-            prevdepth = self._expandedPrevDepth() if self.list else init_prevdepth
-        return {
-            "prevdepth": prevdepth,
-            "seen_box": self.lastbox is not None,
-            "pending_interline": pending,
-            "builder_mode": True,
-        }
-
-    def _dropDrainedRawTail(self, source):
-        if not self.raw or self.raw[-1] is not source:
-            return False
-        if self.list and getattr(self.list[-1], "source", None) is source:
-            return False
-        self.raw.pop()
-        if self._expanded_raw_count > len(self.raw):
-            self._expanded_raw_count = len(self.raw)
-        return True
-
-    def _expandReadyNode(self, node):
-        start = len(self.list)
-        state = self._currentExpandedState()
-        _append_expanded_node(self.parser, self.list, state, node)
-        self._syncExpandedTailState()
-        self.setBuilderPrevdepth(state["prevdepth"])
-        return self.list[start:]
-
-    def _realizeReadyTailNodes(self):
-        while self._expanded_raw_count < len(self.raw):
-            node = self.raw[self._expanded_raw_count]
-            self._expandReadyNode(node)
-            self._expanded_raw_count += 1
-
-    def _appendBuiltNode(self, node):
-        _mark_source(node, node)
-        self.raw.append(node)
-        self.list.append(node)
-        self._expanded_raw_count = len(self.raw)
-        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            self.lastbox = node
-            self.setBuilderPrevdepth(node.depth)
-        elif node.node_type == nd.NODE_TYPE.RULE:
-            self.setBuilderPrevdepth(init_prevdepth)
-        elif self._expanded_raw_count == len(self.raw):
-            self.setBuilderPrevdepth(self._expandedPrevDepth() if self.list else init_prevdepth)
-
-    def extendBuilt(self, nodes):
+    def extend(self, nodes, interline_glue=True):
         for node in nodes:
-            self._appendBuiltNode(node)
+            self.append(node, interline_glue)
 
-    def append(self, node):
+    def append(self, node, interline_glue=None):
+        if interline_glue is None:
+            interline_glue = self.add_interline_glue
         self.can_lastbox = False
-        self._realizeReadyTailNodes()
-        self.raw.append(node)
-        self._realizeReadyTailNodes()
-
-    def resolvePrevDepth(self):
-        self._realizeReadyTailNodes()
-        if self.prevdepth is not None:
-            return self.prevdepth
-        return self._expandedPrevDepth() if self.list else init_prevdepth
-
-    def removeLastConcrete(self, node_type):
-        self._realizeReadyTailNodes()
-        if not self.list or self.list[-1].node_type != node_type:
-            return None
+        if node.source is None:
+            self.raw.append(node)
+        if getattr(node, "typeset_to_vlist", False):
+            node.typeset(self.parser, self)
+            return
+        # appending a built node
+        if node.node_type == nd.NODE_TYPE.RULE:
+            self.parser.state.globals["prevdepth"] = init_prevdepth
+            self.list.append(node)
+            return
+        if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            self.list.append(node)
+            return
+        prevdepth = self.parser.state.globals["prevdepth"]
+        interline_penalty = getattr(node, "interline_penalty", None)
+        if interline_penalty is not None:
+            penalty = nd.Penalty(interline_penalty)
+            penalty.source = node
+            self.list.append(penalty)
+        glue_node = getattr(node, "interline_glue", None)
+        if interline_glue and (prevdepth > init_prevdepth or glue_node is not None):
+            if glue_node is None:
+                glue = self.parser.state.layout["baselineskip"].copy()
+                glue.dimen -= prevdepth + node.height
+                limit = self.parser.state.layout["lineskiplimit"]
+                if glue.dimen >= limit:
+                    glue_node = nd.Glue(glue, "\\baselineskip")
+                else:
+                    glue_node = nd.Glue(self.parser.state.layout["lineskip"], "\\lineskip")
+            if glue_node.glue is not None:
+                glue_node.source = node
+                self.list.append(glue_node)
+        self.list.append(node)
+        self.parser.state.globals["prevdepth"] = node.depth
+        if node.node_type == nd.NODE_TYPE.HLIST:
+            for n in getattr(node, "migratory", []):
+                self.append(n, interline_glue=False)
+    
+    @staticmethod
+    def isOwner(node, owner):
+        if node is owner:
+            return True
+        while node:
+            if node.source == owner:
+                return True
+            node = node.source
+        return False
+    
+    def pop(self):
         node = self.list.pop()
-        source = getattr(node, "source", None) or node
-        self._dropDrainedRawTail(source)
-        self._syncExpandedTailState()
-        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            self.setBuilderPrevdepth(self.lastbox.depth if self.lastbox is not None else init_prevdepth)
-        elif node.node_type == nd.NODE_TYPE.RULE:
-            self.setBuilderPrevdepth(self._expandedPrevDepth() if self.list else init_prevdepth)
+        # resbuild prevdepth
+        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.RULE):
+            self.calculatePrevDepth()
         return node
 
-    def pop(self, *args):
-        index = args[0] if args else -1
-        if index not in (-1, len(self.list) - 1):
-            raise NotImplementedError("VList.pop only supports removing the tail")
-        self._realizeReadyTailNodes()
-        node = self.list.pop()
-        source = getattr(node, "source", None) or node
-        self._dropDrainedRawTail(source)
-        self._syncExpandedTailState()
-        if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            self.setBuilderPrevdepth(self.lastbox.depth if self.lastbox is not None else init_prevdepth)
-        elif node.node_type == nd.NODE_TYPE.RULE:
-            self.setBuilderPrevdepth(self._expandedPrevDepth() if self.list else init_prevdepth)
-        return node
-
+    def calculatePrevDepth(self):
+        prevdepth = init_prevdepth
+        for n in reversed(self.list):
+            if n.node_type == nd.NODE_TYPE.RULE:
+                break
+            if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                prevdepth = n.depth
+                break
+        self.parser.state.globals["prevdepth"] = prevdepth
 
 class VAdjust(nd.Node, VListHolder):
     """
@@ -374,19 +155,17 @@ class VAdjust(nd.Node, VListHolder):
 
     def __init__(self, vlist):
         VListHolder.__init__(self, vlist)
-
-    @property
-    def vlist(self):
-        return self.list
-
-    @vlist.setter
-    def vlist(self, value):
-        self.list = value
+        for n in vlist:
+            n.source = vlist
 
     def saveInfo(self):
-        return {"vlist": self.vlist}, None
+        return {"vlist": self.list}, None
 
     node_type = nd.NODE_TYPE.ADJUST
+    typeset_to_vlist = True
+
+    def typeset(self, parser, packed):
+        packed.extend(self.list, interline_glue=False)
 
 
 class Mark(nd.Node):
@@ -479,7 +258,8 @@ def readVList(parser, reason, ended=None):
     @param reason: the reason for reading the list
     @param ended: called after the list group closes
     """
-    vstate = VList(parser, [])
+    interline_glue = reason not in (GROUP_TYPE.ADJUSTED_HBOX, GROUP_TYPE.NO_ALIGN)
+    vstate = VList(parser, [], add_interline_glue=interline_glue)
     parser.clearParagraphSettings()
     return parser.readList(vstate, reason, ended)
 

@@ -427,7 +427,7 @@ class OutputRoutineEndCallback:
     def __call__(self):
         if self.parser.lists and self.parser.lists[-1] is self.vlist:
             state = self.parser.lists.pop()
-            state.restorePrevdepth()
+            self.parser.state.globals["prevdepth"] = state.saved_prevdepth
 
 
 class EndOutputRoutineToken(Token):
@@ -810,16 +810,8 @@ class MainVList(vmode.VList):
             nd.NODE_TYPE.INS,
         )
 
-    def _appendBuiltNode(self, node):
-        super()._appendBuiltNode(node)
-        if self._triggersPageBuilder(node):
-            self._processPendingPages()
-
-    def _rebuildRawState(self):
-        if self._expanded_raw_count < len(self.raw):
-            self.setBuilderPrevdepth(None)
-        else:
-            self.setBuilderPrevdepth(self._expandedPrevDepth() if self.list else vmode.init_prevdepth)
+    def _rebuildState(self):
+        self.calculatePrevDepth()
         context = self.page_initial_context
         for node in self.raw:
             if isinstance(node, PageStateNode):
@@ -829,17 +821,8 @@ class MainVList(vmode.VList):
         self.page_context = context
 
     def _consumePagePrefix(self, count):
-        if count <= 0:
-            return
-        del self.list[:count]
-        self._syncExpandedTailState()
-        while self._expanded_raw_count > 0 and self.raw:
-            node = self.raw[0]
-            if self.list and getattr(self.list[0], "source", None) is node:
-                break
-            del self.raw[0]
-            self._expanded_raw_count -= 1
-        self._rebuildRawState()
+        if count > 0:
+            del self.list[:count]
 
     def _prependCarryNodes(self, nodes):
         if not nodes:
@@ -848,9 +831,7 @@ class MainVList(vmode.VList):
             node.source = node
         self.raw[:0] = list(nodes)
         self.list[:0] = list(nodes)
-        self._expanded_raw_count += len(nodes)
-        self._syncExpandedTailState()
-        self._rebuildRawState()
+        self._rebuildState()
 
     def _flushDeferredFileOps(self, box):
         from pytex import file as filemod
@@ -919,15 +900,14 @@ class MainVList(vmode.VList):
         finally:
             self._processing_pages = False
 
-    def append(self, node):
-        self._realizeReadyTailNodes()
+    def append(self, node, interline_glue=True):
         if not isinstance(node, PageStateNode):
             context = PageBuilderContext(self.parser.state.layout)
             if not self.page_context.sameLayout(self.parser.state.layout):
                 marker = PageStateNode(context)
                 super().append(marker)
                 self.page_context = context
-        super().append(node)
+        super().append(node, interline_glue)
         if self._triggersPageBuilder(node):
             self._processPendingPages()
 
@@ -936,7 +916,7 @@ class MainVList(vmode.VList):
         if index not in (-1, len(self.list) - 1):
             raise NotImplementedError("MainVList.pop only supports removing the tail")
         node = super().pop(*args)
-        self._rebuildRawState()
+        self._rebuildState()
         return node
 
     @staticmethod
@@ -1353,7 +1333,6 @@ class MainVList(vmode.VList):
             GROUP_TYPE.OUTPUT,
             ended=OutputRoutineEndCallback(parser, outlist),
         )
-        outlist.enter()
         parser.input.push(lexer.TokenListScanner([EndOutputRoutineToken()]))
         parser.input.push(lexer.TokenListScanner(output))
         self._runNestedLoop(parser)
@@ -1376,7 +1355,6 @@ class MainVList(vmode.VList):
         return carry
 
     def finish(self, parser):
-        self._realizeReadyTailNodes()
         if float(parser.state.layout["vsize"]) <= 0:
             self._flushPageWhatsits(parser, self.list)
             return

@@ -229,9 +229,8 @@ def _break_pages(parser):
         parser.endParagraph()
     main = parser.lists[0]
     assert isinstance(main, page.MainVList)
-    main._realizeReadyTailNodes()
     pages = list(parser.shipout.pages)
-    material = list(main.expanded)
+    material = list(main.list)
     breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
     context = main.page_initial_context
     topmark = list(parser.state.parameters["botmark"])
@@ -328,7 +327,7 @@ def test_prevdepth_kept_across_glue_kern_penalty(parser):
     vlist.append(nd.Glue(glue.Glue(1), None))
     vlist.append(nd.Kern(1))
     vlist.append(nd.Penalty(0))
-    assert vlist.resolvePrevDepth() == 3
+    assert parser.state.globals["prevdepth"] == 3
 
 
 def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
@@ -348,7 +347,7 @@ def test_rule_resets_resolved_prevdepth(parser):
     vlist = vmode.VList(parser, [])
     vlist.append(_test_hbox(parser, depth=3))
     vlist.append(nd.Rule(0, 4, 0))
-    assert vlist.resolvePrevDepth() == vmode.init_prevdepth
+    assert parser.state.globals["prevdepth"] == vmode.init_prevdepth
 
 
 def test_box_interline_penalty_override(parser):
@@ -381,7 +380,7 @@ def test_prevdepth_assignment_affects_next_box_context(parser):
     first = _test_hbox(parser)
     second = _test_hbox(parser)
     vlist.append(first)
-    vlist.prevdepth = Dimen(10)
+    parser.state.globals["prevdepth"] = Dimen(10)
     vlist.append(second)
     packed = _concrete_vlist(parser, vlist)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]

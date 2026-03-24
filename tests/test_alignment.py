@@ -14,11 +14,9 @@ def _raw_nodes(vlist):
 
 def _typeset_halign(parser, node):
     packed = vmode.VList(parser, [], inner=True)
-    try:
-        node.typeset(parser, packed)
-        return list(packed.list)
-    finally:
-        packed.restorePrevdepth()
+    node.typeset(parser, packed)
+    parser.state.globals["prevdepth"] = packed.saved_prevdepth
+    return list(packed.list)
 
 
 def test_halign(cmr10):
@@ -147,8 +145,8 @@ def test_nested_valign_in_halign_cell(cmr10):
     node = _raw_nodes(cmr10.lists[-1])[0]
     row = node.rows[0]
     assert len(row.cells) == 1
-    assert len(row.cells[0].list) == 1
-    assert isinstance(row.cells[0].list[0], align.VAlignment)
+    assert len(row.cells[0].list) == 2
+    assert isinstance(row.cells[0].list[0].source, align.VAlignment)
 
 
 def test_nested_halign_in_valign_cell(cmr10):

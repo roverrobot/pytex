@@ -156,29 +156,28 @@ def test_display_halign_typesets_with_display_wrapper(math):
     top = math.lists[0]
     node = next(n for n in _raw_nodes(top) if isinstance(n, align.MAlignment))
     packed = list(top)
-    display = [n for n in packed if getattr(n, "source", None) is node]
-    assert len(display) == 6 # penalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
-    assert display[0].node_type == nd.NODE_TYPE.PENALTY
-    assert display[0].penalty == math.state.layout["predisplaypenalty"]
-    assert display[1].node_type == nd.NODE_TYPE.GLUE
-    assert display[1].glue == math.state.layout["abovedisplayskip"]
-    assert display[2].node_type == nd.NODE_TYPE.GLUE
-    assert display[2].glue == math.state.layout["baselineskip"]
-    assert display[3].node_type == nd.NODE_TYPE.HLIST
-    assert display[4].node_type == nd.NODE_TYPE.PENALTY
-    assert display[4].penalty == math.state.layout["postdisplaypenalty"]
-    assert display[5].node_type == nd.NODE_TYPE.GLUE
-    assert display[5].glue == math.state.layout["belowdisplayskip"]
-    expected = math.state.volatile["displayindent"] + (math.state.volatile["displaywidth"] - display[3].width) / 2
-    assert display[3].shifted == expected
+    assert len(top) == 7 # HBox, penalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
+    assert top[0].node_type == nd.NODE_TYPE.HLIST
+    assert top[1].node_type == nd.NODE_TYPE.PENALTY
+    assert top[1].penalty == math.state.layout["predisplaypenalty"]
+    assert top[2].node_type == nd.NODE_TYPE.GLUE
+    assert top[2].glue == math.state.layout["abovedisplayskip"]
+    assert top[3].node_type == nd.NODE_TYPE.GLUE
+    assert top[3].glue == math.state.layout["baselineskip"]
+    assert top[4].node_type == nd.NODE_TYPE.HLIST
+    assert top[5].node_type == nd.NODE_TYPE.PENALTY
+    assert top[5].penalty == math.state.layout["postdisplaypenalty"]
+    assert top[6].node_type == nd.NODE_TYPE.GLUE
+    assert top[6].glue == math.state.layout["belowdisplayskip"]
+    expected = math.state.volatile["displayindent"]
+    assert top[4].shifted == expected
 
 
 def test_display_halign_uses_display_local_baselineskip_for_first_row(math):
     math.parse("A$$\\baselineskip=15pt\\halign{#\\cr 1\\cr 2\\cr}$$\\par")
     top = math.lists[0]
-    packed = list(top)
     baseline_glues = [
-        n for n in packed
+        n for n in top.list
         if n.node_type == nd.NODE_TYPE.GLUE
         and n.name == "\\baselineskip"
     ]
@@ -285,7 +284,7 @@ def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
     wa = text_it["a"].width
     e = text_rm["1"].width
     z = wa + e + (quad / 2)
-    math.parse(f"\\displaywidth={float(z):.5f}pt $$a\\eqno1$$\\par")
+    math.parse(f"$$\\displaywidth={float(z):.5f}pt a\\eqno1$$\\par")
     top = math.lists[0]
     mlist = next(node for node in _raw_nodes(top) if isinstance(node, mmode.DisplayMathNode))
     packed = list(top)

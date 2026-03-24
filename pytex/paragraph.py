@@ -51,8 +51,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     # not a proper node
     node_type = None
-    # This node can be realized into concrete box nodes on demand.
-    box_materializable = True
+    # This node will be typeset when appending to a vlist.
+    typeset_to_vlist = True
     _migratory_node_types = (nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS, nd.NODE_TYPE.ADJUST)
 
     def saveInfo(self):

@@ -150,8 +150,8 @@ class ListReadEndCallback:
     def __call__(self):
         if self.state is not None:
             state = self.parser.lists.pop()
-            if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-                state.restorePrevdepth()
+            if state.type == LISTTYPE.VERTICAL:
+                self.parser.state.globals["prevdepth"] = state.saved_prevdepth
         if self.ended is not None:
             self.ended()
 
@@ -175,8 +175,6 @@ def readList(parser, state, reason: GROUP_TYPE, ended=None):
         parser.lists.append(state)
         ended = ListReadEndCallback(parser, state, ended)
     parser.beginGroup(pos, reason, ended=ended)
-    if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-        state.enter()
     return None if state is None else state.list
 
 

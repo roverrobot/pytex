@@ -221,7 +221,7 @@ class Penalty(Node):
     node_type = NODE_TYPE.PENALTY
 
     def __repr__(self):
-        return f"Penalty(self.penalty)"
+        return f"Penalty({self.penalty})"
 
     def meaning(self, parser):
         return f"\\penalty {self.penalty}"

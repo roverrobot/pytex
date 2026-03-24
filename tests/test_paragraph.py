@@ -96,11 +96,17 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
 
 def test_implicit_paragraph_adds_parskip(parser):
     parser.parse("\\parskip=5pt a\\par b\\par")
-    top = _raw_nodes(parser.lists[-1])
-    assert isinstance(top[0], paragraph.Paragraph)
+    top = parser.lists[-1]
+    raw = _raw_nodes(top)
+    assert len(raw) == 2
+    assert isinstance(raw[0], paragraph.Paragraph)
+    assert isinstance(raw[1], paragraph.Paragraph)
+    assert len(top) == 4
+    assert top[0].node_type == nd.NODE_TYPE.HLIST
     assert top[1].node_type == nd.NODE_TYPE.GLUE
     assert top[1].glue.dimen == 5
-    assert isinstance(top[2], paragraph.Paragraph)
+    assert top[2].node_type == nd.NODE_TYPE.GLUE
+    assert top[3].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
@@ -108,7 +114,7 @@ def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
     main = cmr10.lists[-1]
     names = [getattr(n, "name", None) for n in main if n.node_type == nd.NODE_TYPE.GLUE]
     assert names == ["\\parskip", "\\baselineskip"]
-    assert main[1].glue.dimen == 5
+    assert main[1].glue.dimen == Dimen(5.0)
     assert main[2].glue.dimen == (
         cmr10.state.layout["baselineskip"].dimen
         - main[0].depth

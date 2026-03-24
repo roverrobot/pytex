@@ -576,8 +576,8 @@ class InlineMathNode(MathListHolder):
         packed.extend(self._typeset_cache)
 
 
-class DisplayMathNode(MathListHolder):
-    box_materializable = True
+class DisplayMathNode(nd.Node, MathListHolder):
+    typeset_to_vlist = True
     
     node_type = nd.NODE_TYPE.MATH
 
@@ -693,7 +693,6 @@ class DisplayMathNode(MathListHolder):
             ga = nd.Glue(parser.state.layout["abovedisplayshortskip"], "\\abovedisplayshortskip")
             gb = nd.Glue(parser.state.layout["belowdisplayshortskip"], "\\belowdisplayshortskip")
         if e == 0 and left is True:
-            a.interline_penalty = 0
             a.shifted = Dimen(s)
             cache.append(a)
             cache.append(nd.Penalty(10000))
@@ -719,10 +718,9 @@ class DisplayMathNode(MathListHolder):
                     line.list.append(k)
                     line.list.append(a)
             b = line
-        b = b.typeset(parser)
+            b = b.typeset(parser)
         b.shifted = Dimen(s+d)
         b.display = True
-        b.interline_penalty = 0
         cache.append(b)
         # The final task is to append the glue or the equation number
         # that follows the display. If there was an \eqno and if e = 0, an infinite
@@ -733,14 +731,14 @@ class DisplayMathNode(MathListHolder):
         if e == 0 and left is False:
             cache.append(nd.Penalty(10000))
             a.shifted = Dimen(s + z) - a.width
-            a.interline_penalty = 0
-            a.interline_glue = nd.Glue(None, "\\baselineskip")
+            a.interline_glue = nd.Glue(None, None)
             cache.append(a)
             cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
         else:
             cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
             cache.append(gb)
-        # TEX now adds 3 to \prevgraf and returns to horizontal mode.
+        for n in cache:
+            n.source = self
         packed.extend(cache)
 
 
@@ -1419,7 +1417,6 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if mlist.type != lists.LISTTYPE.MATH or mlist.inner or not mlist.isalign:
             return
         self.node = mlist[0]
-        self.node.captureDisplayWrapper(parser)
 
     def finalize(self, parser, top, mlist):
         # here top points to the enclosing horizontal list

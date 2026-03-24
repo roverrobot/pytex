@@ -16,6 +16,9 @@ from pytex.lists import LISTTYPE
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.token import Command, Token
+from pytex.paragraph import Paragraph
+from pytex.align import HAlignment
+from pytex.mmode import DisplayMathNode
 
 
 def _copy_mark_register(register):
@@ -794,6 +797,8 @@ class MainVList(vmode.VList):
         self.page_initial_context = PageBuilderContext(parser.state.layout)
         self.page_context = self.page_initial_context
         self._processing_pages = False
+        # the number of nodes that has been unboxed/uncopied, and thus can be used for \lastbox etc
+        self.tail_count = 0
 
     @classmethod
     def _triggersPageBuilder(cls, node):
@@ -801,7 +806,7 @@ class MainVList(vmode.VList):
             return False
         if node.node_type == nd.NODE_TYPE.PENALTY:
             return True
-        if getattr(node, "box_materializable", False):
+        if isinstance(node, Paragraph) or isinstance(node, DisplayMathNode) or isinstance(node, HAlignment):
             return True
         return node.node_type in (
             nd.NODE_TYPE.HLIST,
@@ -816,8 +821,6 @@ class MainVList(vmode.VList):
         for node in self.raw:
             if isinstance(node, PageStateNode):
                 context = node.context
-        if not self.raw:
-            self.can_lastbox = False
         self.page_context = context
 
     def _consumePagePrefix(self, count):
@@ -901,6 +904,7 @@ class MainVList(vmode.VList):
             self._processing_pages = False
 
     def append(self, node, interline_glue=True):
+        self.tail_count = 0
         if not isinstance(node, PageStateNode):
             context = PageBuilderContext(self.parser.state.layout)
             if not self.page_context.sameLayout(self.parser.state.layout):
@@ -911,11 +915,8 @@ class MainVList(vmode.VList):
         if self._triggersPageBuilder(node):
             self._processPendingPages()
 
-    def pop(self, *args):
-        index = args[0] if args else -1
-        if index not in (-1, len(self.list) - 1):
-            raise NotImplementedError("MainVList.pop only supports removing the tail")
-        node = super().pop(*args)
+    def pop(self):
+        node = super().pop()
         self._rebuildState()
         return node
 

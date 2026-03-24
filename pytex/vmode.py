@@ -67,7 +67,6 @@ class VList(lists.List):
         self.raw = []
         self.list = nodes
         self.inner = inner
-        self.can_lastbox = False
         self.saved_prevdepth = parser.state.globals.get("prevdepth", init_prevdepth)
         self.parser.state.globals["prevdepth"] = init_prevdepth
         self.add_interline_glue = add_interline_glue
@@ -82,7 +81,6 @@ class VList(lists.List):
     def append(self, node, interline_glue=None):
         if interline_glue is None:
             interline_glue = self.add_interline_glue
-        self.can_lastbox = False
         if node.source is None:
             self.raw.append(node)
         if getattr(node, "typeset_to_vlist", False):

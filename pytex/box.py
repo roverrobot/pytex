@@ -801,8 +801,9 @@ class UnBox(Command):
             top.extend(nodes, interline_glue=False)
         else:
             top.extend(nodes)
-        if self.vertical and top.type == LISTTYPE.VERTICAL:
-            top.can_lastbox = True
+        if top.type == LISTTYPE.VERTICAL and not top.inner:
+            # the number of nodes that has been unboxed/uncopied, and thus can be used for \lastbox etc
+            top.tail_count = len(nodes)
 
 
 class Shift(ModeDependentCommand):
@@ -1007,13 +1008,13 @@ class LastBox(Command):
     def boxValue(self, parser, setbox):
         top = parser.lists[-1]
         # this command can only be unsed in horizontal mode or in ner vertical mode
-        if top.type == LISTTYPE.VERTICAL and not top.inner and not getattr(top, "can_lastbox", False):
-            raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
+        if top.type == LISTTYPE.VERTICAL and not top.inner:
+            if top.tail_count <= 0:
+                raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
+            top.tail_count -= 1
         if top.type == LISTTYPE.MATH:
             raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())
-        if not top or not isinstance(top[-1], Box):
-            return None
-        return top.pop()
+        return top.pop() if top and isinstance(top[-1], Box) else None
     
     def execute(self, parser):
         self.boxValue(parser, False)

@@ -451,30 +451,6 @@ class PageBuilderContext:
         self.topskip = layout["topskip"]
         self.maxdepth = layout["maxdepth"]
 
-    def sameLayout(self, layout):
-        return (
-            self.vsize == layout["vsize"]
-            and self.topskip == layout["topskip"]
-            and self.maxdepth == layout["maxdepth"]
-        )
-
-
-class PageStateNode(nd.Node):
-    """
-    Transparent marker that records page-builder parameter changes on the main vlist.
-    """
-
-    node_type = nd.NODE_TYPE.WHATSIT
-
-    def __init__(self, context):
-        self.context = context
-
-    def saveInfo(self):
-        raise NotImplementedError("This method should not be called")
-
-    def __repr__(self):
-        return "PageState"
-
 
 class MainVListBreaker(VListBreaker):
     def __init__(self, parser, nodes, initial_context):
@@ -484,14 +460,6 @@ class MainVListBreaker(VListBreaker):
         self._register_box_heights = {}
         self._insert_actions = {}
         self.last_insert_penalties = 0
-
-    def contextFor(self, node):
-        if isinstance(node, PageStateNode):
-            return node.context
-        return None
-
-    def isTransparent(self, node):
-        return isinstance(node, PageStateNode)
 
     @staticmethod
     def _delaysPageStart(node):
@@ -991,8 +959,6 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _isNonDiscardable(node):
-        if isinstance(node, PageStateNode):
-            return False
         return node.node_type not in (
             nd.NODE_TYPE.GLUE,
             nd.NODE_TYPE.KERN,
@@ -1001,7 +967,7 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _isTransparent(node):
-        return isinstance(node, PageStateNode)
+        return False
 
     @classmethod
     def _previousRealNode(cls, nodes, start, index):
@@ -1055,10 +1021,6 @@ class MainVList(vmode.VList):
     def _prunePageTop(nodes, start, context):
         while start < len(nodes):
             node = nodes[start]
-            if isinstance(node, PageStateNode):
-                context = node.context
-                start += 1
-                continue
             if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
                 start += 1
                 continue
@@ -1073,9 +1035,6 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _advanceContext(nodes, start, end, context):
-        for node in nodes[start:end]:
-            if isinstance(node, PageStateNode):
-                context = node.context
         return context
 
     @staticmethod

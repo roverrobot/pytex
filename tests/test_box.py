@@ -289,6 +289,45 @@ def test_vbox_ignores_horizontal_shift_for_vertical_metrics(parser):
     assert typed.depth == 3
 
 
+def test_vbox_width_tracks_horizontal_shift(parser):
+    vbox = bx.VBox(parser, None, 0)
+    shifted = _synthetic_hbox(parser, height=6, depth=3, width=10)
+    shifted.shifted = Dimen(5)
+    vbox.list.append(shifted)
+    typed = vbox.typeset(parser)
+    assert typed.width == 15
+
+
+def test_vbox_width_can_shrink_with_negative_horizontal_shift(parser):
+    vbox = bx.VBox(parser, None, 0)
+    shifted = _synthetic_hbox(parser, height=6, depth=3, width=10)
+    shifted.shifted = Dimen(-5)
+    vbox.list.append(shifted)
+    typed = vbox.typeset(parser)
+    assert typed.width == 5
+
+
+def test_vbox_width_is_clamped_at_zero_for_large_negative_shift(parser):
+    vbox = bx.VBox(parser, None, 0)
+    shifted = _synthetic_hbox(parser, height=6, depth=3, width=10)
+    shifted.shifted = Dimen(-20)
+    vbox.list.append(shifted)
+    typed = vbox.typeset(parser)
+    assert typed.width == 0
+
+
+def test_hbox_height_depth_use_parent_interpretation_of_shift(parser):
+    hbox = bx.HBox(parser, None, 0)
+    shifted = bx.VBox(parser, None, 0)
+    shifted.list.append(nd.Rule(10, 9, 0))
+    shifted = shifted.typeset(parser)
+    shifted.shifted = Dimen(-5)
+    hbox.list.append(shifted)
+    typed = hbox.typeset(parser)
+    assert typed.height == 14
+    assert typed.depth == 0
+
+
 def test_vbox_preserves_prevdepth_across_explicit_glue(parser):
     parser.state.layout["baselineskip"] = glue.Glue(12)
     parser.state.layout["lineskip"] = glue.Glue(1)

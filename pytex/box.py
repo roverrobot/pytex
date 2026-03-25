@@ -277,7 +277,7 @@ class HBox(Box, hmode.HListHolder):
             elif node_type == nd.NODE_TYPE.KERN:
                 natural.dimen += n.kern
             elif isinstance(n, nd.Box):
-                shifted = n.shifted if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) else 0
+                shifted = getattr(n, "shifted", 0)
                 w = n.width
                 h = n.height - shifted
                 d = n.depth + shifted
@@ -616,6 +616,8 @@ class VBox(Box, vmode.VListHolder):
         if dim is None:
             return natural
         w, h, d = dim
+        shifted = getattr(node, "shifted", 0)
+        w = max(Dimen(), w + shifted)
         if self.width is None or w > float(self.width):
             self.width = w
         return natural

@@ -801,16 +801,7 @@ class MainVList(vmode.VList):
         return list(self.contrib) + list(self.list)
 
     def rawNodes(self):
-        raw = []
-        seen = set()
-        for node in self.concreteNodes():
-            source = getattr(node, "source", None) or node
-            key = id(source)
-            if key in seen:
-                continue
-            seen.add(key)
-            raw.append(source)
-        return raw
+        return [node for node in self.concreteNodes() if getattr(node, "source", None) is None]
 
     def _currentPageContext(self):
         return PageBuilderContext(self.parser.state.layout)

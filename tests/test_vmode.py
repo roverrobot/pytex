@@ -712,6 +712,15 @@ def test_mark(cmr10):
     assert toksToString(cmr10, migrate.tokens) == "123"
 
 
+def test_main_vlist_raw_nodes_include_migrated_mark(cmr10):
+    cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
+    raw = cmr10.lists[-1].rawNodes()
+    assert len(raw) == 2
+    assert raw[0].node_type == nd.NODE_TYPE.HLIST
+    assert raw[1].node_type == nd.NODE_TYPE.MARK
+    assert toksToString(cmr10, raw[1].tokens) == "123"
+
+
 def test_insert_migrate(cmr10):
     cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
     top = cmr10.lists[-1]

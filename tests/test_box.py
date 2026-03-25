@@ -20,6 +20,21 @@ def _concrete_nodes(vlist):
     return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
 
 
+def _source_nodes(vlist, cls):
+    seen = set()
+    out = []
+    for node in _concrete_nodes(vlist):
+        source = getattr(node, "source", None)
+        if not isinstance(source, cls):
+            continue
+        key = id(source)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(source)
+    return out
+
+
 def _expanded_vbox(parser, nodes):
     saved_prevdepth = parser.state.globals["prevdepth"]
     try:
@@ -641,7 +656,7 @@ def test_unhbox_enters_horizontal_mode_from_vmode(box):
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     assert box.state.box[0] is None
-    assert any(isinstance(node, paragraph.Paragraph) for node in _raw_nodes(top))
+    assert _source_nodes(top, paragraph.Paragraph)
 
 
 def test_unvbox_wrongbox(box):

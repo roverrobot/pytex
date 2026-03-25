@@ -284,7 +284,6 @@ class HBox(Box, hmode.HListHolder):
                 natural = self.calculate(n, natural, (w, h, d))
             elif n.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
                 self.migratory.append(n)
-                n.source = self
             else:
                 natural = self.calculate(n, natural, None)
         # calculate the ratio

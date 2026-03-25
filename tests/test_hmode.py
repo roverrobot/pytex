@@ -15,6 +15,22 @@ def _raw_nodes(vlist):
     return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
 
 
+def _source_nodes(vlist, cls):
+    seen = set()
+    out = []
+    nodes = vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
+    for node in nodes:
+        source = getattr(node, "source", None)
+        if not isinstance(source, cls):
+            continue
+        key = id(source)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(source)
+    return out
+
+
 def _concrete_nodes(vlist):
     return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
 
@@ -50,7 +66,7 @@ def test_par(cmr10):
     assert len(cmr10.lists) == 1
     vlist = cmr10.lists[-1]
     assert vlist.type == lists.LISTTYPE.VERTICAL
-    hlist = _raw_nodes(vlist)[0].list
+    hlist = _source_nodes(vlist, paragraph.Paragraph)[0].list
     assert len(hlist) == 8 # indent, h, e, l, l, o, penalty(10000), glue,
     node = hlist[0]
     assert isinstance(node, hmode.IndentBox)
@@ -79,7 +95,7 @@ def test_vskip(cmr10):
     assert len(cmr10.lists) == 1
     vlist = cmr10.lists[-1]
     assert vlist.type == lists.LISTTYPE.VERTICAL
-    hlists = [node for node in _raw_nodes(vlist) if isinstance(node, paragraph.Paragraph)]
+    hlists = _source_nodes(vlist, paragraph.Paragraph)
     assert len(hlists) == 2
     assert len(hlists[0].list) == 8
     vs = [node for node in _raw_nodes(vlist) if node.node_type == nd.NODE_TYPE.GLUE and node.glue.dimen == 72.26999]

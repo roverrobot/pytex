@@ -13,6 +13,22 @@ def _raw_nodes(vlist):
     return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
 
 
+def _source_nodes(vlist, cls):
+    seen = set()
+    out = []
+    nodes = vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
+    for node in nodes:
+        source = getattr(node, "source", None)
+        if not isinstance(source, cls):
+            continue
+        key = id(source)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(source)
+    return out
+
+
 @pytest.fixture()
 def plain_dump(parser):
     dump = parser.resolver.openOut('plain', "dump")
@@ -38,7 +54,7 @@ def test_plain(plain):
     # the content of the log file
     top = plain.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    hlist = next(node for node in _raw_nodes(top) if isinstance(node, paragraph.Paragraph))
+    hlist = _source_nodes(top, paragraph.Paragraph)[0]
     # The stored paragraph keeps raw characters; ligatures/kerns are formed later.
     assert len(hlist.list) == 18
     assert hlist.list[-3].node_type == nd.NODE_TYPE.MATH

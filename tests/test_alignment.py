@@ -16,6 +16,21 @@ def _concrete_nodes(vlist):
     return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
 
 
+def _source_nodes(vlist, cls):
+    seen = set()
+    out = []
+    for node in _concrete_nodes(vlist):
+        source = getattr(node, "source", None)
+        if not isinstance(source, cls):
+            continue
+        key = id(source)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(source)
+    return out
+
+
 def _typeset_halign(parser, node):
     packed = vmode.VList(parser, [], inner=True)
     node.typeset(parser, packed)
@@ -27,7 +42,7 @@ def test_halign(cmr10):
     cmr10.parse("\\halign{1 #& 2 #\\cr a & b\\cr}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    raw = _raw_nodes(top)
+    raw = _source_nodes(top, align.HAlignment)
     assert len(raw) == 1
     node = raw[0]
     assert isinstance(node, align.HAlignment)
@@ -38,7 +53,7 @@ def test_halign(cmr10):
 
 def test_halign_initial_empty_preamble_repeats(cmr10):
     cmr10.parse("\\halign{&#\\cr 1&2&3\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert len(row.cells) == 3
 
@@ -50,7 +65,7 @@ def test_tabskip(cmr10):
     cmr10.parse("\\tabskip 1pt\\halign{1 #\\tabskip 2pt& 2 #\\cr a & b\\cr}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    raw = _raw_nodes(top)
+    raw = _source_nodes(top, align.HAlignment)
     assert len(raw) == 1
     node = raw[0]
     assert len(node.tabskips) == 3
@@ -63,7 +78,7 @@ def test_noalign(cmr10):
     cmr10.parse("\\halign{1 #& 2 #\\cr\\noalign{\\vskip1pt} a & b\\cr\\noalign{\\vskip2pt}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    raw = _raw_nodes(top)
+    raw = _source_nodes(top, align.HAlignment)
     assert len(raw) == 1
     node = raw[0]
     assert node.noalign is not None
@@ -80,14 +95,14 @@ def test_noalign(cmr10):
 
 def test_noalign_allows_leading_spaces_after_cr(cmr10):
     cmr10.parse("\\halign{#\\cr   \\noalign{\\vskip1pt} a\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     assert node.noalign is not None
     assert len(node.rows) == 1
 
 
 def test_trailing_crcr_before_endgroup_after_noalign_does_not_create_empty_row(cmr10):
     cmr10.parse("\\let\\egroup=}\\halign{#\\cr a\\cr\\noalign{\\vskip1pt}\\crcr\\egroup")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     assert len(node.rows) == 1
     assert len(node.rows[0].cells) == 1
     assert node.rows[0].noalign is not None
@@ -95,7 +110,7 @@ def test_trailing_crcr_before_endgroup_after_noalign_does_not_create_empty_row(c
 
 def test_span(cmr10):
     cmr10.parse("\\halign{1 # & 2 #\\cr a \\span b\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert len(row.cells) == 1
     assert row.cells[0].span == 2
@@ -103,7 +118,7 @@ def test_span(cmr10):
 
 def test_omit(cmr10):
     cmr10.parse("\\halign{1 # & 2 #\\cr a \\span\\omit b\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert len(row.cells) == 1
     assert row.cells[0].span == 2
@@ -112,7 +127,7 @@ def test_omit(cmr10):
 
 def test_cell_leading_spaces_are_omitted(cmr10):
     cmr10.parse("\\halign{1#\\cr   a\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert len(row.cells) == 1
     assert len(row.cells[0].list) == 2
@@ -120,7 +135,7 @@ def test_cell_leading_spaces_are_omitted(cmr10):
 
 def test_template_leading_spaces_are_omitted(cmr10):
     cmr10.parse("\\halign{   1#\\cr a\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert len(row.cells) == 1
     assert len(row.cells[0].list) == 2
@@ -133,7 +148,7 @@ def test_preamble_balanced_text_hides_cr(cmr10):
 
 def test_preamble_hash_inside_group_is_valid_placeholder(cmr10):
     cmr10.parse("\\halign{&$1\\over{#}$\\cr 1&2&3\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert len(row.cells) == 3
 
@@ -145,7 +160,7 @@ def test_preamble_multiple_hash_tokens_fail(cmr10):
 
 def test_nested_valign_in_halign_cell(cmr10):
     cmr10.parse("\\halign{#\\cr \\valign{#\\cr a\\cr b\\cr}\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert len(row.cells) == 1
     assert len(row.cells[0].list) == 2
@@ -159,7 +174,7 @@ def test_nested_halign_in_valign_cell(cmr10):
 
 def test_omit_as_first_non_space_token_ignores_template(cmr10):
     cmr10.parse("\\halign{1#2\\cr   \\omit a\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert len(row.cells) == 1
     assert not hasattr(row.cells[0].list, "omit")
@@ -178,7 +193,7 @@ def test_everycr_runs_between_alignment_rows(cmr10):
 
 def test_halign_typesets_directly_to_rows(cmr10):
     cmr10.parse("\\halign{#&#\\cr a&bc\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     packed = _typeset_halign(cmr10, node)
     assert len(packed) == 1
     assert packed[0].node_type == nd.NODE_TYPE.HLIST
@@ -186,7 +201,7 @@ def test_halign_typesets_directly_to_rows(cmr10):
 
 def test_alignment_cells_are_pretypeset_when_closed(cmr10):
     cmr10.parse("\\halign{#&#\\cr a&bc\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     row = node.rows[0]
     assert row.cells[0]._packed is not None
     assert row.cells[1]._packed is not None
@@ -200,7 +215,7 @@ def test_halign_span_widths_follow_tex_formula(cmr10):
         "\\kern1pt\\span\\kern1pt\\span\\kern4pt\\cr"
         "\\kern1pt\\span\\kern3pt\\cr}"
     )
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     packed = _typeset_halign(cmr10, node)
     rows = [item for item in packed if item.node_type == nd.NODE_TYPE.HLIST]
     assert len(rows) == 3
@@ -216,7 +231,7 @@ def test_halign_spanned_box_uses_row_glue_setting(cmr10):
         "\\kern1pt&\\kern1pt\\cr"
         "\\kern1pt\\span\\kern1pt\\cr}"
     )
-    node = _raw_nodes(cmr10.lists[-1])[0]
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
     assert isinstance(node.to, Dimen)
     packed = _typeset_halign(cmr10, node)
     rows = [item for item in packed if item.node_type == nd.NODE_TYPE.HLIST]

@@ -57,7 +57,7 @@ def test_language(cmr10):
 def test_paragraph_uses_state_when_it_ends(cmr10):
     cmr10.parse("\\hsize=20pt\\parindent=0pt a a a a a\\par")
     vlist = cmr10.lists[-1]
-    p = next(node for node in _raw_nodes(vlist) if isinstance(node, paragraph.Paragraph))
+    p = _source_nodes(vlist, paragraph.Paragraph)[0]
     assert isinstance(p, paragraph.Paragraph)
     lines = [
         node for node in _concrete_nodes(vlist)
@@ -72,7 +72,7 @@ def test_paragraph_uses_state_when_it_ends(cmr10):
 def test_paragraph_is_pretypeset_when_it_ends(cmr10):
     cmr10.parse("\\hsize=100pt a\\par")
     vlist = cmr10.lists[-1]
-    p = next(node for node in _raw_nodes(vlist) if isinstance(node, paragraph.Paragraph))
+    p = _source_nodes(vlist, paragraph.Paragraph)[0]
     lines = [
         node for node in _concrete_nodes(vlist)
         if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is p
@@ -83,7 +83,7 @@ def test_paragraph_is_pretypeset_when_it_ends(cmr10):
 
 def test_paragraph_typeset_uses_stored_parfillskip_not_live_state(parser):
     parser.parse("\\parfillskip=0pt a\\par")
-    para = next(node for node in _raw_nodes(parser.lists[-1]) if isinstance(node, paragraph.Paragraph))
+    para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[0]
     parser.state.parameters["parfillskip"] = glue.Glue(0, glue.Stretchness(1, 1))
     out = []
     para.typeset(parser, out)
@@ -94,7 +94,7 @@ def test_paragraph_typeset_uses_stored_parfillskip_not_live_state(parser):
 def test_paragraph_chain_break_on_nonparagraph(parser):
     parser.parse("a\\par\\vskip1pt b\\par")
     vlist = parser.lists[-1]
-    ps = [node for node in _raw_nodes(vlist) if isinstance(node, paragraph.Paragraph)]
+    ps = _source_nodes(vlist, paragraph.Paragraph)
     p1 = ps[0]
     p2 = ps[1]
     assert isinstance(p1, paragraph.Paragraph)
@@ -104,7 +104,7 @@ def test_paragraph_chain_break_on_nonparagraph(parser):
 
 def test_linebreak_uses_explicit_paragraph_argument(parser):
     parser.parse("a\\par")
-    para = next(node for node in _raw_nodes(parser.lists[-1]) if isinstance(node, paragraph.Paragraph))
+    para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[0]
     parser.parse("b")
     out = []
     para.typeset(parser, out)
@@ -178,7 +178,7 @@ def test_latex_noindent_hook_preserves_outer_parskip():
 
 def test_linebreak_discards_leading_discardables(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
-    para = _raw_nodes(cmr10.lists[-1])[-1]
+    para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     out = []
     para.typeset(cmr10, out)
     line = out[0]
@@ -190,7 +190,7 @@ def test_linebreak_discards_leading_discardables(cmr10):
 
 def test_linebreak_typesets_mlist_before_breaking(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent$a$\\par")
-    para = next(n for n in _raw_nodes(cmr10.lists[-1]) if isinstance(n, paragraph.Paragraph))
+    para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[0]
     out = []
     para.typeset(cmr10, out)
     line = out[0]
@@ -204,7 +204,7 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
 
 def test_hyphenate_uses_snapshot_words(cmr10):
     cmr10.parse("\\hyphenation{tech-nical}a technical\\par")
-    para = _raw_nodes(cmr10.lists[-1])[-1]
+    para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     scan = paragraph._BreakCandidateScan(cmr10, para)
     assert len(scan.candidates)==3 # begin, space, end
     _, hyphenate_scan = para._hyphenate(cmr10)
@@ -340,7 +340,7 @@ def test_linebreak_plain_paragraph_cases(parser):
     parser.parse("\\looseness=-1 ")
     parser.parse(text + "\\par")
     top = parser.lists[-1]
-    para = next(n for n in reversed(_raw_nodes(top)) if isinstance(n, paragraph.Paragraph))
+    para = _source_nodes(top, paragraph.Paragraph)[-1]
     lines = [
         node for node in _concrete_nodes(top)
         if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is para
@@ -356,7 +356,7 @@ def test_linebreak_plain_paragraph_cases(parser):
         " except that plain TEX blocks hyphens after the very first letter or before the last or"
         " second-last letter of a word.\\par"
     )
-    para = next(n for n in reversed(_raw_nodes(parser.lists[-1])) if isinstance(n, paragraph.Paragraph))
+    para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[-1]
     out = []
     para.typeset(parser, out)
     lines = _lineBoxes(out)
@@ -369,7 +369,7 @@ def test_linebreak_plain_paragraph_cases(parser):
         "this is a test to double check the line breaking in a math list at the inline math "
         " $from\\;this\\;f(x)=y\\;we\\;test$ this line break thing.\\par"
     )
-    para = next(n for n in reversed(_raw_nodes(parser.lists[-1])) if isinstance(n, paragraph.Paragraph))
+    para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[-1]
     out = []
     para.typeset(parser, out)
     lines = _lineBoxes(out)
@@ -463,7 +463,7 @@ def test_parshape_resets_after_paragraph_end(parser):
         "\\noindent B bit of text.\\par"
     )
     top = parser.lists[-1]
-    paras = [node for node in _raw_nodes(top) if isinstance(node, paragraph.Paragraph)]
+    paras = _source_nodes(top, paragraph.Paragraph)
     assert len(paras) == 2
     first = [
         node for node in _concrete_nodes(top)
@@ -505,7 +505,7 @@ def test_display_math_ends_paragraph_with_primitive_path(parser):
 
 def test_noindent_with_hanging_label_does_not_add_first_line_indent(parser):
     parser.parse("\\input plain \\hsize=200pt \\hangindent=20pt \\noindent\\hbox{1\\quad}Introduction\\par")
-    para = next(n for n in reversed(_raw_nodes(parser.lists[-1])) if isinstance(n, paragraph.Paragraph))
+    para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[-1]
     out = []
     para.typeset(parser, out)
     lines = _lineBoxes(out)

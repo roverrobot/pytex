@@ -278,24 +278,13 @@ class Remove(Command):
             top.pop()
 
 
-def _lastConcreteNode(top):
-    """
-    Return the tail node of the current TeX-visible list.
-    """
-    realize_ready = getattr(top, "_realizeReadyTailNodes", None)
-    if realize_ready is not None:
-        realize_ready()
-    if len(top) == 0:
-        return None
-    return top[-1]
-
-
 class LastPenalty(Command):
     """
     The \\lastpenalty command.
     """
     def intValue(self, parser):
-        node = _lastConcreteNode(parser.lists[-1])
+        top = parser.lists[-1]
+        node = top[-1] if top else None
         if node is None or node.node_type != nd.NODE_TYPE.PENALTY:
             return 0
         return node.penalty
@@ -306,7 +295,8 @@ class LastKern(Command, DimenCommand):
     The \\lastkern command.
     """
     def dimenValue(self, parser):
-        node = _lastConcreteNode(parser.lists[-1])
+        top = parser.lists[-1]
+        node = top[-1] if top else None
         if node is None or node.node_type != nd.NODE_TYPE.KERN:
             return Dimen()
         return node.kern
@@ -317,7 +307,8 @@ class LastSkip(Command, GlueValueCommand):
     The \\lastskip command.
     """
     def glueValue(self, parser):
-        node = _lastConcreteNode(parser.lists[-1])
+        top = parser.lists[-1]
+        node = top[-1] if top else None
         if node is None or node.node_type != nd.NODE_TYPE.GLUE:
             return Glue()
         return deepcopy(node.glue)

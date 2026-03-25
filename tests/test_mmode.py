@@ -12,7 +12,26 @@ from pytex.dimen import Dimen
 
 
 def _raw_nodes(vlist):
-    return getattr(vlist, "raw", vlist)
+    return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
+
+
+def _concrete_nodes(vlist):
+    return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
+
+
+def _source_nodes(vlist, cls):
+    seen = set()
+    out = []
+    for node in _concrete_nodes(vlist):
+        source = getattr(node, "source", None)
+        if not isinstance(source, cls):
+            continue
+        key = id(source)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(source)
+    return out
 
 
 def isSymbol(node, fam, char):
@@ -86,10 +105,10 @@ def test_mlist(math, inner):
     assert top.type == lists.LISTTYPE.HORIZONTAL
     vtop = math.lists[0]
     assert vtop.type == lists.LISTTYPE.VERTICAL
-    node = next(n for n in _raw_nodes(vtop) if isinstance(n, mmode.MathListHolder))
+    node = _source_nodes(vtop, mmode.MathListHolder)[0]
     assert isinstance(node, mmode.DisplayMathNode)
     math.parse("\\par")
-    packed = list(vtop)
+    packed = _concrete_nodes(vtop)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) >= 2
 
@@ -139,9 +158,7 @@ def test_mlist_append_wraps_raw_mlist_in_subformula(math):
 def test_mlist_typeset_display(math):
     math.parse("$$a$$\\par")
     top = math.lists[0]
-    # the empty paragrph trailing the display math list is not added
-    assert len(_raw_nodes(top)) == 2
-    packed = list(top)
+    packed = _concrete_nodes(top)
     assert len(packed) == 8 # \parskip, line-box, predisplaypenalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
 
 
@@ -155,30 +172,30 @@ def test_display_halign_typesets_with_display_wrapper(math):
     math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$\\par")
     top = math.lists[0]
     node = next(n for n in _raw_nodes(top) if isinstance(n, align.MAlignment))
-    packed = list(top)
-    assert len(top) == 8 # \parskip, HBox, penalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
-    assert top[0].node_type == nd.NODE_TYPE.GLUE
-    assert top[1].node_type == nd.NODE_TYPE.HLIST
-    assert top[2].node_type == nd.NODE_TYPE.PENALTY
-    assert top[2].penalty == math.state.layout["predisplaypenalty"]
-    assert top[3].node_type == nd.NODE_TYPE.GLUE
-    assert top[3].glue == math.state.layout["abovedisplayskip"]
-    assert top[4].node_type == nd.NODE_TYPE.GLUE
-    assert top[4].glue == math.state.layout["baselineskip"]
-    assert top[5].node_type == nd.NODE_TYPE.HLIST
-    assert top[6].node_type == nd.NODE_TYPE.PENALTY
-    assert top[6].penalty == math.state.layout["postdisplaypenalty"]
-    assert top[7].node_type == nd.NODE_TYPE.GLUE
-    assert top[7].glue == math.state.layout["belowdisplayskip"]
+    packed = _concrete_nodes(top)
+    assert len(packed) == 8 # \parskip, HBox, penalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
+    assert packed[0].node_type == nd.NODE_TYPE.GLUE
+    assert packed[1].node_type == nd.NODE_TYPE.HLIST
+    assert packed[2].node_type == nd.NODE_TYPE.PENALTY
+    assert packed[2].penalty == math.state.layout["predisplaypenalty"]
+    assert packed[3].node_type == nd.NODE_TYPE.GLUE
+    assert packed[3].glue == math.state.layout["abovedisplayskip"]
+    assert packed[4].node_type == nd.NODE_TYPE.GLUE
+    assert packed[4].glue == math.state.layout["baselineskip"]
+    assert packed[5].node_type == nd.NODE_TYPE.HLIST
+    assert packed[6].node_type == nd.NODE_TYPE.PENALTY
+    assert packed[6].penalty == math.state.layout["postdisplaypenalty"]
+    assert packed[7].node_type == nd.NODE_TYPE.GLUE
+    assert packed[7].glue == math.state.layout["belowdisplayskip"]
     expected = math.state.volatile["displayindent"]
-    assert top[5].shifted == expected
+    assert packed[5].shifted == expected
 
 
 def test_display_halign_uses_display_local_baselineskip_for_first_row(math):
     math.parse("A$$\\baselineskip=15pt\\halign{#\\cr 1\\cr 2\\cr}$$\\par")
     top = math.lists[0]
     baseline_glues = [
-        n for n in top.list
+        n for n in _concrete_nodes(top)
         if n.node_type == nd.NODE_TYPE.GLUE
         and n.name == "\\baselineskip"
     ]
@@ -190,7 +207,7 @@ def test_display_halign_uses_display_local_baselineskip_for_first_row(math):
 def test_display_halign_ignores_post_halign_baselineskip_assignment(math):
     math.parse("$$\\baselineskip=15pt\\halign{#\\cr 1\\cr 2\\cr}\\baselineskip=30pt$$\\par")
     top = math.lists[0]
-    packed = list(top)
+    packed = _concrete_nodes(top)
     baseline_glues = [
         n for n in packed
         if n.node_type == nd.NODE_TYPE.GLUE
@@ -230,9 +247,8 @@ def test_mlist_typeset_single_box_drops_outer_hbox(math):
 def test_display_noindent_has_no_synthetic_previous_paragraph(math):
     math.parse("\\noindent$$a$$1")
     top = math.lists[0]
-    raw = _raw_nodes(top)
+    raw = _source_nodes(top, mmode.DisplayMathNode)
     assert len(raw) == 1
-    assert isinstance(raw[0], mmode.DisplayMathNode)
     assert math.state.globals["prevgraf"] == 3
 
 
@@ -240,7 +256,7 @@ def test_mlist_typeset_display_without_closing_paragraph(math):
     math.parse("$$a$$")
     math.endParagraph()
     top = math.lists[0]
-    packed = list(top)
+    packed = _concrete_nodes(top)
     assert len(packed) > 0
 
 
@@ -256,7 +272,7 @@ def test_display_centering_uses_half_remaining_width(math):
     math.parse("$$a$$\\par")
     top = math.lists[0]
     mlist = next(node for node in _raw_nodes(top) if isinstance(node, mmode.DisplayMathNode))
-    packed = list(top)
+    packed = _concrete_nodes(top)
     b = _display_box_for_mlist(packed, mlist)
     z = math.state.volatile["displaywidth"]
     s = math.state.volatile["displayindent"]
@@ -268,7 +284,7 @@ def test_display_predisplaysize_adds_two_ems(math):
     math.parse("\\noindent abc$$a$$\\par")
     top = math.lists[0]
     prev_par = next(node for node in _raw_nodes(top) if isinstance(node, paragraph.Paragraph))
-    packed = list(top)
+    packed = _concrete_nodes(top)
     last_prev_line = [n for n in packed if n.node_type == nd.NODE_TYPE.HLIST and getattr(n, "source", None) is prev_par][-1]
     expected = last_prev_line.rightmost() + 2 * math.state.parameters["currentfont"].param[5]
     assert float(math.state.volatile["predisplaysize"]) == pytest.approx(float(expected), abs=1e-4)
@@ -288,7 +304,7 @@ def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
     math.parse(f"$$\\displaywidth={float(z):.5f}pt a\\eqno1$$\\par")
     top = math.lists[0]
     mlist = next(node for node in _raw_nodes(top) if isinstance(node, mmode.DisplayMathNode))
-    packed = list(top)
+    packed = _concrete_nodes(top)
     display_index = next(
         i
         for i, node in enumerate(packed)

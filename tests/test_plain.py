@@ -10,7 +10,7 @@ import io
 
 
 def _raw_nodes(vlist):
-    return getattr(vlist, "raw", vlist)
+    return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
 
 
 @pytest.fixture()

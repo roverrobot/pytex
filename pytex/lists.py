@@ -272,10 +272,20 @@ class Remove(Command):
 
     def execute(self, parser):
         top = parser.lists[-1]
-        if top.type == LISTTYPE.VERTICAL and not top.inner and top.tail >= len(top.list):
+        if top.type == LISTTYPE.VERTICAL and not top.inner and len(top.list) == 0:
             raise ValueError(f"invalid {parser.current_token.name} in main vertical list", parser.input.position())
         if len(top) > 0 and top[-1].node_type == self.node_type:
             top.pop()
+
+
+def _last_list_node(top):
+    if len(top) > 0:
+        return top[-1]
+    if top.type == LISTTYPE.VERTICAL and not top.inner:
+        contrib = getattr(top, "contrib", None)
+        if contrib:
+            return contrib[-1]
+    return None
 
 
 class LastPenalty(Command):
@@ -284,7 +294,7 @@ class LastPenalty(Command):
     """
     def intValue(self, parser):
         top = parser.lists[-1]
-        node = top[-1] if top else None
+        node = _last_list_node(top)
         if node is None or node.node_type != nd.NODE_TYPE.PENALTY:
             return 0
         return node.penalty
@@ -296,7 +306,7 @@ class LastKern(Command, DimenCommand):
     """
     def dimenValue(self, parser):
         top = parser.lists[-1]
-        node = top[-1] if top else None
+        node = _last_list_node(top)
         if node is None or node.node_type != nd.NODE_TYPE.KERN:
             return Dimen()
         return node.kern
@@ -308,7 +318,7 @@ class LastSkip(Command, GlueValueCommand):
     """
     def glueValue(self, parser):
         top = parser.lists[-1]
-        node = top[-1] if top else None
+        node = _last_list_node(top)
         if node is None or node.node_type != nd.NODE_TYPE.GLUE:
             return Glue()
         return deepcopy(node.glue)

@@ -15,7 +15,26 @@ from pytex.module import ModuleManager
 
 
 def _raw_nodes(vlist):
-    return getattr(vlist, "raw", vlist)
+    return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
+
+
+def _concrete_nodes(vlist):
+    return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
+
+
+def _source_nodes(vlist, cls):
+    seen = set()
+    out = []
+    for node in _concrete_nodes(vlist):
+        source = getattr(node, "source", None)
+        if not isinstance(source, cls):
+            continue
+        key = id(source)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(source)
+    return out
 
 
 def simple_context(parshape, hsize, hangindent, hangafter):
@@ -41,7 +60,7 @@ def test_paragraph_uses_state_when_it_ends(cmr10):
     p = next(node for node in _raw_nodes(vlist) if isinstance(node, paragraph.Paragraph))
     assert isinstance(p, paragraph.Paragraph)
     lines = [
-        node for node in vlist
+        node for node in _concrete_nodes(vlist)
         if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is p
     ]
     assert len(lines) > 1
@@ -55,7 +74,7 @@ def test_paragraph_is_pretypeset_when_it_ends(cmr10):
     vlist = cmr10.lists[-1]
     p = next(node for node in _raw_nodes(vlist) if isinstance(node, paragraph.Paragraph))
     lines = [
-        node for node in vlist
+        node for node in _concrete_nodes(vlist)
         if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is p
     ]
     assert len(lines) == 1
@@ -97,43 +116,44 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
 def test_implicit_paragraph_adds_parskip(parser):
     parser.parse("\\parskip=5pt a\\par b\\par")
     top = parser.lists[-1]
-    raw = _raw_nodes(top)
+    raw = _source_nodes(top, paragraph.Paragraph)
+    packed = _concrete_nodes(top)
     assert len(raw) == 2
-    assert isinstance(raw[0], paragraph.Paragraph)
-    assert isinstance(raw[1], paragraph.Paragraph)
-    assert len(top) == 5
-    assert top[0].node_type == nd.NODE_TYPE.GLUE
-    assert top[0].name == "\parskip"
-    assert top[1].node_type == nd.NODE_TYPE.HLIST
-    assert top[2].node_type == nd.NODE_TYPE.GLUE
-    assert top[2].glue.dimen == 5
-    assert top[3].node_type == nd.NODE_TYPE.GLUE
-    assert top[4].node_type == nd.NODE_TYPE.HLIST
+    assert len(packed) == 5
+    assert packed[0].node_type == nd.NODE_TYPE.GLUE
+    assert packed[0].name == "\parskip"
+    assert packed[1].node_type == nd.NODE_TYPE.HLIST
+    assert packed[2].node_type == nd.NODE_TYPE.GLUE
+    assert packed[2].glue.dimen == 5
+    assert packed[3].node_type == nd.NODE_TYPE.GLUE
+    assert packed[4].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
     cmr10.parse("\\parskip=5pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt a\\par b\\par")
     main = cmr10.lists[-1]
-    names = [getattr(n, "name", None) for n in main if n.node_type == nd.NODE_TYPE.GLUE]
+    packed = _concrete_nodes(main)
+    names = [getattr(n, "name", None) for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert names == ["\\parskip", "\\parskip", "\\baselineskip"]
-    assert main[0].glue.dimen == Dimen(5.0)
-    assert main[2].glue.dimen == Dimen(5.0)
-    assert main[3].glue.dimen == (
+    assert packed[0].glue.dimen == Dimen(5.0)
+    assert packed[2].glue.dimen == Dimen(5.0)
+    assert packed[3].glue.dimen == (
         cmr10.state.layout["baselineskip"].dimen
-        - main[1].depth
-        - main[4].height
+        - packed[1].depth
+        - packed[4].height
     )
 
 
 def test_group_in_vmode_does_not_reset_prevdepth(cmr10):
     cmr10.parse("\\parskip=0pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt a\\par\\begingroup\\endgroup b\\par")
     main = cmr10.lists[-1]
-    names = [getattr(n, "name", None) for n in main if n.node_type == nd.NODE_TYPE.GLUE]
+    packed = _concrete_nodes(main)
+    names = [getattr(n, "name", None) for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert names == ["\\parskip", "\\parskip", "\\baselineskip"]
-    assert main[3].glue.dimen == (
+    assert packed[3].glue.dimen == (
         cmr10.state.layout["baselineskip"].dimen
-        - main[1].depth
-        - main[4].height
+        - packed[1].depth
+        - packed[4].height
     )
 
 
@@ -150,7 +170,7 @@ def test_latex_noindent_hook_preserves_outer_parskip():
     fmt.close()
     parser.parse("\\documentclass[12pt]{article}\\begin{document}A\\par\\noindent\\par")
     main = parser.lists[-1]
-    glues = [n for n in main if n.node_type == nd.NODE_TYPE.GLUE and n.name == "\\parskip"]
+    glues = [n for n in _concrete_nodes(main) if n.node_type == nd.NODE_TYPE.GLUE and n.name == "\\parskip"]
     assert len(glues) >= 2
     assert glues[-2].glue == glue.Glue(0, glue.Stretchness(1, 0), glue.Stretchness(0, 0))
     assert glues[-1].glue == glue.Glue()
@@ -294,7 +314,7 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
     )
     cmr10.parse("\\hsize=6.5in\\parindent=0pt\\pretolerance=100\\tolerance=200 ")
     cmr10.parse(text + "\\par")
-    para = _raw_nodes(cmr10.lists[-1])[-1]
+    para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     out = []
     para.typeset(cmr10, out)
     lines = _lineBoxes(out)
@@ -322,7 +342,7 @@ def test_linebreak_plain_paragraph_cases(parser):
     top = parser.lists[-1]
     para = next(n for n in reversed(_raw_nodes(top)) if isinstance(n, paragraph.Paragraph))
     lines = [
-        node for node in top
+        node for node in _concrete_nodes(top)
         if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is para
     ]
     assert len(lines) == 4
@@ -362,7 +382,7 @@ def test_linebreak_plain_paragraph_cases(parser):
 def test_paragraph_typeset_inserts_interline_glue(cmr10):
     cmr10.parse("\\hsize=20pt\\parindent=0pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt ")
     cmr10.parse("a a a a a\\par")
-    para = _raw_nodes(cmr10.lists[-1])[-1]
+    para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     out = []
     para.typeset(cmr10, out)
     saved_prevdepth = cmr10.state.globals["prevdepth"]
@@ -446,11 +466,11 @@ def test_parshape_resets_after_paragraph_end(parser):
     paras = [node for node in _raw_nodes(top) if isinstance(node, paragraph.Paragraph)]
     assert len(paras) == 2
     first = [
-        node for node in top
+        node for node in _concrete_nodes(top)
         if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is paras[0]
     ]
     second = [
-        node for node in top
+        node for node in _concrete_nodes(top)
         if node.node_type == nd.NODE_TYPE.HLIST and getattr(node, "source", None) is paras[1]
     ]
     assert len(first) == 1

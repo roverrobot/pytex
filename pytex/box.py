@@ -1001,7 +1001,7 @@ class LastBox(Command):
         top = parser.lists[-1]
         # this command can only be unsed in horizontal mode or in ner vertical mode
         if top.type == LISTTYPE.VERTICAL and not top.inner:
-            if top.tail >= len(top.list):
+            if len(top.list) == 0:
                 raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
         if top.type == LISTTYPE.MATH:
             raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())

@@ -16,6 +16,12 @@ def _raw_nodes(vlist):
     return getattr(vlist, "raw", vlist)
 
 
+def _vertical_nodes(vlist):
+    contrib = list(getattr(vlist, "contrib", []))
+    pending = list(getattr(vlist, "list", vlist))
+    return contrib + pending
+
+
 @pytest.mark.parametrize(
     "input,g", [
         ["\\vskip 10pt", glue.Glue(10)],
@@ -64,8 +70,9 @@ def test_penalty(cmr10):
     cmr10.parse("\\penalty 10000")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    node = top[0]
+    nodes = _vertical_nodes(top)
+    assert len(nodes) == 1
+    node = nodes[0]
     assert node.node_type == nd.NODE_TYPE.PENALTY
     assert node.penalty == 10000
 
@@ -74,8 +81,9 @@ def test_insert(cmr10):
     cmr10.parse("\\insert 2{\\vskip 1in}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    node = top[0]
+    nodes = _vertical_nodes(top)
+    assert len(nodes) == 1
+    node = nodes[0]
     assert node.node_type == nd.NODE_TYPE.INS
     assert node.index == 2
     assert len(node.vlist) == 1
@@ -230,9 +238,10 @@ def _break_pages(parser):
     main = parser.lists[0]
     assert isinstance(main, page.MainVList)
     pages = list(parser.shipout.pages)
-    material = list(main.list)
-    breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
-    context = main.page_initial_context
+    main._contributePending()
+    material = list(main.contrib)
+    context = page.PageBuilderContext(parser.state.layout)
+    breaker = page.MainVListBreaker(parser, material, context)
     topmark = list(parser.state.parameters["botmark"])
     page.MainVList._clearInsertScratch(parser)
     start = 0
@@ -267,6 +276,8 @@ def _break_pages(parser):
 
 
 def _concrete_vlist(parser, nodes):
+    if isinstance(nodes, page.MainVList):
+        return _vertical_nodes(nodes)
     if isinstance(nodes, vmode.VList):
         return list(nodes.list)
     saved_prevdepth = parser.state.globals["prevdepth"]
@@ -376,7 +387,7 @@ def test_prevdepth_assignment_is_not_grouped(parser):
 
 def test_prevdepth_assignment_affects_next_box_context(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
-    vlist = parser.lists[0]
+    vlist = vmode.VList(parser, [])
     first = _test_hbox(parser)
     second = _test_hbox(parser)
     vlist.append(first)
@@ -504,9 +515,11 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     )
     main = parser.lists[0]
     main.append(_test_hbox(parser, height=1, depth=0))
-    material = list(main.list)
-    breaker = page.MainVListBreaker(parser, material, main.page_initial_context)
-    start, context = breaker.pruneTop(0, main.page_initial_context)
+    main._contributePending()
+    material = list(main.contrib)
+    context = page.PageBuilderContext(parser.state.layout)
+    breaker = page.MainVListBreaker(parser, material, context)
+    start, context = breaker.pruneTop(0, context)
     end, _, _, _ = breaker.bestBreak(start, context)
     assert end > start
     ins_nodes = [node for node in material if node.node_type == nd.NODE_TYPE.INS]
@@ -562,19 +575,18 @@ def test_page_topskip_includes_rule(parser):
     assert pages[0].list[1] is rule
 
 
-def test_main_vlist_inserts_page_state_marker_on_layout_change(parser):
+def test_main_vlist_moves_triggered_nodes_into_contrib(parser):
     parser.parse("")
     main = parser.lists[0]
     parser.state.layout["vsize"] = Dimen(20)
     box = _test_hbox(parser, height=6, depth=0)
     main.append(box)
-    assert len(main) == 2
-    assert isinstance(main[0], page.PageStateNode)
-    assert main[1] is box
-    assert main[0].context.vsize == 20
+    assert len(main.list) == 0
+    assert len(main.contrib) == 1
+    assert main.contrib[0] is box
 
 
-def test_page_break_uses_marker_context(parser):
+def test_page_break_uses_current_layout_at_break_time(parser):
     parser.parse("\\vsize=10pt\\topskip=0pt")
     main = parser.lists[0]
     first = _test_hbox(parser, height=6, depth=0)
@@ -691,13 +703,10 @@ def test_mark(cmr10):
     cmr10.parse("\\def\\a{123}\\hbox{\\mark{\\a}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    raw = _raw_nodes(top)
-    assert len(raw) == 1
-    box = raw[0]
-    assert box.node_type == nd.NODE_TYPE.HLIST
-    assert len(box.list) == 1
-    packed = list(top)
+    packed = _vertical_nodes(top)
     assert len(packed) == 2
+    box = packed[0]
+    assert box.node_type == nd.NODE_TYPE.HLIST
     migrate = packed[1]
     assert migrate.node_type == nd.NODE_TYPE.MARK
     assert toksToString(cmr10, migrate.tokens) == "123"
@@ -707,13 +716,10 @@ def test_insert_migrate(cmr10):
     cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    raw = _raw_nodes(top)
-    assert len(raw) == 1
-    box = raw[0]
-    assert box.node_type == nd.NODE_TYPE.HLIST
-    assert len(box.list) == 2
-    packed = list(top)
+    packed = _vertical_nodes(top)
     assert len(packed) == 2
+    box = packed[0]
+    assert box.node_type == nd.NODE_TYPE.HLIST
     node = packed[1]
     assert node.node_type == nd.NODE_TYPE.INS
     assert node.index == 2
@@ -725,7 +731,7 @@ def test_insert_migrate(cmr10):
 def test_vadjust_merges_into_vertical_material(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent a\\vadjust{\\hrule height 1pt}b\\par")
     top = cmr10.lists[-1]
-    packed = list(top)
+    packed = _vertical_nodes(top)
     assert packed[0].node_type == nd.NODE_TYPE.GLUE
     assert packed[1].node_type == nd.NODE_TYPE.HLIST
     assert packed[2].node_type == nd.NODE_TYPE.RULE

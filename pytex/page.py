@@ -794,52 +794,61 @@ class MainVList(vmode.VList):
 
     def __init__(self, parser):
         super().__init__(parser, [], inner=False)
-        self.page_initial_context = PageBuilderContext(parser.state.layout)
-        self.page_context = self.page_initial_context
+        self.contrib = []
         self._processing_pages = False
-        # the tail position in the list that have not been contributed
-        self.tail = 0
+
+    def concreteNodes(self):
+        return list(self.contrib) + list(self.list)
+
+    def rawNodes(self):
+        raw = []
+        seen = set()
+        for node in self.concreteNodes():
+            source = getattr(node, "source", None) or node
+            key = id(source)
+            if key in seen:
+                continue
+            seen.add(key)
+            raw.append(source)
+        return raw
+
+    def _currentPageContext(self):
+        return PageBuilderContext(self.parser.state.layout)
+
+    def _contributePending(self):
+        if not self.list:
+            return
+        self.contrib.extend(self.list)
+        self.list[:] = []
+        self.raw[:] = []
 
     def _triggersPageBuilder(self, node):
         # we do not trigger page building if a box is deposited by paragraph, display math or alignment.
         # instead, we check the raw node
-        if isinstance(node, PageStateNode) or node.source is not None:
+        if node.source is not None:
             return False
         if node.node_type == nd.NODE_TYPE.PENALTY:
-            trigger = True
+            return True
         elif isinstance(node, Paragraph) or isinstance(node, DisplayMathNode) or isinstance(node, HAlignment):
-            trigger = True
+            return True
         else:
-            trigger = node.node_type in (
+            return node.node_type in (
                 nd.NODE_TYPE.HLIST,
                 nd.NODE_TYPE.VLIST,
                 nd.NODE_TYPE.RULE,
                 nd.NODE_TYPE.INS,
             )
-        if trigger:
-            self.tail = len(self.list)
-        return trigger
-
-    def _rebuildState(self):
-        self.calculatePrevDepth()
-        context = self.page_initial_context
-        for node in self.raw:
-            if isinstance(node, PageStateNode):
-                context = node.context
-        self.page_context = context
 
     def _consumePagePrefix(self, count):
         if count > 0:
-            del self.list[:count]
+            del self.contrib[:count]
 
     def _prependCarryNodes(self, nodes):
         if not nodes:
             return
         for node in nodes:
             node.source = node
-        self.raw[:0] = list(nodes)
-        self.list[:0] = list(nodes)
-        self._rebuildState()
+        self.contrib[:0] = list(nodes)
 
     def _flushDeferredFileOps(self, box):
         from pytex import file as filemod
@@ -867,24 +876,27 @@ class MainVList(vmode.VList):
         self._processing_pages = True
         try:
             while True:
-                if not self.list:
+                if self.list:
+                    self._contributePending()
+                if not self.contrib:
                     return
-                breaker = MainVListBreaker(self.parser, self.list, self.page_initial_context)
-                start, start_context = breaker.pruneTop(0, self.page_initial_context)
-                if start >= len(self.list):
+                current_context = self._currentPageContext()
+                breaker = MainVListBreaker(self.parser, self.contrib, current_context)
+                start, start_context = breaker.pruneTop(0, current_context)
+                if start >= len(self.contrib):
                     return
                 end, next_start, break_context, break_penalty = breaker.bestBreak(start, start_context)
                 if not getattr(breaker, "last_triggered", False) and not force:
                     return
                 if end <= start:
-                    end = min(start + 1, len(self.list))
+                    end = min(start + 1, len(self.contrib))
                     next_start = end
                     break_context = breaker.advanceContext(start, end, start_context)
                     break_penalty = 0
                 page = bx.VBox(self.parser, break_context.vsize, None)
                 topmark = list(self.parser.state.parameters["botmark"])
-                firstmark, botmark = self._pageMarks(self.list, start, end, topmark)
-                self._updatePageMarksByClass(self.parser, self.list, start, end, topmark)
+                firstmark, botmark = self._pageMarks(self.contrib, start, end, topmark)
+                self._updatePageMarksByClass(self.parser, self.contrib, start, end, topmark)
                 self.parser.state.parameters["topmark"] = list(topmark)
                 self.parser.state.parameters["firstmark"] = list(firstmark)
                 self.parser.state.parameters["botmark"] = list(botmark)
@@ -901,7 +913,6 @@ class MainVList(vmode.VList):
                     out_carry = self._runOutputRoutine(self.parser, page.typeset(self.parser))
                     if out_carry:
                         pending.extend(out_carry)
-                self.page_initial_context = breaker.advanceContext(0, next_start, self.page_initial_context)
                 self._consumePagePrefix(next_start)
                 if pending:
                     self._prependCarryNodes(pending)
@@ -909,20 +920,14 @@ class MainVList(vmode.VList):
             self._processing_pages = False
 
     def append(self, node, interline_glue=True):
-        if not isinstance(node, PageStateNode):
-            context = PageBuilderContext(self.parser.state.layout)
-            if not self.page_context.sameLayout(self.parser.state.layout):
-                marker = PageStateNode(context)
-                super().append(marker)
-                self.page_context = context
         super().append(node, interline_glue)
         if self._triggersPageBuilder(node):
+            self._contributePending()
+        if self._triggersPageBuilder(node) and float(self.parser.state.layout["vsize"]) > 0:
             self._processPendingPages()
 
     def pop(self):
-        node = super().pop()
-        self._rebuildState()
-        return node
+        return super().pop()
 
     @staticmethod
     def _pageMeasure(total, node):
@@ -1284,8 +1289,10 @@ class MainVList(vmode.VList):
 
     def finish(self, parser):
         if float(parser.state.layout["vsize"]) <= 0:
+            self._flushPageWhatsits(parser, self.contrib)
             self._flushPageWhatsits(parser, self.list)
             return
+        self._contributePending()
         self._processPendingPages(force=True)
 
 

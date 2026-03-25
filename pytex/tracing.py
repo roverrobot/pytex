@@ -113,7 +113,8 @@ def _show_list(parser, current):
     )
     lines = [] if is_main_vlist else [current.list_type_name]
     depth = _show_limit(parser.state.parameters["showboxdepth"])
-    _show_items(parser, lines, list(current), "" if is_main_vlist else ".", depth)
+    nodes = current.concreteNodes() if hasattr(current, "concreteNodes") else list(current)
+    _show_items(parser, lines, nodes, "" if is_main_vlist else ".", depth)
     return lines
 
 

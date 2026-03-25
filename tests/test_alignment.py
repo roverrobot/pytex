@@ -9,7 +9,11 @@ from pytex.dimen import Dimen
 
 
 def _raw_nodes(vlist):
-    return getattr(vlist, "raw", vlist)
+    return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
+
+
+def _concrete_nodes(vlist):
+    return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
 
 
 def _typeset_halign(parser, node):
@@ -124,8 +128,7 @@ def test_template_leading_spaces_are_omitted(cmr10):
 
 def test_preamble_balanced_text_hides_cr(cmr10):
     cmr10.parse("\\halign{{\\cr}#\\cr}")
-    node = _raw_nodes(cmr10.lists[-1])[0]
-    assert len(node.rows) == 0
+    assert _concrete_nodes(cmr10.lists[-1]) == []
 
 
 def test_preamble_hash_inside_group_is_valid_placeholder(cmr10):
@@ -247,6 +250,7 @@ def test_valign_normalizes_cell_box_widths(cmr10):
 def test_halign_in_diplsaymath_shift_displayindent(cmr10):
     cmr10.parse("\\noindent$$\\displayindent=10pt\\halign{&#\\cr1&2\\cr}$$\\par")
     top = cmr10.lists[-1]
+    packed = _concrete_nodes(top)
     assert top.type == lists.LISTTYPE.VERTICAL and not top.inner
-    assert top.list[3].node_type == nd.NODE_TYPE.HLIST
-    assert top.list[3].shifted == Dimen(10)
+    assert packed[3].node_type == nd.NODE_TYPE.HLIST
+    assert packed[3].shifted == Dimen(10)

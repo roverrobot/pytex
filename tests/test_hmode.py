@@ -12,7 +12,11 @@ from pytex.expandable import toksToString
 
 
 def _raw_nodes(vlist):
-    return getattr(vlist, "raw", vlist)
+    return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
+
+
+def _concrete_nodes(vlist):
+    return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
 
 
 def test_new_paragraph(cmr10):
@@ -63,10 +67,11 @@ def test_par(cmr10):
 def test_noindent_par_creates_no_empty_line(cmr10):
     cmr10.parse("\\noindent\\par")
     top = cmr10.lists[-1]
+    nodes = _concrete_nodes(top)
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    assert top[0].node_type == nd.NODE_TYPE.GLUE
-    assert top[0].name == "\parskip"
+    assert len(nodes) == 1
+    assert nodes[0].node_type == nd.NODE_TYPE.GLUE
+    assert nodes[0].name == "\parskip"
 
 
 def test_vskip(cmr10):
@@ -110,25 +115,26 @@ def test_hrule_wrongmode(cmr10):
 def test_hrule(cmr10):
     cmr10.parse("\\hrule")
     top = cmr10.lists[-1]
+    nodes = _concrete_nodes(top)
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    node = top[0]
+    assert len(nodes) == 1
+    node = nodes[0]
     assert node.node_type == nd.NODE_TYPE.RULE
     assert node.width == dimen.NEG_MAX_DIMEN
     assert node.height == 0.4
     assert node.depth == 0.0
     cmr10.parse("\\hrule width 345pt")
-    node = top[-1]
+    node = _concrete_nodes(top)[-1]
     assert node.width == 345.0
     assert node.height == 0.4
     assert node.depth == 0.0
     cmr10.parse("\\hrule height 1in depth 1in")
-    node = top[-1]
+    node = _concrete_nodes(top)[-1]
     assert node.width == dimen.NEG_MAX_DIMEN
     assert node.height == 72.26999
     assert node.depth == 72.26999
     cmr10.parse("\\hrule width 345pt width 1in")
-    node = top[-1]
+    node = _concrete_nodes(top)[-1]
     assert node.width == 72.26999
     assert node.height == 0.4
     assert node.depth == 0.0
@@ -137,7 +143,7 @@ def test_vrule(cmr10):
     cmr10.parse("\\hbox{1\\vrule width 2pt p}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    box = top[0]
+    box = _concrete_nodes(top)[0]
     assert box.node_type == nd.NODE_TYPE.HLIST
     node = box.list[1]
     assert node.node_type == nd.NODE_TYPE.RULE

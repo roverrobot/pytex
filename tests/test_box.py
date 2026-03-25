@@ -13,7 +13,11 @@ from pytex.expandable import toToks, toksToString
 
 
 def _raw_nodes(vlist):
-    return getattr(vlist, "raw", vlist)
+    return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
+
+
+def _concrete_nodes(vlist):
+    return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
 
 
 def _expanded_vbox(parser, nodes):
@@ -50,7 +54,7 @@ def test_box_command(box):
     box0 = box.state.box[0]
     box.parse("\\box0")
     top = box.lists[-1]
-    assert top[-1] == box0
+    assert _concrete_nodes(top)[-1] == box0
     assert box.state.box[0] is None
 
 
@@ -84,7 +88,7 @@ def test_hbox(cmr10):
     cmr10.parse("\\hbox{Hello, world!}\\relax")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    box = top[-1]
+    box = _concrete_nodes(top)[-1]
     assert box.node_type == NODE_TYPE.HLIST
     typed = box.typeset(cmr10)
     assert typed.width == 55.58344
@@ -103,7 +107,7 @@ def test_hbox_to(cmr10):
     cmr10.parse("\\hbox to 100pt{Hello, world!}\\relax")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    box = top[-1]
+    box = _concrete_nodes(top)[-1]
     assert box.node_type == NODE_TYPE.HLIST
     assert isinstance(box.to, Dimen)
     typed = box.typeset(cmr10)
@@ -137,7 +141,7 @@ def test_hbox_spread(cmr10):
     cmr10.parse("\\hbox spread 10pt{Hello, world!}\\relax")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    box = top[-1]
+    box = _concrete_nodes(top)[-1]
     assert box.node_type == NODE_TYPE.HLIST
     assert isinstance(box.spread, Dimen)
     typed = box.typeset(cmr10)
@@ -180,7 +184,7 @@ def test_vbox(box):
     box.parse("\\vbox{\\copy0\\vskip1em plus 1em\\box0}\\relax")
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    b = top[-1]
+    b = _concrete_nodes(top)[-1]
     assert b.node_type == NODE_TYPE.VLIST
     assert b.width == 55.58344
     assert b.height == 6.94444 + 6.94444 + 1.94444 + 10.00002
@@ -197,7 +201,7 @@ def test_vbox_to(box):
     box.parse("\\vbox to 100pt{\\copy0\\vskip1em plus 1em\\box0}\\relax")
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    b = top[-1]
+    b = _concrete_nodes(top)[-1]
     assert b.node_type == NODE_TYPE.VLIST
     assert b.width == 55.58344
     assert b.height == 100
@@ -209,7 +213,7 @@ def test_vbox_spread(box):
     box.parse("\\vbox spread 10pt{\\copy0\\vskip1em plus 1em\\box0}\\relax")
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    b = top[-1]
+    b = _concrete_nodes(top)[-1]
     assert b.node_type == NODE_TYPE.VLIST
     assert b.width == 55.58344
     assert b.height == 6.94444 + 6.94444 + 1.94444 + 10.00002 + 10
@@ -487,7 +491,7 @@ def test_vsplit_waits_past_overfull_penalty_if_following_glue_can_recover(parser
 def test_moveright_dispatches_to_vertical_handler(parser):
     parser.parse("\\moveright1pt\\vbox{}")
     top = parser.lists[-1]
-    shifted = top[-1]
+    shifted = _concrete_nodes(top)[-1]
     assert shifted.node_type == NODE_TYPE.VLIST
     assert shifted.shifted == 1
     assert shifted.typeset(parser).shifted == 1
@@ -496,7 +500,7 @@ def test_moveright_dispatches_to_vertical_handler(parser):
 def test_moveleft_dispatches_to_vertical_handler(parser):
     parser.parse("\\moveleft1pt\\vbox{}")
     top = parser.lists[-1]
-    shifted = top[-1]
+    shifted = _concrete_nodes(top)[-1]
     assert shifted.node_type == NODE_TYPE.VLIST
     assert shifted.shifted == -1
     assert shifted.typeset(parser).shifted == -1
@@ -507,7 +511,7 @@ def test_vtop(box):
     b0 = box.state.box[0]
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    b = top[-1]
+    b = _concrete_nodes(top)[-1]
     assert b.node_type == NODE_TYPE.VLIST
     assert b.width == b0.width
     assert b.height == b0.height 
@@ -519,7 +523,7 @@ def test_vtop_to(box):
     box.parse("\\vtop to 100pt{\\copy0\\vskip1em plus 1em\\box0}\\relax")
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    b = top[-1]
+    b = _concrete_nodes(top)[-1]
     assert b.node_type == NODE_TYPE.VLIST
     assert b.width == 55.58344
     assert b.height == 6.94444
@@ -530,7 +534,7 @@ def test_vtop_spread(box):
     box.parse("\\vtop spread 10pt{\\copy0\\vskip1em plus 1em\\box0}\\relax")
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    b = top[-1]
+    b = _concrete_nodes(top)[-1]
     assert b.node_type == NODE_TYPE.VLIST
     typed = b.typeset(box)
     assert typed.width == 55.58344
@@ -542,7 +546,7 @@ def test_vtop_spread(box):
 def test_vtop_uses_first_packed_row_height_for_halign(cmr10):
     cmr10.parse("\\vtop{\\halign{#\\hfil\\cr A\\cr B\\cr}}\\relax")
     top = cmr10.lists[-1]
-    b = top[-1]
+    b = _concrete_nodes(top)[-1]
     typed = b.typeset(cmr10)
     assert typed.node_type == NODE_TYPE.VLIST
     assert typed.list
@@ -619,15 +623,16 @@ def test_wd(box, cmd, attr):
 def test_box_void(box):
     box.parse("\\box1")
     top = box.lists[-1]
-    assert len(top) == 0
+    assert len(_concrete_nodes(top)) == 0
 
 
 def test_unhbox(box):
     box.parse("1\\unhbox0")
     top = box.lists[-1]
-    assert len(top) == 16
-    assert top[0].node_type == NODE_TYPE.HLIST
-    assert any(node.node_type == NODE_TYPE.KERN for node in top)
+    nodes = _concrete_nodes(top)
+    assert len(nodes) == 16
+    assert nodes[0].node_type == NODE_TYPE.HLIST
+    assert any(node.node_type == NODE_TYPE.KERN for node in nodes)
     assert box.state.box[0] is None
 
 
@@ -650,9 +655,10 @@ def test_unvbox_wrongbox(box):
 def test_unhcopy(box):
     box.parse("1\\unhcopy0")
     top = box.lists[-1]
-    assert len(top) == 16
-    assert top[0].node_type == NODE_TYPE.HLIST
-    assert any(node.node_type == NODE_TYPE.KERN for node in top)
+    nodes = _concrete_nodes(top)
+    assert len(nodes) == 16
+    assert nodes[0].node_type == NODE_TYPE.HLIST
+    assert any(node.node_type == NODE_TYPE.KERN for node in nodes)
     box0 = box.state.box[0]
     assert len(box0.list) == 14 # exoanded node, with an automatic kern
 
@@ -660,8 +666,9 @@ def test_unhcopy(box):
 def test_unvbox(box):
     box.parse("\\setbox1=\\vbox{\\box0}\\unvbox1")
     top = box.lists[-1]
-    assert len(top) == 1
-    assert top[0].node_type == NODE_TYPE.HLIST
+    nodes = _concrete_nodes(top)
+    assert len(nodes) == 1
+    assert nodes[0].node_type == NODE_TYPE.HLIST
     assert box.state.box[1] is None
 
 
@@ -749,8 +756,9 @@ def test_lastbox_vmode(cmr10):
     cmr10.parse("\\vbox{\\setbox0=\\lastbox}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 1
-    vbox = top[0]
+    nodes = list(getattr(top, "contrib", [])) + list(top.list)
+    assert len(nodes) == 1
+    vbox = nodes[0]
     assert len(vbox.list) == 0
     box = cmr10.state.box[0]
     assert box is None
@@ -764,11 +772,12 @@ def test_lastbox_vmode(cmr10):
 def test_lastbox_main_vmode_after_unvbox(cmr10):
     cmr10.parse("\\setbox1=\\vbox{\\hbox{A}\\hbox{B}}\\unvbox1\\setbox0=\\lastbox\\setbox2=\\lastbox")
     top = cmr10.lists[-1]
+    nodes = _concrete_nodes(top)
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert len(top) == 2
-    assert top[0].node_type == NODE_TYPE.HLIST
-    assert top[1].node_type == NODE_TYPE.GLUE
-    assert top[1].name in ("\\baselineskip", "\\lineskip")
+    assert len(nodes) == 2
+    assert nodes[0].node_type == NODE_TYPE.HLIST
+    assert nodes[1].node_type == NODE_TYPE.GLUE
+    assert nodes[1].name in ("\\baselineskip", "\\lineskip")
     box0 = cmr10.state.box[0]
     box2 = None
     assert box0 is not None and box0.node_type == NODE_TYPE.HLIST

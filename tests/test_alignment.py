@@ -248,5 +248,5 @@ def test_halign_in_diplsaymath_shift_displayindent(cmr10):
     cmr10.parse("\\noindent$$\\displayindent=10pt\\halign{&#\\cr1&2\\cr}$$\\par")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL and not top.inner
-    assert top.list[2].node_type == nd.NODE_TYPE.HLIST
-    assert top.list[2].shifted == Dimen(10)
+    assert top.list[3].node_type == nd.NODE_TYPE.HLIST
+    assert top.list[3].shifted == Dimen(10)

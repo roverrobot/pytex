@@ -64,7 +64,9 @@ def test_noindent_par_creates_no_empty_line(cmr10):
     cmr10.parse("\\noindent\\par")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert not top
+    assert len(top) == 1
+    assert top[0].node_type == nd.NODE_TYPE.GLUE
+    assert top[0].name == "\parskip"
 
 
 def test_vskip(cmr10):

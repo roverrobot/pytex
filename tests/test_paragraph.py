@@ -101,24 +101,27 @@ def test_implicit_paragraph_adds_parskip(parser):
     assert len(raw) == 2
     assert isinstance(raw[0], paragraph.Paragraph)
     assert isinstance(raw[1], paragraph.Paragraph)
-    assert len(top) == 4
-    assert top[0].node_type == nd.NODE_TYPE.HLIST
-    assert top[1].node_type == nd.NODE_TYPE.GLUE
-    assert top[1].glue.dimen == 5
+    assert len(top) == 5
+    assert top[0].node_type == nd.NODE_TYPE.GLUE
+    assert top[0].name == "\parskip"
+    assert top[1].node_type == nd.NODE_TYPE.HLIST
     assert top[2].node_type == nd.NODE_TYPE.GLUE
-    assert top[3].node_type == nd.NODE_TYPE.HLIST
+    assert top[2].glue.dimen == 5
+    assert top[3].node_type == nd.NODE_TYPE.GLUE
+    assert top[4].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
     cmr10.parse("\\parskip=5pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt a\\par b\\par")
     main = cmr10.lists[-1]
     names = [getattr(n, "name", None) for n in main if n.node_type == nd.NODE_TYPE.GLUE]
-    assert names == ["\\parskip", "\\baselineskip"]
-    assert main[1].glue.dimen == Dimen(5.0)
-    assert main[2].glue.dimen == (
+    assert names == ["\\parskip", "\\parskip", "\\baselineskip"]
+    assert main[0].glue.dimen == Dimen(5.0)
+    assert main[2].glue.dimen == Dimen(5.0)
+    assert main[3].glue.dimen == (
         cmr10.state.layout["baselineskip"].dimen
-        - main[0].depth
-        - main[3].height
+        - main[1].depth
+        - main[4].height
     )
 
 
@@ -126,11 +129,11 @@ def test_group_in_vmode_does_not_reset_prevdepth(cmr10):
     cmr10.parse("\\parskip=0pt\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt a\\par\\begingroup\\endgroup b\\par")
     main = cmr10.lists[-1]
     names = [getattr(n, "name", None) for n in main if n.node_type == nd.NODE_TYPE.GLUE]
-    assert names == ["\\parskip", "\\baselineskip"]
-    assert main[2].glue.dimen == (
+    assert names == ["\\parskip", "\\parskip", "\\baselineskip"]
+    assert main[3].glue.dimen == (
         cmr10.state.layout["baselineskip"].dimen
-        - main[0].depth
-        - main[3].height
+        - main[1].depth
+        - main[4].height
     )
 
 

@@ -726,9 +726,10 @@ def test_vadjust_merges_into_vertical_material(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent a\\vadjust{\\hrule height 1pt}b\\par")
     top = cmr10.lists[-1]
     packed = list(top)
-    assert packed[0].node_type == nd.NODE_TYPE.HLIST
-    assert packed[1].node_type == nd.NODE_TYPE.RULE
-    assert packed[1].height == 1
+    assert packed[0].node_type == nd.NODE_TYPE.GLUE
+    assert packed[1].node_type == nd.NODE_TYPE.HLIST
+    assert packed[2].node_type == nd.NODE_TYPE.RULE
+    assert packed[2].height == 1
 
 
 def test_page_break_merges_vadjust_material(cmr10):

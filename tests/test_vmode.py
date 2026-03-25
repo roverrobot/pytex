@@ -249,7 +249,7 @@ def _break_pages(parser):
         start, context = breaker.pruneTop(start, context)
         if start >= len(material):
             break
-        end, next_start, break_context, break_penalty = breaker.bestBreak(start, context)
+        end, next_start, break_context, break_penalty, _ = breaker.bestBreak(start, context)
         if end <= start:
             end = min(start + 1, len(material))
             next_start = end
@@ -520,7 +520,7 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     context = page.PageBuilderContext(parser.state.layout)
     breaker = page.MainVListBreaker(parser, material, context)
     start, context = breaker.pruneTop(0, context)
-    end, _, _, _ = breaker.bestBreak(start, context)
+    end, _, _, _, _ = breaker.bestBreak(start, context)
     assert end > start
     ins_nodes = [node for node in material if node.node_type == nd.NODE_TYPE.INS]
     assert len(ins_nodes) == 2

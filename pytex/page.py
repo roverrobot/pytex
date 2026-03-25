@@ -205,7 +205,6 @@ class VListBreaker:
         return index, index + 1
 
     def bestBreak(self, start, context):
-        self.last_triggered = False
         total = Glue()
         topskip_added = False
         delayed_start = False
@@ -239,8 +238,7 @@ class VListBreaker:
                         ):
                             _, index, kind, best_context, best_penalty = current
                             end, next_start = self.candidateBreak(index, kind)
-                            self.last_triggered = True
-                            return end, next_start, best_context, best_penalty
+                            return end, next_start, best_context, best_penalty, True
                     if delayed_start and node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
                         self.measure(total, node)
                     continue
@@ -267,8 +265,7 @@ class VListBreaker:
                 if cost == inf or node.penalty <= -10000:
                     _, index, kind, best_context, best_penalty = best if best is not None else current
                     end, next_start = self.candidateBreak(index, kind)
-                    self.last_triggered = True
-                    return end, next_start, best_context, best_penalty
+                    return end, next_start, best_context, best_penalty, True
                 continue
             before_total = total.copy()
             before_bottom_depth = bottom_depth
@@ -294,11 +291,10 @@ class VListBreaker:
             if best is None or cost <= best[0]:
                 best = (cost, len(self.nodes), "end", current_context, final_penalty)
         if best is None:
-            return len(self.nodes), len(self.nodes), current_context, 0
+            return len(self.nodes), len(self.nodes), current_context, 0, False
         _, index, kind, best_context, best_penalty = best
         end, next_start = self.candidateBreak(index, kind)
-        self.last_triggered = triggered
-        return end, next_start, best_context, best_penalty
+        return end, next_start, best_context, best_penalty, triggered
 
     def _buildSlice(self, start, end, context, topskip_name):
         built = []
@@ -556,7 +552,7 @@ class MainVListBreaker(VListBreaker):
         start, split_context = breaker.pruneTop(0, split_context)
         if start >= len(nodes):
             return None, [], Dimen(), 0
-        end, next_start, break_context, break_penalty = breaker.bestBreak(start, split_context)
+        end, next_start, break_context, break_penalty, _ = breaker.bestBreak(start, split_context)
         if end <= start:
             end = min(start + 1, len(nodes))
             next_start = end
@@ -667,7 +663,6 @@ class MainVListBreaker(VListBreaker):
         return self._insert_actions.get(id(node))
 
     def bestBreak(self, start, context):
-        self.last_triggered = False
         total = Glue()
         topskip_added = False
         best = None
@@ -731,13 +726,11 @@ class MainVListBreaker(VListBreaker):
                     if best is None:
                         self.last_insert_penalties = insert_penalties
                         end, next_start = self.candidateBreak(i, "penalty")
-                        self.last_triggered = True
-                        return end, next_start, current_context, node.penalty
+                        return end, next_start, current_context, node.penalty, True
                     _, index, kind, best_context, best_penalty, best_q = best
                     self.last_insert_penalties = best_q
                     end, next_start = self.candidateBreak(index, kind)
-                    self.last_triggered = True
-                    return end, next_start, best_context, best_penalty
+                    return end, next_start, best_context, best_penalty, True
                 continue
             before_total = total.copy()
             self.measure(total, node)
@@ -777,12 +770,11 @@ class MainVListBreaker(VListBreaker):
         self._insert_actions = actions
         if best is None:
             self.last_insert_penalties = insert_penalties
-            return len(self.nodes), len(self.nodes), current_context, 0
+            return len(self.nodes), len(self.nodes), current_context, 0, False
         _, index, kind, best_context, best_penalty, best_q = best
         self.last_insert_penalties = best_q
         end, next_start = self.candidateBreak(index, kind)
-        self.last_triggered = triggered
-        return end, next_start, best_context, best_penalty
+        return end, next_start, best_context, best_penalty, triggered
 
 
 class MainVList(vmode.VList):
@@ -876,8 +868,14 @@ class MainVList(vmode.VList):
                 start, start_context = breaker.pruneTop(0, current_context)
                 if start >= len(self.contrib):
                     return
-                end, next_start, break_context, break_penalty = breaker.bestBreak(start, start_context)
-                if not getattr(breaker, "last_triggered", False) and not force:
+                (
+                    end,
+                    next_start,
+                    break_context,
+                    break_penalty,
+                    triggered,
+                ) = breaker.bestBreak(start, start_context)
+                if not triggered and not force:
                     return
                 if end <= start:
                     end = min(start + 1, len(self.contrib))
@@ -1361,7 +1359,7 @@ class VSplit(Command):
                 parser.state.globals["splitfirstmarks"] = splitfirstmarks
                 parser.state.globals["splitbotmarks"] = splitbotmarks
             return None
-        end, next_start, break_context, _ = breaker.bestBreak(start, split_context)
+        end, next_start, break_context, _, _ = breaker.bestBreak(start, split_context)
         if end <= start:
             end = min(start + 1, len(nodes))
             next_start = end

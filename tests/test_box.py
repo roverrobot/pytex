@@ -498,7 +498,7 @@ def test_vsplit_waits_past_overfull_penalty_if_following_glue_can_recover(parser
     context = page.VSplitContext(Dimen(16), glue.Glue(), Dimen(4))
     breaker = page.VSplitBreaker(nodes, context)
     start, context = breaker.pruneTop(0, context)
-    end, next_start, _, _ = breaker.bestBreak(start, context)
+    end, next_start, _, _, _ = breaker.bestBreak(start, context)
     assert end == 5
     assert next_start == 5
 

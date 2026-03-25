@@ -801,7 +801,9 @@ class MainVList(vmode.VList):
         self.tail = 0
 
     def _triggersPageBuilder(self, node):
-        if isinstance(node, PageStateNode):
+        # we do not trigger page building if a box is deposited by paragraph, display math or alignment.
+        # instead, we check the raw node
+        if isinstance(node, PageStateNode) or node.source is not None:
             return False
         if node.node_type == nd.NODE_TYPE.PENALTY:
             trigger = True

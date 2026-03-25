@@ -59,7 +59,6 @@ class Box(nd.Box):
         # sign is -1, 0, or 1; num >= 0; den >= 1.
         self.glue_ratio = GlueRatio(0, 0, 1)
         self._packed = None
-        self._build_state = None
 
     def saveInfo(self):
         packed = None if self._packed == self else self._packed
@@ -483,7 +482,6 @@ class BuildBox(Command):
             state = vmode.VList(parser, box.list, inner=True)
         else:
             state = hmode.HList(parser, box.list, inner=True)
-        box._build_state = state
         parser.lists.append(state)
         state.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value
@@ -791,12 +789,9 @@ class UnBox(Command):
             raise ValueError("expecting a vbox", parser.input.position())
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
             raise ValueError("expecting an hbox", parser.input.position())
-        packed_box = box.typeset(parser)
-        nodes = list(packed_box.list)
-        if not self.vertical:
-            for node in box.list:
-                if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
-                    nodes.append(node)
+        nodes = box.list
+        for node in nodes:
+            node.source = box
         if top.type == LISTTYPE.VERTICAL:
             top.extend(nodes, interline_glue=False)
         else:

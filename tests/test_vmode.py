@@ -241,7 +241,7 @@ def _break_pages(parser):
     main._contributePending()
     material = list(main.contrib)
     context = page.PageBuilderContext(parser.state.layout)
-    breaker = page.MainVListBreaker(parser, material, context)
+    breaker = page.PageBreaker(parser, material, context)
     topmark = list(parser.state.parameters["botmark"])
     page.MainVList._clearInsertScratch(parser)
     start = 0
@@ -518,7 +518,7 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     main._contributePending()
     material = list(main.contrib)
     context = page.PageBuilderContext(parser.state.layout)
-    breaker = page.MainVListBreaker(parser, material, context)
+    breaker = page.PageBreaker(parser, material, context)
     start, context = breaker.pruneTop(0, context)
     end, _, _, _, _ = breaker.bestBreak(start, context)
     assert end > start
@@ -548,20 +548,19 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
 
 def test_page_cost_matches_tex_formula(parser):
     parser.parse("")
-    main = parser.lists[0]
+    breaker = page.PageBreaker(parser, [], page.PageBuilderContext(parser.state.layout))
     total = glue.Glue(0, glue.Stretchness(1))
-    assert main._pageCost(total, Dimen(5), 0) == 100000
-    assert main._pageCost(total, Dimen(5), 10000) == float("inf")
+    assert breaker.cost(total, Dimen(5), 0) == 100000
+    assert breaker.cost(total, Dimen(5), 10000) == float("inf")
 
     overfull = glue.Glue(10)
-    assert main._pageCost(overfull, Dimen(), -10000) == float("inf")
-    assert main._pageCost(total, Dimen(1), 0, 10000) == float("inf")
+    assert breaker.cost(overfull, Dimen(), -10000) == float("inf")
+    assert breaker.cost(total, Dimen(1), 0, 10000) == float("inf")
 
 
 def test_page_badness_underfull_without_stretch_is_finite(parser):
     parser.parse("")
-    main = parser.lists[0]
-    assert main._pageBadness(glue.Glue(0), Dimen(5)) == 10000
+    assert page.VerticalBreaker.badness(glue.Glue(0), Dimen(5)) == 10000
 
 
 def test_page_topskip_includes_rule(parser):

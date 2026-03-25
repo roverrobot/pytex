@@ -31,7 +31,7 @@ def _set_mark_class(register, index, tokens):
     register[index] = list(tokens)
 
 
-class VListBreaker:
+class VerticalBreaker:
     """
     Common vertical-list breaking logic shared by page breaks and \\vsplit.
     """
@@ -452,7 +452,7 @@ class PageBuilderContext:
         self.maxdepth = layout["maxdepth"]
 
 
-class MainVListBreaker(VListBreaker):
+class PageBreaker(VerticalBreaker):
     def __init__(self, parser, nodes, initial_context):
         super().__init__(nodes, initial_context)
         self.parser = parser
@@ -801,24 +801,6 @@ class MainVList(vmode.VList):
             node.source = node
         self.contrib[:0] = list(nodes)
 
-    def _flushDeferredFileOps(self, box):
-        from pytex import file as filemod
-
-        items = getattr(box, "list", None)
-        if items is None:
-            return
-        kept = []
-        for node in items:
-            if node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                self._flushDeferredFileOps(node)
-                kept.append(node)
-                continue
-            if isinstance(node, filemod.FileOpNode):
-                node.output(self.parser, None)
-                continue
-            kept.append(node)
-        box.list[:] = kept
-
     def _processPendingPages(self, force=False):
         if self._processing_pages:
             return
@@ -832,7 +814,7 @@ class MainVList(vmode.VList):
                 if not self.contrib:
                     return
                 current_context = self._currentPageContext()
-                breaker = MainVListBreaker(self.parser, self.contrib, current_context)
+                breaker = PageBreaker(self.parser, self.contrib, current_context)
                 start, start_context = breaker.pruneTop(0, current_context)
                 if start >= len(self.contrib):
                     return
@@ -885,157 +867,6 @@ class MainVList(vmode.VList):
 
     def pop(self):
         return super().pop()
-
-    @staticmethod
-    def _pageMeasure(total, node):
-        if node.node_type == nd.NODE_TYPE.GLUE:
-            total.dimen += node.glue.dimen
-            total.stretch = total.stretch + node.glue.stretch
-            total.shrink = total.shrink + node.glue.shrink
-        elif node.node_type == nd.NODE_TYPE.KERN:
-            total.dimen += node.kern
-        elif node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            total.dimen += node.height + node.depth
-        elif node.node_type == nd.NODE_TYPE.RULE:
-            total.dimen += node.height + node.depth
-        elif node.node_type == nd.NODE_TYPE.INS:
-            parser = getattr(getattr(node, "vlist", None), "parser", None)
-            if parser is None:
-                return total
-            box = bx.VBox(parser, None, Dimen())
-            box.list[:] = list(node.vlist)
-            box = box.typeset(parser)
-            total.dimen += box.height + box.depth
-        return total
-
-    @staticmethod
-    def _pageTopskip(topskip, node):
-        if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.RULE):
-            return None
-        dimen = topskip.dimen - node.height
-        if dimen < 0:
-            dimen = Dimen()
-        return Glue(dimen, topskip.stretch, topskip.shrink)
-
-    @staticmethod
-    def _pageBadness(total, goal):
-        delta = goal - total.dimen
-        if delta == 0:
-            return 0
-        if delta > 0:
-            stretch = total.stretch
-            if stretch.factor == 0:
-                return 10000
-            if stretch.order > 0:
-                return 0
-            num = int(delta)
-            den = int(stretch.factor)
-        else:
-            shrink = total.shrink
-            if shrink.factor == 0:
-                return inf
-            if shrink.order > 0:
-                return 0
-            num = -int(delta)
-            den = int(shrink.factor)
-            if num > den:
-                return inf
-        bad = (100 * num * num * num + (den * den * den) // 2) // (den * den * den)
-        return min(10000, bad)
-
-    def _pageCost(self, total, goal, penalty, insert_penalties=0):
-        badness = self._pageBadness(total, goal)
-        if penalty >= 10000:
-            return inf
-        if penalty <= -10000:
-            if badness == inf or insert_penalties >= 10000:
-                return inf
-            return penalty
-        if badness == inf or insert_penalties >= 10000:
-            return inf
-        if badness == 10000:
-            return 100000
-        return badness + penalty + insert_penalties
-
-    @staticmethod
-    def _isNonDiscardable(node):
-        return node.node_type not in (
-            nd.NODE_TYPE.GLUE,
-            nd.NODE_TYPE.KERN,
-            nd.NODE_TYPE.PENALTY,
-        )
-
-    @staticmethod
-    def _isTransparent(node):
-        return False
-
-    @classmethod
-    def _previousRealNode(cls, nodes, start, index):
-        index -= 1
-        while index >= start and cls._isTransparent(nodes[index]):
-            index -= 1
-        return index
-
-    @classmethod
-    def _nextRealNode(cls, nodes, index):
-        index += 1
-        while index < len(nodes) and cls._isTransparent(nodes[index]):
-            index += 1
-        return index
-
-    @classmethod
-    def _isLegalBreak(cls, nodes, start, index):
-        node = nodes[index]
-        if node.node_type == nd.NODE_TYPE.PENALTY:
-            return True
-        if node.node_type == nd.NODE_TYPE.GLUE:
-            prev = cls._previousRealNode(nodes, start, index)
-            if prev < start:
-                return False
-            return cls._isNonDiscardable(nodes[prev])
-        if node.node_type == nd.NODE_TYPE.KERN:
-            nxt = cls._nextRealNode(nodes, index)
-            return nxt < len(nodes) and nodes[nxt].node_type == nd.NODE_TYPE.GLUE
-        return False
-
-    @staticmethod
-    def _hasDepth(node):
-        return node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.RULE)
-
-    @staticmethod
-    def _effectiveTotal(total, bottom_depth, maxdepth):
-        if bottom_depth is None:
-            return total
-        excess = bottom_depth - maxdepth
-        if excess <= 0:
-            return total
-        return Glue(total.dimen - excess, total.stretch, total.shrink)
-
-    @staticmethod
-    def _pendingTotal(total, bottom_depth):
-        if bottom_depth is None:
-            return total
-        return Glue(total.dimen - bottom_depth, total.stretch, total.shrink)
-
-    @staticmethod
-    def _prunePageTop(nodes, start, context):
-        while start < len(nodes):
-            node = nodes[start]
-            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
-                start += 1
-                continue
-            break
-        return start, context
-
-    @staticmethod
-    def _candidateBreak(index, kind):
-        if kind == "kern":
-            return index + 1, index + 1
-        return index, index + 1
-
-    @staticmethod
-    def _advanceContext(nodes, start, end, context):
-        return context
 
     @staticmethod
     def _pageMarks(nodes, start, end, topmark):
@@ -1255,7 +1086,7 @@ class VSplitContext:
         self.maxdepth = maxdepth
 
 
-class VSplitBreaker(VListBreaker):
+class VSplitBreaker(VerticalBreaker):
     """
     Vertical-list breaker for \\vsplit. Unlike page breaking, the end of the
     source list acts as an implicit \\penalty-10000 breakpoint.

@@ -606,6 +606,7 @@ class AlignmentEndCallback:
             for n in alignment._typeset_cache:
                 if n.node_type == nd.NODE_TYPE.HLIST:
                     n.shifted = indent
+                    n.display = True
             top.isalign = True
         if self.parser.alignments and self.parser.alignments[-1] is self.builder:
             self.parser.alignments.pop()

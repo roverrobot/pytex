@@ -940,12 +940,9 @@ class MainVList(vmode.VList):
             parser = getattr(getattr(node, "vlist", None), "parser", None)
             if parser is None:
                 return total
-            box = getattr(node, "_legacy_insert_box", None)
-            if box is None:
-                box = bx.VBox(parser, None, Dimen())
-                box.list[:] = list(node.vlist)
-                box = box.typeset(parser)
-                node._legacy_insert_box = box
+            box = bx.VBox(parser, None, Dimen())
+            box.list[:] = list(node.vlist)
+            box = box.typeset(parser)
             total.dimen += box.height + box.depth
         return total
 
@@ -1079,80 +1076,6 @@ class MainVList(vmode.VList):
         if kind == "kern":
             return index + 1, index + 1
         return index, index + 1
-
-    def _bestPageBreak(self, nodes, start, context):
-        total = Glue()
-        topskip_added = False
-        best = None
-        bottom_depth = None
-        current_context = context
-        for i in range(start, len(nodes)):
-            node = nodes[i]
-            if isinstance(node, PageStateNode):
-                current_context = node.context
-                continue
-            if not topskip_added:
-                top = self._pageTopskip(current_context.topskip, node)
-                if top is not None:
-                    total = total + top
-                    topskip_added = True
-            if node.node_type == nd.NODE_TYPE.PENALTY:
-                if node.penalty >= 10000:
-                    continue
-                effective = self._pendingTotal(total, bottom_depth)
-                cost = self._pageCost(effective, current_context.vsize, node.penalty)
-                current = (cost, i, "penalty", current_context, node.penalty)
-                if best is None or cost <= best[0]:
-                    best = current
-                if cost == inf or node.penalty <= -10000:
-                    _, index, kind, best_context, best_penalty = best if best is not None else current
-                    end, next_start = self._candidateBreak(index, kind)
-                    return end, next_start, best_context, best_penalty
-                continue
-            before_total = total.copy()
-            before_bottom_depth = bottom_depth
-            self._pageMeasure(total, node)
-            if self._hasDepth(node):
-                bottom_depth = node.depth
-            elif node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                bottom_depth = None
-            if self._isLegalBreak(nodes, start, i):
-                break_total = before_total if node.node_type == nd.NODE_TYPE.GLUE else total
-                break_depth = before_bottom_depth if node.node_type == nd.NODE_TYPE.GLUE else bottom_depth
-                effective = self._pendingTotal(break_total, break_depth)
-                cost = self._pageCost(effective, current_context.vsize, 0)
-                if best is None or cost <= best[0]:
-                    best = (cost, i, node.node_type.name.lower(), current_context, 0)
-                if cost == inf:
-                    break
-        if best is None:
-            return len(nodes), len(nodes), current_context, 0
-        _, index, kind, best_context, best_penalty = best
-        end, next_start = self._candidateBreak(index, kind)
-        return end, next_start, best_context, best_penalty
-
-    def _buildPage(self, parser, nodes, start, end, context):
-        built = []
-        topskip_added = False
-        last_box = None
-        current_context = context
-        for node in nodes[start:end]:
-            if isinstance(node, PageStateNode):
-                current_context = node.context
-                continue
-            if not topskip_added:
-                top = self._pageTopskip(current_context.topskip, node)
-                if top is not None:
-                    built.append(nd.Glue(top, "\\topskip"))
-                    topskip_added = True
-            built.append(node)
-            if self._hasDepth(node):
-                last_box = node
-            elif node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                last_box = None
-        if last_box is not None and last_box.depth > current_context.maxdepth:
-            last_box.depth = current_context.maxdepth
-        return built
 
     @staticmethod
     def _advanceContext(nodes, start, end, context):

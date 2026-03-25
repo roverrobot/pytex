@@ -797,23 +797,26 @@ class MainVList(vmode.VList):
         self.page_initial_context = PageBuilderContext(parser.state.layout)
         self.page_context = self.page_initial_context
         self._processing_pages = False
-        # the number of nodes that has been unboxed/uncopied, and thus can be used for \lastbox etc
-        self.tail_count = 0
+        # the tail position in the list that have not been contributed
+        self.tail = 0
 
-    @classmethod
-    def _triggersPageBuilder(cls, node):
+    def _triggersPageBuilder(self, node):
         if isinstance(node, PageStateNode):
             return False
         if node.node_type == nd.NODE_TYPE.PENALTY:
-            return True
-        if isinstance(node, Paragraph) or isinstance(node, DisplayMathNode) or isinstance(node, HAlignment):
-            return True
-        return node.node_type in (
-            nd.NODE_TYPE.HLIST,
-            nd.NODE_TYPE.VLIST,
-            nd.NODE_TYPE.RULE,
-            nd.NODE_TYPE.INS,
-        )
+            trigger = True
+        elif isinstance(node, Paragraph) or isinstance(node, DisplayMathNode) or isinstance(node, HAlignment):
+            trigger = True
+        else:
+            trigger = node.node_type in (
+                nd.NODE_TYPE.HLIST,
+                nd.NODE_TYPE.VLIST,
+                nd.NODE_TYPE.RULE,
+                nd.NODE_TYPE.INS,
+            )
+        if trigger:
+            self.tail = len(self.list)
+        return trigger
 
     def _rebuildState(self):
         self.calculatePrevDepth()
@@ -904,7 +907,6 @@ class MainVList(vmode.VList):
             self._processing_pages = False
 
     def append(self, node, interline_glue=True):
-        self.tail_count = 0
         if not isinstance(node, PageStateNode):
             context = PageBuilderContext(self.parser.state.layout)
             if not self.page_context.sameLayout(self.parser.state.layout):

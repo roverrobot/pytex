@@ -169,8 +169,8 @@ def test_leaders(cmr10, cmd, type):
 
 @pytest.mark.parametrize("cmd", [
     "\\kern 1cm\\unkern",
-    "\\penalty 10000\\unpenalty",
     "\\vfil\\unskip",
+    "\\vbox{\\penalty 10000\\unpenalty",
 ])
 def test_unkern(cmr10, cmd):
     cmr10.parse(f"{cmd}")

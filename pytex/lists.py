@@ -272,10 +272,8 @@ class Remove(Command):
 
     def execute(self, parser):
         top = parser.lists[-1]
-        remove = getattr(top, "removeLastConcrete", None)
-        if remove is not None:
-            remove(self.node_type)
-            return
+        if top.type == LISTTYPE.VERTICAL and not top.inner and top.tail >= len(top.list):
+            raise ValueError(f"invalid {parser.current_token.name} in main vertical list", parser.input.position())
         if len(top) > 0 and top[-1].node_type == self.node_type:
             top.pop()
 

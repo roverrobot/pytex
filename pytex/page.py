@@ -912,8 +912,8 @@ class MainVList(vmode.VList):
         super().append(node, interline_glue)
         if self._triggersPageBuilder(node):
             self._contributePending()
-        if self._triggersPageBuilder(node) and float(self.parser.state.layout["vsize"]) > 0:
-            self._processPendingPages()
+            if float(self.parser.state.layout["vsize"]) > 0:
+                self._processPendingPages()
 
     def pop(self):
         return super().pop()

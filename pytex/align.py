@@ -602,6 +602,10 @@ class AlignmentEndCallback:
             alignment._typeset_cache = vmode.VList(parser, [], inner=True)
             parser.state.globals["prevdepth"] = initial_prevdepth        
             HAlignment.typeset(alignment, parser, alignment._typeset_cache)
+            indent = parser.state.volatile["displayindent"]
+            for n in alignment._typeset_cache:
+                if n.node_type == nd.NODE_TYPE.HLIST:
+                    n.shifted = indent
             top.isalign = True
         if self.parser.alignments and self.parser.alignments[-1] is self.builder:
             self.parser.alignments.pop()
@@ -720,16 +724,12 @@ class MAlignment(HAlignment):
         if not isinstance(packed, vmode.VList):
             raise TypeError("MAlignment.typeset expects a VList")
         layout = parser.state.layout
-        indent = parser.state.volatile["displayindent"]
         penalty = nd.Penalty(layout["predisplaypenalty"])
         penalty.source = self
         packed.append(penalty)
         above = nd.Glue(layout["abovedisplayskip"], "\\abovedisplayskip")
         above.source = self
         packed.append(above)
-        for n in self._typeset_cache:
-            if n.node_type == nd.NODE_TYPE.HLIST:
-                n.shifted = indent
         packed.extend(self._typeset_cache, interline_glue=False)
         penalty = nd.Penalty(layout["postdisplaypenalty"])
         penalty.source = self

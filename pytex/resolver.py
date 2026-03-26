@@ -166,6 +166,21 @@ class FileResolver:
             raise ValueError(f"path outside project directory not allowed: {name}")
         return path
 
+    def _outputPath(self, name: str):
+        """
+        Resolve an output path under the project directory.
+        """
+        if os.path.isabs(name):
+            raise ValueError(f"absolute output paths not allowed: {name}")
+        path = os.path.realpath(os.path.join(self.project_dir, name))
+        try:
+            allowed = os.path.commonpath([self.project_dir, path]) == self.project_dir
+        except ValueError:
+            allowed = False
+        if not allowed:
+            raise ValueError(f"path outside project directory not allowed: {name}")
+        return path
+
     @staticmethod
     def _hasExplicitDirectory(name: str):
         """
@@ -326,8 +341,7 @@ class FileResolver:
         """
         Resolve the file name for writing
 
-        The output file is written to the current working directory unless an explicit path
-        is provided.
+        The output file is written under the project directory.
         @param name: the file name
         @param type: the file type. If None, the file type is inferred from the file extension
         @param shipout: whether the file is an output file
@@ -351,7 +365,7 @@ class FileResolver:
             self.in_memory_files[n] = file
             return file.open(for_read=False)
         mode = "wb" if info["binary"] else "w"
-        return open(n, mode)
+        return open(self._outputPath(n), mode)
 
 
 def readFileName(parser) -> str:

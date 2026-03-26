@@ -48,6 +48,32 @@ def test_project_dir_rejects_source_paths_outside_root(tmp_path):
         parser.resolver.openIn("../secret", "source")
 
 
+def test_project_dir_writes_relative_output_in_project_directory(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    parser = Parser(project_dir=str(project))
+    handle = parser.resolver.openOut("output", "source")
+    handle.write("hello")
+    handle.close()
+    parser.close()
+    assert (project / "output.tex").read_text() == "hello"
+    assert not (work / "output.tex").exists()
+
+
+def test_project_dir_rejects_output_paths_outside_root_and_absolute(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    parser = Parser(project_dir=str(project))
+    with pytest.raises(ValueError, match="outside project directory"):
+        parser.resolver.openOut("../secret", "source")
+    with pytest.raises(ValueError, match="absolute output paths not allowed"):
+        parser.resolver.openOut(str(project / "output"), "source")
+    parser.close()
+
+
 def test_read_file_name(parser):
     parser.readFrom("\\relax abc.def g")
     name = parser.readFileName()

@@ -60,6 +60,16 @@ def test_openout_preserves_aux_macro_hashes(parser):
     assert file.content == "\\gdef\\a#1{#1}\n"
 
 
+def test_openout_preserves_protected_macros(parser):
+    parser.parse("\\def\\a{123}")
+    parser.lookup("\\a").protected = True
+    parser.parse("\\immediate\\openout 1=output-protected.tex")
+    parser.parse("\\immediate\\write1{\\a}")
+    parser.parse("\\immediate\\closeout 1")
+    file = parser.resolver.in_memory_files["output-protected.tex"]
+    assert file.content == "\\a \n"
+
+
 def test_openout(parser):
     parser.parse("\\def\\a{123}\\openout 1=output1.tex \\write1{\\a xyz}\\closeout 1")
     file = parser.state.globals["openout"][1]

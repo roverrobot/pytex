@@ -1,6 +1,5 @@
 import pytest
 from pytex import texlive
-from pytex import resolver
 from pytex import token
 from pytex import font
 from pytex import lists

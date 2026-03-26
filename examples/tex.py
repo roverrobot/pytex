@@ -108,7 +108,4 @@ if args.format == "initex":
 else:
     parser.end()
 
-log = parser.close()
-
-print("log file content")
-print(log)
+parser.close()

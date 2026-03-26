@@ -12,8 +12,10 @@ from pytex.resolver import InMemoryTextFile
 
 
 @pytest.fixture()
-def parser():
+def parser(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     p = Parser()
+    p.resolver.output_in_memory = True
     p.shipout = page.Shipout(p)
     p.state.catcode[ord("{")] = CATCODE.BEGIN_GROUP
     p.state.catcode[ord("}")] = CATCODE.END_GROUP
@@ -22,7 +24,8 @@ def parser():
     p.state.catcode[ord("#")] = CATCODE.PARAMETER
     p.state.catcode[ord("^")] = CATCODE.SUPERSCRIPT
     p.state.catcode[ord("_")] = CATCODE.SUBSCRIPT
-    return p
+    yield p
+    p.close()
 
 
 def addChar(self, c):

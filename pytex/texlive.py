@@ -13,8 +13,8 @@ class TexliveResolver(FileResolver):
     A file resolver that resolves files by searching in the texlive installation
     """
 
-    def __init__(self, texlive_path: str=None, format: str="tex", project_dir: str=None):
-        super().__init__(project_dir=project_dir)
+    def __init__(self, texlive_path: str=None, format: str="tex", project_dir: str=None, output_in_memory: bool=False):
+        super().__init__(project_dir=project_dir, output_in_memory=output_in_memory)
         path = self.defaultTeXLivePath() if texlive_path is None else texlive_path
         if not os.path.exists(path):
             raise ValueError("texlive path does not exist: ", path)

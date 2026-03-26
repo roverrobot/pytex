@@ -51,7 +51,9 @@ class Parser:
         # command and its position in the input.
         self.ifstack = []
         self.lists = None
-        self.log = self.getLogFile()
+        self.jobname = "texput"
+        self.log = None
+        self.log_path = None
         # the console file. None to standard output, or os.devnull for no output
         self.console = None
         # the dumper instance variable should point to a function that takes the content of
@@ -69,26 +71,46 @@ class Parser:
             self.resolver = self.resolver.clone(project_dir=project_dir)
         # the current command token
         self.current_token = None
-        self.jobname = "noname"
         self.lastbox = None
         self.ended = False
         self.formatfile = None
     
+    def logFileName(self):
+        """
+        Get the log file path in the current working directory.
+        """
+        name = os.path.basename(os.fspath(self.jobname if self.jobname else "texput"))
+        if not name.endswith(".log"):
+            name += ".log"
+        return name
+
     def getLogFile(self):
         """
-        get the log file
-        @return: the log file
+        Open the log file if needed.
         """
-        self.logfile = resolver.InMemoryTextFile("")
-        return self.logfile.open(for_read=False)
+        path = self.logFileName()
+        if self.log is not None and not self.log.closed:
+            if self.log_path == path:
+                return self.log
+            if self.log.tell() != 0:
+                return self.log
+            self.log.close()
+            if self.log_path and os.path.exists(self.log_path):
+                os.remove(self.log_path)
+        self.log_path = path
+        self.log = open(path, "w")
+        return self.log
 
     def logContent(self):
         """
         return the content of the log file
         """
-        if self.log.closed:
-            return self.logfile.content
-        return self.log.getvalue()
+        if self.log is not None and not self.log.closed:
+            self.log.flush()
+        if self.log_path is None or not os.path.exists(self.log_path):
+            return ""
+        with open(self.log_path, "r") as log:
+            return log.read()
 
     def message(self, message: str, console: bool = True):
         """
@@ -96,6 +118,7 @@ class Parser:
         @param message: the message
         @param console: whether to write to the console
         """
+        self.getLogFile()
         print(message, file=self.log)
         if console:
             print(message, file=self.console)
@@ -150,6 +173,7 @@ class Parser:
         if jobname is not None:
             base = os.path.basename(jobname)
             self.jobname = os.path.splitext(base)[0]
+        self.getLogFile()
         self.run = True
         self.loop()
         self.run = False
@@ -161,9 +185,8 @@ class Parser:
         shipout = getattr(self, "shipout", None)
         if shipout is not None:
             shipout.close()
-        if not self.log.closed:
+        if self.log is not None and not self.log.closed:
             self.log.close()
-        return self.logContent()
         
     def loop(self):
         """
@@ -454,7 +477,7 @@ class Parser:
 
     def end(self):
         """
-        end the parser, and return the log
+        end the parser
         """
         if self.ended:
             return

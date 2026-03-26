@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pytex import texlive
 from pytex.parser import Parser
@@ -6,7 +8,7 @@ import os
 
 
 def test_resolve_read(parser):
-    f = parser.resolver.openIn("tests/test_resolver.py")
+    f = parser.resolver.openIn(str(Path(__file__).resolve()))
     assert f is not None
     f.close()
     f = parser.resolver.openIn("plain", "source")

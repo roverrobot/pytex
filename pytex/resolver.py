@@ -92,8 +92,9 @@ class FileResolver:
 
     The actual resolution of the file name is done by a subclass of FileInfo
     """
-    def __init__(self, project_dir: str=None):
+    def __init__(self, project_dir: str=None, output_in_memory: bool=False):
         self.in_memory_files = {}
+        self.output_in_memory = output_in_memory
         self.typeinfo = {
             "fonts": {
                 "tfm": {
@@ -325,7 +326,8 @@ class FileResolver:
         """
         Resolve the file name for writing
 
-        The output file is created in memory.
+        The output file is written to the current working directory unless an explicit path
+        is provided.
         @param name: the file name
         @param type: the file type. If None, the file type is inferred from the file extension
         @param shipout: whether the file is an output file
@@ -337,18 +339,19 @@ class FileResolver:
         if name.startswith("./"):
             return self.openOut(name[2:], type)
         info = self.getInfo(name, type)
-        # it must be an in memory file
-        for t in info["extensions"]:
-            n = info["name"] + "." + t
-            if n in self.in_memory_files:
-                return self.in_memory_files[n].open(for_read=False)
         n = info["name"] + "." + info["extensions"][0]
-        if info["binary"]:
-            f = InMemoryBinaryFile()
-        else:
-            f = InMemoryTextFile()
-        self.in_memory_files[n] = f
-        return f.open(for_read=False)
+        if self.output_in_memory:
+            existing = self.resolveInMemory(n)
+            if existing is not None:
+                return existing.open(for_read=False)
+            if info["binary"]:
+                file = InMemoryBinaryFile()
+            else:
+                file = InMemoryTextFile()
+            self.in_memory_files[n] = file
+            return file.open(for_read=False)
+        mode = "wb" if info["binary"] else "w"
+        return open(n, mode)
 
 
 def readFileName(parser) -> str:

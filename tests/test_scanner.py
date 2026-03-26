@@ -207,3 +207,15 @@ def test_carets_at_eol_with_default_endlinechar(state):
     assert token.catcode == CATCODE.LETTER
     token = scanner.read()
     assert token is None
+
+
+def test_utf(state):
+    scanner = lexer.StringScanner(state, "😄")
+    token = scanner.read()
+    assert token is not None
+    assert token.name == "😄"
+    assert token.catcode == CATCODE.OTHER
+    token = scanner.read()
+    assert token.catcode == CATCODE.SPACE
+    token = scanner.read()
+    assert token is None

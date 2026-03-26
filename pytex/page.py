@@ -299,7 +299,6 @@ class VerticalBreaker:
     def _buildSlice(self, start, end, context, topskip_name):
         built = []
         topskip_added = False
-        last_box = None
         current_context = context
         for node in self.nodes[start:end]:
             new_context = self.contextFor(node)
@@ -321,12 +320,6 @@ class VerticalBreaker:
                 elif not self._delaysPageStart(node):
                     topskip_added = True
             built.append(node)
-            if self.hasDepth(node):
-                last_box = node
-            elif node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                last_box = None
-        if last_box is not None and last_box.depth > current_context.maxdepth:
-            last_box.depth = current_context.maxdepth
         return built
 
     def buildSlice(self, start, end, context, topskip_name):
@@ -876,7 +869,10 @@ class MainVList(vmode.VList):
                 if not has_content:
                     self._flushPageWhatsits(self.parser, page.list)
                 else:
-                    out_carry = self._runOutputRoutine(self.parser, page.typeset(self.parser))
+                    out_carry = self._runOutputRoutine(
+                        self.parser,
+                        page.typeset(self.parser, maxdepth=break_context.maxdepth),
+                    )
                     if out_carry:
                         pending.extend(out_carry)
                 self._consumePagePrefix(next_start)
@@ -1216,8 +1212,8 @@ class VSplit(Command):
         else:
             remainder = bx.VBox(parser, None, Dimen())
             remainder.list[:] = breaker.buildSlice(next_start, len(nodes), remainder_context, "\\splittopskip")
-            parser.state.box[index] = remainder.typeset(parser)
-        return result.typeset(parser)
+            parser.state.box[index] = remainder.typeset(parser, maxdepth=remainder_context.maxdepth)
+        return result.typeset(parser, maxdepth=break_context.maxdepth)
 
     def execute(self, parser):
         box = self.boxValue(parser, False)

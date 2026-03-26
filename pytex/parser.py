@@ -354,7 +354,11 @@ class Parser:
         """
         return hmode.IndentBox(self)
 
-    def newParagraph(self, indent: bool = True, parskip: bool = True, reset_prevgraf: bool = True):
+    def newParagraph(
+        self,
+        indent: bool = True,
+        parskip: bool = True,
+    ):
         """
         start a new paragraph: starting the horizontal list with an empty 
         # hbox whose width is \\parindent. The \\everypar tokens are inserted into 
@@ -368,13 +372,13 @@ class Parser:
             parskip_node.source = para
             top.append(parskip_node)
         self.lists.append(paragraph.ParagraphList(self, para))
-        everypar = self.everypar.value
-        if everypar:
-            self.input.push(lexer.TokenListScanner(everypar))
-            if self.tracingcommands > 0 and self.checkRange():
-                self.message(f"everypar: {self.toksToString(everypar)}")
-        # the spacefactor is set to 1000 at the beginning of a paragraph
-        if reset_prevgraf:
+        if parskip:
+            everypar = self.everypar.value
+            if everypar:
+                self.input.push(lexer.TokenListScanner(everypar))
+                if self.tracingcommands > 0 and self.checkRange():
+                    self.message(f"everypar: {self.toksToString(everypar)}")
+            # the spacefactor is set to 1000 at the beginning of a paragraph
             self.state.globals["prevgraf"] = 0
         return para
 

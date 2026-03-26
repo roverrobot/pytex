@@ -124,6 +124,21 @@ class RowBuildState:
         self.current_cell = None
         self.newCell(parser, 0)
 
+    def readNoAlign(self, parser, owner):
+        if owner.noalign is None:
+            owner.noalign = parser.readVList(
+                GROUP_TYPE.NO_ALIGN,
+                lambda: self.finishRow(parser),
+            )
+            return
+        parser.clearParagraphSettings()
+        state = vmode.VList(parser, owner.noalign, add_interline_glue=False)
+        parser.readList(
+            state,
+            GROUP_TYPE.NO_ALIGN,
+            lambda: self.finishRow(parser),
+        )
+
     def finishRow(self, parser):
         while True:
             t = parser.skipSpaces()
@@ -133,10 +148,7 @@ class RowBuildState:
             command = getattr(meaning, "definition", None)
             if command == noalign:
                 noalign_owner = self.alignment if len(self.alignment.rows) == 0 else self.alignment.rows[-1]
-                noalign_owner.noalign = parser.readVList(
-                    GROUP_TYPE.NO_ALIGN,
-                    lambda: self.finishRow(parser),
-                )
+                self.readNoAlign(parser, noalign_owner)
                 return
             if command != crcr:
                 parser.input.unread(t)

@@ -100,6 +100,26 @@ def test_noalign_allows_leading_spaces_after_cr(cmr10):
     assert len(node.rows) == 1
 
 
+def test_consecutive_noalign_bodies_are_preserved(cmr10):
+    cmr10.parse(
+        "\\everycr{\\noalign{\\penalty10000}}"
+        "\\halign{#\\cr a\\cr\\noalign{\\vskip0pt} b\\cr}"
+    )
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
+    row = node.rows[0]
+    assert row.noalign is not None
+    assert [n.node_type for n in row.noalign] == [nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.GLUE]
+    assert row.noalign[0].penalty == 10000
+    assert row.noalign[1].glue == glue.Glue(0)
+    packed = _typeset_halign(cmr10, node)
+    row0 = next(i for i, n in enumerate(packed) if n.node_type == nd.NODE_TYPE.HLIST)
+    assert packed[row0 + 1].node_type == nd.NODE_TYPE.PENALTY
+    assert packed[row0 + 1].penalty == 10000
+    assert packed[row0 + 2].node_type == nd.NODE_TYPE.GLUE
+    assert packed[row0 + 2].glue == glue.Glue(0)
+    assert any(n.node_type == nd.NODE_TYPE.HLIST for n in packed[row0 + 3 :])
+
+
 def test_trailing_crcr_before_endgroup_after_noalign_does_not_create_empty_row(cmr10):
     cmr10.parse("\\let\\egroup=}\\halign{#\\cr a\\cr\\noalign{\\vskip1pt}\\crcr\\egroup")
     node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]

@@ -611,11 +611,7 @@ def test_vtop_uses_first_packed_row_height_for_halign(cmr10):
     assert typed.depth < total
 
 
-def test_maketitle_date_uses_lineskip_after_tabular_vtop():
-    import pytex.etex as etex_mod
-    import pytex.pdftex as pdftex_mod
-    from pytex.parser import Parser
-
+def test_vbox_uses_lineskip_after_vtop_halign(cmr10):
     def text_of(node):
         out = []
         for child in getattr(node, "list", []):
@@ -629,7 +625,7 @@ def test_maketitle_date_uses_lineskip_after_tabular_vtop():
 
     def find_parent(items):
         for i, node in enumerate(items):
-            if node.node_type == NODE_TYPE.HLIST and "March19,2026" in text_of(node):
+            if node.node_type == NODE_TYPE.HLIST and "DATE" in text_of(node):
                 return items, i
             sub = getattr(node, "list", None)
             if sub:
@@ -638,23 +634,13 @@ def test_maketitle_date_uses_lineskip_after_tabular_vtop():
                     return found
         return None
 
-    parser = Parser()
-    etex_mod.mod.populate(parser)
-    pdftex_mod.mod.populate(parser)
-    parser.resolver.format = "latex"
-    fmt = parser.resolver.openIn("latex", "dump")
-    parser.load(fmt)
-    fmt.close()
-    parser.parse(
-        "\\documentclass[12pt]{article}"
-        "\\title{An Edge Based SIS Model on Random Networks}"
-        "\\author{Sanling Yuan\\and Junling Ma}"
-        "\\date{March 19, 2026}"
-        "\\begin{document}\\maketitle\\end{document}"
+    cmr10.parse(
+        "\\lineskip=1pt "
+        "\\setbox0=\\vtop{\\halign{#\\hfil\\cr A\\cr B\\cr}}"
+        "\\setbox1=\\vbox{\\box0\\hbox{DATE}}"
     )
-    parser.end()
-    page_box = parser.shipout.pages[0]
-    found = find_parent(page_box.list)
+    typed = cmr10.state.box[1].typeset(cmr10)
+    found = find_parent(typed.list)
     assert found is not None
     items, index = found
     assert items[index - 1].node_type == NODE_TYPE.GLUE

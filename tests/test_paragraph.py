@@ -1,6 +1,5 @@
 import pytest
 import types
-import os
 from pytex import paragraph
 from pytex import lists
 from pytex import node as nd
@@ -9,9 +8,7 @@ from pytex import vmode
 from pytex import mmode
 from pytex import page
 from pytex import glue
-from pytex.parser import Parser
 from pytex.dimen import Dimen
-from pytex.module import ModuleManager
 
 
 def _raw_nodes(vlist):
@@ -155,19 +152,9 @@ def test_group_in_vmode_does_not_reset_prevdepth(cmr10):
     )
 
 
-def test_latex_noindent_hook_preserves_outer_parskip():
-    import pytex.etex as etex_mod
-    import pytex.pdftex as pdftex_mod
-
-    parser = Parser()
-    etex_mod.mod.populate(parser)
-    pdftex_mod.mod.populate(parser)
-    parser.resolver.format = "latex"
-    fmt = parser.resolver.openIn("latex", "dump")
-    parser.load(fmt)
-    fmt.close()
-    parser.parse("\\documentclass[12pt]{article}\\begin{document}A\\par\\noindent\\par")
-    main = parser.lists[-1]
+def test_noindent_after_parskip_change_preserves_outer_parskip(cmr10):
+    cmr10.parse("\\hbox{}\\parskip=0pt plus 1pt A\\par\\parskip=0pt\\noindent\\par")
+    main = cmr10.lists[-1]
     glues = [n for n in _concrete_nodes(main) if n.node_type == nd.NODE_TYPE.GLUE and n.name == "\\parskip"]
     assert len(glues) >= 2
     assert glues[-2].glue == glue.Glue(0, glue.Stretchness(1, 0), glue.Stretchness(0, 0))

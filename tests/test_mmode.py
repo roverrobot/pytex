@@ -1,4 +1,3 @@
-import os
 import pytest
 from pytex import align
 from pytex import mmode
@@ -9,8 +8,6 @@ from pytex import paragraph
 from pytex import texlive
 from pytex import hmode
 from pytex import box
-from pytex import page
-from pytex.parser import Parser
 from pytex.dimen import Dimen
 
 
@@ -124,30 +121,9 @@ def test_mlist_mismatch(math):
         assert "missing" in str(e)
 
 
-def test_latex_align_followed_by_text_does_not_reinsert_parskip():
-    from pytex import etex as etex_mod
-    from pytex import pdftex as pdftex_mod
-
-    parser = Parser()
-    etex_mod.mod.populate(parser)
-    pdftex_mod.mod.populate(parser)
-    parser.console = open(os.devnull, "w")
-    parser.shipout = page.Shipout(parser)
-    parser.resolver.format = "latex"
-    fmt = parser.resolver.openIn("latex", "dump")
-    parser.load(fmt)
-    fmt.close()
-    parser.parse(
-        "\\documentclass{article}\n"
-        "\\usepackage{amsmath}\n"
-        "\\begin{document}\n"
-        "\\begin{align}\n"
-        "1&=1\n"
-        "\\end{align}\n"
-        "second\n",
-        "probe.tex",
-    )
-    main = parser.lists[0]
+def test_display_halign_followed_by_text_does_not_reinsert_parskip(cmr10):
+    cmr10.parse("$$\\halign{#&=#\\cr 1&1\\cr}$$second", "probe.tex")
+    main = cmr10.lists[0]
     nodes = _concrete_nodes(main)
     last_align = max(
         i for i, n in enumerate(nodes)

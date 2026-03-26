@@ -119,14 +119,13 @@ def test_implicit_paragraph_adds_parskip(parser):
     raw = _source_nodes(top, paragraph.Paragraph)
     packed = _concrete_nodes(top)
     assert len(raw) == 2
-    assert len(packed) == 5
-    assert packed[0].node_type == nd.NODE_TYPE.GLUE
-    assert packed[0].name == "\parskip"
-    assert packed[1].node_type == nd.NODE_TYPE.HLIST
+    assert len(packed) == 4
+    assert packed[0].node_type == nd.NODE_TYPE.HLIST
+    assert packed[1].node_type == nd.NODE_TYPE.GLUE
+    assert packed[1].name == "\\parskip"
+    assert packed[1].glue.dimen == 5
     assert packed[2].node_type == nd.NODE_TYPE.GLUE
-    assert packed[2].glue.dimen == 5
-    assert packed[3].node_type == nd.NODE_TYPE.GLUE
-    assert packed[4].node_type == nd.NODE_TYPE.HLIST
+    assert packed[3].node_type == nd.NODE_TYPE.HLIST
 
 
 def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
@@ -134,13 +133,12 @@ def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
     main = cmr10.lists[-1]
     packed = _concrete_nodes(main)
     names = [getattr(n, "name", None) for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
-    assert names == ["\\parskip", "\\parskip", "\\baselineskip"]
-    assert packed[0].glue.dimen == Dimen(5.0)
-    assert packed[2].glue.dimen == Dimen(5.0)
-    assert packed[3].glue.dimen == (
+    assert names == ["\\parskip", "\\baselineskip"]
+    assert packed[1].glue.dimen == Dimen(5.0)
+    assert packed[2].glue.dimen == (
         cmr10.state.layout["baselineskip"].dimen
-        - packed[1].depth
-        - packed[4].height
+        - packed[0].depth
+        - packed[3].height
     )
 
 
@@ -149,11 +147,11 @@ def test_group_in_vmode_does_not_reset_prevdepth(cmr10):
     main = cmr10.lists[-1]
     packed = _concrete_nodes(main)
     names = [getattr(n, "name", None) for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
-    assert names == ["\\parskip", "\\parskip", "\\baselineskip"]
-    assert packed[3].glue.dimen == (
+    assert names == ["\\parskip", "\\baselineskip"]
+    assert packed[2].glue.dimen == (
         cmr10.state.layout["baselineskip"].dimen
-        - packed[1].depth
-        - packed[4].height
+        - packed[0].depth
+        - packed[3].height
     )
 
 

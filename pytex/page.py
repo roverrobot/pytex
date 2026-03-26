@@ -757,6 +757,10 @@ class MainVList(vmode.VList):
         self.contrib = []
         self._processing_pages = False
 
+    @staticmethod
+    def _delaysPageStart(node):
+        return node.node_type in (nd.NODE_TYPE.WHATSIT, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS)
+
     def concreteNodes(self):
         return list(self.contrib) + list(self.list)
 
@@ -766,12 +770,33 @@ class MainVList(vmode.VList):
     def _currentPageContext(self):
         return PageBuilderContext(self.parser.state.layout)
 
+    def _pruneContribTop(self):
+        if not self.contrib:
+            return
+        kept = []
+        index = 0
+        found_content = False
+        while index < len(self.contrib):
+            node = self.contrib[index]
+            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
+                index += 1
+                continue
+            if self._delaysPageStart(node):
+                kept.append(node)
+                index += 1
+                continue
+            found_content = True
+            break
+        if found_content and index > 0:
+            self.contrib[:] = kept + self.contrib[index:]
+
     def _contributePending(self):
         if not self.list:
             return
         self.contrib.extend(self.list)
         self.list[:] = []
         self.raw[:] = []
+        self._pruneContribTop()
 
     def _triggersPageBuilder(self, node):
         # we do not trigger page building if a box is deposited by paragraph, display math or alignment.
@@ -793,6 +818,7 @@ class MainVList(vmode.VList):
     def _consumePagePrefix(self, count):
         if count > 0:
             del self.contrib[:count]
+            self._pruneContribTop()
 
     def _prependCarryNodes(self, nodes):
         if not nodes:
@@ -800,6 +826,7 @@ class MainVList(vmode.VList):
         for node in nodes:
             node.source = node
         self.contrib[:0] = list(nodes)
+        self._pruneContribTop()
 
     def _processPendingPages(self, force=False):
         if self._processing_pages:

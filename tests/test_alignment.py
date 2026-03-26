@@ -287,5 +287,5 @@ def test_halign_in_diplsaymath_shift_displayindent(cmr10):
     top = cmr10.lists[-1]
     packed = _concrete_nodes(top)
     assert top.type == lists.LISTTYPE.VERTICAL and not top.inner
-    assert packed[3].node_type == nd.NODE_TYPE.HLIST
-    assert packed[3].shifted == Dimen(10)
+    display = next(node for node in packed if node.node_type == nd.NODE_TYPE.HLIST and node.shifted == Dimen(10))
+    assert display.shifted == Dimen(10)

@@ -585,6 +585,35 @@ def test_main_vlist_moves_triggered_nodes_into_contrib(parser):
     assert main.contrib[0] is box
 
 
+def test_lastpenalty_sees_contributed_tail_penalty(parser):
+    parser.parse("\\vsize=20pt\\penalty50\\count0=\\lastpenalty")
+    assert parser.state.count[0] == 50
+
+
+def test_main_vlist_prunes_top_discardables_when_contributing(parser):
+    parser.parse("")
+    main = parser.lists[0]
+    parser.state.layout["vsize"] = Dimen(20)
+    main.append(nd.Glue(glue.Glue(3), "\\parskip"))
+    main.append(nd.Penalty(50))
+    box = _test_hbox(parser, height=6, depth=0)
+    main.append(box)
+    assert main.contrib == [box]
+
+
+def test_main_vlist_keeps_leading_whatsits_while_pruning_top_discardables(parser):
+    parser.parse("")
+    main = parser.lists[0]
+    parser.state.layout["vsize"] = Dimen(20)
+    special = nd.Special("abc")
+    main.append(special)
+    main.append(nd.Glue(glue.Glue(3), "\\parskip"))
+    main.append(nd.Penalty(50))
+    box = _test_hbox(parser, height=6, depth=0)
+    main.append(box)
+    assert main.contrib == [special, box]
+
+
 def test_page_break_uses_current_layout_at_break_time(parser):
     parser.parse("\\vsize=10pt\\topskip=0pt")
     main = parser.lists[0]
@@ -740,10 +769,9 @@ def test_vadjust_merges_into_vertical_material(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent a\\vadjust{\\hrule height 1pt}b\\par")
     top = cmr10.lists[-1]
     packed = _vertical_nodes(top)
-    assert packed[0].node_type == nd.NODE_TYPE.GLUE
-    assert packed[1].node_type == nd.NODE_TYPE.HLIST
-    assert packed[2].node_type == nd.NODE_TYPE.RULE
-    assert packed[2].height == 1
+    assert packed[0].node_type == nd.NODE_TYPE.HLIST
+    assert packed[1].node_type == nd.NODE_TYPE.RULE
+    assert packed[1].height == 1
 
 
 def test_page_break_merges_vadjust_material(cmr10):

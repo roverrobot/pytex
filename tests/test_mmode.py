@@ -197,7 +197,7 @@ def test_mlist_typeset_display(math):
     math.parse("$$a$$\\par")
     top = math.lists[0]
     packed = _concrete_nodes(top)
-    assert len(packed) == 8 # \parskip, line-box, predisplaypenalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
+    assert len(packed) == 7 # line-box, predisplaypenalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
 
 
 def test_display_halign_replaces_display_math_list(math):
@@ -211,22 +211,21 @@ def test_display_halign_typesets_with_display_wrapper(math):
     top = math.lists[0]
     node = _source_nodes(top, align.MAlignment)[0]
     packed = _concrete_nodes(top)
-    assert len(packed) == 8 # \parskip, HBox, penalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
-    assert packed[0].node_type == nd.NODE_TYPE.GLUE
-    assert packed[1].node_type == nd.NODE_TYPE.HLIST
-    assert packed[2].node_type == nd.NODE_TYPE.PENALTY
-    assert packed[2].penalty == math.state.layout["predisplaypenalty"]
+    assert len(packed) == 7 # HBox, penalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
+    assert packed[0].node_type == nd.NODE_TYPE.HLIST
+    assert packed[1].node_type == nd.NODE_TYPE.PENALTY
+    assert packed[1].penalty == math.state.layout["predisplaypenalty"]
+    assert packed[2].node_type == nd.NODE_TYPE.GLUE
+    assert packed[2].glue == math.state.layout["abovedisplayskip"]
     assert packed[3].node_type == nd.NODE_TYPE.GLUE
-    assert packed[3].glue == math.state.layout["abovedisplayskip"]
-    assert packed[4].node_type == nd.NODE_TYPE.GLUE
-    assert packed[4].glue == math.state.layout["baselineskip"]
-    assert packed[5].node_type == nd.NODE_TYPE.HLIST
-    assert packed[6].node_type == nd.NODE_TYPE.PENALTY
-    assert packed[6].penalty == math.state.layout["postdisplaypenalty"]
-    assert packed[7].node_type == nd.NODE_TYPE.GLUE
-    assert packed[7].glue == math.state.layout["belowdisplayskip"]
+    assert packed[3].glue == math.state.layout["baselineskip"]
+    assert packed[4].node_type == nd.NODE_TYPE.HLIST
+    assert packed[5].node_type == nd.NODE_TYPE.PENALTY
+    assert packed[5].penalty == math.state.layout["postdisplaypenalty"]
+    assert packed[6].node_type == nd.NODE_TYPE.GLUE
+    assert packed[6].glue == math.state.layout["belowdisplayskip"]
     expected = math.state.volatile["displayindent"]
-    assert packed[5].shifted == expected
+    assert packed[4].shifted == expected
 
 
 def test_display_halign_uses_display_local_baselineskip_for_first_row(math):

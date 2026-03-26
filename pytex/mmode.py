@@ -1395,6 +1395,11 @@ class MathEndGroupCallback:
         self.node = node
 
     def finalize(self, parser, top, mlist):
+        if isinstance(self.node, Subformula) and len(mlist.list) == 1:
+            node = mlist.list[0]
+            if isinstance(node, Atom) and node.atom_type == ATOM_TYPE.ACC:
+                top.append(node)
+                return
         top.append(self.node)
 
     def __call__(self):
@@ -2377,6 +2382,26 @@ class Accent(Atom):
             return Dimen()
         return Dimen(step.kern * font.at)
 
+    def _rule12SingleBaseSymbol(self, field):
+        """
+        Return the underlying symbol when the accent base is just one symbol,
+        possibly wrapped by a one-item subformula/group.
+        """
+        while True:
+            if isinstance(field, MathSymbol):
+                return field
+            if isinstance(field, Atom):
+                if field.sub is not None or field.sup is not None:
+                    return None
+                field = field.nucleus
+                continue
+            if isinstance(field, Subformula):
+                if len(field.list) != 1:
+                    return None
+                field = field.list[0]
+                continue
+            return None
+
     def _rule12AccentNode(self, parser, context, style, u):
         # Pick accent in current size, following successor chain while width <= u.
         font = mathfont(parser, style, self.accent.fam)
@@ -2396,7 +2421,7 @@ class Accent(Atom):
     def typesetNucleus(self, parser, packed, context, style: Style):
         # Rule 12 starts from nucleus in style C'.
         self._attach_scripts = True
-        base_symbol = self.nucleus if isinstance(self.nucleus, MathSymbol) else None
+        base_symbol = self._rule12SingleBaseSymbol(self.nucleus)
         x = self._typesetField(parser, self.nucleus, context, Style(style.style, cramped=True))
         u = x.width
         y_char, accent_font = self._rule12AccentNode(parser, context, style, u)
@@ -2411,7 +2436,7 @@ class Accent(Atom):
         if base_symbol is not None:
             old_h = x.height
             base_atom = Atom(ATOM_TYPE.ORD)
-            base_atom.nucleus = self.nucleus
+            base_atom.nucleus = base_symbol
             base_atom.sub = self.sub
             base_atom.sup = self.sup
             x = base_atom.assemble(parser, context, style)

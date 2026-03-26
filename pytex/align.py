@@ -658,9 +658,10 @@ class AlignmentBuilder:
             template = [] # the tokans in the column template
             # we collect all the columns in the outer loop
             # the leading spaces in a column are ignored
-            # TeX expands tokens while scanning alignment templates; this is
-            # required for LaTeX-style preambles where the placeholder comes
-            # from a macro (for example \@sharp).
+            # TeX does not ordinarily expand preamble tokens while scanning an
+            # alignment template. The special case is \span: it causes the next
+            # token to be expanded, which is needed for LaTeX-style preambles
+            # such as \span\align@preamble and placeholder macros like \@sharp.
             t = parser.skipSpaces(False)
             t = parser.token_meaning(t)
             # now T is the first meaningful token in a column.
@@ -687,7 +688,8 @@ class AlignmentBuilder:
                 t = parser.token_meaning(t)
             # now a column is read in template. We look for the # token
             if not template and not self.preamble and t is None:
-                # we have a leading &, this is not a column, but tells us the columns are reused
+                # A leading & does not introduce a real column. It means the
+                # preamble templates are to be reused cyclically.
                 self.repeat_start = True
                 continue
             template = [parser.token_meaning(x) for x in template]

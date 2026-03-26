@@ -380,6 +380,31 @@ def test_subformula(parser):
     assert len(node.nucleus.list) == 2
 
 
+def test_grouped_single_accent_is_appended_directly(math):
+    math.parse("${\\mathaccent\"362 a}")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Accent)
+    assert isSymbol(node.base, 1, "a")
+
+
+def test_grouped_single_nonaccent_stays_grouped(math):
+    math.parse("${A_2}")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.Atom)
+    assert isinstance(node.nucleus, mmode.Subformula)
+    assert len(node.nucleus.list) == 1
+    inner = node.nucleus.list[0]
+    assert isinstance(inner, mmode.Atom)
+    assert isSymbol(inner.nucleus, 1, "A")
+    assert isSymbol(inner.sub, 0, "2")
+
+
 def test_subformula_unclosed(parser):
     try:
         parser.parse("${ab$")
@@ -1458,11 +1483,23 @@ def test_rule12_accent_cases(math):
     assert z.list[-1].node_type == nd.NODE_TYPE.HLIST, "rule12 base+scripts should be last node in accent vbox"
     assert len(z.list[-1].list) >= 2, "rule12 absorbed base should include script content"
 
+    # A brace-wrapped single-char base should behave the same way.
+    accent = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | ord("b"), -1)
+    base = mmode.Subformula()
+    base_builder = mmode.MList(math, base.list)
+    base_builder.append(mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
+    atom = mmode.Accent(accent, base)
+    atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
+    b = atom.assemble(math, ctx, style)
+    assert len(b.list) == 1, "rule12 grouped single-char base should still absorb scripts"
+    assert b.width == z.width, "rule12 grouped single-char base should match raw single-char width"
+
     # Non-single base keeps rule16 script attachment outside accent nucleus.
     accent = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | ord("b"), -1)
     base = mmode.Subformula()
     base_builder = mmode.MList(math, base.list)
     base_builder.append(mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
+    base_builder.append(mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("b"), -1))
     atom = mmode.Accent(accent, base)
     atom.sup = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("c"), -1)
     b = atom.assemble(math, ctx, style)

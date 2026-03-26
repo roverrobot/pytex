@@ -101,3 +101,31 @@ def test_texlive_resolver_caches_directory_walks(tmp_path, monkeypatch):
     f.close()
     plain_root = os.path.join(str(texmf), "tex", "plain")
     assert walk_calls.count(plain_root) == 1
+
+
+def test_texlive_resolver_instances_share_directory_cache(tmp_path, monkeypatch):
+    texmf = tmp_path / "2026" / "texmf-dist"
+    plain = texmf / "tex" / "plain" / "base"
+    plain.mkdir(parents=True)
+    (plain / "foo.tex").write_text("foo")
+    (plain / "bar.tex").write_text("bar")
+    first = texlive.TexliveResolver(texlive_path=str(tmp_path), format="plain")
+    second = texlive.TexliveResolver(texlive_path=str(tmp_path), format="plain")
+    walk_calls = []
+    original_walk = texlive.os.walk
+
+    def counting_walk(path):
+        walk_calls.append(path)
+        yield from original_walk(path)
+
+    monkeypatch.setattr(texlive.os, "walk", counting_walk)
+    f = first.openIn("foo", "source")
+    assert f is not None
+    assert f.read() == "foo"
+    f.close()
+    f = second.openIn("bar", "source")
+    assert f is not None
+    assert f.read() == "bar"
+    f.close()
+    plain_root = os.path.join(str(texmf), "tex", "plain")
+    assert walk_calls.count(plain_root) == 1

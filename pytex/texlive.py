@@ -8,6 +8,10 @@ from pytex.module import Module
 import platform
 import os
 
+
+_directory_index_cache = {}
+
+
 class TexliveResolver(FileResolver):
     """
     A file resolver that resolves files by searching in the texlive installation
@@ -31,14 +35,16 @@ class TexliveResolver(FileResolver):
             self.paths.append(texmf_local)
         self.format = format
         # Cache the first matching full path for each file name under a search root.
-        # latex.ltx parsing resolves hundreds of files from the same few TeX Live
-        # subtrees, so indexing each subtree once avoids repeated os.walk/scandir.
-        self._index = {}
+        # This is process-wide so separate resolver instances and parser-local clones
+        # can reuse the same expensive directory walks.
+        self._index = _directory_index_cache
 
     def clone(self, project_dir: str=None):
         cloned = super().clone(project_dir=project_dir)
         cloned.paths = list(self.paths)
-        cloned._index = {}
+        # Share the expensive directory index across parser-local resolver clones while
+        # keeping per-parser mutable state such as in-memory files isolated.
+        cloned._index = self._index
         return cloned
 
 

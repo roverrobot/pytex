@@ -22,12 +22,23 @@ class Dump(token.Command):
         parser.dumper(parser.dump())
 
 
+class InteractionMode(token.Command):
+    """
+    A no-op interaction mode command that remains distinct from \\relax.
+    """
+    def __init__(self, mode):
+        self.mode = mode
+
+    def execute(self, parser):
+        parser.state.globals["interactionmode"] = self.mode
+
+
 mod = Module("misc",
     commands={
         "dump": Dump(),
-        "scrollmode": token.relax,
-        "nonstopmode": token.relax,
-        "batchmode": token.relax,
-        "errorstopmode": token.relax,
+        "batchmode": InteractionMode(0),
+        "nonstopmode": InteractionMode(1),
+        "scrollmode": InteractionMode(2),
+        "errorstopmode": InteractionMode(3),
     },
 )

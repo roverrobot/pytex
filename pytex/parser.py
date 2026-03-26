@@ -474,6 +474,17 @@ class Parser:
         if not formatfile.isContainer(data):
             raise ValueError("unsupported format file")
         formatfile.load(self, data)
+        # Keep interaction-mode primitives distinct from \relax even when loading
+        # older formats that serialized them as no-op relax aliases.
+        for name in (
+            "\\batchmode",
+            "\\nonstopmode",
+            "\\scrollmode",
+            "\\errorstopmode",
+        ):
+            builtin = self.builtin.get(name)
+            if builtin is not None:
+                self.state.equitable.setGlobal(name, builtin)
 
     def end(self):
         """

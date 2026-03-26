@@ -13,8 +13,8 @@ class TexliveResolver(FileResolver):
     A file resolver that resolves files by searching in the texlive installation
     """
 
-    def __init__(self, texlive_path: str=None, format: str="tex"):
-        super().__init__()
+    def __init__(self, texlive_path: str=None, format: str="tex", project_dir: str=None):
+        super().__init__(project_dir=project_dir)
         path = self.defaultTeXLivePath() if texlive_path is None else texlive_path
         if not os.path.exists(path):
             raise ValueError("texlive path does not exist: ", path)
@@ -34,6 +34,12 @@ class TexliveResolver(FileResolver):
         # latex.ltx parsing resolves hundreds of files from the same few TeX Live
         # subtrees, so indexing each subtree once avoids repeated os.walk/scandir.
         self._index = {}
+
+    def clone(self, project_dir: str=None):
+        cloned = super().clone(project_dir=project_dir)
+        cloned.paths = list(self.paths)
+        cloned._index = {}
+        return cloned
 
 
     def searchPaths(self, info: dict):

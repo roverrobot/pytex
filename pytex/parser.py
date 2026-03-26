@@ -40,7 +40,7 @@ class Parser:
     """
     The parser is the main class that processes the input and executes the commands.
     """
-    def __init__(self):
+    def __init__(self, project_dir: typing.Optional[str] = None):
         self.state = state.State()
         # the builtin commands
         self.builtin = {}
@@ -65,6 +65,8 @@ class Parser:
         # for now, characters and spaces are collected in a string
         for name, mod in ModuleManager.items():
             mod.populate(self)
+        if isinstance(getattr(self, "resolver", None), resolver.FileResolver):
+            self.resolver = self.resolver.clone(project_dir=project_dir)
         # the current command token
         self.current_token = None
         self.jobname = "noname"

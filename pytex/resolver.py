@@ -10,6 +10,7 @@ from pytex.module import Module
 from io import BytesIO, StringIO
 from types import MethodType
 from typing import Tuple
+import copy
 import os
 
 
@@ -91,7 +92,7 @@ class FileResolver:
 
     The actual resolution of the file name is done by a subclass of FileInfo
     """
-    def __init__(self):
+    def __init__(self, project_dir: str=None):
         self.in_memory_files = {}
         self.typeinfo = {
             "fonts": {
@@ -123,6 +124,53 @@ class FileResolver:
                 },
             },
         }
+        self.project_dir = None
+        self.setProjectDir(os.getcwd() if project_dir is None else project_dir)
+
+    def clone(self, project_dir: str=None):
+        """
+        Create a per-parser copy of the resolver.
+
+        The module registry stores resolver instances on the module object, but parsers should
+        not share mutable resolver state such as in-memory files or the project directory.
+        """
+        cloned = copy.copy(self)
+        cloned.in_memory_files = {}
+        cloned.typeinfo = copy.deepcopy(self.typeinfo)
+        cloned.setProjectDir(os.getcwd() if project_dir is None else project_dir)
+        return cloned
+
+    def setProjectDir(self, project_dir: str):
+        """
+        Set the directory that source files may be read from.
+        """
+        path = os.path.realpath(os.path.abspath(project_dir))
+        if not os.path.isdir(path):
+            raise ValueError(f"project directory does not exist: {project_dir}")
+        self.project_dir = path
+
+    def _sourcePath(self, name: str):
+        """
+        Resolve a source path relative to the project directory and reject escapes.
+        """
+        if os.path.isabs(name):
+            path = os.path.realpath(name)
+        else:
+            path = os.path.realpath(os.path.join(self.project_dir, name))
+        try:
+            allowed = os.path.commonpath([self.project_dir, path]) == self.project_dir
+        except ValueError:
+            allowed = False
+        if not allowed:
+            raise ValueError(f"path outside project directory not allowed: {name}")
+        return path
+
+    @staticmethod
+    def _hasExplicitDirectory(name: str):
+        """
+        Check whether the user supplied a path component rather than a bare file name.
+        """
+        return os.path.dirname(name) != ""
 
     def resolveInMemory(self, name: str):
         """
@@ -225,7 +273,7 @@ class FileResolver:
         @return: the file path, or None if the file does not exist
 
         Before reaching this function, the file has been searched among in-memory files and
-        the current working directory. This function is responsible for searching the file was
+        direct filesystem paths. This function is responsible for searching the file was
         not found in the previous steps.
         """
         return None
@@ -240,8 +288,6 @@ class FileResolver:
         The file type can be a category or a category/subcategory. Please see the getInfo method
         for more details.
         """
-        if name[0] == "/":
-            raise ValueError("absolute path not allowed")
         info = self.getInfo(name, type)
         for ext in info["extensions"]:
             n = info["name"] + "." + ext
@@ -249,17 +295,26 @@ class FileResolver:
             if f is not None:
                 return f.open()
         mode = "rb" if info["binary"] else "r"
-        # next, we search in the working directories
-        for ext in info["extensions"]:
-            n = info["name"] + "." + ext
-            try:
-                return open(n, mode)
-            except FileNotFoundError:
-                pass
-        # relative path is only search in the working directory
-        p = os.path.split(name)
-        if p[0] != "":
-            return None
+        if info.get("category") == "source":
+            for ext in info["extensions"]:
+                n = info["name"] + "." + ext
+                try:
+                    return open(self._sourcePath(n), mode)
+                except FileNotFoundError:
+                    pass
+            if self._hasExplicitDirectory(info["name"]):
+                return None
+        else:
+            # next, we search in the current working directory
+            for ext in info["extensions"]:
+                n = info["name"] + "." + ext
+                try:
+                    return open(n, mode)
+                except FileNotFoundError:
+                    pass
+            # explicit paths are not searched via resolver backends
+            if self._hasExplicitDirectory(info["name"]):
+                return None
         # at last, we resolve the file name
         f = self.resolve(info)
         if f is not None:
@@ -270,7 +325,7 @@ class FileResolver:
         """
         Resolve the file name for writing
 
-        The output file cannot be an absolute path. The file is created in memory.
+        The output file is created in memory.
         @param name: the file name
         @param type: the file type. If None, the file type is inferred from the file extension
         @param shipout: whether the file is an output file
@@ -279,8 +334,6 @@ class FileResolver:
         The file type can be a category or a category/subcategory. Please see the getInfo method
         for more details.
         """
-        if name[0] == "/":
-            raise ValueError("absolute path not allowed")
         if name.startswith("./"):
             return self.openOut(name[2:], type)
         info = self.getInfo(name, type)

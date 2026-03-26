@@ -1,5 +1,6 @@
 import pytest
 from pytex import texlive
+from pytex.parser import Parser
 from pytex.resolver import InMemoryTextFile
 import os
 
@@ -11,6 +12,38 @@ def test_resolve_read(parser):
     f = parser.resolver.openIn("plain", "source")
     assert f is not None
     f.close()
+
+
+def test_parser_resolver_is_local():
+    first = Parser()
+    second = Parser()
+    assert first.resolver is not second.resolver
+    first.resolver.in_memory_files["local.tex"] = InMemoryTextFile("abc")
+    assert "local.tex" not in second.resolver.in_memory_files
+
+
+def test_project_dir_allows_absolute_source_paths(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "main.tex"
+    source.write_text("hello")
+    parser = Parser(project_dir=str(project))
+    f = parser.resolver.openIn(str(source), "source")
+    assert f is not None
+    assert f.read() == "hello"
+    f.close()
+
+
+def test_project_dir_rejects_source_paths_outside_root(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "secret.tex"
+    outside.write_text("secret")
+    parser = Parser(project_dir=str(project))
+    with pytest.raises(ValueError, match="outside project directory"):
+        parser.resolver.openIn(str(outside), "source")
+    with pytest.raises(ValueError, match="outside project directory"):
+        parser.resolver.openIn("../secret", "source")
 
 
 def test_read_file_name(parser):

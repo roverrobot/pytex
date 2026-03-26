@@ -35,14 +35,18 @@ argparser.add_argument(
     choices=["calls", "cumulative", "filename", "line", "module", "name", "nfl", "pcalls", "stdname", "time"],
     help="sorting key for profile results (used with --profile). Default is time (tottime).",
 )
+argparser.add_argument(
+    "--project-dir",
+    default=os.getcwd(),
+    help="project directory for source file reads. Defaults to the current working directory.",
+)
 argparser.add_argument("file")
 args = argparser.parse_args()
 
 if args.sort is not None and not args.profile:
     print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
 
-
-parser = Parser()
+parser = Parser(project_dir=args.project_dir)
 
 # tracing settings
 #parser.tracingcommands = 2
@@ -68,8 +72,6 @@ file, ext = os.path.splitext(base)
 parser.resolver.format = file
 
 if args.format == "initex":
-    if os.path.isabs(args.file):
-        raise ValueError("The file must be a relative path")
     if ext == "" and parser.resolver.format != "plain": # no extension
         source += ".ini"
     print(

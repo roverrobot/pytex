@@ -20,7 +20,7 @@ in a subclass to provide the accessor to the item.
 
 from pytex import token
 from pytex.module import Module
-from pytex import state
+from pytex.serialization import Serializable
 
 
 def skipEq(parser, expand: bool=True):
@@ -129,6 +129,9 @@ class ArrayItemAccessor(Accessor):
     def __init__(self, domain, index):
         self.domain = domain
         self.index = index
+
+    def className(self):
+        return Serializable.className(self)
 
     def saveInfo(self):
         return {"domain": self.domain.name, "index": self.index}, None

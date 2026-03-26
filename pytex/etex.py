@@ -9,7 +9,7 @@ by importing it.
 from pytex import token as tk
 from pytex.module import Module
 from pytex.lists import ModeDependentCommand
-from pytex.integer import FixedInteger, IntegerParameterAccessor, IntegerArrayItemAccessor
+from pytex.integer import FixedInteger, GlobalIntAccessor, IntegerParameterAccessor, IntegerArrayItemAccessor
 from pytex.dimen import Dimen, DimenCommand
 from pytex.glue import GlueCommand, MuGlueCommand
 from pytex.toks import The, ToksParameterAccessor
@@ -618,7 +618,7 @@ mod = Module("etex",
         "readline": Readline(),
     },
     parameters={
-        "interactionmode": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
+        "interactionmode": {"value": 0, "accessor": GlobalIntAccessor, "domain": "globals"},
         "TeXXeTstate": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
         "tracingassigns": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
         "tracinggroups": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},

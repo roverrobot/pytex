@@ -8,6 +8,7 @@ from pytex.accessor import Prefix, GlobalPrefix, ParameterAccessor
 from pytex.define import Define
 from pytex.module import Module
 from pytex.lexer import TokenListScanner
+from pytex.serialization import Serializable
 
 
 class MacroScanner:
@@ -107,6 +108,9 @@ class Macro(Command):
             else:
                 self.callers.append((b, lambda parser, bracket: self.readArgument(parser, bracket)))
 
+    def className(self):
+        return Serializable.className(self)
+    
     def saveInfo(self):
         return {
                 "brackets": self.brackets,

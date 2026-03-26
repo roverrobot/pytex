@@ -16,6 +16,7 @@ from pytex.define import Define
 from pytex.state import Array
 from pytex.expandable import toToks
 from pytex.lexer import TokenListScanner
+from pytex.serialization import Serializable
 
 
 class Font(Command):
@@ -42,6 +43,9 @@ class Font(Command):
         self.spaceglue = Glue(self.param[1], Stretchness(self.param[2], 0), Stretchness(self.param[3], 0))
         # special characters
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}
+    
+    def className(self):
+        return Serializable.className(self)
     
     def saveInfo(self):
         return {"tfm": self.tfm.name, "at": self.at}, {"fontchar": self.fontchar, "name": getattr(self, "name", None)}

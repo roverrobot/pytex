@@ -79,11 +79,14 @@ class Serializable:
         included in the dictionary.
         """
         return {}, None
+    
+    def className(self):
+        return f"{self.__module__}.{self.__class__.__name__}"
 
     def serialize(self):
         init, extra = self.saveInfo()
         info = {}
-        info[f"{self.__module__}.{self.__class__.__name__}"] = serialize(init)
+        info[self.className()] = serialize(init)
         if extra:
             info["extra"] = serialize(extra)
         return info
@@ -96,3 +99,22 @@ class Serializable:
         create a new object from the dictionary
         """
         return cls(parser, **kwargs) if cls.init_needs_parser else cls(**kwargs)
+
+
+class Builtin(Serializable):
+    def className(self):
+        return "pytex.serialization.Builtin"
+
+    @classmethod
+    def new(cls, parser, **kwargs):
+        """
+        create a new object from the dictionary
+        """
+        return parser.builtin[kwargs["name"]]
+
+    def saveInfo(self):
+        """
+        save the command information. This is used to serialize the command.
+        @return: a dictionary with the command information
+        """
+        return {"name": self.name}, None

@@ -56,3 +56,9 @@ def test_toks(parser):
     assert v[2].catcode == token.CATCODE.LETTER
     assert v[3].name == "\\relax"
     assert v[3].catcode is None
+
+
+def test_global_builtins_serialize_via_builtin_name(parser):
+    equitable = serialization.serialize(parser.state.dump())["equitable"]
+    for name in ["\\deadcycles", "\\insertpenalties", "\\prevdepth", "\\prevgraf", "\\badness"]:
+        assert equitable[name] == {"pytex.serialization.Builtin": {"name": name}}

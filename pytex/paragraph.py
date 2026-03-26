@@ -11,7 +11,7 @@ from pytex.module import Module
 from pytex.dimen import Dimen
 from pytex.glue import Glue, Stretchness
 from pytex.hmode import HorizontalCommand
-from pytex.integer import IntegerArrayItemAccessor
+from pytex.integer import GlobalIntAccessor
 
 
 class Language(nd.WhatsIt):
@@ -1047,7 +1047,7 @@ class SetLanguage(HorizontalCommand):
         hlist.append(Language(language))
 
 
-class PrevGraf(IntegerArrayItemAccessor):
+class PrevGraf(GlobalIntAccessor):
     def intValue(self, parser):
         value = parser.state.globals["prevgraf"]
         if value is not None:

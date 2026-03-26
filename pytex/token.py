@@ -18,7 +18,7 @@ by calling the execute method of the meaning command.
 
 import typing
 from pytex.module import Module
-from pytex import serialization
+from pytex.serialization import Serializable, Builtin
 from enum import IntEnum
 
 class CATCODE:
@@ -47,7 +47,7 @@ class CATCODE:
     __slots__ = ()
 
 
-class Command(serialization.Serializable):
+class Command(Builtin):
     """ 
     a command represents a tex functionality. It could represent a sequence of tokens
     to be expanded to, such as a macro, or a primitive command that is executed by the
@@ -65,29 +65,6 @@ class Command(serialization.Serializable):
     # the expanded method.
     expanded = None
 
-    def saveInfo(self):
-        """
-        save the command information. This is used to serialize the command.
-        @return: a dictionary with the command information
-        """
-        return {"name": self.name}, None
-
-    @classmethod
-    def new(cls, parser, **kargs):
-        """
-        create a new command from the dictionary
-        @param parser: the parser
-        @param init: the command information
-        @return: the command
-        """
-        name = kargs.get("name")
-        if name:
-            return parser.builtin[name]
-        if cls.init_needs_parser:
-            return cls(parser, **kargs)
-        return cls(**kargs)
-
-   
     def __eq__(self, other):
         """
         compare the command with another command.
@@ -149,6 +126,9 @@ class Token(Command):
         @param parser: the parser
         """
         raise ValueError(f"invalid token: {self.meaning(parser)}", parser.input.position())
+    
+    def className(self):
+        return Serializable.className(self)
     
     def saveInfo(self):
         return {"value": [self.name, self.catcode]}, None

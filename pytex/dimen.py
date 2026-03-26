@@ -5,6 +5,7 @@ This module implements dimension parsing and handling.
 from pytex import serialization
 from pytex.token import CATCODE
 from pytex.module import Module
+from pytex.serialization import Builtin
 from pytex.integer import readDigits, readSigns
 from pytex.state import Array
 from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
@@ -360,6 +361,17 @@ class DimenArrayItemAccessor(ArrayItemAccessor, DimenCommand):
         @return: the dimension value
         """
         return self.domain[self.index]
+
+
+class GlobalDimenAccessor(DimenArrayItemAccessor):
+    """
+    Dimension accessor for globals-backed builtins.
+    """
+    def className(self):
+        return Builtin.className(self)
+
+    def saveInfo(self):
+        return Builtin.saveInfo(self)
 
 
 class DimenArrayAccessor(ArrayAccessor, DimenCommand):

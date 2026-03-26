@@ -5,6 +5,7 @@ This module handles reading and processing integers.
 
 from pytex.token import CATCODE, Command
 from pytex.module import Module
+from pytex.serialization import Builtin
 from pytex.state import Array
 from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
 from pytex.define import registerdef
@@ -152,6 +153,17 @@ class IntegerArrayItemAccessor(ArrayItemAccessor):
 
     def intValue(self, parser):
         return self.domain[self.index]
+
+
+class GlobalIntAccessor(IntegerArrayItemAccessor):
+    """
+    Integer accessor for globals-backed builtins.
+    """
+    def className(self):
+        return Builtin.className(self)
+
+    def saveInfo(self):
+        return Builtin.saveInfo(self)
 
 
 class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
@@ -397,8 +409,8 @@ module = Module("integer",
         "looseness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         "hangafter": {"value": 1, "accessor": IntegerParameterAccessor, "domain": "volatile"},
         # global parameters
-        "deadcycles": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
-        "insertpenalties": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
+        "deadcycles": {"value": 0, "accessor": GlobalIntAccessor, "domain": "globals"},
+        "insertpenalties": {"value": 0, "accessor": GlobalIntAccessor, "domain": "globals"},
     },
     domains={
         "catcode": {"generator": CatCode, "accessor": CatCodeArrayAccessor},

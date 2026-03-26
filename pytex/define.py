@@ -5,7 +5,8 @@ This module implements command definition, such as \\let etc.
 
 from pytex import accessor
 from pytex.module import Module
-from pytex.token import relax, Command, CommandToken
+from pytex.token import relax, Command
+from pytex.serialization import Serializable
 
 
 class Define(accessor.ArrayAccessor):
@@ -96,8 +97,15 @@ class CharDefValue(Command):
     def __init__(self, value):
         self.value = value
 
+    def className(self):
+        return Serializable.className(self)
+    
     def saveInfo(self):
         return {"value": self.value}, None
+    
+    @classmethod
+    def new(cls, parser, **kargs):
+        return cls(**kargs)
 
     def execute(self, parser):
         return parser.addChar(self.charValue(parser))

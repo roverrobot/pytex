@@ -21,8 +21,8 @@ from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
 from pytex import box
 from pytex.hmode import Ligature
 from pytex.ligature import ligature_step, run_ligature_program
+from pytex.serialization import Serializable
 import enum
-from math import inf
 
 
 class MATH_STYLE(enum.IntEnum):
@@ -1621,8 +1621,15 @@ class MathCharValue(lists.ModeDependentCommand):
         super().__init__()
         self.mathcode = mathcode
 
+    def className(self):
+        return Serializable.className(self)
+    
     def saveInfo(self):
         return {"mathcode": self.mathcode}, None
+
+    @classmethod
+    def new(cls, parser, **kargs):
+        return cls(**kargs)
 
     def math(self, parser, mlist):
         mlist.append(self.mathCharValue(parser))

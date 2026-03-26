@@ -11,7 +11,7 @@ from pytex.accessor import Accessor, ArrayAccessor, ArrayItemAccessor
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen, DimenCommand, DimenArrayAccessor
-from pytex.integer import IntegerArrayItemAccessor
+from pytex.integer import GlobalIntAccessor
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
@@ -217,7 +217,7 @@ class Box(nd.Box):
         return box
 
 
-class BadnessAccessor(IntegerArrayItemAccessor):
+class BadnessAccessor(GlobalIntAccessor):
     """
     Lazily realize the most recent box pack when \\badness is inspected.
     """

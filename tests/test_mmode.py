@@ -1529,6 +1529,7 @@ def test_delimiter(math):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
+    assert node.atom_type == mmode.ATOM_TYPE.INNER
     assert isinstance(node.nucleus, mmode.Subformula)
     assert len(node.nucleus.list) == 3
     assert isSymbol(node.left.small, 0, chr(0x28))
@@ -1553,6 +1554,22 @@ def test_delim_typeset_null_uses_live_parser_layout(math):
     ctx = display_context(math)
     b = d.typeset(math, Dimen(20), ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert b.width == 7.5
+
+
+def test_inline_math_freezes_local_nulldelimiterspace_before_group_restore(math):
+    math.state.layout["nulldelimiterspace"] = Dimen(7.5)
+    math.parse("\\noindent$\\nulldelimiterspace=0pt\\left(a\\right.$\\relax")
+    top = math.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 1
+    node = top[0]
+    assert isinstance(node, mmode.InlineMathNode)
+    packed = []
+    node.typeset(math, packed)
+    assert len(packed) == 5
+    right = packed[3]
+    assert right.node_type == nd.NODE_TYPE.HLIST
+    assert right.width == 0
 
 
 def test_delim_typeset_order_uses_style_fonts(math):

@@ -1419,7 +1419,12 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
     def prepare(self):
         parser = self.parser
         mlist = parser.lists[-1]
-        if mlist.type != lists.LISTTYPE.MATH or mlist.inner or not mlist.isalign:
+        if mlist.type != lists.LISTTYPE.MATH:
+            return
+        if mlist.inner:
+            self.node.pretypeset(parser)
+            return
+        if not mlist.isalign:
             return
         self.node = mlist[0]
 
@@ -2115,7 +2120,7 @@ class Left(lists.ModeDependentCommand):
     """
     def math(self, parser, mlist):
         delim = readDelimiter(parser)
-        atom = Atom(ATOM_TYPE.ORD)
+        atom = Atom(ATOM_TYPE.INNER)
         atom.left = delim
         mlist.append(atom)
         subformula = Subformula()

@@ -132,7 +132,7 @@ class RowBuildState:
             )
             return
         parser.clearParagraphSettings()
-        state = vmode.VList(parser, owner.noalign, add_interline_glue=False)
+        state = vmode.VList(parser, owner.noalign, add_interline=False)
         parser.readList(
             state,
             GROUP_TYPE.NO_ALIGN,
@@ -423,7 +423,7 @@ class HAlignment(Alignment):
     def appendNoAlign(self, noalign, vlist):
         for n in noalign:
             n.source = self
-            vlist.append(n, interline_glue=False)
+            vlist.append(n, add_interline=False)
             
 
 class VAlignment(Alignment):
@@ -743,7 +743,7 @@ class MAlignment(HAlignment):
         above = nd.Glue(layout["abovedisplayskip"], "\\abovedisplayskip")
         above.source = self
         packed.append(above)
-        packed.extend(self._typeset_cache, interline_glue=False)
+        packed.extend(self._typeset_cache, add_interline=False)
         penalty = nd.Penalty(layout["postdisplaypenalty"])
         penalty.source = self
         packed.append(penalty)

@@ -375,6 +375,28 @@ def test_box_interline_penalty_override(parser):
     assert penalties[0].penalty == 123
 
 
+def test_extend_built_vertical_stream_does_not_duplicate_interline_penalty(parser):
+    parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt\\interlinepenalty=0")
+    built = vmode.VList(parser, [])
+    first = _test_hbox(parser)
+    second = _test_hbox(parser)
+    second.interline_penalty = 123
+    built.append(first)
+    built.append(second)
+    assert [n.node_type for n in built.list] == [
+        nd.NODE_TYPE.HLIST,
+        nd.NODE_TYPE.PENALTY,
+        nd.NODE_TYPE.GLUE,
+        nd.NODE_TYPE.HLIST,
+    ]
+    copy = vmode.VList(parser, [])
+    copy.extend(built.list, add_interline=False)
+    assert copy.list == built.list
+    penalties = [n for n in copy.list if n.node_type == nd.NODE_TYPE.PENALTY]
+    assert len(penalties) == 1
+    assert penalties[0].penalty == 123
+
+
 def test_prevdepth_accessor_is_vlist_local(parser):
     parser.parse("\\prevdepth=5pt\\dimen0=\\prevdepth")
     assert parser.state.dimen[0] == 5

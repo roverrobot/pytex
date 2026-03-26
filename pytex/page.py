@@ -885,8 +885,8 @@ class MainVList(vmode.VList):
         finally:
             self._processing_pages = False
 
-    def append(self, node, interline_glue=True):
-        super().append(node, interline_glue)
+    def append(self, node, add_interline=True):
+        super().append(node, add_interline)
         if self._triggersPageBuilder(node):
             self._contributePending()
             if float(self.parser.state.layout["vsize"]) > 0:

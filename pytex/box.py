@@ -794,7 +794,7 @@ class UnBox(Command):
         for node in nodes:
             node.source = box
         if top.type == LISTTYPE.VERTICAL:
-            top.extend(nodes, interline_glue=False)
+            top.extend(nodes, add_interline=False)
         else:
             top.extend(nodes)
 

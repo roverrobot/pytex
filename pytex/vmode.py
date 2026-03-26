@@ -62,25 +62,25 @@ class VList(lists.List):
     It serves a concrete vertical list node and tracks \\prevdepth/\\lastbox
     build-time state.
     """
-    def __init__(self, parser, nodes, inner=True, add_interline_glue=True):
+    def __init__(self, parser, nodes, inner=True, add_interline=True):
         self.parser = parser
         self.raw = []
         self.list = nodes
         self.inner = inner
         self.saved_prevdepth = parser.state.globals.get("prevdepth", init_prevdepth)
         self.parser.state.globals["prevdepth"] = init_prevdepth
-        self.add_interline_glue = add_interline_glue
+        self.add_interline = add_interline
 
     list_type_name = "VList"
     type = lists.LISTTYPE.VERTICAL
 
-    def extend(self, nodes, interline_glue=True):
+    def extend(self, nodes, add_interline=True):
         for node in nodes:
-            self.append(node, interline_glue)
+            self.append(node, add_interline)
 
-    def append(self, node, interline_glue=None):
-        if interline_glue is None:
-            interline_glue = self.add_interline_glue
+    def append(self, node, add_interline=None):
+        if add_interline is None:
+            add_interline = self.add_interline
         if node.source is None:
             self.raw.append(node)
         if getattr(node, "typeset_to_vlist", False):
@@ -96,12 +96,12 @@ class VList(lists.List):
             return
         prevdepth = self.parser.state.globals["prevdepth"]
         interline_penalty = getattr(node, "interline_penalty", None)
-        if interline_penalty is not None:
+        if add_interline and interline_penalty is not None:
             penalty = nd.Penalty(interline_penalty)
             penalty.source = node
             self.list.append(penalty)
         glue_node = getattr(node, "interline_glue", None)
-        if interline_glue and (prevdepth > init_prevdepth or glue_node is not None):
+        if add_interline and (prevdepth > init_prevdepth or glue_node is not None):
             if glue_node is None:
                 glue = self.parser.state.layout["baselineskip"].copy()
                 glue.dimen -= prevdepth + node.height
@@ -117,7 +117,7 @@ class VList(lists.List):
         self.parser.state.globals["prevdepth"] = node.depth
         if node.node_type == nd.NODE_TYPE.HLIST:
             for n in getattr(node, "migratory", []):
-                self.append(n, interline_glue=False)
+                self.append(n, add_interline=False)
     
     @staticmethod
     def isOwner(node, owner):
@@ -163,7 +163,7 @@ class VAdjust(nd.Node, VListHolder):
     typeset_to_vlist = True
 
     def typeset(self, parser, packed):
-        packed.extend(self.list, interline_glue=False)
+        packed.extend(self.list, add_interline=False)
 
 
 class Mark(nd.Node):
@@ -256,8 +256,8 @@ def readVList(parser, reason, ended=None):
     @param reason: the reason for reading the list
     @param ended: called after the list group closes
     """
-    interline_glue = reason not in (GROUP_TYPE.ADJUSTED_HBOX, GROUP_TYPE.NO_ALIGN)
-    vstate = VList(parser, [], add_interline_glue=interline_glue)
+    add_interline = reason not in (GROUP_TYPE.ADJUSTED_HBOX, GROUP_TYPE.NO_ALIGN)
+    vstate = VList(parser, [], add_interline=add_interline)
     parser.clearParagraphSettings()
     return parser.readList(vstate, reason, ended)
 

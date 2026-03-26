@@ -531,6 +531,15 @@ class MathListHolder:
 class Subformula(MathListHolder):
     def __init__(self):
         super().__init__(list=[], paragraph_math=False)
+        self.left_delim = None
+        self.right_delim = None
+
+    def saveInfo(self):
+        return {}, {
+            "list": self.list,
+            "left_delim": self.left_delim,
+            "right_delim": self.right_delim,
+        }
 
     def typeset(self, parser, packed, context, style):
         temp = []
@@ -813,6 +822,40 @@ class Atom(nd.Node):
         left = f"{self.left}" if self.left is not None else ""
         right = f"{self.right}" if self.right is not None else ""
         return f"{left}{self.__class__.__name__}({self.nucleus}{sub}{sup}){right}"
+
+    def _boundaryInfo(self):
+        nucleus = getattr(self, "nucleus", None)
+        if self.atom_type != ATOM_TYPE.INNER or not isinstance(nucleus, Subformula):
+            return None
+        if nucleus.left_delim is None or nucleus.right_delim is None:
+            return None
+        return nucleus.left_delim, nucleus.right_delim, nucleus.list
+
+    def _typesetBoundaryInner(self, parser, context, style, left_delim, right_delim, body_items):
+        body_holder = MathListHolder(body_items, paragraph_math=False)
+        body_nodes = []
+        body_context = AtomState(parser)
+        body_holder.typesetNodes(parser, body_nodes, body_context, style)
+        body = box.HBox(parser, None, None)
+        body.list[:] = body_nodes
+        body = body.typeset(parser)
+        sigma = mathsigma(parser, style)
+        axis = Dimen(sigma[21])
+        delta_up = body.height - axis
+        delta_down = body.depth + axis
+        delta = delta_up if delta_up >= delta_down else delta_down
+        f = mathlayout(parser, "delimiterfactor")
+        l = mathlayout(parser, "delimitershortfall")
+        rule19 = Dimen(integer=(int(delta) // 500) * f)
+        short = 2 * delta - l
+        total = rule19 if rule19 >= short else short
+        left_box = left_delim.typeset(parser, total, context, style, axis)
+        right_box = right_delim.typeset(parser, total, context, style, axis)
+        out = box.HBox(parser, None, None)
+        out.list[:] = [left_box, body, right_box]
+        out = out.typeset(parser)
+        out.source = self
+        return out
     
     def typeset(self, parser, packed, context=None, style=None):
         atom_type = self.atom_type if context is None else getattr(context, "atom_type", self.atom_type)
@@ -823,6 +866,13 @@ class Atom(nd.Node):
         # Rule 5/6/14 class normalization is handled in MList.typesetNodes pass 1.
         # At this stage we only emit with the supplied effective atom_type.
         context.atom_type = atom_type
+        boundary_info = self._boundaryInfo()
+        if boundary_info is not None:
+            self.typsetSpace(parser, packed, context, style, atom_type)
+            left_delim, right_delim, body_items = boundary_info
+            packed.append(self._typesetBoundaryInner(parser, context, style, left_delim, right_delim, body_items))
+            context.prev_atom_type = atom_type
+            return
         b = self.assemble(parser, context, style)
         sigma = mathsigma(parser, style)
         axis = Dimen(sigma[21])
@@ -2111,8 +2161,8 @@ class MathLeftEndGroupCallBack(MathEndGroupCallback):
         self.atom = atom
 
     def finalize(self, parser, top, mlist):
+        self.node.right_delim = readDelimiter(parser)
         self.atom.nucleus = self.node
-        self.atom.right = readDelimiter(parser)
 
 class Left(lists.ModeDependentCommand):
     """
@@ -2121,9 +2171,9 @@ class Left(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         delim = readDelimiter(parser)
         atom = Atom(ATOM_TYPE.INNER)
-        atom.left = delim
         mlist.append(atom)
         subformula = Subformula()
+        subformula.left_delim = delim
         parser.lists.append(MList(parser, subformula.list))
         parser.beginGroup(
             parser.input.position(),

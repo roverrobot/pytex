@@ -1532,8 +1532,8 @@ def test_delimiter(math):
     assert node.atom_type == mmode.ATOM_TYPE.INNER
     assert isinstance(node.nucleus, mmode.Subformula)
     assert len(node.nucleus.list) == 3
-    assert isSymbol(node.left.small, 0, chr(0x28))
-    assert isSymbol(node.right.small, 0, chr(0x29))
+    assert isSymbol(node.nucleus.left_delim.small, 0, chr(0x28))
+    assert isSymbol(node.nucleus.right_delim.small, 0, chr(0x29))
     math.parse("$")
 
 
@@ -1566,10 +1566,11 @@ def test_inline_math_freezes_local_nulldelimiterspace_before_group_restore(math)
     assert isinstance(node, mmode.InlineMathNode)
     packed = []
     node.typeset(math, packed)
-    assert len(packed) == 5
-    right = packed[3]
-    assert right.node_type == nd.NODE_TYPE.HLIST
-    assert right.width == 0
+    assert len(packed) == 3
+    inner = packed[1]
+    assert inner.node_type == nd.NODE_TYPE.HLIST
+    assert inner.list[-1].node_type == nd.NODE_TYPE.HLIST
+    assert inner.list[-1].width == 0
 
 
 def test_delim_typeset_order_uses_style_fonts(math):
@@ -1659,8 +1660,9 @@ def test_left_right_keeps_inner_translation_box(math):
     ctx.atom_type = node.atom_type
     node.typeset(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     boxes = [n for n in packed if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)]
-    assert len(boxes) == 3
-    assert boxes[1].node_type == nd.NODE_TYPE.HLIST
+    assert len(boxes) == 1
+    assert boxes[0].node_type == nd.NODE_TYPE.HLIST
+    assert len(boxes[0].list) == 3
 
 
 @pytest.mark.parametrize("cmd, bar, thickness, left, right", [
@@ -1701,8 +1703,8 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     assert len(top) == 1
     node = top[0]
     assert isinstance(node, mmode.Atom)
-    assert isSymbol(node.left.small, 0, chr(0x28))
-    assert isSymbol(node.right.small, 0, chr(0x29))
+    assert isSymbol(node.nucleus.left_delim.small, 0, chr(0x28))
+    assert isSymbol(node.nucleus.right_delim.small, 0, chr(0x29))
     assert len(node.nucleus.list) == 1
     frac = node.nucleus.list[0]
     assert isinstance(frac, mmode.Over)
@@ -1715,6 +1717,16 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     math.parse("$")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
+
+
+def test_left_right_outer_spacing_uses_inner_class(math):
+    math.parse("\\noindent$a\\left[b\\right]$\\relax")
+    node = math.lists[-1][0]
+    packed = []
+    node.typeset(math, packed)
+    assert len(packed) == 5
+    assert packed[2].node_type == nd.NODE_TYPE.GLUE
+    assert packed[2].name == "\\thinmuskip"
 
 
 @pytest.mark.parametrize("cmd, expected_theta", [

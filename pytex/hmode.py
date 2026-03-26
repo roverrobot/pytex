@@ -490,7 +490,7 @@ class VAdjust(HorizontalCommand):
         hlist.append(vmode.VAdjust(vlist))
 
     def math(self, parser, mlist):
-        # In math mode, a vadjust is a no-op
+        # Preserve \vadjust as a migratory vertical node in the math list.
         self.horizontal(parser, mlist)
 
 

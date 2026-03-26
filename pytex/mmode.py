@@ -266,6 +266,9 @@ class MathListHolder:
             nd.NODE_TYPE.DISC,
             nd.NODE_TYPE.PENALTY,
             nd.NODE_TYPE.WHATSIT,
+            nd.NODE_TYPE.ADJUST,
+            nd.NODE_TYPE.MARK,
+            nd.NODE_TYPE.INS,
         }
         collected = []
         current = iter(self.list)

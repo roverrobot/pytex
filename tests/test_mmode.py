@@ -784,6 +784,28 @@ def test_rule14_marks_text_symbol_for_rule17(math):
     assert not wrappers[1].text_symbol
 
 
+def test_pass1_collect_passes_through_vadjust(math):
+    subformula = mmode.Subformula()
+    penalty = nd.Penalty(-10000)
+    adjust = vmode.VAdjust([penalty])
+    mlist = mmode.MList(math, subformula.list)
+    mlist.extend([
+        _mk_atom(mmode.ATOM_TYPE.ORD, 1, "a"),
+        adjust,
+    ])
+    ctx = display_context(math)
+    collected = subformula._pass1Collect(math, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    assert isinstance(collected[0], mmode._AtomWrapper)
+    assert collected[1] is adjust
+
+
+def test_display_math_allows_vadjust(math):
+    math.parse("\\noindent$$a\\vadjust{\\penalty-10000}$$\\par")
+    vtop = math.lists[0]
+    displays = _source_nodes(vtop, mmode.DisplayMathNode)
+    assert len(displays) == 1
+
+
 def test_rule17_cases(math):
     # Rule 17: math-list nucleus is typeset to a box.
     subformula = mmode.Subformula()

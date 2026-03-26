@@ -16,7 +16,7 @@ from pytex.define import Define
 from pytex.state import Array
 from pytex.expandable import toToks
 from pytex.lexer import TokenListScanner
-from pytex.serialization import Serializable
+from pytex.serialization import Builtin, Serializable
 
 
 class Font(Command):
@@ -89,6 +89,20 @@ class Font(Command):
         return self.charnode[h-self.bc] if self.bc <= h <= self.ec else None
 
 
+class NullFont(Font):
+    """
+    Builtin wrapper for \\nullfont.
+
+    Regular font values should keep concrete serialization, but the parser's
+    builtin \\nullfont should round-trip by builtin name.
+    """
+    def className(self):
+        return Builtin.className(self)
+
+    def saveInfo(self):
+        return Builtin.saveInfo(self)
+
+
 def readFont(parser):
     """
     read a font from the input stack
@@ -135,7 +149,7 @@ class FontArrayAccessor(ArrayAccessor):
         return self.domain[i]
 
 
-nullfont = Font(tfm=nullfont_tfm, at=0)
+nullfont = NullFont(tfm=nullfont_tfm, at=0)
 nullfont.name = "\\nullfont"
 
 

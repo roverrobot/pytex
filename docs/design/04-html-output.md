@@ -297,6 +297,100 @@ The engine should not force arbitrary TeX math layout into pure MathML. When a
 subtree is too box-oriented or irregular, the renderer may keep it as a boxed
 HTML/CSS math fragment instead.
 
+### Math Node Inventory And MathML Mapping
+
+The first MathML pass should be driven by the actual math node classes in
+`pytex/mmode.py`, not by the final shipped glyph stream alone.
+
+The table below lists the main raw math nodes and the intended first mapping.
+
+| Math node | Role in pytex | Preferred MathML target | Notes |
+| --- | --- | --- | --- |
+| `InlineMathNode` | Top-level inline math fragment. | `<math display="inline">...</math>` | Container only. The child math list decides the actual subtree. |
+| `DisplayMathNode` | Top-level display math fragment, optionally with `eqno`. | `<math display="block">...</math>` | Equation number should remain page-local HTML metadata around the block, not be forced into the MathML subtree. |
+| `MList` | General math list builder. | `<mrow>`-like sequence in the math IR. | This is the default sequence container before more specific atom rules apply. |
+| `Subformula` | Grouped sub-list, optionally with `left_delim` and `right_delim`. | `<mrow>` | If delimiters are present, emit delimiter `<mo>` nodes around the body instead of using deprecated `mfenced`. |
+| `StyleNode` | Explicit style change such as `\\displaystyle` or `\\scriptstyle`. | Usually no direct node; sometimes `<mstyle>` | Prefer to normalize style into the math IR. Emit `mstyle` only when a downstream renderer needs it. |
+| `ChoiceNode` | `\\mathchoice` branch selection. | No direct MathML node. | Resolve to the chosen branch before MathML generation. |
+| `Atom` | Base atom with optional `sub`, `sup`, `left`, `right`. | Usually `<mrow>`, possibly wrapped by script nodes. | `Atom` is mostly structural. The nucleus determines the real MathML node; `sub` and `sup` then wrap it as `msub`, `msup`, or `msubsup`. |
+| `MathSymbol` | One math symbol with atom class, family, and char. | `mi`, `mn`, or `mo` | Use atom class plus character class to choose the MathML token kind. `BIN`, `REL`, `OPEN`, `CLOSE`, and `PUNCT` generally become `mo`. Letters usually become `mi`; digits `mn`. |
+| `Op` | Large operator atom with `\\limits` / `\\nolimits` behavior. | `mo`, `munder`, `mover`, `munderover`, `msub`, `msup`, or `msubsup` | When limits are active, use under/over forms; otherwise treat sub/sup as ordinary scripts. |
+| `Delim` | Stretchy delimiter descriptor. | `<mo stretchy="true" fence="true">` | A `Delim` is usually not emitted on its own; it appears through `Subformula`, `Atom.left/right`, or `Over.delims`. |
+| `Rad` | Radical atom with delimiter and operand. | `<msqrt>` for now | The current node only models an ordinary radical, not a general indexed root. If later degree-like constructs are recovered, extend the IR toward `mroot`. |
+| `Over` | Generalized fraction, `\\over`/`\\atop`/`\\above`, optionally with delimiters. | `<mfrac>` | Preserve bar thickness in the math IR. `\\atop` is still an `mfrac` with zero rule thickness. Delimiters become surrounding fence operators. |
+| `Accent` | Math accent over a base. | `<mover accent="true">` | Prefer semantic accent mapping when the accent glyph is recognizable. If the base or accent layout is too box-specific, fall back to boxed math. |
+| `Box` | Arbitrary prebuilt box used as a math atom. | No guaranteed direct MathML mapping. | If the box is simple enough, lower it to an inline `mrow`; otherwise treat it as boxed HTML/CSS fallback inside the math IR. |
+| `VCent` | `\\vcenter` around a box. | Usually boxed fallback; sometimes `<mrow>` | There is no direct MathML equivalent for arbitrary TeX `\\vcenter`. If the child is clearly matrix-like, keep going; otherwise use box fallback. |
+| `Line` | Overline/underline atom. | `mover` or `munder` | Emit a stretching rule operator over or under the nucleus. |
+| `NonscriptGlue` | Spacing suppressed in script styles. | No direct MathML node. | Usually resolve this during IR construction and drop it from final MathML. |
+
+### Atom Class To MathML Spacing Role
+
+`Atom.atom_type` also carries spacing and operator semantics that should survive
+into the math IR even when the direct node shape is the same.
+
+| Atom type | Typical MathML role |
+| --- | --- |
+| `ORD` | ordinary item, usually `mi`, `mn`, or a neutral `mrow` |
+| `OP` | operator, usually `mo`, possibly with limits |
+| `BIN` | binary operator `mo` |
+| `REL` | relation `mo` |
+| `OPEN` | opening fence `mo` |
+| `CLOSE` | closing fence `mo` |
+| `PUNCT` | punctuation `mo` |
+| `INNER` | grouped `mrow` or wrapped semantic subtree |
+| `OVER` / `UNDER` | over/under decoration nodes, usually `mover` / `munder` |
+| `ACC` | accent node, usually `mover accent="true"` |
+| `RAD` | radical node, usually `msqrt` |
+| `VCENT` | centered boxed subtree, often fallback |
+
+### Script Policy
+
+Scripts should be attached at the `Atom` level, not at the raw child list
+level.
+
+First mapping rules:
+
+- no script: emit the nucleus mapping directly
+- subscript only: `msub`
+- superscript only: `msup`
+- both: `msubsup`
+- large operators with active limits: `munder`, `mover`, or `munderover`
+
+This matches pytex well because `Atom` already carries `sub` and `sup`
+explicitly.
+
+### Matrix Recovery Policy
+
+There is no dedicated matrix node in pytex today. LaTeX arrays and matrices are
+instead commonly lowered into box structures, usually a `vbox` containing a
+`halign`.
+
+So the matrix mapping rule should be:
+
+- if a math `Box` or `VCent` contains a regular alignment-shaped structure,
+  recover it as an `mtable`
+- if it contains mostly an alignment plus harmless box noise, still prefer
+  `mtable`
+- if it contains arbitrary irregular layout, fall back to boxed math instead of
+  forcing incorrect MathML
+
+### Math Fallback Boundary
+
+The first implementation should be explicit about where MathML stops.
+
+Use boxed HTML/CSS fallback when any of the following is true:
+
+- a `Box` or `VCent` subtree carries arbitrary non-math layout that is not
+  recognizable as a matrix or ordinary grouped expression
+- delimiter sizing or accent placement depends on box geometry we cannot
+  represent semantically
+- a subtree mixes semantic math with non-semantic page-layout constructs in a
+  way that would make the MathML misleading
+
+The goal is not "everything into MathML". The goal is "semantic MathML where it
+is honest, boxed fallback where TeX layout is too free-form".
+
 ## Graphics, Color, and Specials
 
 Graphics and color should not be designed separately for HTML and PDF.

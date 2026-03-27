@@ -50,6 +50,10 @@ class FontBackend:
         raise NotImplementedError
 
     @property
+    def dvi_name(self) -> str | None:
+        return self.name
+
+    @property
     def design_size(self):
         raise NotImplementedError
 

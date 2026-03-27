@@ -26,6 +26,7 @@ class DVIShipout(page.Shipout):
         self.output = output
         self.mag = parser.state.parameters["mag"]
         self.font_ids = {}
+        self.fonts = []
         self.current_font = None
         self.h = 0
         self.v = 0
@@ -107,16 +108,22 @@ class DVIShipout(page.Shipout):
         self._write_unsigned(self.mag, 4)
         self._write_string(comment)
 
-    def _define_font(self, font):
-        font_id = len(self.font_ids)
-        self.font_ids[id(font)] = font_id
+    def _write_font_def(self, font_id, font):
         backend = font.backend
+        if backend.dvi_name is None:
+            raise ValueError(f"DVI shipout does not support backend {backend.kind} font {backend.name} without a DVI font name")
         self._write_byte(243)  # fnt_def1
         self._write_unsigned(font_id, 1)
         self._write_unsigned(backend.checksum, 4)
         self._write_dimen(font.at)
         self._write_dimen(Dimen(backend.design_size))
-        self._write_path(backend.name)
+        self._write_path(backend.dvi_name)
+
+    def _define_font(self, font):
+        font_id = len(self.fonts)
+        self.font_ids[id(font)] = font_id
+        self.fonts.append(font)
+        self._write_font_def(font_id, font)
         return font_id
 
     def _set_font(self, font):
@@ -387,6 +394,8 @@ class DVIShipout(page.Shipout):
         self._write_unsigned(self.max_width, 4)
         self._write_unsigned(self.max_stack, 2)
         self._write_unsigned(self.page_count, 2)
+        for font_id, font in enumerate(self.fonts):
+            self._write_font_def(font_id, font)
         self._write_byte(249)
         self._write_unsigned(post, 4)
         self._write_byte(self.ID)

@@ -64,6 +64,10 @@ class OpenTypeBackend(FontBackend):
         return self._name
 
     @property
+    def dvi_name(self):
+        return os.path.splitext(os.path.basename(self._name))[0]
+
+    @property
     def design_size(self):
         # OpenType fonts do not expose a TeX design size, so we follow the
         # conventional 10pt default unless the user specifies `at`/`scaled`.

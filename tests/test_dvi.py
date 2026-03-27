@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from pytex import dvi
+from pytex import opentype
 from pytex import resolver
 from pytex import texlive
 
@@ -46,6 +49,19 @@ def test_dvi_shipout_writes_minimal_page(cmr10, tmp_path):
     assert len(shipout.pages) == 1
 
 
+def test_dvi_postamble_includes_font_definitions(cmr10, tmp_path):
+    out = tmp_path / "postamble-fonts"
+    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="postamble-fonts")
+    cmr10.end()
+    data = Path(str(out) + ".dvi").read_bytes()
+    post = data.index(bytes((248,)))
+    post_post = data.index(bytes((249,)), post)
+    postamble = data[post:post_post]
+    assert 243 in postamble  # fnt_def1
+    assert b"cmr10" in postamble
+
+
 def test_dvi_adjacent_chars_do_not_emit_explicit_move(cmr10, tmp_path):
     out = tmp_path / "pair"
     cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
@@ -80,3 +96,17 @@ def test_dvi_shipout_accepts_binary_file_handle(parser):
     data = stored.content
     assert data[:2] == bytes((247, 2))
     assert 248 in data
+
+
+def test_dvi_shipout_uses_opentype_dvi_name_without_extension(parser):
+    try:
+        parser.loadFontBackend("lmroman10-regular.otf")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle = parser.resolver.openOut("opentype", "shipout/dvi")
+    parser.shipout = dvi.DVIShipout(parser, handle)
+    parser.parse("\\font\\f=lmroman10-regular.otf at 10pt \\shipout\\vbox{\\hbox{\\f A}}", jobname="opentype")
+    parser.end()
+    data = parser.resolver.in_memory_files["opentype.dvi"].content
+    assert b"lmroman10-regular" in data
+    assert b"lmroman10-regular.otf" not in data

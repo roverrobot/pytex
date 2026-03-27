@@ -14,6 +14,9 @@ This note locks in the first step of the font-backend split.
 ## Backend Selection
 
 The `\font` command reads a file name and asks registered backends to load it.
+The dispatcher does not resolve files itself; each backend's `load()` method is
+responsible for deciding whether it supports the name, and for resolving and
+loading a new resource when the generic cache misses.
 
 - `TFMBackend` handles names with no extension and names ending in `.tfm`.
 - Future `OpenTypeBackend` will handle `.ttf` and `.otf`.
@@ -23,9 +26,13 @@ The `\font` command reads a file name and asks registered backends to load it.
 This keeps backend selection local to the filename, not to the parser.
 
 Resolved backend objects may be shared across parsers through a process-wide
-cache when the backend can provide a stable `systemCacheKey()`. This is
-intended for immutable system resources such as parsed font data, while
-parser-local or in-memory resources can simply return `None`.
+cache in `font_backend.py`, keyed by normalized font resource name.
+
+- If the requested name has no extension, the cache normalizes it to `.tfm`.
+- Otherwise the extension is kept and lowercased.
+
+So `cmr10` and `cmr10.tfm` refer to the same cached resource, while
+`foo.otf` and `foo.ttf` stay distinct.
 
 ## First Draft Interface
 
@@ -86,8 +93,6 @@ class FontBackend:
     def leftBoundaryProgram(self): ...
 
     def rightBoundaryChar(self): ...
-
-    def systemCacheKey(self): ...
 ```
 
 ## TFM Mapping

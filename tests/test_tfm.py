@@ -15,7 +15,7 @@ def test_read_tfm():
 
 
 def test_nullfont(parser):
-    nullfont = parser.tfm["nullfont"]
+    nullfont = tfm.nullfont
     assert nullfont.header.checksum == 0
     assert nullfont.header.size == 0.0
     assert nullfont.ec == 0
@@ -31,12 +31,12 @@ def test_nullfont(parser):
     assert nullfont.param == [0] * 7
 
 
-def test_system_tfm_cache_shared_between_parsers():
+def test_system_tfm_backend_load_shared_between_parsers():
     p1 = Parser()
     p2 = Parser()
     try:
-        t1 = p1.loadTFM("cmr10")
-        t2 = p2.loadTFM("cmr10")
+        t1 = p1.loadFontBackend("cmr10").tfm
+        t2 = p2.loadFontBackend("cmr10").tfm
     except FileNotFoundError:
         pytest.skip("cmr10.tfm not found")
     assert t1 is t2

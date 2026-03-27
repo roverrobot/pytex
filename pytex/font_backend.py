@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pytex.module import Module
 
 
@@ -78,9 +79,6 @@ class FontBackend:
     def rightBoundaryChar(self):
         return None
 
-    def systemCacheKey(self):
-        return None
-
 
 _backend_classes = []
 _system_font_backend_cache = {}
@@ -92,13 +90,16 @@ def registerBackend(backend_cls):
     return backend_cls
 
 
-def init(parser):
-    parser.font_backends = {}
+def resourceName(name: str):
+    root, ext = os.path.splitext(name)
+    if not ext:
+        return f"{name}.tfm"
+    return f"{root}{ext.lower()}"
 
 
 def loadFontBackend(parser, name: str, kind: str = None):
-    key = (kind, name)
-    cached = parser.font_backends.get(key)
+    name = resourceName(name)
+    cached = _system_font_backend_cache.get(name)
     if cached is not None:
         return cached
     for backend_cls in _backend_classes:
@@ -107,12 +108,7 @@ def loadFontBackend(parser, name: str, kind: str = None):
         backend = backend_cls.load(parser, name)
         if backend is None:
             continue
-        cache_key = backend.systemCacheKey()
-        if cache_key is not None:
-            backend = _system_font_backend_cache.setdefault(cache_key, backend)
-        parser.font_backends[key] = backend
-        parser.font_backends[(None, name)] = backend
-        parser.font_backends[(backend.kind, name)] = backend
+        _system_font_backend_cache[name] = backend
         return backend
     if kind is None:
         raise FileNotFoundError(f"font {name} not found")
@@ -123,5 +119,4 @@ mod = Module("font_backend",
     attributes={
         "loadFontBackend": loadFontBackend,
     },
-    init=init,
 )

@@ -293,11 +293,23 @@ class TFMBackend(FontBackend):
         self.ec = tfm.ec
 
     @classmethod
-    def load(cls, parser, name: str):
-        ext = os.path.splitext(name)[1].lower()
-        if ext not in ("", ".tfm"):
+    def _openFile(cls, parser, name: str):
+        if os.path.splitext(name)[1].lower() != ".tfm":
             return None
-        return cls(parser.loadTFM(name))
+        file = parser.resolver.openIn(name, "fonts/tfm")
+        if file is None:
+            raise FileNotFoundError(f"TFM file {name} not found")
+        return file
+
+    @classmethod
+    def load(cls, parser, name: str):
+        file = cls._openFile(parser, name)
+        if file is None:
+            return None
+        try:
+            return cls(TFM(name[:-4], file))
+        finally:
+            file.close()
 
     @property
     def name(self):
@@ -373,72 +385,8 @@ class TFMBackend(FontBackend):
         step = self.tfm.program.right_boundary
         return None if step is None else chr(step.next_char)
 
-    def systemCacheKey(self):
-        return (self.kind, self.tfm)
-
-
 nullfont_backend = TFMBackend(nullfont)
-# process-level cache for parsed on-disk TFM files
-_system_tfm_cache = {}
-_system_tfm_name_cache = {}
-
-
-class TFMDict(dict):
-    """
-    A dictionary of TFM files.
-    """
-    def __init__(self):
-        super().__init__()
-        self["nullfont"] = nullfont
-
-    def __repr__(self):
-        return f"TFMDict({list(self.keys())})"
-
-
-def loadTFM(parser, name: str):
-    """
-    Load a TFM file.
-    @param name: the name of the TFM file
-    """
-    if name in parser.tfm:
-        return parser.tfm[name]
-    name_key = (id(parser.resolver), name)
-    tfm = _system_tfm_name_cache.get(name_key)
-    if tfm is not None:
-        parser.tfm[name] = tfm
-        return tfm
-    file = parser.resolver.openIn(name, "fonts/tfm")
-    if file is None:
-        raise FileNotFoundError(f"TFM file {name} not found")
-    # Only share process-wide cache for real files on disk. In-memory streams
-    # may change between parsers and should stay parser-local.
-    path = getattr(file, "name", None)
-    cache_key = None
-    if isinstance(path, str) and path:
-        cache_key = os.path.realpath(path)
-    tfm = _system_tfm_cache.get(cache_key) if cache_key is not None else None
-    if tfm is None:
-        tfm = TFM(name, file)
-        if cache_key is not None:
-            _system_tfm_cache[cache_key] = tfm
-    _system_tfm_name_cache[name_key] = tfm
-    parser.tfm[name] = tfm
-    file.close()
-    return tfm
-
-
-def init(parser):
-    """
-    Initialize the TFM module.
-    @param parser: the parser
-    """
-    # set the initial values for the TFM parameters
-    parser.tfm = TFMDict()
 
 
 mod = Module("tfm",
-    attributes = {
-        "loadTFM": loadTFM,
-    },
-    init=init,
 )

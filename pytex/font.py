@@ -249,7 +249,8 @@ class FontDefineAccessor(ParameterAccessor):
         read a font specification from the input stack
         @param parser: the parser
         """
-        # read the font specification
+        # While a font assignment is being scanned, TeX treats the target
+        # control sequence as \nullfont, even if it already had a meaning.
         name = parser.readFileName()
         if name is None:
             raise ValueError("expecting a font name")
@@ -287,10 +288,13 @@ class FontCommand(Define):
     The \\font command
     """
     def __init__(self):
-        super().__init__(FontDefineAccessor, default=nullfont)
+        super().__init__(FontDefineAccessor)
         
     def fontValue(self, parser):
         return parser.currentfont.value
+
+    def setDefault(self, t):
+        t.entry.value = t.definition = nullfont
 
 
 class FontDimenAccessor(DimenArrayItemAccessor):

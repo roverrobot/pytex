@@ -14,7 +14,7 @@ class Define(accessor.ArrayAccessor):
     the base class for defining commands
     @param accessor_generator: the generator for the accessor to the equitable item
     """
-    def __init__(self, accessor_generator=accessor.ParameterAccessor, default=relax):
+    def __init__(self, accessor_generator=accessor.ParameterAccessor):
         # provide a default value for the command before the assignment.
         # Typically this is \\relax. However, in font assignment. For example, in
         # \\font\\f=cmr10 \\fontname\\f
@@ -22,7 +22,6 @@ class Define(accessor.ArrayAccessor):
         # is looking for a keyword "scale" or "to". However, at this stage the assignmnt
         # for \\f has not happended yet as pytex is still reading the font specification.
         # Thus, \\f should recive a default value of \\nullfont, as in TeX82.
-        self.default = default
         self.accessor_generator = accessor_generator
 
     def getItemAccessor(self, parser):
@@ -33,14 +32,18 @@ class Define(accessor.ArrayAccessor):
         t = parser.token()
         if t is None or t.entry is None:
             raise ValueError(f"command name expected, got {t}", parser.input.position())
-        # is the command defined? Is so, lead it alone. Otherwise, it is going to be defined.
-        # However, we may meet is while reading the value of the definition. This causes a problem 
+        # is the command defined? Is so, leave it alone. Otherwise, it is going to be defined.
+        # However, we this token may be expanded is while reading the value of the definition. This causes a problem 
         # because it is not defined yet. To avoid the problem, we make it relax, so that if it 
         # appears later in the input, it will be ignored. This, for example, appears in
+        # \countdef\a=10\a=10
         # \font\test=cmr10\test
-        if t.definition is None:
-            t.entry.value = t.definition = self.default
+        self.setDefault(t)
         return self.accessor_generator(t.entry)
+    
+    def setDefault(self, t):
+        if t.definition is None:
+            t.entry.value = t.definition = relax
 
 
 class LetAccessor(accessor.ParameterAccessor):

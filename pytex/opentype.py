@@ -65,7 +65,7 @@ class OpenTypeBackend(FontBackend):
 
     @property
     def dvi_name(self):
-        return os.path.splitext(os.path.basename(self._name))[0]
+        return None
 
     @property
     def design_size(self):

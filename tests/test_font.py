@@ -50,7 +50,7 @@ def test_load_opentype_font_backend(parser):
         pytest.skip("lmroman10-regular.otf not found")
     assert backend.kind == "opentype"
     assert backend.name == "lmroman10-regular.otf"
-    assert backend.dvi_name == "lmroman10-regular"
+    assert backend.dvi_name is None
     assert backend.design_size == 10.0
     a = backend.glyphInfo("A")
     assert a is not None

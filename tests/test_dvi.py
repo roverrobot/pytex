@@ -98,15 +98,15 @@ def test_dvi_shipout_accepts_binary_file_handle(parser):
     assert 248 in data
 
 
-def test_dvi_shipout_uses_opentype_dvi_name_without_extension(parser):
+def test_dvi_shipout_rejects_opentype_font_without_dvi_name(parser, tmp_path):
     try:
         parser.loadFontBackend("lmroman10-regular.otf")
     except FileNotFoundError:
         pytest.skip("lmroman10-regular.otf not found")
-    handle = parser.resolver.openOut("opentype", "shipout/dvi")
-    parser.shipout = dvi.DVIShipout(parser, handle)
-    parser.parse("\\font\\f=lmroman10-regular.otf at 10pt \\shipout\\vbox{\\hbox{\\f A}}", jobname="opentype")
-    parser.end()
-    data = parser.resolver.in_memory_files["opentype.dvi"].content
-    assert b"lmroman10-regular" in data
-    assert b"lmroman10-regular.otf" not in data
+    out = tmp_path / "opentype"
+    parser.shipout = dvi.DVIShipout(parser, str(out))
+    with pytest.raises(ValueError, match="DVI shipout does not support backend opentype"):
+        parser.parse("\\font\\f=lmroman10-regular.otf at 10pt \\shipout\\vbox{\\hbox{\\f A}}", jobname="opentype")
+    if parser.shipout.file is not None:
+        parser.shipout.file.close()
+        parser.shipout.file = None

@@ -22,6 +22,11 @@ The `\font` command reads a file name and asks registered backends to load it.
 
 This keeps backend selection local to the filename, not to the parser.
 
+Resolved backend objects may be shared across parsers through a process-wide
+cache when the backend can provide a stable `systemCacheKey()`. This is
+intended for immutable system resources such as parsed font data, while
+parser-local or in-memory resources can simply return `None`.
+
 ## First Draft Interface
 
 The first draft is intentionally small and biased toward the information the
@@ -81,6 +86,8 @@ class FontBackend:
     def leftBoundaryProgram(self): ...
 
     def rightBoundaryChar(self): ...
+
+    def systemCacheKey(self): ...
 ```
 
 ## TFM Mapping

@@ -78,8 +78,12 @@ class FontBackend:
     def rightBoundaryChar(self):
         return None
 
+    def systemCacheKey(self):
+        return None
+
 
 _backend_classes = []
+_system_font_backend_cache = {}
 
 
 def registerBackend(backend_cls):
@@ -103,6 +107,9 @@ def loadFontBackend(parser, name: str, kind: str = None):
         backend = backend_cls.load(parser, name)
         if backend is None:
             continue
+        cache_key = backend.systemCacheKey()
+        if cache_key is not None:
+            backend = _system_font_backend_cache.setdefault(cache_key, backend)
         parser.font_backends[key] = backend
         parser.font_backends[(None, name)] = backend
         parser.font_backends[(backend.kind, name)] = backend

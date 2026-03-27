@@ -373,6 +373,9 @@ class TFMBackend(FontBackend):
         step = self.tfm.program.right_boundary
         return None if step is None else chr(step.next_char)
 
+    def systemCacheKey(self):
+        return (self.kind, self.tfm)
+
 
 nullfont_backend = TFMBackend(nullfont)
 # process-level cache for parsed on-disk TFM files

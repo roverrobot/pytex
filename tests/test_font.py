@@ -1,5 +1,6 @@
 import pytest
 from pytex import texlive
+from pytex.parser import Parser
 
 
 def test_read_font(cmr10):
@@ -28,6 +29,17 @@ def test_load_font_backend(parser):
     assert backend.kind == "tfm"
     assert backend.name == "cmr10"
     assert backend.design_size == 10.0
+
+
+def test_system_font_backend_cache_shared_between_parsers():
+    p1 = Parser()
+    p2 = Parser()
+    try:
+        b1 = p1.loadFontBackend("cmr10")
+        b2 = p2.loadFontBackend("cmr10")
+    except FileNotFoundError:
+        pytest.skip("cmr10 font not found")
+    assert b1 is b2
 
 
 def test_read_font_error(parser):

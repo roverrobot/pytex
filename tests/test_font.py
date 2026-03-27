@@ -1,4 +1,5 @@
 import pytest
+from pytex import opentype
 from pytex import texlive
 from pytex.parser import Parser
 
@@ -40,6 +41,48 @@ def test_system_font_backend_cache_shared_between_parsers():
     except FileNotFoundError:
         pytest.skip("cmr10 font not found")
     assert b1 is b2
+
+
+def test_load_opentype_font_backend(parser):
+    try:
+        backend = parser.loadFontBackend("lmroman10-regular.otf")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+    assert backend.kind == "opentype"
+    assert backend.name == "lmroman10-regular.otf"
+    assert backend.design_size == 10.0
+    a = backend.glyphInfo("A")
+    assert a is not None
+    assert float(a.width) > 0.7
+    assert float(backend.fontdimen[4]) > 0
+    assert float(backend.fontdimen[5]) == 1.0
+
+
+def test_read_opentype_font(parser):
+    try:
+        parser.parse("\\font\\f=lmroman10-regular.otf at 10pt \\f A")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+    font = parser.state.equitable["\\f"]
+    assert font.backend.kind == "opentype"
+    assert font.backend.name == "lmroman10-regular.otf"
+    assert float(font["A"].width) > 7.0
+
+
+def test_font_optional_keyword_does_not_expand_existing_macro_name(collector):
+    try:
+        collector.parse("\\def\\a{X}\\font\\a=lmroman10-regular.otf \\a A")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+    assert collector.getString().strip() == "A"
+    assert collector.lookup("\\a").backend.name == "lmroman10-regular.otf"
+
+
+def test_font_target_is_temporarily_nullfont_while_scanning_size(collector):
+    collector.parse("\\def\\b{99pt}\\font\\c=cmr10 at \\b")
+    assert collector.lookup("\\c").at == 99.0
+    collector.parse("\\font\\a=cmr10 at \\fontdimen6\\a")
+    assert collector.lookup("\\a").at == 0.0
 
 
 def test_read_font_error(parser):

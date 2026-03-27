@@ -101,6 +101,14 @@ class FileResolver:
                     "extensions": ["tfm"], 
                     "binary": True,
                 },
+                "opentype": {
+                    "extensions": ["otf"],
+                    "binary": True,
+                },
+                "truetype": {
+                    "extensions": ["ttf"],
+                    "binary": True,
+                },
             },
             "dump": {
                 "pfmt": {

@@ -11,6 +11,7 @@ from pytex import etex
 from pytex import pdftex
 # dvi output
 from pytex import dvi
+from pytex import opentype
 
 from argparse import ArgumentParser
 import os

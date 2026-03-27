@@ -3,6 +3,7 @@ TeX Font Metrics (TFM) file format
 """
 
 from pytex import node
+from pytex.font_backend import FontBackend, GlyphAssembly, GlyphInfo, registerBackend
 from pytex.module import Module
 from struct import unpack, pack
 import io
@@ -280,6 +281,100 @@ class TFM:
 
 
 nullfont = TFM("nullfont", None)
+
+
+@registerBackend
+class TFMBackend(FontBackend):
+    kind = "tfm"
+
+    def __init__(self, tfm: TFM):
+        self.tfm = tfm
+        self.bc = tfm.bc
+        self.ec = tfm.ec
+
+    @classmethod
+    def load(cls, parser, name: str):
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in ("", ".tfm"):
+            return None
+        return cls(parser.loadTFM(name))
+
+    @property
+    def name(self):
+        return self.tfm.name
+
+    @property
+    def design_size(self):
+        return self.tfm.header.size
+
+    @property
+    def checksum(self):
+        return self.tfm.header.checksum
+
+    @property
+    def fontdimen(self):
+        return self.tfm.param
+
+    def glyphInfo(self, char: str):
+        code = ord(char)
+        if code < self.bc or code > self.ec:
+            return None
+        info = self.tfm.char_info[code - self.bc]
+        if not info.exists:
+            return None
+        assembly = None
+        if info.extend is not None:
+            assembly = GlyphAssembly(
+                top=info.extend.top,
+                middle=info.extend.mod,
+                bottom=info.extend.bot,
+                repeat=info.extend.rep,
+            )
+        return GlyphInfo(
+            char=info.char,
+            width=info.width,
+            height=info.height,
+            depth=info.depth,
+            italic=info.italic,
+            program=info.program,
+            next_larger=info.chain,
+            assembly=assembly,
+        )
+
+    def glyphInfos(self):
+        for code in range(self.bc, self.ec + 1):
+            info = self.glyphInfo(chr(code))
+            if info is not None:
+                yield info
+
+    def fallbackGlyphInfo(self, char: str):
+        return GlyphInfo(
+            char=char,
+            width=0,
+            height=0,
+            depth=0,
+            italic=0,
+            program=None,
+            next_larger=None,
+            assembly=None,
+        )
+
+    def leftBoundaryProgram(self):
+        step = self.tfm.program.left_boundary
+        if step is None:
+            return None
+        program = {}
+        while step is not None:
+            program[step.next_char] = step
+            step = step.next_step
+        return program
+
+    def rightBoundaryChar(self):
+        step = self.tfm.program.right_boundary
+        return None if step is None else chr(step.next_char)
+
+
+nullfont_backend = TFMBackend(nullfont)
 # process-level cache for parsed on-disk TFM files
 _system_tfm_cache = {}
 _system_tfm_name_cache = {}

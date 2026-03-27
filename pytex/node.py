@@ -121,9 +121,12 @@ class CharNode(Box):
     @param char_info: the character information
     @param font: the font of the character
     """
-    def __init__(self, char, font):
+    def __init__(self, char, font, char_info=None):
         at = font.at
-        char_info = font.tfm.char_info[ord(char)-font.bc]
+        if char_info is None:
+            char_info = font.glyphInfo(char)
+        if char_info is None:
+            raise KeyError(f"character {ord(char)} not found in font {font}")
         super().__init__(char_info.width * at, char_info.height * at, char_info.depth * at)
         self.char = char_info.char
         self.italic = char_info.italic * at

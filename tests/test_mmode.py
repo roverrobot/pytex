@@ -1233,16 +1233,11 @@ def test_rule13_op_cases(math):
     font = mmode.mathfont(math, style, 3)
     source_char = None
     target_char = None
-    for info in font.tfm.char_info:
-        chain = getattr(info, "chain", None)
-        if not info.exists or chain is None:
+    for info in font.glyphInfos():
+        chain = info.next_larger
+        if chain is None:
             continue
-        if not (font.bc <= ord(info.char) <= font.ec):
-            continue
-        if not (font.bc <= ord(chain) <= font.ec):
-            continue
-        target_info = font.tfm.char_info[ord(chain) - font.bc]
-        if not target_info.exists:
+        if font.glyphInfo(chain) is None:
             continue
         source_char = info.char
         target_char = chain

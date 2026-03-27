@@ -451,7 +451,7 @@ class IfFontChar(conditional.Conditional):
     def condition(self, parser):
         f = font.readFont(parser)
         char = parser.readInteger()
-        return 0 if f.bc <= char <= f.ec else 1
+        return 0 if f.hasCharCode(char) else 1
 
 
 class IfCSName(conditional.Conditional):

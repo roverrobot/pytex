@@ -3,22 +3,31 @@ from pytex import texlive
 
 
 def test_read_font(cmr10):
-    assert cmr10.state.equitable["\\f"].tfm.name == 'cmr10'
+    assert cmr10.state.equitable["\\f"].backend.kind == "tfm"
+    assert cmr10.state.equitable["\\f"].backend.name == 'cmr10'
     assert cmr10.state.equitable["\\f"].at == 10.0
-    assert cmr10.state.parameters["currentfont"].tfm.name == 'cmr10'
+    assert cmr10.state.parameters["currentfont"].backend.name == 'cmr10'
     assert cmr10.state.parameters["currentfont"].at == 10.0
 
 
 def test_read_font_scaled(parser):
     parser.parse('\\font\\f=cmr10 scaled 500')
-    assert parser.state.equitable["\\f"].tfm.name == 'cmr10'
+    assert parser.state.equitable["\\f"].backend.kind == "tfm"
+    assert parser.state.equitable["\\f"].backend.name == 'cmr10'
     assert parser.state.equitable["\\f"].at == 5.0
 
 
 def test_read_font_at(parser):
     parser.parse('\\font\\f=cmr10 at 20pt')
-    assert parser.state.equitable["\\f"].tfm.name == 'cmr10'
+    assert parser.state.equitable["\\f"].backend.name == 'cmr10'
     assert parser.state.equitable["\\f"].at == 20.0
+
+
+def test_load_font_backend(parser):
+    backend = parser.loadFontBackend("cmr10")
+    assert backend.kind == "tfm"
+    assert backend.name == "cmr10"
+    assert backend.design_size == 10.0
 
 
 def test_read_font_error(parser):

@@ -6,7 +6,8 @@ The module implements font handling
 from fractions import Fraction
 from pytex.token import Command
 from pytex.module import Module
-from pytex.tfm import TFM, nullfont as nullfont_tfm
+from pytex.font_backend import FontBackend
+from pytex.tfm import nullfont_backend
 from pytex.accessor import ArrayAccessor, ArrayItemAccessor, ParameterAccessor
 from pytex.integer import IntegerArrayAccessor, IntegerArrayItemAccessor
 from pytex.dimen import Dimen, DimenArrayAccessor, DimenArrayItemAccessor
@@ -23,24 +24,25 @@ class Font(Command):
     """
     A font. Using it as a command set the current font.
 
-    @param tfm: the tfm data
+    @param backend: the backend that provides the font data
     @param at: the size of the font
     """
-    def __init__(self, tfm: TFM, at):
-        self.tfm = tfm
+    def __init__(self, backend: FontBackend, at):
+        self.backend = backend
         self.at = at if isinstance(at, Dimen) else Dimen(at)
-        # nullfont
-        self.param = [0] * len(tfm.param)
-        # param[0] is the only parameter that does not scale with the design size of the font
-        self.param[0] = Dimen(tfm.param[0])
-        for i in range(1, len(tfm.param)):
-            self.param[i] = tfm.param[i] * self.at
-        self.bc = tfm.bc
-        self.ec = tfm.ec
-        self.charnode = [None] * (self.ec-self.bc+1)
-        for i in range(self.bc, self.ec+1):
-            self.charnode[i-self.bc] = CharNode(chr(i), self)
-        self.spaceglue = Glue(self.param[1], Stretchness(self.param[2], 0), Stretchness(self.param[3], 0))
+        raw_param = list(backend.fontdimen)
+        self.param = [0] * len(raw_param)
+        if self.param:
+            # param[0] is the only parameter that does not scale with the design size
+            self.param[0] = Dimen(raw_param[0])
+            for i in range(1, len(raw_param)):
+                self.param[i] = raw_param[i] * self.at
+        self.charnode = {}
+        zero = Dimen()
+        space = self.param[1] if len(self.param) > 1 else zero
+        stretch = self.param[2] if len(self.param) > 2 else zero
+        shrink = self.param[3] if len(self.param) > 3 else zero
+        self.spaceglue = Glue(space, Stretchness(stretch, 0), Stretchness(shrink, 0))
         # special characters
         self.fontchar = {"skewchar": 0, "hyphenchar": 0}
     
@@ -48,31 +50,67 @@ class Font(Command):
         return Serializable.className(self)
     
     def saveInfo(self):
-        return {"tfm": self.tfm.name, "at": self.at}, {"fontchar": self.fontchar, "name": getattr(self, "name", None)}
+        return {
+            "name": self.backend.name,
+            "kind": self.backend.kind,
+            "at": self.at,
+        }, {"fontchar": self.fontchar, "name": getattr(self, "name", None)}
 
     @classmethod
-    def new(cls, parser, tfm, at):
-        tfm = parser.loadTFM(tfm)
-        return cls(tfm, at)
+    def new(cls, parser, at, name, kind=None):
+        backend = parser.loadFontBackend(name, kind=kind)
+        return cls(backend, at)
+
+    def glyphInfo(self, char):
+        return self.backend.glyphInfo(char)
+
+    def glyphInfos(self):
+        return self.backend.glyphInfos()
+
+    def hasCharCode(self, code: int):
+        try:
+            return self.backend.hasChar(chr(code))
+        except ValueError:
+            return False
+
+    def leftBoundaryProgram(self):
+        return self.backend.leftBoundaryProgram()
+
+    def rightBoundaryChar(self):
+        return self.backend.rightBoundaryChar()
+
+    def _charNode(self, char):
+        node = self.charnode.get(char)
+        if node is not None:
+            return node
+        char_info = self.glyphInfo(char)
+        if char_info is None:
+            char_info = self.backend.fallbackGlyphInfo(char)
+        if char_info is None:
+            return None
+        node = CharNode(char, self, char_info=char_info)
+        self.charnode[char] = node
+        return node
 
     def __getitem__(self, char):
         """
         get the character node
         @param char: the character code
         """
-        if self.bc <= ord(char) <= self.ec:
-            return self.charnode[ord(char)-self.bc]
-        return self.charnode[0]
+        node = self._charNode(char)
+        if node is not None:
+            return node
+        raise KeyError(f"character {ord(char)} not found in font {self.backend.name}")
 
     def execute(self, parser):
         parser.currentfont.set(self)
 
     def __repr__(self):
         name = getattr(self, "name", None)
-        return name if name is not None else f"\\{self.tfm.name}"
+        return name if name is not None else f"\\{self.backend.name}"
 
     def meaning(self, parser):
-        return f"select font {self.tfm.name} at {self.at}pt"
+        return f"select font {self.backend.name} at {self.at}pt"
         
     def fontValue(self, parser):
         """
@@ -86,7 +124,9 @@ class Font(Command):
         get the hyphenchar of the font as a CharNode 
         """
         h = self.fontchar["hyphenchar"]
-        return self.charnode[h-self.bc] if self.bc <= h <= self.ec else None
+        if not self.hasCharCode(h):
+            return None
+        return self[chr(h)]
 
 
 class NullFont(Font):
@@ -148,8 +188,7 @@ class FontArrayAccessor(ArrayAccessor):
         i = parser.readInteger()
         return self.domain[i]
 
-
-nullfont = NullFont(tfm=nullfont_tfm, at=0)
+nullfont = NullFont(backend=nullfont_backend, at=0)
 nullfont.name = "\\nullfont"
 
 
@@ -214,9 +253,9 @@ class FontDefineAccessor(ParameterAccessor):
         name = parser.readFileName()
         if name is None:
             raise ValueError("expecting a font name")
-        tfm = parser.loadTFM(name)
+        backend = parser.loadFontBackend(name)
         keyword = parser.readKeyword({"at", "scaled"})
-        design = Dimen(tfm.header.size)
+        design = Dimen(backend.design_size)
         mag = Fraction(parser.mag.value, 1000)
         if keyword == "at":
             at = parser.readDimen()
@@ -224,7 +263,7 @@ class FontDefineAccessor(ParameterAccessor):
             at = design * Fraction(parser.readInteger(), 1000) * mag
         else:
             at = design * mag
-        f = Font(tfm, at)
+        f = Font(backend, at)
         f.name = self.entry.name
         f.fontchar["hyphenchar"] = parser.state.parameters["defaulthyphenchar"]
         f.fontchar["skewchar"] = parser.state.parameters["defaultskewchar"]
@@ -264,7 +303,7 @@ class FontDimenAccessor(DimenArrayItemAccessor):
 
     def dimenValue(self, parser):
         if self.index < 0 or self.index >= len(self.domain):
-            raise ValueError(f"fontdimen index {self.index} out of range {len(self.domain)} for font {self.font.tfm.name}  @{int(self.font.at)}", parser.input.position())
+            raise ValueError(f"fontdimen index {self.index} out of range {len(self.domain)} for font {self.font.backend.name}  @{int(self.font.at)}", parser.input.position())
         return self.domain[self.index]
     
     def set(self, parser, value):
@@ -297,7 +336,7 @@ class FontDimen(DimenArrayAccessor):
         i = parser.readInteger() - 1
         f = readFont(parser)
         if i < 0 or i >= len(f.param):
-            raise ValueError(f"fontdimen index {i+1} of out of range of {len(f.param)} for font {f.tfm.name}  @{int(f.at)}", parser.input.position())
+            raise ValueError(f"fontdimen index {i+1} of out of range of {len(f.param)} for font {f.backend.name}  @{int(f.at)}", parser.input.position())
         return f.param[i]
 
 
@@ -307,7 +346,7 @@ class FontName(Command):
     """
     def expand(self, parser):
         f = readFont(parser)
-        parser.input.push(TokenListScanner(toToks(f.tfm.name)))
+        parser.input.push(TokenListScanner(toToks(f.backend.name)))
 
         
 mod = Module("font",

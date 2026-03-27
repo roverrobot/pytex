@@ -68,13 +68,9 @@ class HListHolder:
                 n.source = node
 
     def _leftBoundaryNode(self, font):
-        step = font.tfm.program.left_boundary
-        if step is None:
+        program = font.leftBoundaryProgram()
+        if program is None:
             return None
-        program = {}
-        while step is not None:
-            program[step.next_char] = step
-            step = step.next_step
         return types.SimpleNamespace(
             _boundary=True,
             font=font,
@@ -84,13 +80,13 @@ class HListHolder:
         )
 
     def _rightBoundaryNode(self, font):
-        step = font.tfm.program.right_boundary
-        if step is None:
+        boundary_char = font.rightBoundaryChar()
+        if boundary_char is None:
             return None
         return types.SimpleNamespace(
             _boundary=True,
             font=font,
-            char=chr(step.next_char),
+            char=boundary_char,
             node_type=nd.NODE_TYPE.CHAR,
             char_info=types.SimpleNamespace(program=None),
         )
@@ -505,7 +501,7 @@ class Accent(HorizontalCommand):
         """
         c = parser.readInteger()
         font = parser.state.parameters["currentfont"]
-        if c < font.bc or c > font.ec:
+        if not font.hasCharCode(c):
             raise ValueError("invalid accent", parser.input.position())
         accent = font[chr(c)]
         while True:

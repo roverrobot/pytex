@@ -1278,8 +1278,8 @@ class Op(Atom):
         # C > T means display style in this implementation.
         font = mathfont(parser, style, symbol.fam)
         node = font[symbol.char]
-        if style.style == MATH_STYLE.D and getattr(node.char_info, "chain", None):
-            node = font[node.char_info.chain]
+        if style.style == MATH_STYLE.D and node.char_info.next_larger is not None:
+            node = font[node.char_info.next_larger]
         delta = Dimen(node.italic)
         y.list.append(node)
         # Include italic correction in width iff limits are used or there is no subscript.
@@ -1920,13 +1920,14 @@ class Delim(serialization.Serializable):
     def _lookupChar(self, font, code):
         if font is None:
             return None, None
-        if code < font.bc or code > font.ec:
+        try:
+            char = chr(code)
+        except ValueError:
             return None, None
-        i = code - font.bc
-        info = font.tfm.char_info[i]
-        if not getattr(info, "exists", True):
+        info = font.glyphInfo(char)
+        if info is None:
             return None, None
-        return info, font.charnode[i]
+        return info, font[char]
 
     def _scanSymbol(self, parser, symbol, style, minimum, best):
         if self._symbolIsNull(symbol):
@@ -1947,19 +1948,19 @@ class Delim(serialization.Serializable):
                         "info": info,
                         "font": font,
                         "total": total,
-                        "extensible": info.extend is not None,
+                        "extensible": info.assembly is not None,
                     }
-                if total >= minimum or info.extend is not None:
+                if total >= minimum or info.assembly is not None:
                     return {
                         "node": node,
                         "info": info,
                         "font": font,
                         "total": total,
-                        "extensible": info.extend is not None,
+                        "extensible": info.assembly is not None,
                     }, best
-                if info.chain is None:
+                if info.next_larger is None:
                     break
-                code = ord(info.chain)
+                code = ord(info.next_larger)
         return None, best
 
     def _boxWithItalic(self, parser, node):
@@ -1972,7 +1973,7 @@ class Delim(serialization.Serializable):
 
     def _buildExtensible(self, parser, chosen, minimum):
         info = chosen["info"]
-        ext = info.extend
+        ext = info.assembly
         if ext is None:
             return self._boxWithItalic(parser, chosen["node"])
 
@@ -1985,9 +1986,9 @@ class Delim(serialization.Serializable):
             return b.typeset(parser)
 
         top = piece(ext.top)
-        mid = piece(ext.mod)
-        bot = piece(ext.bot)
-        rep = piece(ext.rep)
+        mid = piece(ext.middle)
+        bot = piece(ext.bottom)
+        rep = piece(ext.repeat)
         if rep is None:
             return self._boxWithItalic(parser, chosen["node"])
 
@@ -2419,11 +2420,8 @@ class Accent(Atom):
         return _drop_redundant_wrapper(out.typeset(parser), allow_char=False)
 
     def _fontCharIfExists(self, font, char):
-        code = ord(char)
-        if code < font.bc or code > font.ec:
-            return None
-        info = font.tfm.char_info[code - font.bc]
-        if not getattr(info, "exists", False):
+        info = font.glyphInfo(char)
+        if info is None:
             return None
         return font[char]
 
@@ -2437,7 +2435,7 @@ class Accent(Atom):
         if base is None:
             return Dimen()
         skew = font.fontchar.get("skewchar", 0)
-        if skew < font.bc or skew > font.ec:
+        if not font.hasCharCode(skew):
             return Dimen()
         nxt = self._fontCharIfExists(font, chr(skew))
         if nxt is None:

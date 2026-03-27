@@ -110,12 +110,13 @@ class DVIShipout(page.Shipout):
     def _define_font(self, font):
         font_id = len(self.font_ids)
         self.font_ids[id(font)] = font_id
+        backend = font.backend
         self._write_byte(243)  # fnt_def1
         self._write_unsigned(font_id, 1)
-        self._write_unsigned(font.tfm.header.checksum, 4)
+        self._write_unsigned(backend.checksum, 4)
         self._write_dimen(font.at)
-        self._write_dimen(Dimen(font.tfm.header.size))
-        self._write_path(font.tfm.name)
+        self._write_dimen(Dimen(backend.design_size))
+        self._write_path(backend.name)
         return font_id
 
     def _set_font(self, font):

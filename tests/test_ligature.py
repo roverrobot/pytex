@@ -61,43 +61,48 @@ class _FakeChar:
     node_type = nd.NODE_TYPE.CHAR
     typeset = None
 
-    def __init__(self, char, font, program=None):
+    def __init__(self, char, font, char_info):
         self.char = char
         self.font = font
-        self.char_info = types.SimpleNamespace(program=program)
+        self.char_info = char_info
 
 
 class _FakeFont:
-    bc = 0
-    ec = 255
     at = dimen.Dimen(1)
 
     def __init__(self, left_boundary=None, right_boundary=None):
-        char_info = [
-            types.SimpleNamespace(
-                char=chr(i),
-                width=dimen.Dimen(),
-                height=dimen.Dimen(),
-                depth=dimen.Dimen(),
-                italic=dimen.Dimen(),
-                program=None,
-            )
-            for i in range(256)
-        ]
-        self.tfm = types.SimpleNamespace(
-            char_info=char_info,
-            program=types.SimpleNamespace(
-                left_boundary=left_boundary,
-                right_boundary=right_boundary,
-            )
-        )
         self._nodes = {}
+        self._left_boundary = None
+        if left_boundary is not None:
+            self._left_boundary = {}
+            step = left_boundary
+            while step is not None:
+                self._left_boundary[step.next_char] = step
+                step = step.next_step
+        self._right_boundary = None if right_boundary is None else chr(right_boundary.next_char)
 
     def __getitem__(self, char):
         return self._nodes[char]
 
+    def glyphInfo(self, char):
+        node = self._nodes.get(char)
+        return None if node is None else node.char_info
+
+    def leftBoundaryProgram(self):
+        return self._left_boundary
+
+    def rightBoundaryChar(self):
+        return self._right_boundary
+
     def add(self, char, program=None):
-        node = _FakeChar(char, self, program)
+        node = _FakeChar(char, self, types.SimpleNamespace(
+            char=char,
+            width=dimen.Dimen(),
+            height=dimen.Dimen(),
+            depth=dimen.Dimen(),
+            italic=dimen.Dimen(),
+            program=program,
+        ))
         self._nodes[char] = node
         return node
 

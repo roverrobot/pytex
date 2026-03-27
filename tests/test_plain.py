@@ -34,7 +34,7 @@ def plain_dump(parser):
     plain = parser.resolver.openIn('plain', "source")
     assert plain is not None
     parser.parse(plain)
-    assert parser.state.parameters["currentfont"].tfm.name != "nullfont"
+    assert parser.state.parameters["currentfont"].backend.name != "nullfont"
     data = parser.dump()
     dump.write(data)
     dump.close()

@@ -189,30 +189,33 @@ The second option is cleaner.
 
 A useful execution-local model is:
 
-- a current token slot
-- one scratch token register, for example `A`
+- a tagged `current_value` holder
+- one `scratch` holder
 
 with operations like:
 
-- `read_next_raw() -> current_token`
-- `store(A, current_token)`
+- `read_next_raw() -> current_value`
+- `store(scratch)`
 - `expand_current_once()`
-- `unread(current_token)`
-- `unread(A)`
+- `unread(current_value)`
+- `unread(scratch)`
 
 This does not need to be exposed as part of the scanner protocol itself. It is
 better understood as a token-control layer that sits on top of scanners and the
 input stack.
 
+The important point is that tokens can use the same holder convention as other
+execution values. We do not need a separate dedicated family of token registers.
+
 ### `\expandafter`
 
 Under the scratch-token model, `\expandafter` can be described as:
 
-1. `read_next_raw() -> current_token`
-2. `store(A, current_token)`
-3. `read_next_raw() -> current_token`
+1. `read_next_raw() -> current_value`
+2. `store(scratch)`
+3. `read_next_raw() -> current_value`
 4. `expand_current_once()`
-5. `unread(A)`
+5. `unread(scratch)`
 
 The important behavior is that one token is postponed while the following token
 is expanded first.
@@ -224,12 +227,12 @@ that assigns a control sequence from the observed future token.
 
 Its shape is:
 
-1. `read_next_raw() -> current_token`
-2. `store(A, current_token)`
-3. `read_next_raw() -> current_token`
-4. `let_from_token(target, current_token)`
-5. `unread(current_token)`
-6. `unread(A)`
+1. `read_next_raw() -> current_value`
+2. `store(scratch)`
+3. `read_next_raw() -> current_value`
+4. `let_from_token(target, current_value)`
+5. `unread(current_value)`
+6. `unread(scratch)`
 
 So `\futurelet` is not just a parser-state assignment and not just a scanner
 operation. It is a mixed token-control operation:

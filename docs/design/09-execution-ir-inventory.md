@@ -9,6 +9,44 @@ artifact exists.
 
 Some of these are already fairly crisp. Others are still provisional.
 
+## Execution Holder Convention
+
+The public execution IR becomes much smaller if most value-producing and
+value-consuming operations communicate through two runtime holders:
+
+- `current_value`
+- `scratch`
+
+`current_value` is a tagged holder. Its type is determined by the operation
+that produced it.
+
+Examples:
+
+- `read_int()` sets `current_value` to an integer
+- `read_dimen()` sets `current_value` to a dimension
+- `read_glue()` sets `current_value` to a glue value
+- `read_general_text()` sets `current_value` to a token list
+- `read_next_raw()` can set `current_value` to a token
+
+`scratch` is the one extra holder used when an operation needs two live values.
+
+This gives a very compact discipline:
+
+- producers set `current_value`
+- `store(scratch)` saves the current value for later use
+- consumers read `current_value`
+- binary operations use `scratch` plus `current_value`
+
+Under this convention, many public operations no longer need an explicit value
+operand. For example:
+
+- `write(domain, key, scope)`
+
+means "write `current_value` into `(domain, key)` with the given scope."
+
+This appears to be enough for TeX execution, since most commands need at most
+two live dynamic inputs at once.
+
 ## Main Conclusion
 
 The execution layer is not one IR.
@@ -57,12 +95,14 @@ Some execution behavior needs more than plain scanner push/pop. In particular,
 operations such as:
 
 - `read_next_raw()`
-- `store(token_slot, token)`
+- `store(scratch)`
 - `expand_current_once()`
 - `unread(token)`
 
-This can be modeled with a current token plus a scratch token register such as
-`A`, rather than with one dedicated IR primitive per TeX command.
+Here `read_next_raw()` places the token in `current_value`, and `scratch` holds
+the postponed token when needed. So token control can use the same holder model
+as typed value scanning, rather than introducing a separate dedicated token
+register family.
 
 ### Purpose
 
@@ -82,19 +122,26 @@ This is a distinct family from plain scanner/input-stack mechanics.
 ### Core Operations
 
 - `match(token_or_predicate)`
+- `skip_space()`
+- `read_skip_spaces()`
+- `read_skip_filler()`
 - `read_to(stop, balanced, include_tail, expand_mode)`
 - `read_command_name()`
+- `read_general_text()`
 
 These are higher-level scanning operations that consume from the token-flow
-layer and return structured results such as command names or token lists.
+layer and place structured results such as command names or token lists into
+`current_value`.
 
 ### Purpose
 
 This IR family answers:
 
 - how commands scan syntactic delimiters
+- how space and filler skipping is normalized
 - how balanced token lists are captured
 - how command names and parameter texts are read
+- how general text is captured for later storage or replay
 
 ### Why This Is Better Than Raw Token-List Builder Ops
 
@@ -114,10 +161,15 @@ For example, a macro definition can be described as:
 - `params = read_to(BEGIN_GROUP, balanced=False, include_tail=False, expand_mode=raw)`
 - `body = read_to(END_GROUP, balanced=True, include_tail=False, expand_mode=raw)`
 - `macro = make_macro(params, body)`
-- `write(equitable, key, macro, scope)`
+- `write(equitable, key, scope)`
 
 So token-list construction is still real, but it is better treated as the
 internal realization of higher-level capture ops.
+
+A hook assignment such as `\everypar` then looks like:
+
+- `read_general_text()`
+- `write(parameters, "everypar", scope)`
 
 ## 3. Typed Value Reader IR
 
@@ -134,6 +186,7 @@ That suggests a distinct family of typed scanning operations.
 
 ### Likely Helper Operations
 
+- `read_muglue()`
 - `read_stretch()`
 - `read_shrink()`
 - `read_keyword(...)`
@@ -147,7 +200,7 @@ For example, stretch and shrink parsing may simply be part of `read_glue()`.
 This IR family answers:
 
 - how typed TeX values are scanned from tokens
-- how assignment and command semantics receive normalized values
+- how assignment and command semantics receive normalized values through `current_value`
 
 ## 4. Parser-State IR
 
@@ -156,7 +209,7 @@ This is the grouped typed-store part of execution.
 ### Core Operations
 
 - `read(domain, key)`
-- `write(domain, key, value, scope)`
+- `write(domain, key, scope)`
 - `begin_group(kind)`
 - `end_group(kind)`
 
@@ -168,10 +221,11 @@ This is the grouped typed-store part of execution.
 
 ### Derived Update Operation
 
-- `update(domain, key, op, arg, scope)`
+- `update(domain, key, op, scope)`
 
 This is optional sugar for operations such as `\advance`, `\multiply`, and
-`\divide`, which can also be lowered to `read + compute + write`.
+`\divide`, which can also be lowered to `read + compute + write`. Under the
+holder convention, the new operand comes from `current_value`.
 
 ### Hidden Micro-Ops
 
@@ -232,12 +286,19 @@ They involve three distinct concerns:
 
 Typical condition-evaluation operations include:
 
-- `test_equal(value1, value2)`
-- `test_larger(value1, value2)`
-- `test_odd(value)`
+- `test_equal()`
+- `test_larger()`
+- `test_odd()`
 - `read_int()` for integer-selected branching such as `\ifcase`
 
 So conditionals reuse the typed reader layer as part of their front end.
+
+Under the holder convention:
+
+- `test_equal()` compares `scratch` with `current_value`
+- `test_larger()` compares `scratch` with `current_value`
+- `test_odd()` inspects `current_value`
+- `read_int()` places the branch selector into `current_value`
 
 #### Conditional Stack
 

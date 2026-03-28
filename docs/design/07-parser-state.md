@@ -57,7 +57,7 @@ named domain.
 The minimal grouped-state IR is:
 
 - `read(domain, key)`
-- `write(domain, key, value, scope)`
+- `write(domain, key, scope)`
 - `begin_group(kind)`
 - `end_group(kind)`
 
@@ -65,12 +65,19 @@ Where:
 
 - `domain` names the target state table
 - `key` identifies the item within that table
-- `value` is the typed value to store
 - `scope` is `local` or `global`
 - `kind` is the TeX group kind, such as simple group, hbox group, math group, or `\begingroup` group
 
 In practice, provenance such as source position may also be attached for
 diagnostics, but it is not part of the essential algebra.
+
+The intended convention is that `write(domain, key, scope)` consumes the
+current tagged execution value. The typed reader or constructor that ran just
+before the write determines the value's type.
+
+At a lower implementation level, this can still be understood as an explicit
+store operation with a value argument. The public execution IR is simply
+choosing to route that value through the shared execution holder.
 
 ## Why `key`, Not `index`
 
@@ -184,12 +191,12 @@ They can be understood as:
 
 - `read(domain, key)`
 - compute new value
-- `write(domain, key, value, scope)`
+- `write(domain, key, scope)`
 
 If we want a more faithful execution trace, we can also admit a first-class
 derived operation:
 
-- `update(domain, key, op, arg, scope)`
+- `update(domain, key, op, scope)`
 
 But this is a convenience form, not a new semantic primitive.
 

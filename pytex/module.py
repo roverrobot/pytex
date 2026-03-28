@@ -46,7 +46,7 @@ class Module:
                 name = "\\" + name
                 if not command.name:
                     command.name = name
-                parser.state.equitable.setGlobal(name, command)
+                parser.equitable.setGlobal(name, command)
                 parser.builtin[name] = command
 
     def populateDomains(self, parser):
@@ -57,15 +57,15 @@ class Module:
         if self.domains is not None:
             for name, domain in self.domains.items():
                 generator = domain["generator"]
-                d = generator(parser.state)
-                setattr(parser.state, name, d)
-                parser.state.arrays[name] = d
+                d = generator(parser)
+                setattr(parser, name, d)
+                parser.arrays[name] = d
                 accessor = domain["accessor"]
                 if accessor is not None:
                     command = accessor(d)
                     name = "\\setbox" if name == "box" else "\\"+name 
                     command.name = name
-                    parser.state.equitable.setGlobal(name, command)
+                    parser.equitable.setGlobal(name, command)
                     parser.builtin[name] = command
 
     def populateAttributes(self, parser):
@@ -88,11 +88,11 @@ class Module:
         if self.parameters is not None:
             for name, item in self.parameters.items():
                 # set the value in the domain
-                domain = getattr(parser.state, item["domain"])
+                domain = getattr(parser, item["domain"])
                 value = item["value"]
                 if callable(value):
                     value = value()
-                if domain is parser.state.globals:
+                if domain is parser.globals:
                     domain[name] = value
                     entry = None
                 else:
@@ -110,7 +110,7 @@ class Module:
                     name = "\\"+name
                     accessor.name = name
                     if accessor is not None:
-                        parser.state.equitable.setGlobal(name, accessor)
+                        parser.equitable.setGlobal(name, accessor)
                         parser.builtin[name] = accessor
 
     def populate(self, parser):

@@ -11,3 +11,4 @@ Read in this order:
 7. [07-parser-state.md](07-parser-state.md)
 8. [08-token-flow.md](08-token-flow.md)
 9. [09-execution-ir-inventory.md](09-execution-ir-inventory.md)
+10. [10-parser-kernel.md](10-parser-kernel.md)

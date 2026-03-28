@@ -47,6 +47,36 @@ means "write `current_value` into `(domain, key)` with the given scope."
 This appears to be enough for TeX execution, since most commands need at most
 two live dynamic inputs at once.
 
+## Implementation Model
+
+The intended implementation model is:
+
+- each public execution IR operation corresponds to a parser method
+- TeX commands execute by calling those parser methods
+- lower-level micro-ops remain internal helpers
+
+So the main runtime architecture is not:
+
+- each token emits a precomputed list of IR objects
+
+Instead, it is:
+
+- each command has an `execute(parser)` or equivalent execution path
+- that execution path calls the small parser-op vocabulary
+
+This fits TeX better because scanning, branching, and state mutation are highly
+incremental and often cannot be planned as one static op list ahead of time.
+
+Examples:
+
+- `read_int()` corresponds to a parser method
+- `read_to(...)` corresponds to a parser method
+- `write(domain, key, scope)` corresponds to a parser method
+- `skip_conditional(...)` corresponds to a parser method
+
+But helper details such as saved-value restoration or low-level token-list
+builder steps do not need to become public parser methods.
+
 ## Main Conclusion
 
 The execution layer is not one IR.
@@ -63,6 +93,52 @@ It is at least:
 
 Some of these belong fully inside the execution layer. Some are boundary
 interfaces to the layout layer. The important thing is to keep them distinct.
+
+## Tracing And Debugging
+
+Tracing and debugging should be treated as an optional layer on top of parser
+operations, not as the primary execution model.
+
+That suggests:
+
+- the parser-op vocabulary is the real execution boundary
+- each parser op may optionally emit a trace event
+- tracing can stay off by default
+
+This gives a practical incremental path:
+
+### First Step
+
+Start with human-readable tracing of major parser ops, for example:
+
+- token flow: `push`, `pop`, `unread`, `read_next_raw`
+- capture/readers: `read_to`, `read_general_text`, `read_int`, `read_dimen`, `read_glue`
+- state: `begin_group`, `end_group`, `write`, `update`
+- control: conditional push/pop/skip
+- execution-to-layout bridge calls
+
+### Later Structured Tracing
+
+If needed later, each parser op can also emit a structured trace object for:
+
+- replay
+- serialization
+- richer debugging tools
+
+This trace-object layer is useful, but it does not need to be designed first.
+
+### Debugging Features
+
+Once parser-op tracing exists, debugging can build on it with:
+
+- step-by-op execution
+- breakpoints on commands or parser ops
+- watchpoints on `(domain, key)` writes
+- inspection of `current_value`, `scratch`, group stack, if-stack, and input stack
+
+So tracing/debugging is very feasible, but it should be built as instrumentation
+over the parser-op interface rather than by forcing every token to pre-emit a
+static IR list.
 
 ## 1. Token-Flow IR
 

@@ -36,12 +36,13 @@ from pytex import page
 import os
 
 
-class Parser:
+class Parser(state.StateOwner):
     """
     The parser is the main class that processes the input and executes the commands.
     """
     def __init__(self, project_dir: typing.Optional[str] = None):
-        self.state = state.State()
+        self.initState()
+        self.state = state.StateProxy(self)
         # the builtin commands
         self.builtin = {}
         # now we are at a similar stage to INITEX. We do not need to keep the current state.
@@ -74,6 +75,7 @@ class Parser:
         self.lastbox = None
         self.ended = False
         self.formatfile = None
+        self.current_value = None
     
     def logFileName(self):
         """
@@ -359,7 +361,7 @@ class Parser:
             subformula = mmode.Subformula()
             self.lists.append(mmode.MList(self, subformula.list))
             ended = mmode.MathEndGroupCallback(self, subformula)
-        self.state.beginGroup(position, group_type, to_end=to_end, ended=ended)
+        self.beginStateGroup(position, group_type, to_end=to_end, ended=ended)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
         """
@@ -367,7 +369,7 @@ class Parser:
         @param position: the position of the end group token
         @param group_type: the type of the group
         """
-        aftergroup = self.state.endGroup(position, group_type)
+        aftergroup = self.endStateGroup(position, group_type)
         if aftergroup:
             self.input.push(lexer.TokenListScanner(aftergroup))
             if self.tracingcommands > 0 and self.checkRange():

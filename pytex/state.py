@@ -387,11 +387,11 @@ class Globals(dict):
         self[key] = value
 
 
-class State:
+class StateOwner:
     """
-    stores the state of the parser, including the local and global parameters and registers.
+    Reusable grouped-domain machinery for an object that owns parser state.
     """
-    def __init__(self):
+    def initState(self):
         self.groups = [] # group stack
         self.current_group = None
         self.globals = Globals() # the global variables, which are not subject to groups
@@ -401,7 +401,7 @@ class State:
         self.layout = Dict("layout", self)  # the layout domain
         self.arrays = {}  # a dict of arrays, where the key is the name of the array, and the value is the Array object
 
-    def dump(self):
+    def dumpState(self):
         """
         dump the state
         @return: a dict that represents the state
@@ -415,7 +415,7 @@ class State:
             data[name] = array.dump()
         return data
     
-    def load(self, data):
+    def loadState(self, data):
         """
         restore the state from a dump
         @param data: a previously dumped data
@@ -439,7 +439,7 @@ class State:
             for group in self.groups:
                 group.remove(domain, index)
 
-    def beginGroup(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
+    def beginStateGroup(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
         """
         begin a group, and push it to the group stack.
         @param position: the position of the token starting the group
@@ -451,7 +451,7 @@ class State:
             self.groups.append(self.current_group)
         self.current_group = Group(position, group_type, to_end=to_end, ended=ended)
 
-    def endGroup(self, position, group_type: GROUP_TYPE):
+    def endStateGroup(self, position, group_type: GROUP_TYPE):
         """
         end the group, and pop it from the group stack.
         @param position: the position of the token ending the group
@@ -476,7 +476,52 @@ class State:
         if ended:
             ended()
         return aftergroup
-        
+
+
+class State(StateOwner):
+    """
+    Backward-compatible container for grouped parser state.
+    """
+    def __init__(self):
+        self.initState()
+
+    def dump(self):
+        return self.dumpState()
+
+    def load(self, data):
+        self.loadState(data)
+
+    def beginGroup(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
+        self.beginStateGroup(position, group_type, to_end=to_end, ended=ended)
+
+    def endGroup(self, position, group_type: GROUP_TYPE):
+        return self.endStateGroup(position, group_type)
+
+
+class StateProxy:
+    """
+    Compatibility view that exposes parser-owned state through parser.state.
+    """
+    def __init__(self, owner):
+        object.__setattr__(self, "_owner", owner)
+
+    def __getattr__(self, name):
+        return getattr(self._owner, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._owner, name, value)
+
+    def dump(self):
+        return self._owner.dumpState()
+
+    def load(self, data):
+        self._owner.loadState(data)
+
+    def beginGroup(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
+        self._owner.beginStateGroup(position, group_type, to_end=to_end, ended=ended)
+
+    def endGroup(self, position, group_type: GROUP_TYPE):
+        return self._owner.endStateGroup(position, group_type)
 
 class BeginGroup(Command):
     """

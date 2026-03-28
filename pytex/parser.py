@@ -36,7 +36,7 @@ from pytex import page
 import os
 
 
-class Parser(state.StateOwner):
+class Parser:
     """
     The parser is the main class that processes the input and executes the commands.
     """
@@ -75,6 +75,85 @@ class Parser(state.StateOwner):
         self.ended = False
         self.formatfile = None
         self.current_value = None
+
+    def initState(self):
+        self.groups = []
+        self.current_group = None
+        self.globals = state.Globals()
+        self.volatile = state.Dict("volatile", self)
+        self.parameters = state.Dict("parameters", self)
+        self.equitable = state.Dict("equitable", self)
+        self.layout = state.Dict("layout", self)
+        self.arrays = {}
+
+    def dumpState(self):
+        """
+        dump the parser-owned grouped state
+        @return: a dict that represents the state
+        """
+        data = {
+            "equitable": self.equitable.dump(),
+            "parameters": self.parameters.dump(),
+            "layout": self.layout.dump(),
+        }
+        for name, array in self.arrays.items():
+            data[name] = array.dump()
+        return data
+
+    def loadState(self, data):
+        """
+        restore the parser-owned grouped state
+        @param data: a previously dumped data
+        """
+        self.equitable.load(data.get("equitable", {}))
+        self.parameters.load(data.get("parameters", {}))
+        self.layout.load(data.get("layout", {}))
+        for name, array in self.arrays.items():
+            if name in data:
+                array.load(data[name])
+
+    def remove(self, domain: state.Domain, index):
+        """
+        remove a value from all active groups
+        @param domain: the domain of the value
+        @param index: the index of the value
+        """
+        if self.current_group:
+            self.current_group.remove(domain, index)
+            for group in self.groups:
+                group.remove(domain, index)
+
+    def beginStateGroup(self, position, group_type: state.GROUP_TYPE, to_end=None, ended=None):
+        """
+        begin a group, and push it to the group stack
+        """
+        if self.current_group:
+            self.groups.append(self.current_group)
+        self.current_group = state.Group(position, group_type, to_end=to_end, ended=ended)
+
+    def endStateGroup(self, position, group_type: state.GROUP_TYPE):
+        """
+        end the group, and pop it from the group stack
+        @return the aftergroup tokens
+        """
+        if not self.current_group:
+            raise ValueError("no current group")
+        group = self.current_group
+        aftergroup = group.aftergroup
+        to_end = group.to_end
+        ended = group.ended
+        if not group.match(group_type):
+            raise ValueError(f"mismatched group type starting at {group.position} and ending at {position}")
+        if to_end:
+            to_end()
+        group.end(position, group_type)
+        if self.groups:
+            self.current_group = self.groups.pop()
+        else:
+            self.current_group = None
+        if ended:
+            ended()
+        return aftergroup
     
     def logFileName(self):
         """

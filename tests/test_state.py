@@ -4,9 +4,52 @@ from tests import checkValues
 from pytex import macro
 
 
+class _StateOwner:
+    def __init__(self):
+        self.groups = []
+        self.current_group = None
+        self.globals = st.Globals()
+        self.volatile = st.Dict("volatile", self)
+        self.parameters = st.Dict("parameters", self)
+        self.equitable = st.Dict("equitable", self)
+        self.layout = st.Dict("layout", self)
+        self.arrays = {}
+
+    def remove(self, domain, index):
+        if self.current_group:
+            self.current_group.remove(domain, index)
+            for group in self.groups:
+                group.remove(domain, index)
+
+    def beginGroup(self, position, group_type: st.GROUP_TYPE, to_end=None, ended=None):
+        if self.current_group:
+            self.groups.append(self.current_group)
+        self.current_group = st.Group(position, group_type, to_end=to_end, ended=ended)
+
+    def endGroup(self, position, group_type: st.GROUP_TYPE):
+        if not self.current_group:
+            raise ValueError("no current group")
+        group = self.current_group
+        aftergroup = group.aftergroup
+        to_end = group.to_end
+        ended = group.ended
+        if not group.match(group_type):
+            raise ValueError(f"mismatched group type starting at {group.position} and ending at {position}")
+        if to_end:
+            to_end()
+        group.end(position, group_type)
+        if self.groups:
+            self.current_group = self.groups.pop()
+        else:
+            self.current_group = None
+        if ended:
+            ended()
+        return aftergroup
+
+
 @pytest.fixture
 def state():
-    s = st.State()
+    s = _StateOwner()
     d = st.Dict(name="dict", state=s)
     a = st.Array(name="array", state=s, default=0)
     return s, d, a

@@ -1,7 +1,7 @@
 import pytest
 from pytex.token import CATCODE
 from pytex import lexer
-from pytex.state import State, NamedEntry
+from pytex import state as st
 
 
 class Catcodes(list):
@@ -32,12 +32,17 @@ class Catcodes(list):
         return super().__getitem__(key)
 
 
+class ScannerState:
+    def __init__(self):
+        self.parameters = st.Dict("parameters")
+        self.parameters["endlinechar"] = ord("\r")
+        self.equitable = st.Dict("equitable")
+        self.catcode = Catcodes()
+
+
 @pytest.fixture
 def state():
-    s = State()
-    s.parameters["endlinechar"] = ord("\r")  # backslash
-    s.catcode = Catcodes()
-    return s
+    return ScannerState()
 
 
 class Input:

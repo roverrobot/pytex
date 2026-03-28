@@ -164,7 +164,7 @@ class Domain:
 class NamedEntry:
     """
     a named value in a domain.
-    @param state: the a State object for parser state
+    @param state: the owner object for grouped parser state
     @param domain: the name of the domain
     @param name: the name of the command
     @param value: the value of the command, None meaning undefined.
@@ -213,7 +213,7 @@ class Dict(dict):
     a domain that is a dict, and respects groups.
     @param name: the name of the domain
     @param values: the values in the domain
-    @param state: the a State object for parser state
+    @param state: the owner object for grouped parser state
     """
     def __init__(self, name: str, state=None):
         dict.__init__(self)
@@ -385,117 +385,6 @@ class Globals(dict):
 
     def setGlobal(self, key, value):
         self[key] = value
-
-
-class StateOwner:
-    """
-    Reusable grouped-domain machinery for an object that owns parser state.
-    """
-    def initState(self):
-        self.groups = [] # group stack
-        self.current_group = None
-        self.globals = Globals() # the global variables, which are not subject to groups
-        self.volatile = Dict("volatile", self)  # the volatile domain, which will not be dumped
-        self.parameters = Dict("parameters", self)  # the parameters domain
-        self.equitable = Dict("equitable", self)  # the equitable domain
-        self.layout = Dict("layout", self)  # the layout domain
-        self.arrays = {}  # a dict of arrays, where the key is the name of the array, and the value is the Array object
-
-    def dumpState(self):
-        """
-        dump the state
-        @return: a dict that represents the state
-        """
-        data = {
-            "equitable": self.equitable.dump(),
-            "parameters": self.parameters.dump(),
-            "layout": self.layout.dump(),
-        }
-        for name, array in self.arrays.items():
-            data[name] = array.dump()
-        return data
-    
-    def loadState(self, data):
-        """
-        restore the state from a dump
-        @param data: a previously dumped data
-        """
-        # Globals are runtime state and are intentionally not loaded from dumps.
-        self.equitable.load(data.get("equitable", {}))
-        self.parameters.load(data.get("parameters", {}))
-        self.layout.load(data.get("layout", {}))
-        for name, array in self.arrays.items():
-            if name in data:
-                array.load(data[name])
-
-    def remove(self, domain: Domain, index):
-        """
-        remove a value from the group.
-        @param domain: the domain of the value
-        @param index: the index of the value
-        """
-        if self.current_group:
-            self.current_group.remove(domain, index)
-            for group in self.groups:
-                group.remove(domain, index)
-
-    def beginStateGroup(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
-        """
-        begin a group, and push it to the group stack.
-        @param position: the position of the token starting the group
-        @param group_type: the type of the group
-        @param to_end: called before the group values are restored
-        @param ended: called after the group is closed
-        """
-        if self.current_group:
-            self.groups.append(self.current_group)
-        self.current_group = Group(position, group_type, to_end=to_end, ended=ended)
-
-    def endStateGroup(self, position, group_type: GROUP_TYPE):
-        """
-        end the group, and pop it from the group stack.
-        @param position: the position of the token ending the group
-        @param group_type: the type of the group
-        @return the aftergroup tokens
-        """
-        if not self.current_group:
-            raise ValueError("no current group")
-        group = self.current_group
-        aftergroup = group.aftergroup
-        to_end = group.to_end
-        ended = group.ended
-        if not group.match(group_type):
-            raise ValueError(f"mismatched group type starting at {group.position} and ending at {position}")
-        if to_end:
-            to_end()
-        group.end(position, group_type)
-        if self.groups:
-            self.current_group = self.groups.pop()
-        else:
-            self.current_group = None
-        if ended:
-            ended()
-        return aftergroup
-
-
-class State(StateOwner):
-    """
-    Backward-compatible container for grouped parser state.
-    """
-    def __init__(self):
-        self.initState()
-
-    def dump(self):
-        return self.dumpState()
-
-    def load(self, data):
-        self.loadState(data)
-
-    def beginGroup(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
-        self.beginStateGroup(position, group_type, to_end=to_end, ended=ended)
-
-    def endGroup(self, position, group_type: GROUP_TYPE):
-        return self.endStateGroup(position, group_type)
 
 
 class BeginGroup(Command):

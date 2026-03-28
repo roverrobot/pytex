@@ -74,7 +74,7 @@ class CellBuildState:
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         state = parser.lists.pop()
         if getattr(state, "type", None) == lists.LISTTYPE.VERTICAL:
-            parser.state.globals["prevdepth"] = state.saved_prevdepth
+            parser.globals["prevdepth"] = state.saved_prevdepth
         return self.node
 
 
@@ -610,11 +610,11 @@ class AlignmentEndCallback:
         self.target.append(alignment)
         if top.type == lists.LISTTYPE.MATH:
             parser = self.parser
-            initial_prevdepth = parser.state.globals["prevdepth"]
+            initial_prevdepth = parser.globals["prevdepth"]
             alignment._typeset_cache = vmode.VList(parser, [], inner=True)
-            parser.state.globals["prevdepth"] = initial_prevdepth        
+            parser.globals["prevdepth"] = initial_prevdepth
             HAlignment.typeset(alignment, parser, alignment._typeset_cache)
-            indent = parser.state.volatile["displayindent"]
+            indent = parser.volatile["displayindent"]
             for n in alignment._typeset_cache:
                 if n.node_type == nd.NODE_TYPE.HLIST:
                     n.shifted = indent
@@ -650,7 +650,7 @@ class AlignmentBuilder:
         The terminator is one of \\cr, \\crcr, 
         """
         # we first remember the current \tabskip settings        
-        self.alignment.tabskips.append(parser.state.parameters["tabskip"])
+        self.alignment.tabskips.append(parser.parameters["tabskip"])
         tabskip = parser.builtin["\\tabskip"]
         # Build the preamble. We start a new group, which will be terminated by \cr or \crcr
         parser.beginGroup(parser.input.position(), GROUP_TYPE.ALIGN)
@@ -705,7 +705,7 @@ class AlignmentBuilder:
             column.v = template[i+1:]
             self.preamble.append(column)
             # we shoudl set the tabskip too
-            self.alignment.tabskips.append(parser.state.parameters["tabskip"])
+            self.alignment.tabskips.append(parser.parameters["tabskip"])
             if t is not None: # t must be \cr or \crcr
                 t.definition.execute(parser)
                 break
@@ -738,7 +738,7 @@ class MAlignment(HAlignment):
     def typeset(self, parser, packed):
         if not isinstance(packed, vmode.VList):
             raise TypeError("MAlignment.typeset expects a VList")
-        layout = parser.state.layout
+        layout = parser.layout
         penalty = nd.Penalty(layout["predisplaypenalty"])
         penalty.source = self
         packed.append(penalty)

@@ -98,10 +98,10 @@ class Accessor(token.Command):
         # The token is only read after this command returns, so ordinary assignments
         # are still complete when it executes. Special cases such as \\setbox can
         # still defer the semantic register update until their value is complete.
-        t = parser.state.globals["afterassignment"]
+        t = parser.globals["afterassignment"]
         if t is not None:
             parser.input.unread(t)
-            parser.state.globals["afterassignment"] = None
+            parser.globals["afterassignment"] = None
             if parser.tracingcommands > 0 and parser.checkRange():
                 parser.message(f"afterassignment: {parser.tokenToString(t)}")
         if globally:
@@ -295,7 +295,7 @@ class AfterAssignment(token.Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token")
-        parser.state.globals["afterassignment"] = t
+        parser.globals["afterassignment"] = t
 
 
 module = Module("assignment", 

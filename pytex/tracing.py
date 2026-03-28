@@ -71,7 +71,7 @@ def _show_items(parser, lines, items, prefix, depth):
     if depth is not None and depth < 0:
         lines.append(prefix + "...")
         return
-    breadth = _show_limit(parser.state.parameters["showboxbreadth"])
+    breadth = _show_limit(parser.parameters["showboxbreadth"])
     shown = items if breadth is None else items[:breadth]
     child_depth = None if depth is None else depth - 1
     for node in shown:
@@ -99,7 +99,7 @@ def _show_box(parser, box):
     if box is None:
         return ["void"]
     lines = [box.meaning(parser)]
-    depth = _show_limit(parser.state.parameters["showboxdepth"])
+    depth = _show_limit(parser.parameters["showboxdepth"])
     items = getattr(box, "list", None)
     if items:
         _show_items(parser, lines, items, ".", depth)
@@ -112,14 +112,14 @@ def _show_list(parser, current):
         and not getattr(current, "inner", True)
     )
     lines = [] if is_main_vlist else [current.list_type_name]
-    depth = _show_limit(parser.state.parameters["showboxdepth"])
+    depth = _show_limit(parser.parameters["showboxdepth"])
     nodes = current.concreteNodes() if hasattr(current, "concreteNodes") else list(current)
     _show_items(parser, lines, nodes, "" if is_main_vlist else ".", depth)
     return lines
 
 
 def _format_shipout_number(parser):
-    values = [int(parser.state.count[index]) for index in range(10)]
+    values = [int(parser.count[index]) for index in range(10)]
     last = 0
     for index in range(9, 0, -1):
         if values[index] != 0:
@@ -313,7 +313,7 @@ class ShowBox(Command):
     """
     def execute(self, parser):
         index = parser.readInteger()
-        box = parser.state.box[index]
+        box = parser.box[index]
         lines = [f"> \\box{index}="]
         lines.extend(_show_box(parser, box))
         lines.append("OK.")
@@ -358,7 +358,7 @@ def init(parser):
     parser.tracinglinebegin = 0
     parser.tracinglineend = 0
     parser.tracingquitatend = 0
-    parser.state.tracing = Tracing(parser)
+    parser.tracing = Tracing(parser)
 
 
 mod = Module("tracing",

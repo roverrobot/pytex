@@ -218,7 +218,7 @@ class CommandToken(Token):
         if name is None:
             raise ValueError("command name is required")
         t = cls(name)
-        t.entry = parser.state.equitable.entry(name)
+        t.entry = parser.equitable.entry(name)
         return t
 
     def execute(self, parser):
@@ -282,7 +282,7 @@ class ActiveToken(CommandToken):
         if name is None:
             raise ValueError("active token name is required")
         t = cls(name, kargs.get("catcode", CATCODE.ACTIVE))
-        t.entry = parser.state.equitable.entry(name)
+        t.entry = parser.equitable.entry(name)
         return t
     
     def charValue(self, parser):

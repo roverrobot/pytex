@@ -42,7 +42,7 @@ class MarksValue(token.Command):
         index = parser.readInteger()
         if index < 0:
             raise ValueError("mark class must be non-negative", parser.input.position())
-        register = parser.state.globals[self.key]
+        register = parser.globals[self.key]
         if index >= len(register):
             return []
         return register[index]
@@ -272,7 +272,7 @@ class CurrentGroupType(tk.Command):
     The \\currentgrouptype command
     """
     def intValue(self, parser):
-        groups = parser.state.groups
+        groups = parser.groups
         if len(groups) == 0:
             return -1
         return groups[-1].group_type
@@ -283,7 +283,7 @@ class CurrentGroupLevel(tk.Command):
     The \\currentgrouplevel command
     """
     def intValue(self, parser):
-        return len(parser.state.groups)
+        return len(parser.groups)
 
 
 class CurrentIfLevel(tk.Command):
@@ -291,7 +291,7 @@ class CurrentIfLevel(tk.Command):
     The \\currentiflevel command
     """
     def intValue(self, parser):
-        return len(parser.state.ifs)
+        return len(parser.ifstack)
     
 
 class CurrentIfType(tk.Command):
@@ -322,9 +322,9 @@ class CurrentIfType(tk.Command):
         "iffontchar", #20
     ]
     def intValue(self, parser):
-        if len(parser.state.ifs) == 0:
+        if len(parser.ifstack) == 0:
             return -1
-        return self.if_types.index(parser.state.ifs[-1].name[1:])
+        return self.if_types.index(parser.ifstack[-1][0].name[1:])
 
 
 class CurrentIfBranch(tk.Command):
@@ -359,7 +359,7 @@ class Penalties(tk.Command):
         index = parser.readInteger()
         if index < 0:
             return 0
-        penalties = parser.state.layout[self.penalties]
+        penalties = parser.layout[self.penalties]
         if index == 0:
             return len(penalties)
         return penalties[index - 1]
@@ -370,7 +370,7 @@ class Penalties(tk.Command):
         penalties = []
         for i in range(n):
             penalties.append(parser.readInteger())
-        parser.state.layout[self.penalties] = penalties
+        parser.layout[self.penalties] = penalties
 
 
 class ParShapeDimen(tk.Command, DimenCommand):
@@ -387,7 +387,7 @@ class ParShapeDimen(tk.Command, DimenCommand):
         row = parser.readInteger()
         if row < 0:
             return Dimen()
-        parshape = parser.state.volatile["parshape"]
+        parshape = parser.volatile["parshape"]
         if self.index < 0:
             # \\parshapedimen
             index = row % 2
@@ -533,7 +533,7 @@ class ReadlineOp(file.ReadOp):
     def readValue(self, parser):
         tokens = []
         level = 0
-        file = parser.state.globals["openin"][self.file_id]
+        file = parser.globals["openin"][self.file_id]
         if file is None or file.closed:
             raise FileNotFoundError(f"file {self.file_id} is not open")
         try:
@@ -560,7 +560,7 @@ class Readline(file.FileCommand):
         super().__init__(immediate=True)
 
     def fileOp(self, parser, file_id):
-        if file_id < 0 or file_id >= len(parser.state.globals["openin"]):
+        if file_id < 0 or file_id >= len(parser.globals["openin"]):
             raise ValueError(f"\\read does not support reading from console", parser.input.position())
         to = parser.readKeyword(["to"])
         if to is None:

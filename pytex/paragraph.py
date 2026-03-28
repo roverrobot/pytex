@@ -94,10 +94,10 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     def lineShape(self, parser, line_no):
         return self._lineShape(
-            parser.state.volatile["parshape"],
-            parser.state.layout["hsize"],
-            parser.state.volatile["hangindent"],
-            parser.state.volatile["hangafter"],
+            parser.volatile["parshape"],
+            parser.layout["hsize"],
+            parser.volatile["hangindent"],
+            parser.volatile["hangafter"],
             line_no,
         )
     
@@ -116,7 +116,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
             indent, measure = self.lineShape(parser, i + 1)
             if indent != 0:
                 packed.append(nd.Glue(Glue(indent), "\\parindent"))
-            leftskip = parser.state.layout["leftskip"]
+            leftskip = parser.layout["leftskip"]
             if leftskip != Glue():
                 packed.append(nd.Glue(leftskip, "\\leftskip"))
             if line.begin.disc is not None:
@@ -132,7 +132,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
                     packed.append(end_node)
             if line.end.disc is not None:
                 packed.append(self._lineDisc(parser, line.end.disc, broken=True))
-            packed.append(nd.Glue(parser.state.layout["rightskip"], "\\rightskip"))
+            packed.append(nd.Glue(parser.layout["rightskip"], "\\rightskip"))
             hbox = bx.HBox(parser, measure, None)
             hbox.list[:] = packed
             hbox = hbox.typeset(parser)
@@ -147,24 +147,24 @@ class Paragraph(nd.Node, hmode.HListHolder):
         return list(self._line_boxes)
 
     def _interlinePenalty(self, parser, line):
-        penalty = parser.state.layout["interlinepenalty"]
+        penalty = parser.layout["interlinepenalty"]
         if line.line_no == 2:
-            penalty += parser.state.layout["clubpenalty"]
+            penalty += parser.layout["clubpenalty"]
         if line.line_no == self.line_count:
-            penalty += parser.state.layout["widowpenalty"]
+            penalty += parser.layout["widowpenalty"]
         if line.prev is not None and line.prev.hyphenated:
-            penalty += parser.state.layout["brokenpenalty"]
+            penalty += parser.layout["brokenpenalty"]
         return penalty
 
     def updateDisplayState(self, parser):
         line_count = len(self._line_boxes or [])
-        parser.state.globals["prevgraf"] = line_count
+        parser.globals["prevgraf"] = line_count
         # For an immediately following display, TeX uses the next line-shape
         # slot to determine \displayindent and \displaywidth.
         displayindent, displaywidth = self.lineShape(parser, line_count + 1)
         self.line_count = line_count
-        parser.state.volatile["displayindent"] = displayindent
-        parser.state.volatile["displaywidth"] = displaywidth
+        parser.volatile["displayindent"] = displayindent
+        parser.volatile["displaywidth"] = displaywidth
         # Furthermore, \predisplaysize is set to the eﬀective width p of the line preceding the display, as
         # follows: If there was no previous line (e.g., if the $$ was preceded by \noindent or by
         # the closing $$ of another display), p is set to -16383.99999 pt (i.e., to the smallest legal
@@ -176,8 +176,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
         if hbox is None:
             predisplaysize = Dimen(-16383.99999)
         else:
-            predisplaysize = hbox.rightmost() + 2 * parser.state.parameters["currentfont"].param[5]
-        parser.state.volatile["predisplaysize"] = predisplaysize
+            predisplaysize = hbox.rightmost() + 2 * parser.parameters["currentfont"].param[5]
+        parser.volatile["predisplaysize"] = predisplaysize
 
     def typeset(self, parser, vlist):
         for node in self._buildExpanded(parser):
@@ -219,9 +219,9 @@ class Paragraph(nd.Node, hmode.HListHolder):
         - If still infeasible, run a fallback round that allows overfull forced
         breaks (matching TeX's "always break somehow" behavior).
         """
-        pre_tolerance = parser.state.layout["pretolerance"]
+        pre_tolerance = parser.layout["pretolerance"]
         if pre_tolerance < 0:
-            pre_tolerance = parser.state.layout["tolerance"]
+            pre_tolerance = parser.layout["tolerance"]
         if breaks is None:
             breaks = _BreakCandidateScan(parser, hlist).candidates
         breaker = _LineBreaker(self, parser, hlist, breaks, pre_tolerance)
@@ -229,8 +229,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
         working_hlist = hlist
         working_breaks = breaks
         if lines is None or (
-            parser.state.volatile["looseness"] != 0
-            and breaker.actual_looseness != parser.state.volatile["looseness"]
+            parser.volatile["looseness"] != 0
+            and breaker.actual_looseness != parser.volatile["looseness"]
         ):
             hyphenated = self._hyphenate(parser, hlist, breaks)
             if hyphenated:
@@ -240,7 +240,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
                     parser,
                     working_hlist,
                     working_breaks,
-                    parser.state.layout["tolerance"],
+                    parser.layout["tolerance"],
                 )
                 hyphen_lines = hyphen_breaker.run()
                 if hyphen_lines is not None:
@@ -252,7 +252,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
                 parser,
                 working_hlist,
                 working_breaks,
-                max(parser.state.layout["tolerance"], 10000),
+                max(parser.layout["tolerance"], 10000),
                 allow_overfull=True,
             )
             lines = breaker.run()
@@ -417,7 +417,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
         """
         Check whether a collected trial word is valid for hyphenation.
         """
-        if len(text) < max(1, parser.state.layout["lefthyphenmin"]) + max(1, parser.state.layout["righthyphenmin"]):
+        if len(text) < max(1, parser.layout["lefthyphenmin"]) + max(1, parser.layout["righthyphenmin"]):
             return False
         n = len(nodes)
         while tail < n:
@@ -441,8 +441,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
         forming the word.
         """
         in_math = False
-        current_language = parser.state.parameters["language"]
-        lccode = parser.state.lccode
+        current_language = parser.parameters["language"]
+        lccode = parser.lccode
         i = 0
         n = len(nodes)
 
@@ -469,7 +469,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
                 nodes,
                 i,
                 current_language,
-                parser.state.layout["uchyph"] > 0,
+                parser.layout["uchyph"] > 0,
                 lccode,
             )
             if hyphen is None:
@@ -484,8 +484,8 @@ class Paragraph(nd.Node, hmode.HListHolder):
             i = tail
 
     def _hyphenBreakCandidates(self, parser, nodes):
-        lambda_ = max(1, parser.state.layout["lefthyphenmin"])
-        rho = max(1, parser.state.layout["righthyphenmin"])
+        lambda_ = max(1, parser.layout["lefthyphenmin"])
+        rho = max(1, parser.layout["righthyphenmin"])
         extras = []
 
         for language, hyphen, text, parts in self._iterHyphenWords(parser, nodes):
@@ -504,7 +504,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
                             continue
                         split = point - total
                         candidate = _BreakCandidate(index if split < len(letters) else index + 1)
-                        candidate.penalty = parser.state.layout["hyphenpenalty"]
+                        candidate.penalty = parser.layout["hyphenpenalty"]
                         candidate.hyphenated = True
                         if split == len(letters):
                             candidate.disc = self._virtualDisc(parser, [hyphen], [])
@@ -656,7 +656,7 @@ class _Line:
 
     def __init__(self, breaker, prev, begin, end):
         parser = breaker.parser
-        layout = parser.state.layout
+        layout = parser.layout
         self.begin = begin
         self.end = end
         self.prev = prev
@@ -808,7 +808,7 @@ class _BreakCandidateScan(list):
             candidate.disc = node
             candidate.disc_skip = 1
             candidate.hyphenated = self._discHyphenated(node)
-            candidate.penalty = self.parser.state.layout["exhyphenpenalty"]
+            candidate.penalty = self.parser.layout["exhyphenpenalty"]
 
     def extend(self, nodes):
         items = nodes.list if hasattr(nodes, "list") else nodes
@@ -1029,7 +1029,7 @@ class _LineBreaker:
         if not finals:
             return None
 
-        baseline, best = self._selectFinal(finals, self.parser.state.volatile["looseness"])
+        baseline, best = self._selectFinal(finals, self.parser.volatile["looseness"])
         self.actual_looseness = best.line_no - baseline.line_no
 
         plan = []
@@ -1049,7 +1049,7 @@ class SetLanguage(HorizontalCommand):
 
 class PrevGraf(GlobalIntAccessor):
     def intValue(self, parser):
-        value = parser.state.globals["prevgraf"]
+        value = parser.globals["prevgraf"]
         if value is not None:
             return value
         # when this is accessed here, we are in building a list. So we use parser.paragraph_before_last_display_math
@@ -1061,7 +1061,7 @@ class PrevGraf(GlobalIntAccessor):
         for para in reversed(vlist):
             if isinstance(para, Paragraph):
                 para.typeset(parser, [])
-                return parser.state.globals["prevgraf"]
+                return parser.globals["prevgraf"]
         return 0
 
 

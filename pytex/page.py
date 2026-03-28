@@ -392,7 +392,7 @@ def shipout(parser, box):
         shipped_box = box.typeset(parser)
     parser.traceOutputPage(shipped_box)
     backend.shipout(shipped_box)
-    parser.state.globals["deadcycles"] = 0
+    parser.globals["deadcycles"] = 0
 
 
 class ShipOutCommand(vmode.VerticalCommand):
@@ -419,7 +419,7 @@ class OutputRoutineEndCallback:
     def __call__(self):
         if self.parser.lists and self.parser.lists[-1] is self.vlist:
             state = self.parser.lists.pop()
-            self.parser.state.globals["prevdepth"] = state.saved_prevdepth
+            self.parser.globals["prevdepth"] = state.saved_prevdepth
 
 
 class EndOutputRoutineToken(Token):
@@ -473,7 +473,7 @@ class PageBreaker(VerticalBreaker):
         cached = self._register_box_heights.get(index)
         if cached is not None:
             return cached
-        box = self.parser.state.box[index]
+        box = self.parser.box[index]
         if box is None:
             h = Dimen()
         else:
@@ -507,7 +507,7 @@ class PageBreaker(VerticalBreaker):
         split_context = VSplitContext(
             target,
             Glue(),
-            self.parser.state.layout["splitmaxdepth"],
+            self.parser.layout["splitmaxdepth"],
         )
         breaker = VSplitBreaker(nodes, split_context)
         start, split_context = breaker.pruneTop(0, split_context)
@@ -552,10 +552,10 @@ class PageBreaker(VerticalBreaker):
     ):
         index = node.index
         state = self._classState(index, class_states)
-        f_count = int(self.parser.state.count[index])
+        f_count = int(self.parser.count[index])
         f = Fraction(f_count, 1000)
-        limit = self.parser.state.dimen[index]
-        skip = self.parser.state.skip[index]
+        limit = self.parser.dimen[index]
+        skip = self.parser.skip[index]
         if not state["seen"]:
             # Step 1: reserve existing insert box and insertion skip glue.
             delta = state["base"] * f + skip.dimen
@@ -567,7 +567,7 @@ class PageBreaker(VerticalBreaker):
         if state["split"]:
             # Step 2: once split, later inserts of the same class defer and
             # contribute floatingpenalty to insert penalties.
-            insert_penalties += int(self.parser.state.layout["floatingpenalty"])
+            insert_penalties += int(self.parser.layout["floatingpenalty"])
             action = {"kind": "defer", "index": index}
             return goal, goal_adjust, insert_penalties, action
 
@@ -761,7 +761,7 @@ class MainVList(vmode.VList):
         return [node for node in self.concreteNodes() if getattr(node, "source", None) is None]
 
     def _currentPageContext(self):
-        return PageBuilderContext(self.parser.state.layout)
+        return PageBuilderContext(self.parser.layout)
 
     def _pruneContribTop(self):
         if not self.contrib:
@@ -824,7 +824,7 @@ class MainVList(vmode.VList):
     def _processPendingPages(self, force=False):
         if self._processing_pages:
             return
-        if float(self.parser.state.layout["vsize"]) <= 0:
+        if float(self.parser.layout["vsize"]) <= 0:
             return
         self._processing_pages = True
         try:
@@ -853,18 +853,18 @@ class MainVList(vmode.VList):
                     break_context = breaker.advanceContext(start, end, start_context)
                     break_penalty = 0
                 page = bx.VBox(self.parser, break_context.vsize, None)
-                topmark = list(self.parser.state.parameters["botmark"])
+                topmark = list(self.parser.parameters["botmark"])
                 firstmark, botmark = self._pageMarks(self.contrib, start, end, topmark)
                 self._updatePageMarksByClass(self.parser, self.contrib, start, end, topmark)
-                self.parser.state.parameters["topmark"] = list(topmark)
-                self.parser.state.parameters["firstmark"] = list(firstmark)
-                self.parser.state.parameters["botmark"] = list(botmark)
-                self.parser.state.layout["outputpenalty"] = break_penalty
+                self.parser.parameters["topmark"] = list(topmark)
+                self.parser.parameters["firstmark"] = list(firstmark)
+                self.parser.parameters["botmark"] = list(botmark)
+                self.parser.layout["outputpenalty"] = break_penalty
                 page_nodes = breaker.buildSlice(start, end, start_context, "\\topskip")
                 has_content = self._hasPageContent(page_nodes)
                 self._clearInsertScratch(self.parser)
                 page.list[:], insert_carry = self._extractPageInserts(self.parser, page_nodes, breaker)
-                self.parser.state.globals["insertpenalties"] = breaker.last_insert_penalties
+                self.parser.globals["insertpenalties"] = breaker.last_insert_penalties
                 pending = list(insert_carry)
                 if not has_content:
                     self._flushPageWhatsits(self.parser, page.list)
@@ -885,7 +885,7 @@ class MainVList(vmode.VList):
         super().append(node, add_interline)
         if self._triggersPageBuilder(node):
             self._contributePending()
-            if float(self.parser.state.layout["vsize"]) > 0:
+            if float(self.parser.layout["vsize"]) > 0:
                 self._processPendingPages()
 
     def pop(self):
@@ -935,7 +935,7 @@ class MainVList(vmode.VList):
         return False
 
     def _updatePageMarksByClass(self, parser, nodes, start, end, topmark):
-        topmarks = parser.state.globals.get("botmarks")
+        topmarks = parser.globals.get("botmarks")
         if topmarks is None:
             assert not self._pageHasNonZeroMarks(nodes, start, end), \
                 "nonzero mark nodes require the etex module"
@@ -943,9 +943,9 @@ class MainVList(vmode.VList):
         topmarks = _copy_mark_register(topmarks)
         _set_mark_class(topmarks, 0, topmark)
         firstmarks, botmarks = self._pageMarksByClass(nodes, start, end, topmarks)
-        parser.state.globals["topmarks"] = _copy_mark_register(topmarks)
-        parser.state.globals["firstmarks"] = firstmarks
-        parser.state.globals["botmarks"] = botmarks
+        parser.globals["topmarks"] = _copy_mark_register(topmarks)
+        parser.globals["firstmarks"] = firstmarks
+        parser.globals["botmarks"] = botmarks
         return botmarks
 
     @staticmethod
@@ -961,10 +961,10 @@ class MainVList(vmode.VList):
 
     @staticmethod
     def _ensureInsertScratch(parser):
-        scratch = parser.state.globals.get("insert")
+        scratch = parser.globals.get("insert")
         if not isinstance(scratch, list):
             scratch = [[] for _ in range(256)]
-            parser.state.globals["insert"] = scratch
+            parser.globals["insert"] = scratch
             return scratch
         if len(scratch) < 256:
             scratch.extend([] for _ in range(256 - len(scratch)))
@@ -975,14 +975,14 @@ class MainVList(vmode.VList):
         scratch = cls._ensureInsertScratch(parser)
         for items in scratch:
             items.clear()
-        parser.state.globals["insertpenalties"] = 0
+        parser.globals["insertpenalties"] = 0
         return scratch
 
     @staticmethod
     def _appendInsertToBoxRegister(parser, index, insert_box):
-        current = parser.state.box[index]
+        current = parser.box[index]
         if current is None:
-            parser.state.box[index] = insert_box.copy()
+            parser.box[index] = insert_box.copy()
             return
         current = current.typeset(parser)
         if current.node_type != nd.NODE_TYPE.VLIST:
@@ -990,7 +990,7 @@ class MainVList(vmode.VList):
         merged = bx.VBox(parser, None, Dimen())
         merged.list[:] = list(current.list)
         merged.list.extend(list(insert_box.list))
-        parser.state.box[index] = merged.typeset(parser)
+        parser.box[index] = merged.typeset(parser)
 
     @classmethod
     def _extractPageInserts(cls, parser, nodes, breaker):
@@ -1046,21 +1046,21 @@ class MainVList(vmode.VList):
 
     def _runOutputRoutine(self, parser, page):
         output = parser.output.value
-        parser.state.box[255] = page
+        parser.box[255] = page
         if not output:
-            parser.state.globals["deadcycles"] += 1
+            parser.globals["deadcycles"] += 1
             shipout(parser, page)
-            parser.state.box[255] = None
+            parser.box[255] = None
             return []
-        if parser.state.globals["deadcycles"] >= parser.state.parameters["maxdeadcycles"]:
+        if parser.globals["deadcycles"] >= parser.parameters["maxdeadcycles"]:
             parser.message(
-                f"Output loop---{parser.state.globals['deadcycles']} consecutive dead cycles"
+                f"Output loop---{parser.globals['deadcycles']} consecutive dead cycles"
             )
-            parser.state.globals["deadcycles"] += 1
+            parser.globals["deadcycles"] += 1
             shipout(parser, page)
-            parser.state.box[255] = None
+            parser.box[255] = None
             return []
-        parser.state.globals["deadcycles"] += 1
+        parser.globals["deadcycles"] += 1
         outlist = vmode.VList(parser, [])
         parser.lists.append(outlist)
         parser.beginGroup(
@@ -1081,16 +1081,16 @@ class MainVList(vmode.VList):
             raise ValueError("output routine ended in math mode")
         if top is not outlist:
             raise ValueError("output routine did not end in internal vertical mode")
-        if parser.state.current_group.aftergroup:
+        if parser.current_group.aftergroup:
             raise NotImplementedError("aftergroup in the output routine is not implemented yet")
         parser.endGroup(parser.input.position(), GROUP_TYPE.OUTPUT)
-        parser.state.box[255] = None
+        parser.box[255] = None
         carry = []
         carry.extend(outlist.list)
         return carry
 
     def finish(self, parser):
-        if float(parser.state.layout["vsize"]) <= 0:
+        if float(parser.layout["vsize"]) <= 0:
             self._flushPageWhatsits(parser, self.contrib)
             self._flushPageWhatsits(parser, self.list)
             return
@@ -1123,7 +1123,7 @@ def init(parser):
     """
     Runtime scratch storage for insertion classes during page building.
     """
-    parser.state.globals["insert"] = [[] for _ in range(256)]
+    parser.globals["insert"] = [[] for _ in range(256)]
     parser.shipout = Shipout(parser)
 
 
@@ -1139,19 +1139,19 @@ class VSplit(Command):
             raise ValueError("expecting \\vsplit<number> to <dimen>", parser.input.position())
         splitfirst = None
         splitbot = None
-        splitfirstmarks = parser.state.globals.get("splitfirstmarks")
-        splitbotmarks = parser.state.globals.get("splitbotmarks")
+        splitfirstmarks = parser.globals.get("splitfirstmarks")
+        splitbotmarks = parser.globals.get("splitbotmarks")
         split_seen = set()
         if splitfirstmarks is not None:
             splitfirstmarks = [[]]
             splitbotmarks = [[]]
-        source = parser.state.box[index]
+        source = parser.box[index]
         if source is None:
-            parser.state.globals["splitfirstmark"] = []
-            parser.state.globals["splitbotmark"] = []
+            parser.globals["splitfirstmark"] = []
+            parser.globals["splitbotmark"] = []
             if splitfirstmarks is not None:
-                parser.state.globals["splitfirstmarks"] = splitfirstmarks
-                parser.state.globals["splitbotmarks"] = splitbotmarks
+                parser.globals["splitfirstmarks"] = splitfirstmarks
+                parser.globals["splitbotmarks"] = splitbotmarks
             return None
         if source.node_type != nd.NODE_TYPE.VLIST:
             raise ValueError("expecting a vbox", parser.input.position())
@@ -1160,17 +1160,17 @@ class VSplit(Command):
         split_context = VSplitContext(
             dim,
             Glue(),
-            parser.state.layout["splitmaxdepth"],
+            parser.layout["splitmaxdepth"],
         )
         breaker = VSplitBreaker(nodes, split_context)
         start, split_context = breaker.pruneTop(0, split_context)
         if start >= len(nodes):
-            parser.state.box[index] = None
-            parser.state.globals["splitfirstmark"] = []
-            parser.state.globals["splitbotmark"] = []
+            parser.box[index] = None
+            parser.globals["splitfirstmark"] = []
+            parser.globals["splitbotmark"] = []
             if splitfirstmarks is not None:
-                parser.state.globals["splitfirstmarks"] = splitfirstmarks
-                parser.state.globals["splitbotmarks"] = splitbotmarks
+                parser.globals["splitfirstmarks"] = splitfirstmarks
+                parser.globals["splitbotmarks"] = splitbotmarks
             return None
         end, next_start, break_context, _, _ = breaker.bestBreak(start, split_context)
         if end <= start:
@@ -1194,25 +1194,25 @@ class VSplit(Command):
             if splitfirst is None:
                 splitfirst = mark
             splitbot = mark
-        parser.state.globals["splitfirstmark"] = [] if splitfirst is None else splitfirst
-        parser.state.globals["splitbotmark"] = [] if splitbot is None else splitbot
+        parser.globals["splitfirstmark"] = [] if splitfirst is None else splitfirst
+        parser.globals["splitbotmark"] = [] if splitbot is None else splitbot
         if splitfirstmarks is not None:
-            parser.state.globals["splitfirstmarks"] = splitfirstmarks
-            parser.state.globals["splitbotmarks"] = splitbotmarks
+            parser.globals["splitfirstmarks"] = splitfirstmarks
+            parser.globals["splitbotmarks"] = splitbotmarks
         result = bx.VBox(parser, break_context.vsize, None)
         result.list[:] = breaker.buildRawSlice(start, end, split_context)
         remainder_context = VSplitContext(
             Dimen(),
-            parser.state.layout["splittopskip"],
-            parser.state.layout["boxmaxdepth"],
+            parser.layout["splittopskip"],
+            parser.layout["boxmaxdepth"],
         )
         next_start, _ = breaker.pruneTop(next_start, remainder_context)
         if next_start >= len(nodes):
-            parser.state.box[index] = None
+            parser.box[index] = None
         else:
             remainder = bx.VBox(parser, None, Dimen())
             remainder.list[:] = breaker.buildSlice(next_start, len(nodes), remainder_context, "\\splittopskip")
-            parser.state.box[index] = remainder.typeset(parser, maxdepth=remainder_context.maxdepth)
+            parser.box[index] = remainder.typeset(parser, maxdepth=remainder_context.maxdepth)
         return result.typeset(parser, maxdepth=break_context.maxdepth)
 
     def execute(self, parser):

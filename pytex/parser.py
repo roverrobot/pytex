@@ -167,10 +167,10 @@ class Parser(state.StateOwner):
         if self.lists is None:
             self.lists = [page.MainVList(self)]
         date = datetime.datetime.now()
-        self.state.volatile["year"] = date.year
-        self.state.volatile["month"] = date.month
-        self.state.volatile["day"] = date.day
-        self.state.volatile["time"] = date.hour * 60 + date.minute
+        self.volatile["year"] = date.year
+        self.volatile["month"] = date.month
+        self.volatile["day"] = date.day
+        self.volatile["time"] = date.hour * 60 + date.minute
         self.readFrom(input, jobname)
         if jobname is not None:
             base = os.path.basename(jobname)
@@ -210,9 +210,9 @@ class Parser(state.StateOwner):
         @param input: the input
         """
         if isinstance(input, str):
-            self.input.push(lexer.StringScanner(self.state, input, name))
+            self.input.push(lexer.StringScanner(self, input, name))
         else:
-            self.input.push(lexer.Scanner(self.state, input, name))
+            self.input.push(lexer.Scanner(self, input, name))
 
     def skipSpace(self, expand: bool = True):
         """
@@ -264,15 +264,15 @@ class Parser(state.StateOwner):
             # appended after a character whose code is the \hyphenchar of its font, 
             # or after a ligature formed from a sequence that ends with such a 
             # character.
-            f = self.state.parameters["currentfont"]
+            f = self.parameters["currentfont"]
             self.lists[-1].append(f[c])
         else:
             # math mode.
-            code = self.state.mathcode[ord(c)]
+            code = self.mathcode[ord(c)]
             # code 0x8000 is a special case, making the character active
             if code == 0x8000:
                 t = token.ActiveToken(c)
-                t.entry = self.state.equitable.entry(c)
+                t.entry = self.equitable.entry(c)
                 # Requeue as a command token so it goes through normal
                 # token_expand/execute handling (expandable and non-expandable).
                 self.input.unread(t)
@@ -286,7 +286,7 @@ class Parser(state.StateOwner):
             @param code: the math code
             @return: the an atom with the symbol as the nucleus
             """
-            fam = self.state.parameters["fam"]
+            fam = self.parameters["fam"]
             return mmode.MathSymbol(code, fam)
 
     def addSpace(self):
@@ -317,15 +317,15 @@ class Parser(state.StateOwner):
         # with stretch and shrink components multiplied by f/1000 and 1000/f. For 
         # example, the \raggedright macro of plain TeX uses \spaceskip and 
         # \xspaceskip to suppress all stretching and shrinking of interword spaces.
-        xspaceskip = self.state.parameters["xspaceskip"]
-        spaceskip = self.state.parameters["spaceskip"]
+        xspaceskip = self.parameters["xspaceskip"]
+        spaceskip = self.parameters["spaceskip"]
         scale = Fraction(f, 1000)
         if f >= 2000 and xspaceskip.dimen != 0:
             spaceglue = xspaceskip
         elif spaceskip.dimen != 0:
             spaceglue = spaceskip.scale(scale)
         else:
-            font = self.state.parameters["currentfont"]
+            font = self.parameters["currentfont"]
             if f >= 2000:
                 spaceglue = font.spaceglue.copy()
                 spaceglue.dimen += font.param[6] # \fontdimen[7] is the extra space
@@ -340,7 +340,7 @@ class Parser(state.StateOwner):
         @param name: the name of the command
         @return: the command
         """
-        return self.state.equitable[name]
+        return self.equitable[name]
 
     def beginGroup(
         self,
@@ -395,7 +395,7 @@ class Parser(state.StateOwner):
         top = self.lists[-1]
         para = paragraph.Paragraph(self, indent)
         if parskip:
-            parskip_node = node.Glue(self.state.parameters["parskip"], "\\parskip")
+            parskip_node = node.Glue(self.parameters["parskip"], "\\parskip")
             parskip_node.source = para
             top.append(parskip_node)
         self.lists.append(paragraph.ParagraphList(self, para))
@@ -406,7 +406,7 @@ class Parser(state.StateOwner):
                 if self.tracingcommands > 0 and self.checkRange():
                     self.message(f"everypar: {self.toksToString(everypar)}")
             # the spacefactor is set to 1000 at the beginning of a paragraph
-            self.state.globals["prevgraf"] = 0
+            self.globals["prevgraf"] = 0
         return para
 
     def endParagraph(self):
@@ -433,7 +433,7 @@ class Parser(state.StateOwner):
             # \penalty10000
             hlist.append(node.Penalty(10000))
             # \hskip\parfillskip
-            hlist.append(node.Glue(self.state.parameters["parfillskip"], "\\parfillskip"))
+            hlist.append(node.Glue(self.parameters["parfillskip"], "\\parfillskip"))
             top.append(para)
         if para is not None:
             if updates_display_state:
@@ -443,7 +443,7 @@ class Parser(state.StateOwner):
         return para
 
     def clearParagraphSettings(self):
-        volatile = self.state.volatile
+        volatile = self.volatile
         volatile["looseness"] = 0
         volatile["hangindent"] = dimen.Dimen()
         volatile["hangafter"] = 1
@@ -453,9 +453,9 @@ class Parser(state.StateOwner):
         """
         get the hyphen character
         """
-        font = self.state.parameters["currentfont"]
+        font = self.parameters["currentfont"]
         c = font.fontchar["hyphenchar"]
-        return self.state.parameters["defaulthyphenchar"] if c == 0 else c
+        return self.parameters["defaulthyphenchar"] if c == 0 else c
 
     def dump(self) -> bytes:
         """
@@ -486,7 +486,7 @@ class Parser(state.StateOwner):
         ):
             builtin = self.builtin.get(name)
             if builtin is not None:
-                self.state.equitable.setGlobal(name, builtin)
+                self.equitable.setGlobal(name, builtin)
 
     def end(self):
         """

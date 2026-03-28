@@ -81,9 +81,9 @@ class Style(serialization.Serializable):
 
 
 def mathfont(parser, style, family):
-    textfont = parser.state.textfont
-    scriptfont = parser.state.scriptfont
-    scriptscriptfont = parser.state.scriptscriptfont
+    textfont = parser.textfont
+    scriptfont = parser.scriptfont
+    scriptscriptfont = parser.scriptscriptfont
     if style.style < MATH_STYLE.S:
         return textfont[family]
     if style.style == MATH_STYLE.S:
@@ -100,12 +100,12 @@ def mathxi(parser, style: Style):
 
 
 def mathmuskips(parser):
-    layout = parser.state.layout
+    layout = parser.layout
     return [layout[x] for x in ["thinmuskip", "medmuskip", "thickmuskip"]]
 
 
 def mathlayout(parser, name):
-    return parser.state.layout[name]
+    return parser.layout[name]
 
 
 class AtomState:
@@ -468,7 +468,7 @@ class MathListHolder:
             return None
         if atom_type == ATOM_TYPE.REL and isinstance(next_item, _AtomWrapper) and next_item.node_type == ATOM_TYPE.REL:
             return None
-        layout = parser.state.layout
+        layout = parser.layout
         penalty = layout["binoppenalty"] if atom_type == ATOM_TYPE.BIN else layout["relpenalty"]
         if penalty >= 10000:
             return None
@@ -575,11 +575,11 @@ class InlineMathNode(MathListHolder):
         # math-on/math-off nodes, each carrying the current \mathsurround.
         math_shift = nd.MathShift(True)
         math_shift.source = self
-        math_shift.kern = Dimen(parser.state.layout["mathsurround"])
+        math_shift.kern = Dimen(parser.layout["mathsurround"])
         cache.append(math_shift)
         self.typesetNodes(parser, cache, self, Style(MATH_STYLE.T))
         math_shift = nd.MathShift(False)
-        math_shift.kern = Dimen(parser.state.layout["mathsurround"])
+        math_shift.kern = Dimen(parser.layout["mathsurround"])
         cache.append(math_shift)
         self._typeset_cache = cache
 
@@ -607,7 +607,7 @@ class DisplayMathNode(nd.Node, MathListHolder):
 
     def typeset(self, parser, packed):
         cache = []
-        volatile = parser.state.volatile
+        volatile = parser.volatile
         displaywidth = volatile["displaywidth"]
         displayindent = volatile["displayindent"]
         predisplaysize = volatile["predisplaysize"]
@@ -697,13 +697,13 @@ class DisplayMathNode(nd.Node, MathListHolder):
         # appended as an hbox by itself, shifted right s and preceded by interline glue as usual;
         # an infinite penalty is also appended, to prevent a page break between this number and
         # the display. Otherwise a glue item ga is placed on the vertical list.
-        cache.append(nd.Penalty(parser.state.layout["predisplaypenalty"]))
+        cache.append(nd.Penalty(parser.layout["predisplaypenalty"]))
         if d + s <= p or left is True:
-            ga = nd.Glue(parser.state.layout["abovedisplayskip"], "\\abovedisplayskip")
-            gb = nd.Glue(parser.state.layout["belowdisplayskip"], "\\belowdisplayskip")
+            ga = nd.Glue(parser.layout["abovedisplayskip"], "\\abovedisplayskip")
+            gb = nd.Glue(parser.layout["belowdisplayskip"], "\\belowdisplayskip")
         else:
-            ga = nd.Glue(parser.state.layout["abovedisplayshortskip"], "\\abovedisplayshortskip")
-            gb = nd.Glue(parser.state.layout["belowdisplayshortskip"], "\\belowdisplayshortskip")
+            ga = nd.Glue(parser.layout["abovedisplayshortskip"], "\\abovedisplayshortskip")
+            gb = nd.Glue(parser.layout["belowdisplayshortskip"], "\\belowdisplayshortskip")
         if e == 0 and left is True:
             a.shifted = Dimen(s)
             cache.append(a)
@@ -745,9 +745,9 @@ class DisplayMathNode(nd.Node, MathListHolder):
             a.shifted = Dimen(s + z) - a.width
             a.interline_glue = nd.Glue(None, None)
             cache.append(a)
-            cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
+            cache.append(nd.Penalty(parser.layout["postdisplaypenalty"]))
         else:
-            cache.append(nd.Penalty(parser.state.layout["postdisplaypenalty"]))
+            cache.append(nd.Penalty(parser.layout["postdisplaypenalty"]))
             cache.append(gb)
         for n in cache:
             n.source = self
@@ -1493,7 +1493,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if mlist.isalign:
             self.node = mlist[0]
         top.append(self.node)
-        parser.state.globals["prevgraf"] += 3
+        parser.globals["prevgraf"] += 3
         # TeX is back in horizontal mode after a display, but the follow-on
         # paragraph is only added if it later receives content.
         parser.newParagraph(
@@ -1553,23 +1553,23 @@ def mathShift(parser):
             parser.input.unread(t)
     node = InlineMathNode() if inner else DisplayMathNode()
     if not inner:
-        volatile = parser.state.volatile
+        volatile = parser.volatile
         if not started_in_vmode:
             prev_par = parser.endParagraph()
             if prev_par is None:
-                volatile["displaywidth"] = parser.state.layout["hsize"]
+                volatile["displaywidth"] = parser.layout["hsize"]
                 volatile["displayindent"] = Dimen()
                 volatile["predisplaysize"] = NEG_MAX_DIMEN
-                parser.state.globals["prevgraf"] = 0
+                parser.globals["prevgraf"] = 0
         else:
-            volatile["displaywidth"] = parser.state.layout["hsize"]
+            volatile["displaywidth"] = parser.layout["hsize"]
             volatile["displayindent"] = Dimen()
             volatile["predisplaysize"] = NEG_MAX_DIMEN
-            parser.state.globals["prevgraf"] = 0
+            parser.globals["prevgraf"] = 0
         parser.paragraph_before_last_display_math = prev_par
     parser.lists.append(MList(parser, node.list, inner=inner))
     # \fam=-1 when entering math mode
-    parser.state.parameters["fam"] = -1
+    parser.parameters["fam"] = -1
     callback = MathShiftEndGroupCallback(parser, node)
     parser.beginGroup(
         parser.input.position(),
@@ -1907,9 +1907,9 @@ class Delim(serialization.Serializable):
 
         if family < 0 or family >= 16:
             return fonts
-        textfont = parser.state.textfont
-        scriptfont = parser.state.scriptfont
-        scriptscriptfont = parser.state.scriptscriptfont
+        textfont = parser.textfont
+        scriptfont = parser.scriptfont
+        scriptscriptfont = parser.scriptscriptfont
         if level >= MATH_STYLE.SS:
             add(scriptscriptfont[family])
         if level >= MATH_STYLE.S:
@@ -2129,12 +2129,12 @@ class Delimiter(lists.ModeDependentCommand):
         # when used independently in a math list, its right most 3 hex digits are
         # dropped, and the remaining 15 bits are used as the a mathchar
         delcode = parser.readInteger() >> 12
-        fam = parser.state.parameters["fam"]
+        fam = parser.parameters["fam"]
         mlist.append(MathSymbol(delcode, fam))
 
     def delimiter(self, parser):
         delcode = parser.readInteger()
-        fam = parser.state.parameters["fam"]
+        fam = parser.parameters["fam"]
         return Delim(delcode, fam)
 
 
@@ -2148,13 +2148,13 @@ def readDelimiter(parser):
     if t is None:
         raise ValueError("missing delimiter")
     if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
-        code = parser.state.delcode[ord(t.name)]
+        code = parser.delcode[ord(t.name)]
     else:
         try:
             code = t.delimiter(parser)
         except AttributeError:
             raise ValueError("expecting a delimiter")
-    return Delim(code, parser.state.parameters["fam"])
+    return Delim(code, parser.parameters["fam"])
 
 
 class Radical(lists.ModeDependentCommand):
@@ -2162,7 +2162,7 @@ class Radical(lists.ModeDependentCommand):
     the \\radical command
     """
     def math(self, parser, mlist):
-        delim = Delim(parser.readInteger(), parser.state.parameters["fam"])
+        delim = Delim(parser.readInteger(), parser.parameters["fam"])
         mlist.buildAtom("oprand", Rad(delim, None))
 
 
@@ -2533,7 +2533,7 @@ class MathAccent(lists.ModeDependentCommand):
     the \\accent command
     """
     def math(self, parser, mlist):
-        accent = MathSymbol(parser.readInteger(), parser.state.parameters["fam"])
+        accent = MathSymbol(parser.readInteger(), parser.parameters["fam"])
         mlist.buildAtom("base", Accent(accent, None))
 
 
@@ -2687,13 +2687,13 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
         return parser.readDimen()
     
     def set(self, parser, value):
-        parser.state.volatile[self.index] = value
+        parser.volatile[self.index] = value
     
     def setGlobal(self, parser, value):
-        parser.state.volatile.setGlobal(self.index, value)
+        parser.volatile.setGlobal(self.index, value)
     
     def dimenValue(self, parser):
-        value = parser.state.volatile[self.index]
+        value = parser.volatile[self.index]
         if value is not None:
             return value
         # when this is accessed here, we are in building a list. So we use parser.paragraph_before_last_display_math
@@ -2701,7 +2701,7 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
         para = parser.paragraph_before_last_display_math
         assert para is not None
         para.typeset(parser, [])
-        return parser.state.volatile[self.index]
+        return parser.volatile[self.index]
 
     
 mod = Module("mmode",

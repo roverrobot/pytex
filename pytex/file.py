@@ -84,7 +84,7 @@ class FileOp(serialization.Serializable):
         """
         Get the file object
         """
-        files = parser.state.globals[self.files]
+        files = parser.globals[self.files]
         return files[self.file_id] if 0 < self.file_id < len(files) else None
 
 
@@ -95,7 +95,7 @@ class CloseOp(FileOp):
     @param file: the file number to operate on
     """
     def execute(self, parser):
-        files = parser.state.globals[self.files]
+        files = parser.globals[self.files]
         if 0 <= self.file_id < len(files) and files[self.file_id] is not None:
             files[self.file_id].close()
             files[self.file_id] = None
@@ -158,12 +158,12 @@ class ReadOp(ParameterAccessor):
     def readValue(self, parser):
         tokens = []
         level = 0
-        file = parser.state.globals["openin"][self.file_id]
+        file = parser.globals["openin"][self.file_id]
         if file is None or file.closed:
             raise FileNotFoundError(f"file {self.file_id} is not open")
         done = False
         for s in file:
-            pushFileScan(parser, StringScanner(parser.state, s))
+            pushFileScan(parser, StringScanner(parser, s))
             while True:
                 t = parser.token()
                 if isinstance(t, EndFileScanToken):
@@ -190,7 +190,7 @@ class ReadOp(ParameterAccessor):
         # The file reached eof. We close the file.
         if not done:
             file.close()
-            parser.state.globals["openin"][self.file_id] = None
+            parser.globals["openin"][self.file_id] = None
         m = macro.Macro([[]], tokens)
         m.name = self.entry.name
         return m
@@ -247,8 +247,8 @@ class Open(FileCommand):
         parser.skipEq()
         filename = parser.readFileName()
         if self.input:
-            return OpenInOp(parser.state.globals["openin"], file_id, filename)  
-        return OpenOutOp(parser.state.globals["openout"], file_id, filename)
+            return OpenInOp(parser.globals["openin"], file_id, filename)
+        return OpenOutOp(parser.globals["openout"], file_id, filename)
 
 
 class CloseIn(FileCommand):
@@ -284,7 +284,7 @@ class Read(FileCommand):
         FileCommand.__init__(self, immediate=True)
 
     def fileOp(self, parser, file_id):
-        if file_id < 0 or file_id >= len(parser.state.globals["openin"]):
+        if file_id < 0 or file_id >= len(parser.globals["openin"]):
             raise ValueError(f"\\read does not support reading from console", parser.input.position())
         to = parser.readKeyword(["to"])
         if to is None:
@@ -321,7 +321,7 @@ class Message(token.Command):
         tokens = parser.readGeneralText(expand=True)
         self.write(parser, parser.expandedToksToString(tokens))
         if self.error:
-            help = parser.state.parameters["errhelp"]
+            help = parser.parameters["errhelp"]
             if len(help) > 0:
                 self.write(parser, parser.expandedToksToString(help))
 
@@ -332,7 +332,7 @@ class IfEof(conditional.Conditional):
     """
     def condition(self, parser):
         file_id = parser.readInteger()
-        files = parser.state.globals["openin"]
+        files = parser.globals["openin"]
         file = files[file_id] if 0 <= file_id < len(files) else None
         # in python, it is not quite obvious how to check a file for EOF
         return 0 if (file is None) or file.closed else 1

@@ -63,7 +63,7 @@ def dump(parser) -> bytes:
     }
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
-        state_data = serialization.serialize(parser.state.dump())
+        state_data = serialization.serialize(parser.dumpState())
         archive.writestr("state.json", json.dumps(state_data))
         if hasattr(parser, "hyphenator"):
             entries = {}
@@ -87,7 +87,7 @@ def load(parser, data: bytes):
     manifest = parser.formatfile.manifest
     state_name = manifest.get("state", "state.json")
     state_data = parser.formatfile.readJSON(state_name)
-    parser.state.load(serialization.deserialize(parser, state_data))
+    parser.loadState(serialization.deserialize(parser, state_data))
     hyphen_data = manifest.get("hyphenator", None)
     if hyphen_data is not None and hasattr(parser, "hyphenator"):
         parser.hyphenator.load(hyphen_data)

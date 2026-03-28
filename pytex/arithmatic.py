@@ -67,10 +67,10 @@ class Arithmatics(Command):
             p.setGlobal(parser, value)
         else:
             p.set(parser, value)
-        t = parser.state.globals["afterassignment"]
+        t = parser.globals["afterassignment"]
         if t is not None:
             parser.input.unread(t)
-            parser.state.globals["afterassignment"] = None
+            parser.globals["afterassignment"] = None
 
     def readByValue(self, parser, item_accessor):
         """

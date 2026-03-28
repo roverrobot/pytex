@@ -30,7 +30,7 @@ class InteractionMode(token.Command):
         self.mode = mode
 
     def execute(self, parser):
-        parser.state.globals["interactionmode"] = self.mode
+        parser.globals["interactionmode"] = self.mode
 
 
 mod = Module("misc",

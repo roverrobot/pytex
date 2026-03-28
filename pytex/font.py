@@ -266,8 +266,8 @@ class FontDefineAccessor(ParameterAccessor):
             at = design * mag
         f = Font(backend, at)
         f.name = self.entry.name
-        f.fontchar["hyphenchar"] = parser.state.parameters["defaulthyphenchar"]
-        f.fontchar["skewchar"] = parser.state.parameters["defaultskewchar"]
+        f.fontchar["hyphenchar"] = parser.parameters["defaulthyphenchar"]
+        f.fontchar["skewchar"] = parser.parameters["defaultskewchar"]
         return f
 
 

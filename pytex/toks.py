@@ -329,7 +329,7 @@ class AfterGroup(Command):
         t = parser.token()
         if t is None:
             raise ValueError("token expected")
-        group = parser.state.current_group
+        group = parser.current_group
         if group is not None:
             group.aftergroup.append(t)
 
@@ -351,9 +351,9 @@ class Case(Command):
         @param parser: the parser
         """
         if self.upper:
-            code = parser.state.uccode
+            code = parser.uccode
         else:
-            code = parser.state.lccode
+            code = parser.lccode
         text = readGeneralText(parser, expand=False)
         # the tokens may have been read from a token list, so we should not change them
         # but instead create new tokens
@@ -370,7 +370,7 @@ class Case(Command):
                 t1 = Token.token(chr(c), t.catcode)
                 if t.entry is not None:
                     # if the token is a command, we need to set the entry
-                    t1.entry = parser.state.equitable.entry(t1.name)
+                    t1.entry = parser.equitable.entry(t1.name)
                 toks.append(t1)
         parser.input.push(TokenListScanner(toks))
 
@@ -418,7 +418,7 @@ class The(Command):
         if hasattr(t, "fontValue"):
             f = t.fontValue(parser)
             t = CommandToken(f.name)
-            t.entry = parser.state.equitable.entry(f.name)
+            t.entry = parser.equitable.entry(f.name)
             return [t]
         raise ValueError(f"invalid token after \\the: {t0.name}", parser.input.position())
     

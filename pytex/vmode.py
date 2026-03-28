@@ -67,8 +67,8 @@ class VList(lists.List):
         self.raw = []
         self.list = nodes
         self.inner = inner
-        self.saved_prevdepth = parser.state.globals.get("prevdepth", init_prevdepth)
-        self.parser.state.globals["prevdepth"] = init_prevdepth
+        self.saved_prevdepth = parser.globals.get("prevdepth", init_prevdepth)
+        self.parser.globals["prevdepth"] = init_prevdepth
         self.add_interline = add_interline
 
     list_type_name = "VList"
@@ -88,13 +88,13 @@ class VList(lists.List):
             return
         # appending a built node
         if node.node_type == nd.NODE_TYPE.RULE:
-            self.parser.state.globals["prevdepth"] = init_prevdepth
+            self.parser.globals["prevdepth"] = init_prevdepth
             self.list.append(node)
             return
         if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
             self.list.append(node)
             return
-        prevdepth = self.parser.state.globals["prevdepth"]
+        prevdepth = self.parser.globals["prevdepth"]
         interline_penalty = getattr(node, "interline_penalty", None)
         if add_interline and interline_penalty is not None:
             penalty = nd.Penalty(interline_penalty)
@@ -103,18 +103,18 @@ class VList(lists.List):
         glue_node = getattr(node, "interline_glue", None)
         if add_interline and (prevdepth > init_prevdepth or glue_node is not None):
             if glue_node is None:
-                glue = self.parser.state.layout["baselineskip"].copy()
+                glue = self.parser.layout["baselineskip"].copy()
                 glue.dimen -= prevdepth + node.height
-                limit = self.parser.state.layout["lineskiplimit"]
+                limit = self.parser.layout["lineskiplimit"]
                 if glue.dimen >= limit:
                     glue_node = nd.Glue(glue, "\\baselineskip")
                 else:
-                    glue_node = nd.Glue(self.parser.state.layout["lineskip"], "\\lineskip")
+                    glue_node = nd.Glue(self.parser.layout["lineskip"], "\\lineskip")
             if glue_node.glue is not None:
                 glue_node.source = node
                 self.list.append(glue_node)
         self.list.append(node)
-        self.parser.state.globals["prevdepth"] = node.depth
+        self.parser.globals["prevdepth"] = node.depth
         if node.node_type == nd.NODE_TYPE.HLIST:
             for n in getattr(node, "migratory", []):
                 self.append(n, add_interline=False)
@@ -144,7 +144,7 @@ class VList(lists.List):
             if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 prevdepth = n.depth
                 break
-        self.parser.state.globals["prevdepth"] = prevdepth
+        self.parser.globals["prevdepth"] = prevdepth
 
 class VAdjust(nd.Node, VListHolder):
     """
@@ -225,7 +225,7 @@ class VerticalCommand(lists.ModeDependentCommand):
             # raise an error
             super().horizontal(parser, hlist)
         par = CommandToken("\\par")
-        par.entry = parser.state.equitable.entry("\\par")
+        par.entry = parser.equitable.entry("\\par")
         parser.input.unread(parser.current_token)
         parser.input.unread(par)
 

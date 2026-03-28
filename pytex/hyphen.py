@@ -37,7 +37,7 @@ class Hyphenation(token.Command):
     The \\hyphenation command
     """
     def execute(self, parser):
-        parser.hyphenator.setLanguage(parser.state.parameters["language"])
+        parser.hyphenator.setLanguage(parser.parameters["language"])
         words = {}
         content = parser.readGeneralText()
         word = ""
@@ -49,7 +49,7 @@ class Hyphenation(token.Command):
                 word = ""
                 positions = []
             elif t.catcode == token.CATCODE.LETTER:
-                c = parser.state.lccode[ord(t.name)]
+                c = parser.lccode[ord(t.name)]
                 if c != 0:
                     word += chr(c)
             elif t.name == hyphenchar:
@@ -302,9 +302,9 @@ class Patterns(token.Command):
     Parse and store TeX hyphenation patterns for the current language.
     """
     def execute(self, parser):
-        parser.hyphenator.setLanguage(parser.state.parameters["language"])
+        parser.hyphenator.setLanguage(parser.parameters["language"])
         content = parser.readGeneralText()
-        lccode = parser.state.lccode
+        lccode = parser.lccode
         patterns = []
         current = []
 

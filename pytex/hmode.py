@@ -139,7 +139,7 @@ class HListHolder:
             state["lig_base"] = None
             self.typesetNode(parser, node, packed)
             return
-        is_word = parser.state.lccode[ord(node.char)] != 0
+        is_word = parser.lccode[ord(node.char)] != 0
         if is_word:
             if not state["in_word"]:
                 state["in_word"] = True
@@ -193,7 +193,7 @@ class HList(lists.List):
     def __init__(self, parser, list, inner=True):
         super().__init__(parser, list, inner)
         self.spacefactor = 1000
-        self.sfcode = parser.state.sfcode
+        self.sfcode = parser.sfcode
         self.type = lists.LISTTYPE.HORIZONTAL
 
     @property
@@ -300,7 +300,7 @@ class Par(HorizontalCommand):
         # mode, except that the page builder is exercised in case something 
         # is present on the contribution list, and the paragraph shape 
         # parameters are cleared.
-        parser.state.volatile["parshape"] = []
+        parser.volatile["parshape"] = []
         pass
 
 
@@ -356,7 +356,7 @@ class ParShape(Command):
             indent = parser.readDimen()
             width = parser.readDimen()
             parshape.append((indent, width))
-        parser.state.volatile["parshape"] = parshape
+        parser.volatile["parshape"] = parshape
 
 
 class ControlledSpace(HorizontalCommand):
@@ -364,7 +364,7 @@ class ControlledSpace(HorizontalCommand):
     A command that inserts a controlled space "\\ ".
     """
     def horizontal(self, parser, hlist):
-        font = parser.state.parameters["currentfont"]
+        font = parser.parameters["currentfont"]
         hlist.append(nd.Glue(font.spaceglue, None))
 
     def math(self, parser, mlist):
@@ -500,7 +500,7 @@ class Accent(HorizontalCommand):
         read the accent char and the accented char
         """
         c = parser.readInteger()
-        font = parser.state.parameters["currentfont"]
+        font = parser.parameters["currentfont"]
         if not font.hasCharCode(c):
             raise ValueError("invalid accent", parser.input.position())
         accent = font[chr(c)]
@@ -525,7 +525,7 @@ class Accent(HorizontalCommand):
                 c = None
             if c is not None:
                 # the font may have changed in the assignments
-                font = parser.state.parameters["currentfont"]
+                font = parser.parameters["currentfont"]
                 char = font[c]
                 return char, accent
         return None, accent

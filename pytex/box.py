@@ -140,7 +140,7 @@ class Box(nd.Box):
 
     @staticmethod
     def _set_badness(parser, spread, natural):
-        state = parser.state.globals
+        state = parser.globals
         if spread == 0:
             state["badness"] = 0
             return
@@ -394,9 +394,9 @@ class BoxCommand(Command):
     
     def boxValue(self, parser, setbox):
         index = parser.readInteger()
-        box = parser.state.box[index]
+        box = parser.box[index]
         if self.wipe:
-            parser.state.box[index] = None
+            parser.box[index] = None
             return box
         return box.copy()    
 
@@ -421,7 +421,7 @@ class ListEndCallback:
     def __call__(self):
         state = self.parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            self.parser.state.globals["prevdepth"] = state.saved_prevdepth
+            self.parser.globals["prevdepth"] = state.saved_prevdepth
 
 
 class ReadBoxEndCallback(ListEndCallback):
@@ -529,7 +529,7 @@ class SetBoxEndCallback:
     def __call__(self):
         state = self.parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            self.parser.state.globals["prevdepth"] = state.saved_prevdepth
+            self.parser.globals["prevdepth"] = state.saved_prevdepth
         self.box = self.box.typeset(self.parser)
         self.parser.lastbox = self.box
         self.accessor._set(self.parser)
@@ -589,7 +589,7 @@ class IfBox(conditional.Conditional):
 
     def condition(self, parser):
         index = parser.readInteger()
-        box = parser.state.box[index]
+        box = parser.box[index]
         if self.type is None:
             return 0 if box is None else 1
         return 0 if isinstance(box, self.type) else 1
@@ -606,7 +606,7 @@ class VBox(Box, vmode.VListHolder):
         super().__init__(parser, to, spread)
         vmode.VListHolder.__init__(self, self.list)
         self.expanded = []
-        self.boxmaxdepth = parser.state.layout["boxmaxdepth"]
+        self.boxmaxdepth = parser.layout["boxmaxdepth"]
 
     init_needs_parser = True
 
@@ -655,7 +655,7 @@ class VBox(Box, vmode.VListHolder):
             self.calculate(n, natural, None)
         self.depth = last_depth
         if maxdepth is None:
-            maxdepth = parser.state.layout["boxmaxdepth"]
+            maxdepth = parser.layout["boxmaxdepth"]
         if self.depth > maxdepth:
             natural.dimen += self.depth - maxdepth
             self.depth = maxdepth
@@ -746,7 +746,7 @@ class BoxDimenCommand(DimenArrayAccessor):
     @param domain the attribute of the box dimension
     """
     def getItemAccessor(self, parser):
-        return BoxDimenAccessor(parser.state.box[parser.readInteger()], self.domain)
+        return BoxDimenAccessor(parser.box[parser.readInteger()], self.domain)
     
     def dimenValue(self, parser):
         return self.getItemAccessor(parser).dimenValue(parser)
@@ -775,9 +775,9 @@ class UnBox(Command):
         index = parser.readInteger()
         if index < 0:
             raise ValueError("box index out of range", parser.input.position())
-        box = parser.state.box[index]
+        box = parser.box[index]
         if self.wipe:
-            parser.state.box[index] = None
+            parser.box[index] = None
         if box is None:
             return
         top = parser.lists[-1]
@@ -907,7 +907,7 @@ class IndentBox(Box):
     """
     def __init__(self, parser):
         super().__init__(parser, None, None)
-        self.width = parser.state.parameters["parindent"]
+        self.width = parser.parameters["parindent"]
         self.height = Dimen()
         self.depth = Dimen()
         self.typeset = None
@@ -949,7 +949,7 @@ class LeaderBoxCallback:
     def __call__(self):
         state = self.parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            self.parser.state.globals["prevdepth"] = state.saved_prevdepth
+            self.parser.globals["prevdepth"] = state.saved_prevdepth
         self.parser.lastbox = self.box
         _appendLeader(self.parser, self.type, self.box)
 

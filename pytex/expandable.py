@@ -14,7 +14,7 @@ class NoExpandToken(CommandToken):
     def __init__(self, parser, inner):
         super().__init__(inner.name)
         self._entry = inner.entry
-        self.saved = parser.state.equitable.entry("noexpand")
+        self.saved = parser.equitable.entry("noexpand")
         if self.saved.value is None:
             self.saved.value = relax
         # Trigger __getattr__("entry") on first read so the token initially
@@ -111,7 +111,7 @@ def readCSName(parser):
             raise ValueError(f"unexpected {t.name}", parser.input.position())
         name += t.name
     t = CommandToken(name)
-    t.entry = parser.state.equitable.entry(name)
+    t.entry = parser.equitable.entry(name)
     return t
 
         
@@ -276,7 +276,7 @@ class Input(Command):
         f = parser.resolver.openIn(name, "source")
         if f is None:
             raise ValueError(f"file {name} not found", pos)
-        parser.input.push(Scanner(parser.state, f, name))
+        parser.input.push(Scanner(parser, f, name))
 
 
 class EndInput(Command):

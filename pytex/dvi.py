@@ -24,7 +24,7 @@ class DVIShipout(page.Shipout):
         super().__init__(parser)
         self.parser = parser
         self.output = output
-        self.mag = parser.state.parameters["mag"]
+        self.mag = parser.parameters["mag"]
         self.font_ids = {}
         self.fonts = []
         self.current_font = None
@@ -360,7 +360,7 @@ class DVIShipout(page.Shipout):
         bop = self.file.tell()
         self._write_byte(139)
         for i in range(10):
-            self._write_signed(self.parser.state.count[i], 4)
+            self._write_signed(self.parser.count[i], 4)
         self._write_signed(self.last_bop, 4)
         self.last_bop = bop
         self.page_count += 1
@@ -375,8 +375,8 @@ class DVIShipout(page.Shipout):
         self.current_font = None
         # DVI coordinates already use TeX's page-origin convention; apply the
         # TeX offsets directly without an extra 1in translation.
-        x = self.parser.state.layout["hoffset"]
-        y = self.parser.state.layout["voffset"]
+        x = self.parser.layout["hoffset"]
+        y = self.parser.layout["voffset"]
         self._move_to(x, y)
         self._ship_vlist(box)
         self._write_byte(140)
@@ -389,7 +389,7 @@ class DVIShipout(page.Shipout):
         self._write_unsigned(self.last_bop if self.last_bop >= 0 else 0, 4)
         self._write_unsigned(self.NUM, 4)
         self._write_unsigned(self.DEN, 4)
-        self._write_unsigned(self.parser.state.parameters["mag"], 4)
+        self._write_unsigned(self.parser.parameters["mag"], 4)
         self._write_unsigned(self.max_height, 4)
         self._write_unsigned(self.max_width, 4)
         self._write_unsigned(self.max_stack, 2)

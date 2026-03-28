@@ -151,7 +151,7 @@ class ListReadEndCallback:
         if self.state is not None:
             state = self.parser.lists.pop()
             if state.type == LISTTYPE.VERTICAL:
-                self.parser.state.globals["prevdepth"] = state.saved_prevdepth
+                self.parser.globals["prevdepth"] = state.saved_prevdepth
         if self.ended is not None:
             self.ended()
 

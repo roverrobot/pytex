@@ -300,11 +300,11 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         dimen = Dimen(integer=Dimen._trunc_div(num * Dimen.scale, den))
     elif unit == "em":
         # parameter #6 is quad width
-        em = parser.state.parameters["currentfont"].param[5]
+        em = parser.parameters["currentfont"].param[5]
         dimen = Dimen(integer=Dimen._trunc_div(num * int(em), den))
     elif unit == "ex":
         # parameter #5 is x-height
-        ex = parser.state.parameters["currentfont"].param[4]
+        ex = parser.parameters["currentfont"].param[4]
         dimen = Dimen(integer=Dimen._trunc_div(num * int(ex), den))
     elif unit == "fil":
         infinity = 1
@@ -320,7 +320,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         # note that the everything is multiplied by \mag/1000. Thus, to produce 1 true pt,
         # we need to multiply 1 pt by 1000/\mag to cancel the effect of \mag
         unit_num, unit_den = UNITS[unit]
-        mag = parser.state.parameters["mag"]
+        mag = parser.parameters["mag"]
         dimen = Dimen(integer=Dimen._trunc_div(
             num * unit_num * Dimen.scale * 1000,
             den * unit_den * mag,

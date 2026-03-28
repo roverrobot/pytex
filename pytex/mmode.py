@@ -13,7 +13,7 @@ from pytex import node as nd
 from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import ParameterAccessor, Accessor
+from pytex.accessor import ArrayItemAccessor, Accessor
 from pytex.define import Define
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
@@ -1649,7 +1649,7 @@ class MathCharValue(lists.ModeDependentCommand):
 
 
 
-class MathCharDefAccesor(ParameterAccessor):
+class MathCharDefAccesor(ArrayItemAccessor):
     def readValue(self, parser):
         return MathCharValue(parser.readInteger())
 
@@ -2684,10 +2684,10 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
         return parser.readDimen()
     
     def set(self, parser, value):
-        parser.volatile[self.index] = value
+        parser.set("volatile", self.index, value=value)
     
     def setGlobal(self, parser, value):
-        parser.volatile.setGlobal(self.index, value)
+        parser.set("volatile", self.index, global_scope=True, value=value)
     
     def dimenValue(self, parser):
         value = parser.volatile[self.index]

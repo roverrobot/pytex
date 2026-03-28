@@ -7,7 +7,7 @@ from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.serialization import Builtin
 from pytex.state import Array
-from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
+from pytex.accessor import ArrayAccessor, ArrayItemAccessor
 from pytex.define import registerdef
 
 
@@ -343,7 +343,7 @@ class InputLineNo(Command):
         raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())
 
 
-class IntegerParameterAccessor(ParameterAccessor):
+class IntegerParameterAccessor(ArrayItemAccessor):
     """
     An accessor for an integer parameter
     """
@@ -351,7 +351,7 @@ class IntegerParameterAccessor(ParameterAccessor):
         return parser.readInteger()
 
     def intValue(self, parser):
-        return self.entry.value
+        return self.domain[self.index]
 
 
 module = Module("integer", 

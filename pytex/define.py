@@ -14,7 +14,7 @@ class Define(accessor.ArrayAccessor):
     the base class for defining commands
     @param accessor_generator: the generator for the accessor to the equitable item
     """
-    def __init__(self, accessor_generator=accessor.ParameterAccessor):
+    def __init__(self, accessor_generator=accessor.ArrayItemAccessor):
         # provide a default value for the command before the assignment.
         # Typically this is \\relax. However, in font assignment. For example, in
         # \\font\\f=cmr10 \\fontname\\f
@@ -39,14 +39,14 @@ class Define(accessor.ArrayAccessor):
         # \countdef\a=10\a=10
         # \font\test=cmr10\test
         self.setDefault(t)
-        return self.accessor_generator(t.entry)
+        return self.accessor_generator(parser.equitable, t.name)
     
     def setDefault(self, t):
         if t.definition is None:
             t.entry.value = t.definition = relax
 
 
-class LetAccessor(accessor.ParameterAccessor):
+class LetAccessor(accessor.ArrayItemAccessor):
     """
     An accessor for the \\let command
     """
@@ -64,7 +64,7 @@ class LetAccessor(accessor.ParameterAccessor):
 let = Define(LetAccessor)
 
 
-class FutureLetAccessor(accessor.ParameterAccessor):
+class FutureLetAccessor(accessor.ArrayItemAccessor):
     """
     An accessor for the \\futurelet command
     """
@@ -136,7 +136,7 @@ class CharDefValue(Command):
         return isinstance(other, CharDefValue) and self.value == other.value
 
 
-class CharDefAccessor(accessor.ParameterAccessor):
+class CharDefAccessor(accessor.ArrayItemAccessor):
     """
     An accessor for the \\chardef command
     """
@@ -151,15 +151,15 @@ class CharDefAccessor(accessor.ParameterAccessor):
 chardef = Define(CharDefAccessor)
 
 
-class RegisterDefAccessor(accessor.ParameterAccessor):
+class RegisterDefAccessor(accessor.ArrayItemAccessor):
     """
     An accessor for commands such as \\countdef, \\dimendef etc
     @param entry: the entry of the equitable for the command name
     @param register: the register name, such as "count", "dimen", etc.
     @param accessor_generator: the generator for the accessor to the register item
     """
-    def __init__(self, entry, register, accessor_generator):
-        super().__init__(entry)
+    def __init__(self, domain, index, register, accessor_generator):
+        super().__init__(domain, index)
         self.register = register
         self.accessor_generator = accessor_generator
 
@@ -172,7 +172,7 @@ class RegisterDefAccessor(accessor.ParameterAccessor):
 
 
 def registerdef(register, accessor_generator): 
-    generator = lambda entry: RegisterDefAccessor(entry, register, accessor_generator)
+    generator = lambda domain, name: RegisterDefAccessor(domain, name, register, accessor_generator)
     return Define(generator)
 
 

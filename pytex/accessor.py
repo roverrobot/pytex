@@ -87,27 +87,19 @@ class Accessor(token.Command):
         """
         self.readEq(parser)
         value = self.readValue(parser)
-        globally = parser.globaldefs.value != 0
+        globally = False
         try:
             for p in prefixes:
                 value, globally = p.modify(value, globally)
         except ValueError as e:
             e.args = (e.args[0], parser.input.position())
             raise e
-        # Queue \\afterassignment before the actual write happens.
-        # The token is only read after this command returns, so ordinary assignments
-        # are still complete when it executes. Special cases such as \\setbox can
-        # still defer the semantic register update until their value is complete.
-        t = parser.globals["afterassignment"]
-        if t is not None:
-            parser.input.unread(t)
-            parser.globals["afterassignment"] = None
-            if parser.tracingcommands > 0 and parser.checkRange():
-                parser.message(f"afterassignment: {parser.tokenToString(t)}")
+        parser.current_value = value
         if globally:
             self.setGlobal(parser, value)
         else:
             self.set(parser, value)
+        parser.afterAssignment()
     
     def execute(self, parser):
         """
@@ -119,12 +111,11 @@ class Accessor(token.Command):
 
 class ArrayItemAccessor(Accessor):
     """
-    An array item accessor provides access to an item in an array of registers or parameters.
-    It is a command that takes a single argument, the index of the item, and returns the value of
-    the item.
+    A domain item accessor provides access to an item in a grouped domain.
+    It is a command that points to a concrete item key and returns or assigns its value.
 
     @param domain: the domain of the assignment
-    @param index: the index of the item in the array
+    @param index: the item key within the domain
     """
     def __init__(self, domain, index):
         self.domain = domain
@@ -151,26 +142,34 @@ class ArrayItemAccessor(Accessor):
         return cls(getattr(parser, name), index)
 
     def meaning(self, parser):
-        return f"{self.domain.name}{self.index}"
+        name = getattr(self.domain, "name", None)
+        return f"{name if name is not None else self.domain}{self.index}"
     
     def set(self, parser, value):
         """
-        set the value of the item in the array
-        @param parser: the parser (not used, but kept for compatibility)
+        set the value of the item in the domain
+        @param parser: the parser
         @param value: the value to set
         """
         try:
-            self.domain[self.index] = value
+            if hasattr(self.domain, "name"):
+                parser.set(self.domain.name, self.index, value=value)
+            else:
+                self.domain[self.index] = value
         except IndexError:
-            raise ValueError(f"index {self.index} out of range for domain {self.domain.name}", parser.input.position())
+            name = getattr(self.domain, "name", self.domain)
+            raise ValueError(f"index {self.index} out of range for domain {name}", parser.input.position())
 
     def setGlobal(self, parser, value):
         """
-        set the value of the item in the array globally
-        @param parser: the parser (not used, but kept for compatibility)
+        set the value of the item in the domain globally
+        @param parser: the parser
         @param value: the value to set
         """
-        self.domain.setGlobal(self.index, value)
+        if hasattr(self.domain, "name"):
+            parser.set(self.domain.name, self.index, global_scope=True, value=value)
+        else:
+            self.domain[self.index] = value
     
 
 class ArrayAccessor(token.Command):
@@ -205,34 +204,6 @@ class ArrayAccessor(token.Command):
         @param parser: the parser
         """
         self.getItemAccessor(parser).assign(parser, prefixes=[])
-
-
-class ParameterAccessor(Accessor):
-    """
-    An accessor for a parameter. 
-
-    @param entry: the state.NamedEntry that stores the parameter
-    @return the value of the parameter.
-    """
-    def __init__(self, entry):
-        self.entry = entry
-
-    def set(self, parser, value):
-        """
-        set the value of the parameter
-        @param parser: the parser (not used, but kept for compatibility)
-        @param value: the value to set
-        """
-        self.entry.set(value)
-
-    def setGlobal(self, parser, value):
-        """
-        set the value of the parameter globally
-        @param parser: the parser (not used, but kept for compatibility)
-        @param value: the value to set
-        """
-        self.entry.setGlobal(value)
-
 
 class Prefix(token.Command):
     """

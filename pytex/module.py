@@ -103,10 +103,7 @@ class Module:
                 # set the accessor in equitable
                 generator = item["accessor"]
                 if generator is not None:
-                    if entry is None:
-                        accessor = generator(domain, name)
-                    else:
-                        accessor = generator(entry)
+                    accessor = generator(domain, name)
                     name = "\\"+name
                     accessor.name = name
                     if accessor is not None:

@@ -8,7 +8,7 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import ArrayAccessor, ArrayItemAccessor, ParameterAccessor
+from pytex.accessor import ArrayAccessor, ArrayItemAccessor
 from pytex.integer import IntegerArrayAccessor, IntegerArrayItemAccessor
 from pytex.dimen import Dimen, DimenArrayAccessor, DimenArrayItemAccessor
 from pytex.glue import Glue, Stretchness
@@ -170,7 +170,7 @@ class FontArrayItemAccessor(ArrayItemAccessor):
         get the font value
         @param parser: the parser
         """
-        return self.entry.value
+        return self.domain[self.index]
 
 
 class FontArrayAccessor(ArrayAccessor):
@@ -243,7 +243,7 @@ class FontChar(IntegerArrayAccessor):
         return font.fontchar[self.field]
 
 
-class FontDefineAccessor(ParameterAccessor):
+class FontDefineAccessor(ArrayItemAccessor):
     def readValue(self, parser):
         """
         read a font specification from the input stack
@@ -265,13 +265,13 @@ class FontDefineAccessor(ParameterAccessor):
         else:
             at = design * mag
         f = Font(backend, at)
-        f.name = self.entry.name
+        f.name = self.index
         f.fontchar["hyphenchar"] = parser.parameters["defaulthyphenchar"]
         f.fontchar["skewchar"] = parser.parameters["defaultskewchar"]
         return f
 
 
-class FontAccessor(ParameterAccessor):
+class FontAccessor(ArrayItemAccessor):
     """
     An accessor for the current font
     """
@@ -280,7 +280,7 @@ class FontAccessor(ParameterAccessor):
         get the current font value
         @param parser: the parser
         """
-        return self.entry.value
+        return self.domain[self.index]
         
 
 class FontCommand(Define):

@@ -137,6 +137,19 @@ class Parser:
         self.current_value = value
         return value
 
+    def resolveGlobalScope(self, global_scope: bool = False):
+        """
+        resolve the final global scope for an assignment-like write
+        @param global_scope: the requested global scope from prefixes or callers
+        @return: the effective global scope after applying \\globaldefs
+        """
+        globaldefs = self.parameters["globaldefs"]
+        if globaldefs > 0:
+            return True
+        if globaldefs < 0:
+            return False
+        return global_scope
+
     def set(self, domain, key, *, global_scope: bool = False, value=_STATE_VALUE_MISSING):
         """
         set a parser-state domain entry from current_value or an explicit value
@@ -151,12 +164,10 @@ class Parser:
             value = self.current_value
         else:
             self.current_value = value
-        globaldefs = self.parameters["globaldefs"]
-        if globaldefs > 0:
-            global_scope = True
-        elif globaldefs < 0:
-            global_scope = False
-        if global_scope or domain is self.globals:
+        global_scope = self.resolveGlobalScope(global_scope)
+        if domain is self.globals:
+            domain[key] = value
+        elif global_scope:
             setter = getattr(domain, "setGlobal", None)
             if setter is not None:
                 setter(key, value)
@@ -165,6 +176,19 @@ class Parser:
         else:
             domain[key] = value
         return value
+
+    def afterAssignment(self):
+        """
+        schedule the pending \\afterassignment token, if any
+        """
+        t = self.globals["afterassignment"]
+        if t is None:
+            return None
+        self.input.unread(t)
+        self.globals["afterassignment"] = None
+        if self.tracingcommands > 0 and self.checkRange():
+            self.message(f"afterassignment: {self.tokenToString(t)}")
+        return t
 
     def logFileName(self):
         """

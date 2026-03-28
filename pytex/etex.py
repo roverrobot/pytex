@@ -548,7 +548,7 @@ class ReadlineOp(file.ReadOp):
             line = line + chr(endlinechar)
         toks = expandable.toToks(line)
         m = macro.Macro([[]], toks)
-        m.name = self.entry.name
+        m.name = self.index
         return m
 
 
@@ -568,7 +568,7 @@ class Readline(file.FileCommand):
         t = parser.skipSpaces(expand=False)
         if t.entry is None:
             raise ValueError(f"Expected a control sequence, got {t}")
-        return ReadlineOp(t.entry, file_id)
+        return ReadlineOp(parser.equitable, t.name, file_id)
 
 
 mod = Module("etex",

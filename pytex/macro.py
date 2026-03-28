@@ -4,7 +4,7 @@ This module implements macros.
 
 
 from pytex.token import CATCODE, Command, ParameterToken
-from pytex.accessor import Prefix, GlobalPrefix, ParameterAccessor
+from pytex.accessor import Prefix, GlobalPrefix, ArrayItemAccessor
 from pytex.define import Define
 from pytex.module import Module
 from pytex.lexer import TokenListScanner
@@ -322,7 +322,7 @@ class Macro(Command):
         return self.compareTokens(self.replacement, other.replacement)
 
 
-class MacroAccessor(ParameterAccessor):
+class MacroAccessor(ArrayItemAccessor):
     """
     an accessor for the \\def command
     @param entry: the entry in the equitable
@@ -378,9 +378,9 @@ class MacroAccessor(ParameterAccessor):
         if tail:
             replacement.append(tail)
         macro = Macro(brackets, replacement)
-        macro.name = self.entry.name
+        macro.name = self.index
         if parser.tracingmacros and parser.checkRange():
-            parser.message(f"macro {self.entry.name}: {macro.meaning(parser)}")
+            parser.message(f"macro {self.index}: {macro.meaning(parser)}")
         return macro
     
     def assign(self, parser, prefixes):

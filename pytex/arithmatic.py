@@ -56,21 +56,19 @@ class Arithmatics(Command):
         if is_integer:
             value = int(value)
         # set value
-        globally = parser.globaldefs.value > 0
+        globally = False
         try:
             for prefix in prefixes:
                 value, globally = prefix.modify(value, globally)
         except ValueError as e:
             e.args = (e.args[0], parser.input.position())
             raise e
+        parser.current_value = value
         if globally:
             p.setGlobal(parser, value)
         else:
             p.set(parser, value)
-        t = parser.globals["afterassignment"]
-        if t is not None:
-            parser.input.unread(t)
-            parser.globals["afterassignment"] = None
+        parser.afterAssignment()
 
     def readByValue(self, parser, item_accessor):
         """

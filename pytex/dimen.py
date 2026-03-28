@@ -8,7 +8,7 @@ from pytex.module import Module
 from pytex.serialization import Builtin
 from pytex.integer import readDigits, readSigns
 from pytex.state import Array
-from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
+from pytex.accessor import ArrayAccessor, ArrayItemAccessor
 from pytex.define import registerdef
 
 
@@ -398,7 +398,7 @@ class DimenArray(Array):
         super().__init__("dimen", state, Dimen)
 
 
-class DimenParameterAccessor(ParameterAccessor, DimenCommand):
+class DimenParameterAccessor(ArrayItemAccessor, DimenCommand):
     """
     access a dimen parameter
     """
@@ -415,7 +415,7 @@ class DimenParameterAccessor(ParameterAccessor, DimenCommand):
         @param parser: the parser
         @return: the dimension value of the parameter
         """
-        return self.entry.value
+        return self.domain[self.index]
 
 
 mod = Module("dimen",

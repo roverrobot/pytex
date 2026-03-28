@@ -7,7 +7,7 @@ from pytex import serialization
 from pytex.dimen import readUnsignedDimen, Dimen, DimenCommand
 from pytex.integer import readSigns
 from pytex.state import Array
-from pytex.accessor import ParameterAccessor, ArrayAccessor, ArrayItemAccessor
+from pytex.accessor import ArrayAccessor, ArrayItemAccessor
 from pytex.module import Module
 from pytex.define import registerdef
 
@@ -333,7 +333,7 @@ class MuGlueArrayAccessor(ArrayAccessor, MuGlueCommand):
         return self.domain[parser.readInteger()]
 
 
-class GlueParameterAccessor(ParameterAccessor, GlueCommand):
+class GlueParameterAccessor(ArrayItemAccessor, GlueCommand):
     """
     access a glue parameter
     """
@@ -346,10 +346,10 @@ class GlueParameterAccessor(ParameterAccessor, GlueCommand):
         @param parser: the parser
         @return: the glue value of the parameter
         """
-        return self.entry.value
+        return self.domain[self.index]
 
 
-class MuGlueParameterAccessor(ParameterAccessor, MuGlueCommand):
+class MuGlueParameterAccessor(ArrayItemAccessor, MuGlueCommand):
     """
     access a mu glue parameter
     """
@@ -362,7 +362,7 @@ class MuGlueParameterAccessor(ParameterAccessor, MuGlueCommand):
         @param parser: the parser
         @return: the mu glue value of the parameter
         """
-        return self.entry.value
+        return self.domain[self.index]
 
 
 mod = Module("glue",

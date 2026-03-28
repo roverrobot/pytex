@@ -283,7 +283,7 @@ class ToksArrayAccessor(accessor.ArrayAccessor):
         return self.domain[parser.readInteger()]
 
 
-class ToksParameterAccessor(accessor.ParameterAccessor):
+class ToksParameterAccessor(accessor.ArrayItemAccessor):
     """
     an accessor for a toks parameter
     """
@@ -301,7 +301,7 @@ class ToksParameterAccessor(accessor.ParameterAccessor):
         @param parser: the parser
         @return: the toks value
         """
-        return self.entry.value
+        return self.domain[self.index]
     
 
 class ToksArray(Array):

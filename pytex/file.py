@@ -4,7 +4,7 @@ File operations
 
 from pytex import serialization
 from pytex import node as nd
-from pytex.accessor import ArrayItemAccessor, ParameterAccessor
+from pytex.accessor import ArrayItemAccessor
 from pytex.lexer import TokenListScanner, StringScanner
 from pytex import token
 from pytex import macro
@@ -155,13 +155,13 @@ class WriteOp(FileOp):
         
 
 
-class ReadOp(ParameterAccessor):
+class ReadOp(ArrayItemAccessor):
     """
     Read from a file
     @param file: the file number to operate on
     """
-    def __init__(self, entry, file_id: int):
-        super().__init__(entry)
+    def __init__(self, domain, index, file_id: int):
+        super().__init__(domain, index)
         self.file_id = file_id
     
     # an immediate operation like read should not be serialized
@@ -207,7 +207,7 @@ class ReadOp(ParameterAccessor):
             file.close()
             parser.globals["openin"][self.file_id] = None
         m = macro.Macro([[]], tokens)
-        m.name = self.entry.name
+        m.name = self.index
         return m
 
 
@@ -307,7 +307,7 @@ class Read(FileCommand):
         t = parser.skipSpaces(expand=False)
         if t.entry is None:
             raise ValueError(f"Expected a control sequence, got {t}")
-        return ReadOp(t.entry, file_id)
+        return ReadOp(parser.equitable, t.name, file_id)
     
 
 class Immediate(token.Command):

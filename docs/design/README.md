@@ -7,3 +7,5 @@ Read in this order:
 3. [03-font-backends.md](03-font-backends.md)
 4. [04-html-output.md](04-html-output.md)
 5. [05-special-ir.md](05-special-ir.md)
+6. [06-layer-separation.md](06-layer-separation.md)
+7. [07-parser-state.md](07-parser-state.md)

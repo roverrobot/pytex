@@ -36,6 +36,8 @@ class Arithmatics(Command):
             p = t.getItemAccessor(parser)
         elif isinstance(t, Accessor):
             p = t
+            if p.key is None and p.needsKey():
+                p = p.bindKey(p.readKey(parser))
         else:
             raise ValueError("expecting a register or a parameter", parser.input.position())
         is_integer = False

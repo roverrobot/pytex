@@ -7,7 +7,7 @@ from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.serialization import Builtin
 from pytex.state import Array
-from pytex.accessor import ArrayAccessor, ArrayItemAccessor
+from pytex.accessor import Accessor
 from pytex.define import registerdef
 
 
@@ -144,31 +144,27 @@ def readDigits(parser, base, optional=False):
     return value
 
 
-class IntegerArrayItemAccessor(ArrayItemAccessor):
+class IntegerArrayItemAccessor(Accessor):
     """
     integer accessor common functions
     """
+    def readKey(self, parser):
+        return parser.readInteger()
+
     def readValue(self, parser):
         return parser.readInteger()
 
     def intValue(self, parser):
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
 class GlobalIntAccessor(IntegerArrayItemAccessor):
-    """
-    Integer accessor for globals-backed builtins.
-    """
-    def className(self):
-        return Builtin.className(self)
-
-    def saveInfo(self):
-        return Builtin.saveInfo(self)
+    pass
 
 
 class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
-    def __init__(self, domain, index, range=None):
-        super().__init__(domain, index)
+    def __init__(self, domain, key=None, range=None, builtin=True):
+        super().__init__(domain, key, builtin)
         self.range = range
 
     def checkRange(self, value, pos):
@@ -183,7 +179,7 @@ class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
             raise ValueError(f"value {value} is not in the range {self.range}", pos)
 
     def set(self, parser, value):
-        if range is not None:
+        if self.range is not None:
             self.checkRange(value, parser.input.position())
         super().set(parser, value)
 
@@ -193,32 +189,12 @@ class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
         super().setGlobal(parser, value)
 
 
-class IntegerArrayAccessor(ArrayAccessor):
-    """
-    integer array accessor
-    """
-    def getItemAccessor(self, parser):
-        return IntegerArrayItemAccessor(self.domain, parser.readInteger())
-        
-    def intValue(self, parser):
-        """
-        get the integer value of the array item
-        @param parser: the parser
-        @return: the integer value
-        """
-        return self.domain[parser.readInteger()]
+class IntegerArrayAccessor(IntegerArrayItemAccessor):
+    pass
 
 
-class RangedIntegerArrayAccessor(IntegerArrayAccessor):
-    """
-    An integer array accessor with a range
-    """
-    def __init__(self, domain, range=None):
-        super().__init__(domain)
-        self.range = range
-
-    def getItemAccessor(self, parser):
-        return RangedIntergerArrayItemAccessor(self.domain, parser.readInteger(), self.range)
+class RangedIntegerArrayAccessor(RangedIntergerArrayItemAccessor):
+    pass
 
 
 class CatCode(Array):
@@ -245,8 +221,8 @@ class CatCode(Array):
 
 
 class CatCodeArrayAccessor(RangedIntegerArrayAccessor):
-    def __init__(self, domain="catcode"):
-        super().__init__(domain, range=(0, 15))
+    def __init__(self, domain, key=None, builtin=True):
+        super().__init__(domain, key, range=(0, 15), builtin=builtin)
 
 
 class LCCode(Array):
@@ -343,7 +319,7 @@ class InputLineNo(Command):
         raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())
 
 
-class IntegerParameterAccessor(ArrayItemAccessor):
+class IntegerParameterAccessor(IntegerArrayItemAccessor):
     """
     An accessor for an integer parameter
     """
@@ -351,7 +327,7 @@ class IntegerParameterAccessor(ArrayItemAccessor):
         return parser.readInteger()
 
     def intValue(self, parser):
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
 module = Module("integer", 

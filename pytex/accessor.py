@@ -18,9 +18,10 @@ an item in the array. The method calles the newItemAccessor method, which must b
 in a subclass to provide the accessor to the item.
 """
 
+import copy
 from pytex import token
 from pytex.module import Module
-from pytex.serialization import Serializable
+from pytex.serialization import Serializable, Builtin
 
 
 def skipEq(parser, expand: bool=True):
@@ -39,16 +40,69 @@ class Accessor(token.Command):
     """
     access a value in a domain
     @param domain: the domain of the assignment
-    @param index: the index of the assignment
-    @param eq: whether there is an equal sign in the assignment
-    @param range: the range of valid values
+    @param key: the key of the assignment. None means the key is read from input.
+    @param builtin: whether the accessor is a builtin command for serialization
     """
+    _MISSING_KEY = object()
+
+    def __init__(self, domain=None, key=None, builtin=True):
+        self.domain = domain
+        self.key = key
+        self.builtin = builtin
+
+    def className(self):
+        return Builtin.className(self) if self.builtin else Serializable.className(self)
+
+    def saveInfo(self):
+        if self.builtin:
+            return Builtin.saveInfo(self)
+        return {"domain": self.domain.name, "key": self.key}, None
+
+    init_needs_parser = True
+
+    @classmethod
+    def new(cls, parser, **kargs):
+        """
+        create a non-builtin accessor from serialized data
+        """
+        return cls(getattr(parser, kargs["domain"]), kargs["key"], builtin=False)
+
+    def bindKey(self, key):
+        """
+        create a fixed-key accessor of the same kind
+        """
+        bound = copy.copy(self)
+        bound.key = key
+        return bound
+
+    def needsKey(self):
+        """
+        whether this accessor reads a key from input when it is not fixed
+        """
+        return type(self).readKey is not Accessor.readKey
+
     def readEq(self, parser):
         """
         read the equal sign from the input stack
         @param parser: the parser
         """
         return parser.skipEq(expand=True)
+
+    def readKey(self, parser):
+        """
+        read the key from the input stack when this accessor is not bound to one
+        """
+        raise NotImplementedError("readKey method must be implemented when key is not fixed")
+
+    def currentKey(self, parser):
+        """
+        return the active key for this accessor
+        """
+        if self.key is not None:
+            return self.key
+        if self.needsKey():
+            return self.readKey(parser)
+        return None
 
     def readValue(self, parser):
         """
@@ -62,22 +116,28 @@ class Accessor(token.Command):
         set the value in the domain.
         @param parser: the parser
         @param value: the value
-
-        We must pass an index to the setValue method, because the index may be read 
-        from the input stack, in this case, it imust be read before the value.
         """
-        raise NotImplementedError("setValue method must be implemented in a subclass")
+        key = self.currentKey(parser)
+        try:
+            if hasattr(self.domain, "name"):
+                parser.set(self.domain.name, key, value=value)
+            else:
+                self.domain[key] = value
+        except IndexError:
+            name = getattr(self.domain, "name", self.domain)
+            raise ValueError(f"index {key} out of range for domain {name}", parser.input.position())
     
     def setGlobal(self, parser, value):
         """
         set the value in the domain globally.
         @param parser: the parser
         @param value: the value
-
-        We must pass an index to the setValue method, because the index may be read 
-        from the input stack, in this case, it imust be read before the value.
         """
-        raise NotImplementedError("setValue method must be implemented in a subclass")
+        key = self.currentKey(parser)
+        if hasattr(self.domain, "name"):
+            parser.set(self.domain.name, key, global_scope=True, value=value)
+        else:
+            self.domain[key] = value
 
     def assign(self, parser, prefixes):
         """
@@ -85,6 +145,8 @@ class Accessor(token.Command):
         @param parser: the parser
         @param prefixes: the prefixes to the assignment
         """
+        if self.key is None and self.needsKey():
+            return self.bindKey(self.readKey(parser)).assign(parser, prefixes)
         self.readEq(parser)
         value = self.readValue(parser)
         globally = False
@@ -100,6 +162,13 @@ class Accessor(token.Command):
         else:
             self.set(parser, value)
         parser.afterAssignment()
+
+    def meaning(self, parser):
+        key = self.key
+        if key is None:
+            return parser.formatName(self.name) if self.name is not None else None
+        name = getattr(self.domain, "name", None)
+        return f"{name if name is not None else self.domain}{key}"
     
     def execute(self, parser):
         """
@@ -107,70 +176,6 @@ class Accessor(token.Command):
         @param parser: the parser
         """
         self.assign(parser, prefixes=[])
-
-
-class ArrayItemAccessor(Accessor):
-    """
-    A domain item accessor provides access to an item in a grouped domain.
-    It is a command that points to a concrete item key and returns or assigns its value.
-
-    @param domain: the domain of the assignment
-    @param index: the item key within the domain
-    """
-    def __init__(self, domain, index):
-        self.domain = domain
-        self.index = index
-
-    def className(self):
-        return Serializable.className(self)
-
-    def saveInfo(self):
-        return {"domain": self.domain.name, "index": self.index}, None
-
-    init_needs_parser = True
-    
-    @classmethod
-    def new(cls, parser, **kargs):
-        """
-        create a new accessor from the dictionary
-        @param parser: the parser
-        @param kargs: the keyword arguments
-        @return: the command
-        """
-        name = kargs["domain"]
-        index = kargs["index"]
-        return cls(getattr(parser, name), index)
-
-    def meaning(self, parser):
-        name = getattr(self.domain, "name", None)
-        return f"{name if name is not None else self.domain}{self.index}"
-    
-    def set(self, parser, value):
-        """
-        set the value of the item in the domain
-        @param parser: the parser
-        @param value: the value to set
-        """
-        try:
-            if hasattr(self.domain, "name"):
-                parser.set(self.domain.name, self.index, value=value)
-            else:
-                self.domain[self.index] = value
-        except IndexError:
-            name = getattr(self.domain, "name", self.domain)
-            raise ValueError(f"index {self.index} out of range for domain {name}", parser.input.position())
-
-    def setGlobal(self, parser, value):
-        """
-        set the value of the item in the domain globally
-        @param parser: the parser
-        @param value: the value to set
-        """
-        if hasattr(self.domain, "name"):
-            parser.set(self.domain.name, self.index, global_scope=True, value=value)
-        else:
-            self.domain[self.index] = value
-    
 
 class ArrayAccessor(token.Command):
     """

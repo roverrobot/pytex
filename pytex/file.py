@@ -4,7 +4,7 @@ File operations
 
 from pytex import serialization
 from pytex import node as nd
-from pytex.accessor import ArrayItemAccessor
+from pytex.accessor import Accessor
 from pytex.lexer import TokenListScanner, StringScanner
 from pytex import token
 from pytex import macro
@@ -47,7 +47,7 @@ def popFileScan(parser):
             break
 
 
-class OpenOp(ArrayItemAccessor):
+class OpenOp(Accessor):
     """
     Open a file
     @param file_array: the file array
@@ -55,16 +55,20 @@ class OpenOp(ArrayItemAccessor):
     @param filename: the file name
     """
     def __init__(self, array, file_id, filename):
-        super().__init__(array, file_id)
+        super().__init__(array, file_id, builtin=False)
         self.filename = filename
+
+    @classmethod
+    def new(cls, parser, **kargs):
+        files = parser.globals["openin" if kargs["input"] else "openout"]
+        return cls(files, kargs["file_id"], kargs["filename"])
 
     def readEq(self, parser):
         # the = sign has been read in the command itself.
         pass
 
     def saveInfo(self):
-        input = self.file_array == "openin"
-        return {"input": input, "file_id": self.index, "filename": self.filename}, None
+        return {"input": isinstance(self, OpenInOp), "file_id": self.key, "filename": self.filename}, None
 
     
 class OpenInOp(OpenOp):
@@ -88,7 +92,7 @@ class FileOp(serialization.Serializable):
         self.file_id = file_id
 
     def saveInfo(self):
-        return {"input": self.input, "file_id": self.file_id}, None
+        return {"input": self.files == "openin", "file_id": self.file_id}, None
     
     def execute(self, parser):
         """
@@ -155,13 +159,13 @@ class WriteOp(FileOp):
         
 
 
-class ReadOp(ArrayItemAccessor):
+class ReadOp(Accessor):
     """
     Read from a file
     @param file: the file number to operate on
     """
     def __init__(self, domain, index, file_id: int):
-        super().__init__(domain, index)
+        super().__init__(domain, index, builtin=False)
         self.file_id = file_id
     
     # an immediate operation like read should not be serialized
@@ -207,7 +211,7 @@ class ReadOp(ArrayItemAccessor):
             file.close()
             parser.globals["openin"][self.file_id] = None
         m = macro.Macro([[]], tokens)
-        m.name = self.index
+        m.name = self.key
         return m
 
 

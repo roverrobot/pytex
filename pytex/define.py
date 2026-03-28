@@ -9,12 +9,28 @@ from pytex.token import relax, Command
 from pytex.serialization import Serializable
 
 
+class EquitableAccessor(accessor.Accessor):
+    """
+    An accessor whose target key is a control sequence in the equitable domain.
+    """
+    def readKey(self, parser):
+        t = parser.token()
+        if t is None or t.entry is None:
+            raise ValueError(f"command name expected, got {t}", parser.input.position())
+        self.setDefault(t)
+        return t.name
+
+    def setDefault(self, t):
+        if t.definition is None:
+            t.entry.value = t.definition = relax
+
+
 class Define(accessor.ArrayAccessor):
     """
     the base class for defining commands
     @param accessor_generator: the generator for the accessor to the equitable item
     """
-    def __init__(self, accessor_generator=accessor.ArrayItemAccessor):
+    def __init__(self, accessor_generator=accessor.Accessor):
         # provide a default value for the command before the assignment.
         # Typically this is \\relax. However, in font assignment. For example, in
         # \\font\\f=cmr10 \\fontname\\f
@@ -29,24 +45,10 @@ class Define(accessor.ArrayAccessor):
         get the index of the command
         @param parser: the parser
         """
-        t = parser.token()
-        if t is None or t.entry is None:
-            raise ValueError(f"command name expected, got {t}", parser.input.position())
-        # is the command defined? Is so, leave it alone. Otherwise, it is going to be defined.
-        # However, we this token may be expanded is while reading the value of the definition. This causes a problem 
-        # because it is not defined yet. To avoid the problem, we make it relax, so that if it 
-        # appears later in the input, it will be ignored. This, for example, appears in
-        # \countdef\a=10\a=10
-        # \font\test=cmr10\test
-        self.setDefault(t)
-        return self.accessor_generator(parser.equitable, t.name)
-    
-    def setDefault(self, t):
-        if t.definition is None:
-            t.entry.value = t.definition = relax
+        return self.accessor_generator(parser.equitable, builtin=False)
 
 
-class LetAccessor(accessor.ArrayItemAccessor):
+class LetAccessor(EquitableAccessor):
     """
     An accessor for the \\let command
     """
@@ -64,7 +66,7 @@ class LetAccessor(accessor.ArrayItemAccessor):
 let = Define(LetAccessor)
 
 
-class FutureLetAccessor(accessor.ArrayItemAccessor):
+class FutureLetAccessor(EquitableAccessor):
     """
     An accessor for the \\futurelet command
     """
@@ -136,7 +138,7 @@ class CharDefValue(Command):
         return isinstance(other, CharDefValue) and self.value == other.value
 
 
-class CharDefAccessor(accessor.ArrayItemAccessor):
+class CharDefAccessor(EquitableAccessor):
     """
     An accessor for the \\chardef command
     """
@@ -151,28 +153,28 @@ class CharDefAccessor(accessor.ArrayItemAccessor):
 chardef = Define(CharDefAccessor)
 
 
-class RegisterDefAccessor(accessor.ArrayItemAccessor):
+class RegisterDefAccessor(EquitableAccessor):
     """
     An accessor for commands such as \\countdef, \\dimendef etc
     @param entry: the entry of the equitable for the command name
     @param register: the register name, such as "count", "dimen", etc.
     @param accessor_generator: the generator for the accessor to the register item
     """
-    def __init__(self, domain, index, register, accessor_generator):
-        super().__init__(domain, index)
+    def __init__(self, domain, key=None, register=None, accessor_generator=None, builtin=False):
+        super().__init__(domain, key, builtin)
         self.register = register
         self.accessor_generator = accessor_generator
 
     def readValue(self, parser):
         i = parser.readInteger()
         register = getattr(parser, self.register)
-        c = self.accessor_generator(register, i)
+        c = self.accessor_generator(register, i, builtin=False)
         c.name = parser.formatName(f"\\{self.register}{i}")
         return c
 
 
 def registerdef(register, accessor_generator): 
-    generator = lambda domain, name: RegisterDefAccessor(domain, name, register, accessor_generator)
+    generator = lambda domain, key=None, builtin=False: RegisterDefAccessor(domain, key, register, accessor_generator, builtin=builtin)
     return Define(generator)
 
 

@@ -13,8 +13,8 @@ from pytex import node as nd
 from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import ArrayItemAccessor, Accessor
-from pytex.define import Define
+from pytex.accessor import Accessor
+from pytex.define import Define, EquitableAccessor
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
@@ -1649,7 +1649,7 @@ class MathCharValue(lists.ModeDependentCommand):
 
 
 
-class MathCharDefAccesor(ArrayItemAccessor):
+class MathCharDefAccesor(EquitableAccessor):
     def readValue(self, parser):
         return MathCharValue(parser.readInteger())
 
@@ -2675,6 +2675,7 @@ class Line(Atom):
 
 class VolatileParameterAccessor(Accessor, DimenCommand):
     def __init__(self, index):
+        super().__init__(None, index)
         self.index = index
 
     def saveInfo(self):

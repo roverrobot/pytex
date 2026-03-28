@@ -246,10 +246,13 @@ def readToks(parser):
         return readGeneralText(parser, expand=False)
     
 
-class ToksArrayItemAccessor(accessor.ArrayItemAccessor):
+class ToksArrayItemAccessor(accessor.Accessor):
     """
     aaccessor for a toks parameter
     """
+    def readKey(self, parser):
+        return parser.readInteger()
+
     def readValue(self, parser):
         """
         read the value from the input stack
@@ -264,26 +267,14 @@ class ToksArrayItemAccessor(accessor.ArrayItemAccessor):
         @param parser: the parser
         @return: the toks value
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
-class ToksArrayAccessor(accessor.ArrayAccessor):
-    """
-    an accessor for the token list array
-    """
-    def getItemAccessor(self, parser):
-        return ToksArrayItemAccessor(self.domain, parser.readInteger())
-
-    def toksValue(self, parser):
-        """
-        get the toks value
-        @param parser: the parser
-        @return: the toks value
-        """
-        return self.domain[parser.readInteger()]
+class ToksArrayAccessor(ToksArrayItemAccessor):
+    pass
 
 
-class ToksParameterAccessor(accessor.ArrayItemAccessor):
+class ToksParameterAccessor(ToksArrayItemAccessor):
     """
     an accessor for a toks parameter
     """
@@ -301,7 +292,7 @@ class ToksParameterAccessor(accessor.ArrayItemAccessor):
         @param parser: the parser
         @return: the toks value
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
     
 
 class ToksArray(Array):

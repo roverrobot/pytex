@@ -180,7 +180,7 @@ class HListHolder:
         return packed
 
 
-from pytex.box import SetBox, AccentNode, IndentBox
+from pytex.box import BoxArrayItemAccessor, AccentNode, IndentBox
 
 
 class HList(lists.List):
@@ -510,7 +510,7 @@ class Accent(HorizontalCommand):
                 break
             meaning = t.definition
             # is t is an assignment, run it
-            if isinstance(meaning, Accessor) and not isinstance(meaning, SetBox):
+            if isinstance(meaning, Accessor) and not isinstance(meaning, BoxArrayItemAccessor):
                 meaning.execute(parser)
             elif meaning != relax:
                 break

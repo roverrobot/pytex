@@ -7,7 +7,7 @@ from pytex import serialization
 from pytex.dimen import readUnsignedDimen, Dimen, DimenCommand
 from pytex.integer import readSigns
 from pytex.state import Array
-from pytex.accessor import ArrayAccessor, ArrayItemAccessor
+from pytex.accessor import Accessor
 from pytex.module import Module
 from pytex.define import registerdef
 
@@ -245,10 +245,13 @@ class GlueCommand(DimenCommand):
         return self.glueValue(parser).dimen
     
 
-class GlueArrayItemAccessor(ArrayItemAccessor, GlueCommand):
+class GlueArrayItemAccessor(Accessor, GlueCommand):
     """
     access the value of a glue parameter
     """
+    def readKey(self, parser):
+        return parser.readInteger()
+
     def readValue(self, parser):
         """
         read the value from the input stack
@@ -260,23 +263,11 @@ class GlueArrayItemAccessor(ArrayItemAccessor, GlueCommand):
         """
         return the glue value
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
-class GlueArrayAccessor(ArrayAccessor, GlueCommand):
-    """
-    access an item of a glue array
-    """
-    def getItemAccessor(self, parser):
-        return GlueArrayItemAccessor(self.domain, parser.readInteger())
-
-    def glueValue(self, parser):
-        """
-        return the glue value of an item of the array
-        @param parser: the parser
-        @return: the glue value of the item of the array
-        """
-        return self.domain[parser.readInteger()]
+class GlueArrayAccessor(GlueArrayItemAccessor, GlueCommand):
+    pass
 
 
 class SkipArray(Array):
@@ -299,10 +290,13 @@ class MuGlueCommand(DimenCommand):
         return self.muglueValue(parser).dimen
 
 
-class MuGlueArrayItemAccessor(ArrayItemAccessor, MuGlueCommand):
+class MuGlueArrayItemAccessor(Accessor, MuGlueCommand):
     """
     access the value of a glue parameter
     """
+    def readKey(self, parser):
+        return parser.readInteger()
+
     def readValue(self, parser):
         """
         read the value from the input stack
@@ -314,26 +308,14 @@ class MuGlueArrayItemAccessor(ArrayItemAccessor, MuGlueCommand):
         """
         return the glue value
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
-class MuGlueArrayAccessor(ArrayAccessor, MuGlueCommand):
-    """
-    access an item of a mu glue array
-    """
-    def getItemAccessor(self, parser):
-        return MuGlueArrayItemAccessor(self.domain, parser.readInteger())
-
-    def muglueValue(self, parser):
-        """
-        return the mu glue value of an item of the array
-        @param parser: the parser
-        @return: the mu glue value of the item of the array
-        """
-        return self.domain[parser.readInteger()]
+class MuGlueArrayAccessor(MuGlueArrayItemAccessor, MuGlueCommand):
+    pass
 
 
-class GlueParameterAccessor(ArrayItemAccessor, GlueCommand):
+class GlueParameterAccessor(GlueArrayItemAccessor, GlueCommand):
     """
     access a glue parameter
     """
@@ -346,10 +328,10 @@ class GlueParameterAccessor(ArrayItemAccessor, GlueCommand):
         @param parser: the parser
         @return: the glue value of the parameter
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
-class MuGlueParameterAccessor(ArrayItemAccessor, MuGlueCommand):
+class MuGlueParameterAccessor(MuGlueArrayItemAccessor, MuGlueCommand):
     """
     access a mu glue parameter
     """
@@ -362,7 +344,7 @@ class MuGlueParameterAccessor(ArrayItemAccessor, MuGlueCommand):
         @param parser: the parser
         @return: the mu glue value of the parameter
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
 mod = Module("glue",

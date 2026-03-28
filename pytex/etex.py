@@ -548,7 +548,7 @@ class ReadlineOp(file.ReadOp):
             line = line + chr(endlinechar)
         toks = expandable.toToks(line)
         m = macro.Macro([[]], toks)
-        m.name = self.index
+        m.name = self.key
         return m
 
 

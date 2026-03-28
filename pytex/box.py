@@ -7,7 +7,7 @@ from pytex import hmode
 from pytex import vmode
 from pytex.glue import Glue
 from pytex.module import Module
-from pytex.accessor import Accessor, ArrayAccessor, ArrayItemAccessor
+from pytex.accessor import Accessor, ArrayAccessor
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen, DimenCommand, DimenArrayAccessor
@@ -529,50 +529,46 @@ class SetBoxEndCallback:
         self.accessor._set(parser)
 
 
-class BoxArrayItemAccessor(ArrayItemAccessor):
+class BoxArrayItemAccessor(Accessor):
+    def readKey(self, parser):
+        return parser.readInteger()
+
     def readValue(self, parser):
         return readBox(parser, setbox=True)
     
     def set(self, parser, value):
         # the actualy value setting is done in assign
-        self.value = (value, False)
+        self.value = (self.currentKey(parser), value, False)
 
     def setGlobal(self, parser, value):
         # the actualy value setting is done in assign
-        self.value = (value, True)
+        self.value = (self.currentKey(parser), value, True)
 
     def _set(self, parser):
-        value, globally = self.value
+        key, value, globally = self.value
         if globally:
-            super().setGlobal(parser, value)
+            parser.set(self.domain.name, key, global_scope=True, value=value)
         else:
-            super().set(parser, value)
+            parser.set(self.domain.name, key, value=value)
 
     def assign(self, parser, prefixes):
+        if self.key is None and self.needsKey():
+            return self.bindKey(self.readKey(parser)).assign(parser, prefixes)
         top = parser.lists[-1]
         super().assign(parser, prefixes)
         new = parser.lists[-1]
         if new is not top:
             # we are reading a list, but the group has not started yet to accommodate \afterassignment
-            value = self.value[0]
+            value = self.value[1]
             to_end = BoxPretypesetCallback(value)
             parser.beginGroup(
                 parser.input.position(),
                 new.group_type,
                 to_end=to_end,
-                ended=SetBoxEndCallback(self, self.value[0]),
+                ended=SetBoxEndCallback(self, self.value[1]),
             )
         else:
             self._set(parser)
-
-
-class SetBox(ArrayAccessor):
-    """
-    the \\setbox command
-    """
-    def getItemAccessor(self, parser):
-        return BoxArrayItemAccessor(self.domain, parser.readInteger())
-
 
 class IfBox(conditional.Conditional):
     """
@@ -711,34 +707,37 @@ class VTopCommand(VBoxCommand):
     group_type = GROUP_TYPE.VTOP
 
 
-class BoxDimenAccessor(ArrayItemAccessor, DimenCommand):
+class BoxDimenAccessor(Accessor, DimenCommand):
     def readValue(self, parser):
         return parser.readDimen()
 
     def set(self, parser, value):
         assert self.domain is not None
-        setattr(self.domain, self.index, value)
+        setattr(self.domain, self.key, value)
 
     def setGlobal(self, parser, value):
         assert self.domain is not None
-        setattr(self.domain, self.index, value)
+        setattr(self.domain, self.key, value)
 
     def dimenValue(self, parser):
         box = self.domain
         if box is None:
             return Dimen()
-        d = getattr(box, self.index, None)
+        d = getattr(box, self.key, None)
         if d is None:
             box = box.typeset(parser)
-            d = getattr(box, self.index)
+            d = getattr(box, self.key)
         return d
 
 
-class BoxDimenCommand(DimenArrayAccessor):
+class BoxDimenCommand(ArrayAccessor, DimenCommand):
     """
     a command that accesses a dimension for a box
     @param domain the attribute of the box dimension
     """
+    def __init__(self, domain):
+        super().__init__(domain)
+
     def getItemAccessor(self, parser):
         return BoxDimenAccessor(parser.box[parser.readInteger()], self.domain)
     
@@ -1007,7 +1006,7 @@ class LastBox(Command):
 
 mod = Module("hbox", 
     domains={
-        "box": {"generator": lambda state: Array("box", state), "accessor": SetBox},
+        "box": {"generator": lambda state: Array("box", state), "accessor": BoxArrayItemAccessor},
     },
     parameters={
         "badness": {"value": 0, "accessor": BadnessAccessor, "domain": "globals"},

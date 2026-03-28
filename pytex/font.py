@@ -8,12 +8,12 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import ArrayAccessor, ArrayItemAccessor
+from pytex.accessor import Accessor, ArrayAccessor
 from pytex.integer import IntegerArrayAccessor, IntegerArrayItemAccessor
-from pytex.dimen import Dimen, DimenArrayAccessor, DimenArrayItemAccessor
+from pytex.dimen import Dimen, DimenCommand, DimenArrayAccessor, DimenArrayItemAccessor
 from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
-from pytex.define import Define
+from pytex.define import Define, EquitableAccessor
 from pytex.state import Array
 from pytex.expandable import toToks
 from pytex.lexer import TokenListScanner
@@ -158,10 +158,13 @@ def readFont(parser):
         raise ValueError("expecting a font")
 
 
-class FontArrayItemAccessor(ArrayItemAccessor):
+class FontArrayItemAccessor(Accessor):
     """
     A font accessor
     """
+    def readKey(self, parser):
+        return parser.readInteger()
+
     def readValue(self, parser):
         return readFont(parser)
     
@@ -170,23 +173,11 @@ class FontArrayItemAccessor(ArrayItemAccessor):
         get the font value
         @param parser: the parser
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
-class FontArrayAccessor(ArrayAccessor):
-    """
-    A font array accessor
-    """
-    def getItemAccessor(self, parser):
-        return FontArrayItemAccessor(self.domain, parser.readInteger())
-    
-    def fontValue(self, parser):
-        """
-        get the font value
-        @param parser: the parser
-        """
-        i = parser.readInteger()
-        return self.domain[i]
+class FontArrayAccessor(FontArrayItemAccessor):
+    pass
 
 nullfont = NullFont(backend=nullfont_backend, at=0)
 nullfont.name = "\\nullfont"
@@ -226,7 +217,7 @@ class FontCharAccessor(IntegerArrayItemAccessor):
         self.set(parser, value)
 
 
-class FontChar(IntegerArrayAccessor):
+class FontChar(ArrayAccessor):
     """
     A font character
     """
@@ -243,7 +234,10 @@ class FontChar(IntegerArrayAccessor):
         return font.fontchar[self.field]
 
 
-class FontDefineAccessor(ArrayItemAccessor):
+class FontDefineAccessor(EquitableAccessor):
+    def setDefault(self, t):
+        t.entry.value = t.definition = nullfont
+
     def readValue(self, parser):
         """
         read a font specification from the input stack
@@ -265,13 +259,13 @@ class FontDefineAccessor(ArrayItemAccessor):
         else:
             at = design * mag
         f = Font(backend, at)
-        f.name = self.index
+        f.name = self.key
         f.fontchar["hyphenchar"] = parser.parameters["defaulthyphenchar"]
         f.fontchar["skewchar"] = parser.parameters["defaultskewchar"]
         return f
 
 
-class FontAccessor(ArrayItemAccessor):
+class FontAccessor(Accessor):
     """
     An accessor for the current font
     """
@@ -280,7 +274,7 @@ class FontAccessor(ArrayItemAccessor):
         get the current font value
         @param parser: the parser
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
         
 
 class FontCommand(Define):
@@ -293,9 +287,6 @@ class FontCommand(Define):
     def fontValue(self, parser):
         return parser.currentfont.value
 
-    def setDefault(self, t):
-        t.entry.value = t.definition = nullfont
-
 
 class FontDimenAccessor(DimenArrayItemAccessor):
     """
@@ -306,9 +297,9 @@ class FontDimenAccessor(DimenArrayItemAccessor):
         self.font = font
 
     def dimenValue(self, parser):
-        if self.index < 0 or self.index >= len(self.domain):
-            raise ValueError(f"fontdimen index {self.index} out of range {len(self.domain)} for font {self.font.backend.name}  @{int(self.font.at)}", parser.input.position())
-        return self.domain[self.index]
+        if self.key < 0 or self.key >= len(self.domain):
+            raise ValueError(f"fontdimen index {self.key} out of range {len(self.domain)} for font {self.font.backend.name}  @{int(self.font.at)}", parser.input.position())
+        return self.domain[self.key]
     
     def set(self, parser, value):
         """
@@ -316,16 +307,16 @@ class FontDimenAccessor(DimenArrayItemAccessor):
         @param parser: the parser
         @param value: the value to set
         """
-        if self.index >= len(self.domain): 
+        if self.key >= len(self.domain): 
             # append 0 values until the index is valid
-            self.domain.extend([Dimen() for i in range(self.index - len(self.domain) + 1)])
+            self.domain.extend([Dimen() for i in range(self.key - len(self.domain) + 1)])
         super().set(parser, value)
 
     def setGlobal(self, parser, value):
         self.set(parser, value)
 
     
-class FontDimen(DimenArrayAccessor):
+class FontDimen(ArrayAccessor, DimenCommand):
     """
     the \\fontdimen command
     """

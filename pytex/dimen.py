@@ -5,10 +5,9 @@ This module implements dimension parsing and handling.
 from pytex import serialization
 from pytex.token import CATCODE
 from pytex.module import Module
-from pytex.serialization import Builtin
 from pytex.integer import readDigits, readSigns
 from pytex.state import Array
-from pytex.accessor import ArrayAccessor, ArrayItemAccessor
+from pytex.accessor import Accessor
 from pytex.define import registerdef
 
 
@@ -343,10 +342,13 @@ class DimenCommand:
         return int(self.dimenValue(parser))  # convert to int for consistency with other parameters
 
 
-class DimenArrayItemAccessor(ArrayItemAccessor, DimenCommand):
+class DimenArrayItemAccessor(Accessor, DimenCommand):
     """
     access the value of a dimen parameter
     """
+    def readKey(self, parser):
+        return parser.readInteger()
+
     def readValue(self, parser):
         """
         read the value from the input stack
@@ -360,34 +362,15 @@ class DimenArrayItemAccessor(ArrayItemAccessor, DimenCommand):
         @param parser: the parser
         @return: the dimension value
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
 class GlobalDimenAccessor(DimenArrayItemAccessor):
-    """
-    Dimension accessor for globals-backed builtins.
-    """
-    def className(self):
-        return Builtin.className(self)
-
-    def saveInfo(self):
-        return Builtin.saveInfo(self)
+    pass
 
 
-class DimenArrayAccessor(ArrayAccessor, DimenCommand):
-    """
-    access an item of a dimen array
-    """
-    def getItemAccessor(self, parser):
-        return DimenArrayItemAccessor(self.domain, parser.readInteger())
-    
-    def dimenValue(self, parser):
-        """
-        get the dimension value of an item of the array
-        @param parser: the parser
-        @return: the dimension value of the item of the array
-        """
-        return self.domain[parser.readInteger()]
+class DimenArrayAccessor(DimenArrayItemAccessor, DimenCommand):
+    pass
 
 
 class DimenArray(Array):
@@ -398,7 +381,7 @@ class DimenArray(Array):
         super().__init__("dimen", state, Dimen)
 
 
-class DimenParameterAccessor(ArrayItemAccessor, DimenCommand):
+class DimenParameterAccessor(DimenArrayItemAccessor, DimenCommand):
     """
     access a dimen parameter
     """
@@ -415,7 +398,7 @@ class DimenParameterAccessor(ArrayItemAccessor, DimenCommand):
         @param parser: the parser
         @return: the dimension value of the parameter
         """
-        return self.domain[self.index]
+        return self.domain[self.currentKey(parser)]
 
 
 mod = Module("dimen",

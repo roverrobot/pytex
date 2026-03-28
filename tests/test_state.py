@@ -188,7 +188,7 @@ def test_parser_set_global_scope(parser):
     parser.set("count", 0, value=1)
     parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     parser.set("count", 0, value=2)
-    parser.set("count", 0, scope="global", value=3)
+    parser.set("count", 0, global_scope=True, value=3)
     parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     assert parser.count[0] == 3
 

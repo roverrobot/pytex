@@ -123,38 +123,6 @@ class Parser:
             for group in self.groups:
                 group.remove(domain, index)
 
-    def beginStateGroup(self, position, group_type: state.GROUP_TYPE, to_end=None, ended=None):
-        """
-        begin a group, and push it to the group stack
-        """
-        if self.current_group:
-            self.groups.append(self.current_group)
-        self.current_group = state.Group(position, group_type, to_end=to_end, ended=ended)
-
-    def endStateGroup(self, position, group_type: state.GROUP_TYPE):
-        """
-        end the group, and pop it from the group stack
-        @return the aftergroup tokens
-        """
-        if not self.current_group:
-            raise ValueError("no current group")
-        group = self.current_group
-        aftergroup = group.aftergroup
-        to_end = group.to_end
-        ended = group.ended
-        if not group.match(group_type):
-            raise ValueError(f"mismatched group type starting at {group.position} and ending at {position}")
-        if to_end:
-            to_end(self)
-        group.end(position, group_type)
-        if self.groups:
-            self.current_group = self.groups.pop()
-        else:
-            self.current_group = None
-        if ended:
-            ended(self)
-        return aftergroup
-    
     def logFileName(self):
         """
         Get the log file path in the current working directory.
@@ -439,7 +407,9 @@ class Parser:
             subformula = mmode.Subformula()
             self.lists.append(mmode.MList(self, subformula.list))
             ended = mmode.MathEndGroupCallback(subformula)
-        self.beginStateGroup(position, group_type, to_end=to_end, ended=ended)
+        if self.current_group:
+            self.groups.append(self.current_group)
+        self.current_group = state.Group(position, group_type, to_end=to_end, ended=ended)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):
         """
@@ -447,7 +417,23 @@ class Parser:
         @param position: the position of the end group token
         @param group_type: the type of the group
         """
-        aftergroup = self.endStateGroup(position, group_type)
+        if not self.current_group:
+            raise ValueError("no current group")
+        group = self.current_group
+        aftergroup = group.aftergroup
+        to_end = group.to_end
+        ended = group.ended
+        if not group.match(group_type):
+            raise ValueError(f"mismatched group type starting at {group.position} and ending at {position}")
+        if to_end:
+            to_end(self)
+        group.end(position, group_type)
+        if self.groups:
+            self.current_group = self.groups.pop()
+        else:
+            self.current_group = None
+        if ended:
+            ended(self)
         if aftergroup:
             self.input.push(lexer.TokenListScanner(aftergroup))
             if self.tracingcommands > 0 and self.checkRange():

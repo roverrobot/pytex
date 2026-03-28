@@ -24,14 +24,14 @@ def test_read_general_text(parser):
 
 def test_toks_register(parser):
     parser.parse("\\toks0={abcd}")
-    k = parser.state.toks[0]
+    k = parser.toks[0]
     assert len(k) == 4
     assert k[3].name == "d"
 
 
 def test_toks_register_is_local_to_group(parser):
     parser.parse("\\toks0={a}{\\toks0={b}}")
-    k = parser.state.toks[0]
+    k = parser.toks[0]
     assert len(k) == 1
     assert k[0].name == "a"
 
@@ -56,7 +56,7 @@ def test_case(collector):
 
 def test_parpar(parser):
     parser.parse("\\toks0={#}")
-    toks0 = parser.state.toks[0]
+    toks0 = parser.toks[0]
     assert len(toks0) == 1
     assert toks0[0].catcode == CATCODE.PARAMETER
 
@@ -78,9 +78,9 @@ def test_toks_token_expand_keeps_token_alias(parser):
 
 
 def test_page_mark_commands_expand(collector):
-    collector.state.parameters["topmark"] = toToks("AB")
-    collector.state.parameters["firstmark"] = toToks("CD")
-    collector.state.parameters["botmark"] = toToks("EF")
+    collector.parameters["topmark"] = toToks("AB")
+    collector.parameters["firstmark"] = toToks("CD")
+    collector.parameters["botmark"] = toToks("EF")
     collector.parse("\\topmark\\firstmark\\botmark")
     assert collector.getString() == "ABCDEF"
 
@@ -96,9 +96,9 @@ def test_page_break_updates_marks(parser):
     parser.end()
     pages = parser.shipout.pages
     assert len(pages) == 2
-    assert "".join(t.name for t in parser.state.parameters["topmark"]) == "A"
-    assert "".join(t.name for t in parser.state.parameters["firstmark"]) == "B"
-    assert "".join(t.name for t in parser.state.parameters["botmark"]) == "B"
+    assert "".join(t.name for t in parser.parameters["topmark"]) == "A"
+    assert "".join(t.name for t in parser.parameters["firstmark"]) == "B"
+    assert "".join(t.name for t in parser.parameters["botmark"]) == "B"
 
 
 def test_page_break_nonzero_marks_require_etex(parser):

@@ -17,13 +17,13 @@ def parser(tmp_path, monkeypatch):
     p = Parser()
     p.resolver.output_in_memory = True
     p.shipout = page.Shipout(p)
-    p.state.catcode[ord("{")] = CATCODE.BEGIN_GROUP
-    p.state.catcode[ord("}")] = CATCODE.END_GROUP
-    p.state.catcode[ord("$")] = CATCODE.MATH_SHIFT
-    p.state.catcode[ord("&")] = CATCODE.ALIGNMENT_TAB
-    p.state.catcode[ord("#")] = CATCODE.PARAMETER
-    p.state.catcode[ord("^")] = CATCODE.SUPERSCRIPT
-    p.state.catcode[ord("_")] = CATCODE.SUBSCRIPT
+    p.catcode[ord("{")] = CATCODE.BEGIN_GROUP
+    p.catcode[ord("}")] = CATCODE.END_GROUP
+    p.catcode[ord("$")] = CATCODE.MATH_SHIFT
+    p.catcode[ord("&")] = CATCODE.ALIGNMENT_TAB
+    p.catcode[ord("#")] = CATCODE.PARAMETER
+    p.catcode[ord("^")] = CATCODE.SUPERSCRIPT
+    p.catcode[ord("_")] = CATCODE.SUBSCRIPT
     yield p
     p.close()
 
@@ -60,9 +60,9 @@ def cmr10(parser):
         '\\textfont2=\\sym \\scriptfont2=\\sym \\scriptscriptfont2=\\sym '
         '\\textfont3=\\ext \\scriptfont3=\\ext \\scriptscriptfont3=\\ext'
     )
-    parser.state.sfcode[ord(",")] = 1250
-    parser.state.sfcode[ord(".")] = 3000
-    parser.state.sfcode[ord(")")] = 0
+    parser.sfcode[ord(",")] = 1250
+    parser.sfcode[ord(".")] = 3000
+    parser.sfcode[ord(")")] = 0
     return parser
 
 

@@ -47,7 +47,7 @@ def test_language(cmr10):
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 6
-    assert cmr10.state.parameters["language"] == 1
+    assert cmr10.parameters["language"] == 1
     assert isinstance(top[3], paragraph.Language)
 
 
@@ -81,7 +81,7 @@ def test_paragraph_is_pretypeset_when_it_ends(cmr10):
 def test_paragraph_typeset_uses_stored_parfillskip_not_live_state(parser):
     parser.parse("\\parfillskip=0pt a\\par")
     para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[0]
-    parser.state.parameters["parfillskip"] = glue.Glue(0, glue.Stretchness(1, 1))
+    parser.parameters["parfillskip"] = glue.Glue(0, glue.Stretchness(1, 1))
     out = []
     para.typeset(parser, out)
     assert len(out) == 1
@@ -133,7 +133,7 @@ def test_paragraph_boundary_keeps_prevdepth_across_parskip(cmr10):
     assert names == ["\\parskip", "\\baselineskip"]
     assert packed[1].glue.dimen == Dimen(5.0)
     assert packed[2].glue.dimen == (
-        cmr10.state.layout["baselineskip"].dimen
+        cmr10.layout["baselineskip"].dimen
         - packed[0].depth
         - packed[3].height
     )
@@ -146,7 +146,7 @@ def test_group_in_vmode_does_not_reset_prevdepth(cmr10):
     names = [getattr(n, "name", None) for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert names == ["\\parskip", "\\baselineskip"]
     assert packed[2].glue.dimen == (
-        cmr10.state.layout["baselineskip"].dimen
+        cmr10.layout["baselineskip"].dimen
         - packed[0].depth
         - packed[3].height
     )
@@ -183,8 +183,8 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
     assert not any(isinstance(n, mmode.MList) for n in line.list)
     math_nodes = [n for n in line.list if isinstance(n, nd.MathShift)]
     assert len(math_nodes) == 2
-    assert math_nodes[0].kern == cmr10.state.layout["mathsurround"]
-    assert math_nodes[1].kern == cmr10.state.layout["mathsurround"]
+    assert math_nodes[0].kern == cmr10.layout["mathsurround"]
+    assert math_nodes[1].kern == cmr10.layout["mathsurround"]
 
 
 def test_hyphenate_uses_snapshot_words(cmr10):
@@ -370,15 +370,15 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     out = []
     para.typeset(cmr10, out)
-    saved_prevdepth = cmr10.state.globals["prevdepth"]
+    saved_prevdepth = cmr10.globals["prevdepth"]
     try:
-        cmr10.state.globals["prevdepth"] = vmode.init_prevdepth
+        cmr10.globals["prevdepth"] = vmode.init_prevdepth
         vlist = vmode.VList(cmr10, [])
         for node in out:
             vlist.append(node)
         packed = list(vlist.list)
     finally:
-        cmr10.state.globals["prevdepth"] = saved_prevdepth
+        cmr10.globals["prevdepth"] = saved_prevdepth
     lines = _lineBoxes(packed)
     assert len(lines) > 1
     interline = [node for node in packed if node.node_type == nd.NODE_TYPE.GLUE]
@@ -387,10 +387,10 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
 
 
 def test_interline_penalty_uses_brokenpenalty_from_previous_line(parser):
-    parser.state.layout["interlinepenalty"] = 7
-    parser.state.layout["clubpenalty"] = 1000
-    parser.state.layout["widowpenalty"] = 2000
-    parser.state.layout["brokenpenalty"] = 3000
+    parser.layout["interlinepenalty"] = 7
+    parser.layout["clubpenalty"] = 1000
+    parser.layout["widowpenalty"] = 2000
+    parser.layout["brokenpenalty"] = 3000
     para = paragraph.Paragraph(parser, False)
     para.line_count = 5
     first = types.SimpleNamespace(line_no=1, hyphenated=True, prev=None)
@@ -399,10 +399,10 @@ def test_interline_penalty_uses_brokenpenalty_from_previous_line(parser):
 
 
 def test_interline_penalty_applies_widowpenalty_before_last_line(parser):
-    parser.state.layout["interlinepenalty"] = 7
-    parser.state.layout["clubpenalty"] = 1000
-    parser.state.layout["widowpenalty"] = 2000
-    parser.state.layout["brokenpenalty"] = 3000
+    parser.layout["interlinepenalty"] = 7
+    parser.layout["clubpenalty"] = 1000
+    parser.layout["widowpenalty"] = 2000
+    parser.layout["brokenpenalty"] = 3000
     para = paragraph.Paragraph(parser, False)
     para.line_count = 5
     prev = types.SimpleNamespace(line_no=4, hyphenated=False, prev=None)
@@ -436,7 +436,7 @@ def test_linebreaker_select_final_negative_looseness():
 
 def test_paragraph_settings_reset_after_paragraph(parser):
     parser.parse("\\looseness=2 a\\par b\\par")
-    assert parser.state.volatile["looseness"] == 0
+    assert parser.volatile["looseness"] == 0
 
 
 def test_parshape_resets_after_paragraph_end(parser):
@@ -475,7 +475,7 @@ def test_internal_paragraph_end_uses_current_par_definition(parser):
         "\\def\\par{\\global\\advance\\count0 by 1 \\endgraf}"
         "a\\vskip0pt"
     )
-    assert parser.state.count[0] == 1
+    assert parser.count[0] == 1
 
 
 def test_display_math_ends_paragraph_with_primitive_path(parser):
@@ -485,7 +485,7 @@ def test_display_math_ends_paragraph_with_primitive_path(parser):
         "\\def\\par{\\global\\advance\\count0 by 1 \\endgraf}"
         "a$$x$$"
     )
-    assert parser.state.count[0] == 0
+    assert parser.count[0] == 0
 
 
 def test_noindent_with_hanging_label_does_not_add_first_line_indent(parser):

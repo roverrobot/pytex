@@ -5,24 +5,24 @@ from pytex.parser import Parser
 
 
 def test_read_font(cmr10):
-    assert cmr10.state.equitable["\\f"].backend.kind == "tfm"
-    assert cmr10.state.equitable["\\f"].backend.name == 'cmr10'
-    assert cmr10.state.equitable["\\f"].at == 10.0
-    assert cmr10.state.parameters["currentfont"].backend.name == 'cmr10'
-    assert cmr10.state.parameters["currentfont"].at == 10.0
+    assert cmr10.equitable["\\f"].backend.kind == "tfm"
+    assert cmr10.equitable["\\f"].backend.name == 'cmr10'
+    assert cmr10.equitable["\\f"].at == 10.0
+    assert cmr10.parameters["currentfont"].backend.name == 'cmr10'
+    assert cmr10.parameters["currentfont"].at == 10.0
 
 
 def test_read_font_scaled(parser):
     parser.parse('\\font\\f=cmr10 scaled 500')
-    assert parser.state.equitable["\\f"].backend.kind == "tfm"
-    assert parser.state.equitable["\\f"].backend.name == 'cmr10'
-    assert parser.state.equitable["\\f"].at == 5.0
+    assert parser.equitable["\\f"].backend.kind == "tfm"
+    assert parser.equitable["\\f"].backend.name == 'cmr10'
+    assert parser.equitable["\\f"].at == 5.0
 
 
 def test_read_font_at(parser):
     parser.parse('\\font\\f=cmr10 at 20pt')
-    assert parser.state.equitable["\\f"].backend.name == 'cmr10'
-    assert parser.state.equitable["\\f"].at == 20.0
+    assert parser.equitable["\\f"].backend.name == 'cmr10'
+    assert parser.equitable["\\f"].at == 20.0
 
 
 def test_load_font_backend(parser):
@@ -64,7 +64,7 @@ def test_read_opentype_font(parser):
         parser.parse("\\font\\f=lmroman10-regular.otf at 10pt \\f A")
     except FileNotFoundError:
         pytest.skip("lmroman10-regular.otf not found")
-    font = parser.state.equitable["\\f"]
+    font = parser.equitable["\\f"]
     assert font.backend.kind == "opentype"
     assert font.backend.name == "lmroman10-regular.otf"
     assert float(font["A"].width) > 7.0
@@ -96,22 +96,22 @@ def test_read_font_error(parser):
 
 def test_hyphenchar(collector):
     collector.parse('\\font\\f=cmr10 \\global\\hyphenchar\\f=45')
-    assert collector.state.equitable["\\f"].fontchar["hyphenchar"] == 45
+    assert collector.equitable["\\f"].fontchar["hyphenchar"] == 45
     collector.parse('\\the\\hyphenchar\\f')
     assert collector.getString() == '45'
     collector.parse('\\defaulthyphenchar=-1 \\relax\\font\\f=cmr10')
-    assert collector.state.equitable["\\f"].fontchar["hyphenchar"] == -1
+    assert collector.equitable["\\f"].fontchar["hyphenchar"] == -1
     collector.parse('\\the\\hyphenchar\\f')
     assert collector.getString() == '-1'
 
 
 def test_skewchar(collector):
     collector.parse('\\font\\f=cmr10 \\global\\skewchar\\f=45')
-    assert collector.state.equitable["\\f"].fontchar["skewchar"] == 45
+    assert collector.equitable["\\f"].fontchar["skewchar"] == 45
     collector.parse('\\the\\skewchar\\f')
     assert collector.getString() == '45'
     collector.parse('\\defaultskewchar=127 \\relax\\font\\f=cmr10')
-    assert collector.state.equitable["\\f"].fontchar["skewchar"] == 127
+    assert collector.equitable["\\f"].fontchar["skewchar"] == 127
     collector.parse('\\the\\skewchar\\f')
     assert collector.getString() == '127'
 

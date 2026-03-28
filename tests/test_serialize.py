@@ -19,7 +19,7 @@ def test_dimen(parser):
 
 def test_dimen_array(parser):
     parser.parse("\\dimen0=10pt \\dimen1=\\dimen0")
-    d = parser.state.dump()
+    d = parser.dumpState()
     assert "dimen" in d
     assert serialization.serialize(d["dimen"][0]) == dimenInfo(dimen.Dimen(10))
     assert serialization.serialize(d["dimen"][1])== dimenInfo(dimen.Dimen(10))
@@ -45,7 +45,7 @@ def test_glue(parser):
 
 def test_toks(parser):
     parser.parse("\\toks0={abc\\relax}")
-    d = serialization.serialize(parser.state.toks[0])
+    d = serialization.serialize(parser.toks[0])
     v = serialization.deserialize(parser, d)
     assert len(v) == 4
     assert v[0].name == "a"
@@ -59,6 +59,6 @@ def test_toks(parser):
 
 
 def test_global_builtins_serialize_via_builtin_name(parser):
-    equitable = serialization.serialize(parser.state.dump())["equitable"]
+    equitable = serialization.serialize(parser.dumpState())["equitable"]
     for name in ["\\deadcycles", "\\insertpenalties", "\\prevdepth", "\\prevgraf", "\\badness", "\\nullfont"]:
         assert equitable[name] == {"pytex.serialization.Builtin": {"name": name}}

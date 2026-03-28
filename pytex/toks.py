@@ -443,7 +443,7 @@ class PageMark(Command):
         self.domain = domain
 
     def toksValue(self, parser):
-        return getattr(parser.state, self.domain)[self.key]
+        return getattr(parser, self.domain)[self.key]
 
     def expand(self, parser):
         toks = self.toksValue(parser)

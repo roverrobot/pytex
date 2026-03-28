@@ -17,7 +17,7 @@ def test_noexpand(parser):
     assert t is not None
     assert t.name == "a"
     parser.parse("\\def\\a{1}\\edef\\b{\\noexpand\\a}")
-    b = parser.state.equitable["\\b"]
+    b = parser.equitable["\\b"]
     assert b.replacement[0].name == "\\a"
 
 def test_noexpand_ifx(collector):
@@ -98,9 +98,9 @@ def test_the(collector):
     collector.parse("\\count0=0 \\the\\count0")
     assert collector.getString() == "0"
     collector.parse("\\dimen0=1pt \\the\\dimen0")
-    assert collector.getString() == str(collector.state.dimen[0])+"pt"
+    assert collector.getString() == str(collector.dimen[0])+"pt"
     collector.parse("\\skip0=1pt plus 1fil minus 1fil \\relax\\the\\skip0")
-    assert collector.getString() == str(collector.state.skip[0])
+    assert collector.getString() == str(collector.skip[0])
     collector.parse("\\toks0={\\the\\count0}\\the\\toks0")
     assert collector.getString() == "0"
 
@@ -124,6 +124,6 @@ def test_jobname(collector):
 
 def test_protected_tokens(parser):
     parser.parse("\\def\\a{123}\\toks0={\\a}\\edef\\b{\\the\\toks0}\\edef\\c{\\b}")
-    c = parser.state.equitable["\\c"]
+    c = parser.equitable["\\c"]
     assert isinstance(c, macro.Macro)
     assert len(c.replacement) == 3

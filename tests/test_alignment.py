@@ -34,7 +34,7 @@ def _source_nodes(vlist, cls):
 def _typeset_halign(parser, node):
     packed = vmode.VList(parser, [], inner=True)
     node.typeset(parser, packed)
-    parser.state.globals["prevdepth"] = packed.saved_prevdepth
+    parser.globals["prevdepth"] = packed.saved_prevdepth
     return list(packed.list)
 
 
@@ -189,7 +189,7 @@ def test_nested_valign_in_halign_cell(cmr10):
 
 def test_nested_halign_in_valign_cell(cmr10):
     cmr10.parse("\\setbox1=\\hbox{\\valign{#\\cr \\halign{#\\cr \\hbox{}\\cr}\\cr}}")
-    assert cmr10.state.box[1] is not None
+    assert cmr10.box[1] is not None
 
 
 def test_omit_as_first_non_space_token_ignores_template(cmr10):
@@ -265,13 +265,13 @@ def test_halign_spanned_box_uses_row_glue_setting(cmr10):
 
 def test_valign_typesets_to_hbox(cmr10):
     cmr10.parse("\\setbox1=\\hbox{\\valign{#\\cr a\\cr b\\cr}}")
-    outer = cmr10.state.box[1]
+    outer = cmr10.box[1]
     assert outer.typeset(cmr10).list[0].node_type == nd.NODE_TYPE.VLIST
 
 
 def test_valign_normalizes_cell_box_widths(cmr10):
     cmr10.parse("\\setbox1=\\hbox{\\valign{#&#\\cr \\hbox{a}&\\hbox{bc}\\cr \\hbox{d}&\\hbox{e}\\cr}}")
-    outer = cmr10.state.box[1]
+    outer = cmr10.box[1]
     out = outer.typeset(cmr10)
     left, right = out.list
     left_cells = [node for node in left.list if node.node_type == nd.NODE_TYPE.VLIST]

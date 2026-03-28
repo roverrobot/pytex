@@ -36,9 +36,9 @@ def _source_nodes(vlist, cls):
 
 
 def _expanded_vbox(parser, nodes):
-    saved_prevdepth = parser.state.globals["prevdepth"]
+    saved_prevdepth = parser.globals["prevdepth"]
     try:
-        parser.state.globals["prevdepth"] = vmode.init_prevdepth
+        parser.globals["prevdepth"] = vmode.init_prevdepth
         vlist = vmode.VList(parser, [])
         for node in nodes:
             vlist.append(node)
@@ -46,7 +46,7 @@ def _expanded_vbox(parser, nodes):
         box.list[:] = list(vlist.list)
         return box
     finally:
-        parser.state.globals["prevdepth"] = saved_prevdepth
+        parser.globals["prevdepth"] = saved_prevdepth
 
 
 @pytest.fixture()
@@ -58,7 +58,7 @@ def box(cmr10):
 def test_box_dimensions(box):
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    box0 = box.state.box[0]
+    box0 = box.box[0]
     box0 = box0.typeset(box)
     assert Dimen(box0.width) == Dimen(55.58344)
     assert Dimen(box0.height) == 6.94444
@@ -66,29 +66,29 @@ def test_box_dimensions(box):
 
 
 def test_box_command(box):
-    box0 = box.state.box[0]
+    box0 = box.box[0]
     box.parse("\\box0")
     top = box.lists[-1]
     assert _concrete_nodes(top)[-1] == box0
-    assert box.state.box[0] is None
+    assert box.box[0] is None
 
 
 def test_copy(box):
-    box0 = box.state.box[0]
+    box0 = box.box[0]
     box.parse("\\setbox1=\\copy0")
-    box1 = box.state.box[1]
+    box1 = box.box[1]
     assert box1.list == box0.list
     assert box1 is not box0
 
 
 def test_setbox_is_local_to_group(cmr10):
     cmr10.parse("{\\setbox0=\\hbox{a}\\global\\dimen0=\\wd0}\\dimen1=\\wd0")
-    assert cmr10.state.dimen[0] == Dimen(5.00002)
-    assert cmr10.state.dimen[1] == Dimen()
+    assert cmr10.dimen[0] == Dimen(5.00002)
+    assert cmr10.dimen[1] == Dimen()
 
 
 def test_ifvoid(box):
-    box0 = box.state.box[0]
+    box0 = box.box[0]
     box.parse("\\ifvoid0 a\\else b\\fi")
     top = box.lists[-1]
     assert top[-1].char == "b"
@@ -114,7 +114,7 @@ def test_hbox(cmr10):
 
 def test_hbox_accepts_bgroup_alias(cmr10):
     cmr10.parse("\\let\\bgroup={\\let\\egroup=}\\setbox0=\\hbox\\bgroup A\\egroup")
-    box0 = cmr10.state.box[0].typeset(cmr10)
+    box0 = cmr10.box[0].typeset(cmr10)
     assert box0.width > 0
     assert len(box0.list) == 1
 
@@ -167,32 +167,32 @@ def test_hbox_spread(cmr10):
 
 def test_hbox_sets_badness_before_next_token(cmr10):
     cmr10.parse("\\setbox0=\\hbox to 100pt{a}\\count0=\\badness")
-    assert cmr10.state.count[0] == 10000
+    assert cmr10.count[0] == 10000
 
 
 def test_setbox_packs_hbox_when_the_box_group_closes(cmr10):
     cmr10.parse("\\setbox0=\\hbox to 100pt{a}")
-    box0 = cmr10.state.box[0]
+    box0 = cmr10.box[0]
     assert box0._packed is not None
     assert cmr10.lastbox is box0
     cmr10.parse("\\count0=\\badness")
-    assert cmr10.state.count[0] == 10000
+    assert cmr10.count[0] == 10000
 
 
 def test_hbox_overfull_sets_badness_to_one_million(cmr10):
     cmr10.parse("\\setbox0=\\hbox to 0pt{a}\\count0=\\badness")
-    assert cmr10.state.count[0] == 1000000
+    assert cmr10.count[0] == 1000000
 
 
 def test_badness_is_not_grouped(parser):
     parser.parse("{\\badness=123}\\count0=\\badness")
-    assert parser.state.count[0] == 123
+    assert parser.count[0] == 123
 
 
 def test_explicit_badness_assignment_overrides_packed_hbox_badness(cmr10):
     cmr10.parse("\\setbox0=\\hbox to 100pt{a}\\badness=7\\count0=\\badness")
-    assert cmr10.state.count[0] == 7
-    assert cmr10.state.box[0]._packed is not None
+    assert cmr10.count[0] == 7
+    assert cmr10.box[0]._packed is not None
 
 
 def test_vbox(box):
@@ -209,7 +209,7 @@ def test_vbox(box):
 
 def test_vbox_sets_badness_before_next_token(parser):
     parser.parse("\\vbox to 10pt{}\\count0=\\badness")
-    assert parser.state.count[0] == 10000
+    assert parser.count[0] == 10000
 
 
 def test_vbox_to(box):
@@ -329,9 +329,9 @@ def test_hbox_height_depth_use_parent_interpretation_of_shift(parser):
 
 
 def test_vbox_preserves_prevdepth_across_explicit_glue(parser):
-    parser.state.layout["baselineskip"] = glue.Glue(12)
-    parser.state.layout["lineskip"] = glue.Glue(1)
-    parser.state.layout["lineskiplimit"] = Dimen()
+    parser.layout["baselineskip"] = glue.Glue(12)
+    parser.layout["lineskip"] = glue.Glue(1)
+    parser.layout["lineskiplimit"] = Dimen()
     vbox = bx.VBox(parser, None, 0)
     builder = vmode.VList(parser, vbox.list, inner=True)
     first = _synthetic_hbox(parser, height=6, depth=2, width=10)
@@ -350,10 +350,10 @@ def test_vbox_preserves_prevdepth_across_explicit_glue(parser):
 
 
 def test_vbox_pack_reuses_live_vertical_builder(parser):
-    parser.state.layout["baselineskip"] = glue.Glue(22)
-    parser.state.layout["lineskip"] = glue.Glue(1)
-    parser.state.layout["lineskiplimit"] = Dimen()
-    parser.state.layout["interlinepenalty"] = 100
+    parser.layout["baselineskip"] = glue.Glue(22)
+    parser.layout["lineskip"] = glue.Glue(1)
+    parser.layout["lineskiplimit"] = Dimen()
+    parser.layout["interlinepenalty"] = 100
     vbox = bx.VBox(parser, None, 0)
     builder = vmode.VList(parser, vbox.list, inner=True)
     first = _synthetic_hbox(parser, height=0, depth=0, width=0)
@@ -361,7 +361,7 @@ def test_vbox_pack_reuses_live_vertical_builder(parser):
     builder.append(nd.Glue(glue.Glue(20), None))
     title = _synthetic_hbox(parser, height=12, depth=0, width=10)
     builder.append(title)
-    parser.state.layout["baselineskip"] = glue.Glue(12)
+    parser.layout["baselineskip"] = glue.Glue(12)
     typed = vbox.typeset(parser)
     assert len(typed.list) == 4
     assert typed.list[0] is first
@@ -374,37 +374,37 @@ def test_vbox_pack_reuses_live_vertical_builder(parser):
 
 def test_vbox_is_pretypeset_with_current_boxmaxdepth(parser):
     parser.parse("\\boxmaxdepth=1pt\\setbox0=\\vbox{\\hbox{\\vrule height 6pt depth 3pt width 1pt}}")
-    parser.state.layout["boxmaxdepth"] = Dimen()
-    typed = parser.state.box[0].typeset(parser)
+    parser.layout["boxmaxdepth"] = Dimen()
+    typed = parser.box[0].typeset(parser)
     assert typed.height == 8
     assert typed.depth == 1
 
 
 def test_vbox_closes_internal_paragraph_before_packing(cmr10):
     cmr10.parse("\\setbox0=\\vbox{\\hsize=20pt\\parindent=0pt a a a a a}")
-    typed = cmr10.state.box[0].typeset(cmr10)
+    typed = cmr10.box[0].typeset(cmr10)
     lines = [node for node in typed.list if node.node_type == NODE_TYPE.HLIST]
     assert len(lines) > 1
 
 
 def test_vsplit_void(parser):
     parser.parse("\\setbox0=\\vsplit1 to 10pt")
-    assert parser.state.box[0] is None
-    assert parser.state.box[1] is None
-    assert parser.state.globals["splitfirstmark"] == []
-    assert parser.state.globals["splitbotmark"] == []
+    assert parser.box[0] is None
+    assert parser.box[1] is None
+    assert parser.globals["splitfirstmark"] == []
+    assert parser.globals["splitbotmark"] == []
 
 
 def test_vsplit_splits_box_and_reinserts_splittopskip(parser):
-    parser.state.layout["splittopskip"] = glue.Glue(10)
+    parser.layout["splittopskip"] = glue.Glue(10)
     source = _expanded_vbox(parser, [
         _synthetic_hbox(parser, height=6, depth=2, width=10),
         _synthetic_hbox(parser, height=6, depth=2, width=10),
     ])
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 10pt")
-    split = parser.state.box[2].typeset(parser)
-    remainder = parser.state.box[1].typeset(parser)
+    split = parser.box[2].typeset(parser)
+    remainder = parser.box[1].typeset(parser)
     assert split.height == 10
     assert split.list[0].node_type == NODE_TYPE.HLIST
     assert remainder.list[0].node_type == NODE_TYPE.GLUE
@@ -417,22 +417,22 @@ def test_vsplit_takes_whole_box_when_target_is_large(parser):
         _synthetic_hbox(parser, height=6, depth=2, width=10),
         _synthetic_hbox(parser, height=6, depth=2, width=10),
     ])
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 50pt")
-    assert parser.state.box[1] is None
-    split = parser.state.box[2].typeset(parser)
+    assert parser.box[1] is None
+    split = parser.box[2].typeset(parser)
     assert split.height == 50
 
 
 def test_vsplit_does_not_clamp_box_depth_when_trailing_glue_remains(parser):
-    parser.state.layout["splitmaxdepth"] = Dimen(2)
+    parser.layout["splitmaxdepth"] = Dimen(2)
     source = _expanded_vbox(parser, [
         _synthetic_hbox(parser, height=6, depth=3, width=10),
         nd.Glue(glue.Glue(4), None),
     ])
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 50pt")
-    split = parser.state.box[2].typeset(parser)
+    split = parser.box[2].typeset(parser)
     assert split.list[0].node_type == NODE_TYPE.HLIST
     assert split.list[0].depth == 3
 
@@ -445,10 +445,10 @@ def test_vsplit_sets_split_marks_from_split_box(parser):
         _synthetic_hbox(parser, height=6, depth=2, width=10),
         _mark_node("B"),
     ])
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 10pt")
-    assert toksToString(parser, parser.state.globals["splitfirstmark"]) == "A"
-    assert toksToString(parser, parser.state.globals["splitbotmark"]) == "A"
+    assert toksToString(parser, parser.globals["splitfirstmark"]) == "A"
+    assert toksToString(parser, parser.globals["splitbotmark"]) == "A"
 
 
 def test_vsplit_whole_box_sets_splitbotmark_to_last_mark(parser):
@@ -458,10 +458,10 @@ def test_vsplit_whole_box_sets_splitbotmark_to_last_mark(parser):
         _mark_node("B"),
         _synthetic_hbox(parser, height=6, depth=2, width=10),
     ])
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 50pt")
-    assert toksToString(parser, parser.state.globals["splitfirstmark"]) == "A"
-    assert toksToString(parser, parser.state.globals["splitbotmark"]) == "B"
+    assert toksToString(parser, parser.globals["splitfirstmark"]) == "A"
+    assert toksToString(parser, parser.globals["splitbotmark"]) == "B"
 
 
 def test_vsplit_nonzero_marks_require_etex(parser):
@@ -472,21 +472,21 @@ def test_vsplit_nonzero_marks_require_etex(parser):
         _mark_node("Y", 2),
         _synthetic_hbox(parser, height=6, depth=2, width=10),
     ])
-    parser.state.box[1] = source
+    parser.box[1] = source
     with pytest.raises(AssertionError):
         parser.parse("\\setbox2=\\vsplit1 to 10pt")
 
 
 def test_vsplit_breaks_at_top_glue_after_whatsit(parser):
-    parser.state.layout["splittopskip"] = glue.Glue(10)
+    parser.layout["splittopskip"] = glue.Glue(10)
     source = bx.VBox(parser, None, 0)
     source.list.append(_ProbeWhatsit())
     source.list.append(nd.Glue(glue.Glue(10), None))
     source.list.append(_synthetic_hbox(parser, height=0, depth=0, width=0))
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 0pt")
-    split = parser.state.box[2].typeset(parser)
-    remainder = parser.state.box[1].typeset(parser)
+    split = parser.box[2].typeset(parser)
+    remainder = parser.box[1].typeset(parser)
     assert len(split.list) == 1
     assert split.list[0].node_type == NODE_TYPE.WHATSIT
     assert remainder.list[0].node_type == NODE_TYPE.GLUE
@@ -500,13 +500,13 @@ def test_vsplit_zero_top_glue_still_takes_empty_box(parser):
     source.list.append(_ProbeWhatsit())
     source.list.append(nd.Glue(glue.Glue(0), None))
     source.list.append(_synthetic_hbox(parser, height=0, depth=0, width=0))
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 0pt")
-    split = parser.state.box[2].typeset(parser)
+    split = parser.box[2].typeset(parser)
     assert len(split.list) == 2
     assert split.list[0].node_type == NODE_TYPE.WHATSIT
     assert split.list[1].node_type == NODE_TYPE.HLIST
-    assert parser.state.box[1] is None
+    assert parser.box[1] is None
 
 
 def test_vsplit_waits_for_following_glue_before_triggering_break(parser):
@@ -515,15 +515,15 @@ def test_vsplit_waits_for_following_glue_before_triggering_break(parser):
     source.list.append(nd.Glue(glue.Glue(2), None))
     source.list.append(_synthetic_hbox(parser, height=6, depth=2, width=10))
     source.list.append(nd.Glue(glue.Glue(-2), None))
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 16pt")
-    split = parser.state.box[2].typeset(parser)
+    split = parser.box[2].typeset(parser)
     assert len(split.list) == 4
     assert split.list[0].node_type == NODE_TYPE.HLIST
     assert split.list[1].node_type == NODE_TYPE.GLUE
     assert split.list[2].node_type == NODE_TYPE.HLIST
     assert split.list[3].node_type == NODE_TYPE.GLUE
-    assert parser.state.box[1] is None
+    assert parser.box[1] is None
 
 
 def test_vsplit_waits_past_overfull_penalty_if_following_glue_can_recover(parser):
@@ -562,7 +562,7 @@ def test_moveleft_dispatches_to_vertical_handler(parser):
 
 def test_vtop(box):
     box.parse("\\vtop{\\copy0\\vskip1em plus 1em\\box0}\\relax")
-    b0 = box.state.box[0]
+    b0 = box.box[0]
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     b = _concrete_nodes(top)[-1]
@@ -639,7 +639,7 @@ def test_vbox_uses_lineskip_after_vtop_halign(cmr10):
         "\\setbox0=\\vtop{\\halign{#\\hfil\\cr A\\cr B\\cr}}"
         "\\setbox1=\\vbox{\\box0\\hbox{DATE}}"
     )
-    typed = cmr10.state.box[1].typeset(cmr10)
+    typed = cmr10.box[1].typeset(cmr10)
     found = find_parent(typed.list)
     assert found is not None
     items, index = found
@@ -655,9 +655,9 @@ def test_vbox_uses_lineskip_after_vtop_halign(cmr10):
 ])
 def test_wd(box, cmd, attr):
     box.parse(f"\\setbox0=\\hbox{{A}}\\dimen0={cmd}0")
-    assert box.state.dimen[0] == getattr(box.state.box[0], attr)
+    assert box.dimen[0] == getattr(box.box[0], attr)
     box.parse(f"{cmd}0=100pt")
-    assert getattr(box.state.box[0], attr) == 100
+    assert getattr(box.box[0], attr) == 100
 
 
 def test_box_void(box):
@@ -673,14 +673,14 @@ def test_unhbox(box):
     assert len(nodes) == 16
     assert nodes[0].node_type == NODE_TYPE.HLIST
     assert any(node.node_type == NODE_TYPE.KERN for node in nodes)
-    assert box.state.box[0] is None
+    assert box.box[0] is None
 
 
 def test_unhbox_enters_horizontal_mode_from_vmode(box):
     box.parse("\\unhbox0\\par")
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    assert box.state.box[0] is None
+    assert box.box[0] is None
     assert _source_nodes(top, paragraph.Paragraph)
 
 
@@ -699,7 +699,7 @@ def test_unhcopy(box):
     assert len(nodes) == 16
     assert nodes[0].node_type == NODE_TYPE.HLIST
     assert any(node.node_type == NODE_TYPE.KERN for node in nodes)
-    box0 = box.state.box[0]
+    box0 = box.box[0]
     assert len(box0.list) == 14 # exoanded node, with an automatic kern
 
 
@@ -709,7 +709,7 @@ def test_unvbox(box):
     nodes = _concrete_nodes(top)
     assert len(nodes) == 1
     assert nodes[0].node_type == NODE_TYPE.HLIST
-    assert box.state.box[1] is None
+    assert box.box[1] is None
 
 
 def test_accent_nochar(cmr10):
@@ -779,7 +779,7 @@ def test_lastbox(cmr10):
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 2
-    box = cmr10.state.box[0]
+    box = cmr10.box[0]
     assert len(box.list) == 14 # expanded nodes, with an automatic kern
 
 
@@ -788,7 +788,7 @@ def test_lastbox_empty(cmr10):
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 2
-    box = cmr10.state.box[0]
+    box = cmr10.box[0]
     assert box is None
 
 
@@ -800,7 +800,7 @@ def test_lastbox_vmode(cmr10):
     assert len(nodes) == 1
     vbox = nodes[0]
     assert len(vbox.list) == 0
-    box = cmr10.state.box[0]
+    box = cmr10.box[0]
     assert box is None
     try:
         cmr10.parse("\\hbox{Hello, world!}\\setbox0=\\lastbox")
@@ -818,7 +818,7 @@ def test_lastbox_main_vmode_after_unvbox(cmr10):
     assert nodes[0].node_type == NODE_TYPE.HLIST
     assert nodes[1].node_type == NODE_TYPE.GLUE
     assert nodes[1].name in ("\\baselineskip", "\\lineskip")
-    box0 = cmr10.state.box[0]
+    box0 = cmr10.box[0]
     box2 = None
     assert box0 is not None and box0.node_type == NODE_TYPE.HLIST
     assert box2 is None
@@ -826,7 +826,7 @@ def test_lastbox_main_vmode_after_unvbox(cmr10):
 
 def test_afterassignment(cmr10):
     cmr10.parse("\\afterassignment a\\setbox1=\\hbox{}")
-    box1 = cmr10.state.box[1]
+    box1 = cmr10.box[1]
     assert len(box1.list) == 1
     assert box1.list[0].char == "a"
-    assert cmr10.state.globals["afterassignment"] is None
+    assert cmr10.globals["afterassignment"] is None

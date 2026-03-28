@@ -42,7 +42,6 @@ class Parser(state.StateOwner):
     """
     def __init__(self, project_dir: typing.Optional[str] = None):
         self.initState()
-        self.state = state.StateProxy(self)
         # the builtin commands
         self.builtin = {}
         # now we are at a similar stage to INITEX. We do not need to keep the current state.

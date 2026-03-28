@@ -148,7 +148,7 @@ class ArrayItemAccessor(Accessor):
         """
         name = kargs["domain"]
         index = kargs["index"]
-        return cls(getattr(parser.state, name), index)
+        return cls(getattr(parser, name), index)
 
     def meaning(self, parser):
         return f"{self.domain.name}{self.index}"

@@ -14,23 +14,23 @@ def read_tex(parser):
 def test_openin_immediate(example_tex):
     # open a file for reading
     example_tex.parse("\\immediate\\openin 0=example.tex")
-    file = example_tex.state.globals["openin"][0]
+    file = example_tex.globals["openin"][0]
     assert file is not None
     s = file.readline()
     assert s == "Hello, world!\n"
     example_tex.parse("\\closein 0")
-    file = example_tex.state.globals["openin"][0]
+    file = example_tex.globals["openin"][0]
     assert file is None
 
 
 def test_openin(example_tex):
     example_tex.parse("\\openin 0=example.tex")
-    file = example_tex.state.globals["openin"][0]
+    file = example_tex.globals["openin"][0]
     assert file is not None
     s = file.readline()
     assert s == "Hello, world!\n"
     example_tex.parse("\\closein 0")
-    file = example_tex.state.globals["openin"][0]
+    file = example_tex.globals["openin"][0]
     assert file is None
 
 
@@ -38,12 +38,12 @@ def test_openout_immediate(parser):
     # open a file for reading
     parser.parse("\\def\\a{123}")
     parser.parse("\\immediate\\openout 1=output.tex")
-    file = parser.state.globals["openout"][1]
+    file = parser.globals["openout"][1]
     assert file is not None
     assert "output.tex" in parser.resolver.in_memory_files
     parser.parse("\\immediate\\write1{\\a xyz}")
     parser.parse("\\immediate\\closeout 1")
-    file = parser.state.globals["openout"][1]
+    file = parser.globals["openout"][1]
     assert file is None
     file = parser.resolver.in_memory_files["output.tex"]
     assert file.content == "123xyz\n"
@@ -72,14 +72,14 @@ def test_openout_preserves_protected_macros(parser):
 
 def test_openout(parser):
     parser.parse("\\def\\a{123}\\openout 1=output1.tex \\write1{\\a xyz}\\closeout 1")
-    file = parser.state.globals["openout"][1]
+    file = parser.globals["openout"][1]
     assert file is None
     top = parser.lists[-1]
     assert len(top) == 3
     op = top[0]
     assert op.node_type == nd.NODE_TYPE.WHATSIT
     op.output(parser, None)
-    file = parser.state.globals["openout"][1]
+    file = parser.globals["openout"][1]
     assert file is not None
     assert "output1.tex" in parser.resolver.in_memory_files
     op = top[1]
@@ -88,7 +88,7 @@ def test_openout(parser):
     op = top[2]
     assert op.node_type == nd.NODE_TYPE.WHATSIT
     op.output(parser, None)
-    file = parser.state.globals["openout"][1]
+    file = parser.globals["openout"][1]
     assert file is None
     file = parser.resolver.in_memory_files["output1.tex"]
     assert file.content == "123xyz\n"
@@ -110,17 +110,17 @@ def test_message_family_preserves_single_hash(parser, cmd):
 
 def test_read(read_tex):
     read_tex.parse("\\openin 0=read.tex \\read 0 to \\a\\closein 0")
-    a = read_tex.state.equitable["\\a"]
+    a = read_tex.equitable["\\a"]
     assert isinstance(a, macro.Macro)
     assert len(a.replacement) == 10
 
 
 def test_ifeof(read_tex):
     read_tex.parse("\\openin 0=read.tex \\count0=\\ifeof 0 1\\else -1\\fi")
-    assert read_tex.state.count[0] == -1
+    assert read_tex.count[0] == -1
     read_tex.parse("\\count0 =\\ifeof 1 1\\else -1\\fi\\closein 0")
-    assert read_tex.state.count[0] == 1
+    assert read_tex.count[0] == 1
     read_tex.parse("\\count0 =\\ifeof -1 1\\else -1\\fi\\closein 0")
-    assert read_tex.state.count[0] == 1
+    assert read_tex.count[0] == 1
     read_tex.parse("\\count0 =\\ifeof 18 1\\else -1\\fi\\closein 0")
-    assert read_tex.state.count[0] == 1
+    assert read_tex.count[0] == 1

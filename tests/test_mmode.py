@@ -143,10 +143,10 @@ def test_mlist_typeset_inline(math):
     assert len(packed) == 3
     assert isinstance(packed[0], nd.MathShift)
     assert packed[0].on
-    assert packed[0].kern == math.state.layout["mathsurround"]
+    assert packed[0].kern == math.layout["mathsurround"]
     assert isinstance(packed[-1], nd.MathShift)
     assert not packed[-1].on
-    assert packed[-1].kern == math.state.layout["mathsurround"]
+    assert packed[-1].kern == math.layout["mathsurround"]
 
 
 def test_leading_superscript_uses_empty_subformula_nucleus(math):
@@ -190,17 +190,17 @@ def test_display_halign_typesets_with_display_wrapper(math):
     assert len(packed) == 7 # HBox, penalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
     assert packed[0].node_type == nd.NODE_TYPE.HLIST
     assert packed[1].node_type == nd.NODE_TYPE.PENALTY
-    assert packed[1].penalty == math.state.layout["predisplaypenalty"]
+    assert packed[1].penalty == math.layout["predisplaypenalty"]
     assert packed[2].node_type == nd.NODE_TYPE.GLUE
-    assert packed[2].glue == math.state.layout["abovedisplayskip"]
+    assert packed[2].glue == math.layout["abovedisplayskip"]
     assert packed[3].node_type == nd.NODE_TYPE.GLUE
-    assert packed[3].glue == math.state.layout["baselineskip"]
+    assert packed[3].glue == math.layout["baselineskip"]
     assert packed[4].node_type == nd.NODE_TYPE.HLIST
     assert packed[5].node_type == nd.NODE_TYPE.PENALTY
-    assert packed[5].penalty == math.state.layout["postdisplaypenalty"]
+    assert packed[5].penalty == math.layout["postdisplaypenalty"]
     assert packed[6].node_type == nd.NODE_TYPE.GLUE
-    assert packed[6].glue == math.state.layout["belowdisplayskip"]
-    expected = math.state.volatile["displayindent"]
+    assert packed[6].glue == math.layout["belowdisplayskip"]
+    expected = math.volatile["displayindent"]
     assert packed[4].shifted == expected
 
 
@@ -262,7 +262,7 @@ def test_display_noindent_has_no_synthetic_previous_paragraph(math):
     top = math.lists[0]
     raw = _source_nodes(top, mmode.DisplayMathNode)
     assert len(raw) == 1
-    assert math.state.globals["prevgraf"] == 3
+    assert math.globals["prevgraf"] == 3
 
 
 def test_mlist_typeset_display_without_closing_paragraph(math):
@@ -287,8 +287,8 @@ def test_display_centering_uses_half_remaining_width(math):
     mlist = _source_nodes(top, mmode.DisplayMathNode)[0]
     packed = _concrete_nodes(top)
     b = _display_box_for_mlist(packed, mlist)
-    z = math.state.volatile["displaywidth"]
-    s = math.state.volatile["displayindent"]
+    z = math.volatile["displaywidth"]
+    s = math.volatile["displayindent"]
     expected = s + (z - b.width) / 2
     assert b.shifted == expected
 
@@ -299,15 +299,15 @@ def test_display_predisplaysize_adds_two_ems(math):
     prev_par = _source_nodes(top, paragraph.Paragraph)[0]
     packed = _concrete_nodes(top)
     last_prev_line = [n for n in packed if n.node_type == nd.NODE_TYPE.HLIST and getattr(n, "source", None) is prev_par][-1]
-    expected = last_prev_line.rightmost() + 2 * math.state.parameters["currentfont"].param[5]
-    assert float(math.state.volatile["predisplaysize"]) == pytest.approx(float(expected), abs=1e-4)
+    expected = last_prev_line.rightmost() + 2 * math.parameters["currentfont"].param[5]
+    assert float(math.volatile["predisplaysize"]) == pytest.approx(float(expected), abs=1e-4)
 
 
 def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
     # Make display width narrow enough that q must include one quad (fontdimen6).
-    text_sym = math.state.textfont[2]
-    text_rm = math.state.textfont[0]
-    text_it = math.state.textfont[1]
+    text_sym = math.textfont[2]
+    text_rm = math.textfont[0]
+    text_it = math.textfont[1]
     quad = Dimen(text_sym.param[5])
     # Guard the fixture assumption behind this regression.
     assert float(quad) > float(text_sym.param[1])
@@ -328,7 +328,7 @@ def test_display_eqno_squeeze_drops_eqno_when_not_enough_shrink(math):
     assert packed[display_index + 1].penalty == 10000
     assert packed[display_index + 2].node_type == nd.NODE_TYPE.HLIST
     assert packed[display_index + 3].node_type == nd.NODE_TYPE.PENALTY
-    assert packed[display_index + 3].penalty == math.state.layout["postdisplaypenalty"]
+    assert packed[display_index + 3].penalty == math.layout["postdisplaypenalty"]
 
 
 def test_everydisplay_can_read_prevgraf_from_previous_paragraph(math):
@@ -339,9 +339,9 @@ def test_everydisplay_can_read_prevgraf_from_previous_paragraph(math):
 def test_display_metrics_realized_when_prevdepth_is_queried(math):
     math.parse("$$a$$\\par")
     mlist = _source_nodes(math.lists[0], mmode.DisplayMathNode)[0]
-    assert math.state.globals["prevdepth"] is not None
-    assert math.state.volatile["displaywidth"] is not None
-    assert math.state.volatile["predisplaysize"] is not None
+    assert math.globals["prevdepth"] is not None
+    assert math.volatile["displaywidth"] is not None
+    assert math.volatile["predisplaysize"] is not None
 
 
 def test_subformula(parser):
@@ -463,7 +463,7 @@ def test_active(math):
 
 def test_mathcode_active_character_uses_active_entry(math):
     code = (mmode.ATOM_TYPE.ORD.value << 12) | ord("1")
-    math.state.equitable.entry("a").set(mmode.MathCharValue(code))
+    math.equitable.entry("a").set(mmode.MathCharValue(code))
     math.parse("\\mathcode`a=\"8000$a")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.MATH
@@ -940,7 +940,7 @@ def test_rule21_penalty_cases(math, label, node_type, nodes, ctx_overrides, expe
     mlist.extend(nodes())
     ctx = display_context(math)
     for key, value in ctx_overrides.items():
-        math.state.layout[key] = value
+        math.layout[key] = value
     packed = []
     node.typesetNodes(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     penalties = [n.penalty for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
@@ -1030,7 +1030,7 @@ def test_rule18_substeps(math):
     sub_box = b.list[1]
     assert sub_box.node_type == nd.NODE_TYPE.HLIST and float(sub_box.shifted) >= 0, "rule18b sub box shape/shift"
     raw = expected_script_box(atom.sub, style.subscript())
-    close(sub_box.width, raw.width + math.state.layout["scriptspace"], "rule18b should add scriptspace")
+    close(sub_box.width, raw.width + math.layout["scriptspace"], "rule18b should add scriptspace")
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
     _, v = atom.rule18a(math, translated, ctx, style)
@@ -1049,7 +1049,7 @@ def test_rule18_substeps(math):
     sup_box = b.list[1]
     assert sup_box.node_type == nd.NODE_TYPE.HLIST and float(sup_box.shifted) <= 0, "rule18c sup box shape/shift"
     raw = expected_script_box(atom.sup, style.superscript())
-    close(sup_box.width, raw.width + math.state.layout["scriptspace"], "rule18c should add scriptspace")
+    close(sup_box.width, raw.width + math.layout["scriptspace"], "rule18c should add scriptspace")
     translated = []
     atom.typesetNucleus(math, translated, ctx, style)
     u, _ = atom.rule18a(math, translated, ctx, style)
@@ -1085,7 +1085,7 @@ def test_rule18_substeps(math):
     u = atom.rule18c(math, x, ctx, style, u)
     y, v2 = atom.rule18d(math, ctx, style, v)
     raw = expected_script_box(atom.sub, style.subscript())
-    close(y.width, raw.width + math.state.layout["scriptspace"], "rule18d sub box should include scriptspace")
+    close(y.width, raw.width + math.layout["scriptspace"], "rule18d sub box should include scriptspace")
     assert v2 >= v and v2 >= Dimen(mmode.mathsigma(math, style)[16]), "rule18d should enforce v>=max(v,sigma17)"
 
     # 18e: minimum clearance
@@ -1145,7 +1145,7 @@ def test_plain_math_reference_metrics(parser):
     parser.parse("\\input plain")
 
     parser.parse("\\setbox0=\\hbox{$\\displaystyle \\int_0^1$}")
-    integral = parser.state.box[0]
+    integral = parser.box[0]
     integral = integral.typeset(parser)
     # Reference metrics from pdfTeX:
     # \\hbox(15.65013+9.11122)x14.48615
@@ -1156,21 +1156,21 @@ def test_plain_math_reference_metrics(parser):
     assert integral.list[2].node_type == nd.NODE_TYPE.VLIST
 
     parser.parse("\\setbox1=\\hbox{$\\displaystyle \\sqrt{a}$}")
-    disp = parser.state.box[1]
+    disp = parser.box[1]
     disp = disp.typeset(parser)
     assert float(disp.width) == pytest.approx(13.61925, abs=1e-4)
     assert float(disp.height) == pytest.approx(8.49092, abs=1e-4)
     assert float(disp.depth) == pytest.approx(1.90904, abs=1e-4)
 
     parser.parse("\\setbox2=\\hbox{$\\sqrt{a}$}")
-    text = parser.state.box[2]
+    text = parser.box[2]
     text = text.typeset(parser)
     assert float(text.width) == pytest.approx(13.61925, abs=1e-4)
     assert float(text.height) == pytest.approx(8.00272, abs=1e-4)
     assert float(text.depth) == pytest.approx(2.39725, abs=1e-4)
 
     parser.parse("\\setbox3=\\hbox{$\\displaystyle {a^2 \\over b^2}$}")
-    frac = parser.state.box[3]
+    frac = parser.box[3]
     frac = frac.typeset(parser)
     # \\hbox(14.9051+6.85951)x12.17201
     assert float(frac.width) == pytest.approx(12.17201, abs=1e-4)
@@ -1536,21 +1536,21 @@ def test_delim_typeset_null_uses_nulldelimiterspace(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
     b = d.typeset(math, Dimen(20), ctx, style)
     assert b.node_type == nd.NODE_TYPE.HLIST
-    assert b.width == math.state.layout["nulldelimiterspace"]
+    assert b.width == math.layout["nulldelimiterspace"]
     axis = Dimen(mmode.mathsigma(math, style)[21])
     assert float(b.shifted) == pytest.approx(-float(axis), abs=1e-4)
 
 
 def test_delim_typeset_null_uses_live_parser_layout(math):
     d = mmode.Delim(0, 0)
-    math.state.layout["nulldelimiterspace"] = Dimen(7.5)
+    math.layout["nulldelimiterspace"] = Dimen(7.5)
     ctx = display_context(math)
     b = d.typeset(math, Dimen(20), ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert b.width == 7.5
 
 
 def test_inline_math_freezes_local_nulldelimiterspace_before_group_restore(math):
-    math.state.layout["nulldelimiterspace"] = Dimen(7.5)
+    math.layout["nulldelimiterspace"] = Dimen(7.5)
     math.parse("\\noindent$\\nulldelimiterspace=0pt\\left(a\\right.$\\relax")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
@@ -1584,7 +1584,7 @@ def test_delim_typeset_order_uses_style_fonts(math):
 def test_displaystyle_sum_with_limits_uses_correct_rule13a_baseline(math):
     math.parse("\\mathchardef\\SUM=\"1350")
     math.parse("\\setbox0=\\hbox{$\\displaystyle \\SUM_a^b$}")
-    b = math.state.box[0].typeset(math)
+    b = math.box[0].typeset(math)
     assert float(b.height) > float(b.depth)
     assert float(b.height) > 15
     assert float(b.depth) < 15
@@ -1628,8 +1628,8 @@ def test_rule19_uses_live_delimiter_parameters(math):
     atom.left = left
     atom.right = right
 
-    math.state.layout["delimiterfactor"] = 0
-    math.state.layout["delimitershortfall"] = Dimen(10000)
+    math.layout["delimiterfactor"] = 0
+    math.layout["delimitershortfall"] = Dimen(10000)
     ctx = display_context(math)
 
     packed = []
@@ -1797,8 +1797,8 @@ def test_fraction_rule15c_atop_construction(math):
     left, out, right = wrapped.list
     assert left.node_type == nd.NODE_TYPE.HLIST
     assert right.node_type == nd.NODE_TYPE.HLIST
-    assert left.width == math.state.layout["nulldelimiterspace"]
-    assert right.width == math.state.layout["nulldelimiterspace"]
+    assert left.width == math.layout["nulldelimiterspace"]
+    assert right.width == math.layout["nulldelimiterspace"]
     assert out.node_type == nd.NODE_TYPE.VLIST
     assert len(out.list) == 3
     x, k, z = out.list
@@ -1830,8 +1830,8 @@ def test_fraction_rule15d_over_construction(math):
     left, out, right = wrapped.list
     assert left.node_type == nd.NODE_TYPE.HLIST
     assert right.node_type == nd.NODE_TYPE.HLIST
-    assert left.width == math.state.layout["nulldelimiterspace"]
-    assert right.width == math.state.layout["nulldelimiterspace"]
+    assert left.width == math.layout["nulldelimiterspace"]
+    assert right.width == math.layout["nulldelimiterspace"]
     assert out.node_type == nd.NODE_TYPE.VLIST
     assert len(out.list) == 5
     x, k1, rule, k2, z = out.list
@@ -1925,8 +1925,8 @@ def test_fraction_rule15e_null_delims_integrated_in_inner_atom_nucleus(math):
     assert inner.list[0].node_type == nd.NODE_TYPE.HLIST
     assert inner.list[1].node_type == nd.NODE_TYPE.VLIST
     assert inner.list[2].node_type == nd.NODE_TYPE.HLIST
-    assert inner.list[0].width == math.state.layout["nulldelimiterspace"]
-    assert inner.list[2].width == math.state.layout["nulldelimiterspace"]
+    assert inner.list[0].width == math.layout["nulldelimiterspace"]
+    assert inner.list[2].width == math.layout["nulldelimiterspace"]
 
 
 @pytest.mark.parametrize("left", [True, False])
@@ -1998,7 +1998,7 @@ def test_atom_rebox_unpackages_hbox_and_centers(math):
             self.char = "("
 
     b = box.HBox(math, None, None)
-    b.list.append(FakeChar(5, math.state.parameters["currentfont"], italic=2))
+    b.list.append(FakeChar(5, math.parameters["currentfont"], italic=2))
     b.typeset(math, [])
     target = b.width + Dimen(10)
     out = mmode.Atom.rebox(math, b, target)

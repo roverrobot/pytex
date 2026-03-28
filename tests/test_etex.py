@@ -119,7 +119,7 @@ def test_gluestretchness(collector):
 def test_readline(example_tex):
     example_tex.parse("\\openin 0=example \\readline 0 to \\a\\closein 0")
     s = "Hello, world!\r"
-    a = example_tex.state.equitable["\\a"]
+    a = example_tex.equitable["\\a"]
     assert isinstance(a, macro.Macro)
     assert len(a.replacement) == len(s)
     i = iter(a.replacement)
@@ -131,11 +131,11 @@ def test_readline(example_tex):
 
 
 def test_marks_value_commands_expand(collector):
-    collector.state.globals["topmarks"] = [toToks("A"), toToks("BC")]
-    collector.state.globals["firstmarks"] = [toToks("D")]
-    collector.state.globals["botmarks"] = [toToks("E"), [], toToks("FG")]
-    collector.state.globals["splitfirstmarks"] = [toToks("H"), toToks("I")]
-    collector.state.globals["splitbotmarks"] = [toToks("J")]
+    collector.globals["topmarks"] = [toToks("A"), toToks("BC")]
+    collector.globals["firstmarks"] = [toToks("D")]
+    collector.globals["botmarks"] = [toToks("E"), [], toToks("FG")]
+    collector.globals["splitfirstmarks"] = [toToks("H"), toToks("I")]
+    collector.globals["splitbotmarks"] = [toToks("J")]
     collector.parse("\\topmarks1\\firstmarks0\\botmarks2\\splitfirstmarks1\\splitbotmarks0")
     assert collector.getString() == "BCDFGIJ"
 
@@ -153,12 +153,12 @@ def test_page_break_updates_marks_registers(parser):
     parser.end()
     pages = parser.shipout.pages
     assert len(pages) == 2
-    assert toksToString(parser, parser.state.globals["topmarks"][0]) == "A"
-    assert toksToString(parser, parser.state.globals["firstmarks"][0]) == "B"
-    assert toksToString(parser, parser.state.globals["botmarks"][0]) == "B"
-    assert toksToString(parser, parser.state.globals["topmarks"][2]) == "X"
-    assert toksToString(parser, parser.state.globals["firstmarks"][2]) == "Y"
-    assert toksToString(parser, parser.state.globals["botmarks"][2]) == "Y"
+    assert toksToString(parser, parser.globals["topmarks"][0]) == "A"
+    assert toksToString(parser, parser.globals["firstmarks"][0]) == "B"
+    assert toksToString(parser, parser.globals["botmarks"][0]) == "B"
+    assert toksToString(parser, parser.globals["topmarks"][2]) == "X"
+    assert toksToString(parser, parser.globals["firstmarks"][2]) == "Y"
+    assert toksToString(parser, parser.globals["botmarks"][2]) == "Y"
 
 
 def test_vsplit_updates_split_marks_registers(parser):
@@ -168,9 +168,9 @@ def test_vsplit_updates_split_marks_registers(parser):
     source.list.append(_test_hbox(parser, height=6, depth=2))
     source.list.append(_mark("Y", 3))
     source.list.append(_test_hbox(parser, height=6, depth=2))
-    parser.state.box[1] = source
+    parser.box[1] = source
     parser.parse("\\setbox2=\\vsplit1 to 50pt")
-    assert toksToString(parser, parser.state.globals["splitfirstmarks"][0]) == "A"
-    assert toksToString(parser, parser.state.globals["splitbotmarks"][0]) == "A"
-    assert toksToString(parser, parser.state.globals["splitfirstmarks"][3]) == "X"
-    assert toksToString(parser, parser.state.globals["splitbotmarks"][3]) == "Y"
+    assert toksToString(parser, parser.globals["splitfirstmarks"][0]) == "A"
+    assert toksToString(parser, parser.globals["splitbotmarks"][0]) == "A"
+    assert toksToString(parser, parser.globals["splitfirstmarks"][3]) == "X"
+    assert toksToString(parser, parser.globals["splitbotmarks"][3]) == "Y"

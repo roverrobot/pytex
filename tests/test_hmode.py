@@ -58,7 +58,7 @@ def test_everypar_runs_before_first_character(cmr10):
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
     assert "".join(node.char for node in hlist if node.node_type == nd.NODE_TYPE.CHAR) == "123"
     assert not any(isinstance(node, hmode.IndentBox) for node in hlist)
-    assert isinstance(cmr10.state.box[0], hmode.IndentBox)
+    assert isinstance(cmr10.box[0], hmode.IndentBox)
 
 
 def test_par(cmr10):
@@ -87,7 +87,7 @@ def test_noindent_par_creates_no_empty_line(cmr10):
     assert top.type == lists.LISTTYPE.VERTICAL
     assert len(nodes) == 1
     assert nodes[0].node_type == nd.NODE_TYPE.GLUE
-    assert nodes[0].name == "\parskip"
+    assert nodes[0].name == "\\parskip"
 
 
 def test_vskip(cmr10):
@@ -110,15 +110,15 @@ def test_controlled_space(cmr10):
     assert len(top) == 3
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.GLUE
-    assert node.glue == cmr10.state.parameters["currentfont"].spaceglue
+    assert node.glue == cmr10.parameters["currentfont"].spaceglue
 
 
 def test_spacefactor_accessor(cmr10):
     cmr10.parse("\\noindent\\spacefactor=1200\\count0=\\spacefactor\\par")
-    assert cmr10.state.count[0] == 1200
+    assert cmr10.count[0] == 1200
     # \spacefactor assignment is not grouped; it belongs to the current hlist.
     cmr10.parse("\\noindent{\\spacefactor=900}\\count0=\\spacefactor\\par")
-    assert cmr10.state.count[0] == 900
+    assert cmr10.count[0] == 900
 
 
 def test_hrule_wrongmode(cmr10):
@@ -200,7 +200,7 @@ def test_discretionary(cmr10):
 
 def test_discretionary_inside_hbox_typesets(cmr10):
     cmr10.parse("\\setbox0=\\hbox{a\\discretionary{\\hbox{-}}{}{}}")
-    box0 = cmr10.state.box[0].typeset(cmr10)
+    box0 = cmr10.box[0].typeset(cmr10)
     assert len(box0.list) == 2
     assert box0.list[0].node_type == nd.NODE_TYPE.CHAR
     assert box0.list[0].char == "a"
@@ -324,14 +324,14 @@ def test_last_item_quantities_hmode(cmr10):
         "\\skip1=\\lastskip"
         "\\count3=\\lastpennalty"
     )
-    assert cmr10.state.skip[0] == glue.Glue(3, glue.Stretchness(2), glue.Stretchness(1))
-    assert cmr10.state.count[0] == 0
-    assert cmr10.state.dimen[0] == 0
-    assert cmr10.state.dimen[1] == 4
-    assert cmr10.state.count[1] == 0
-    assert cmr10.state.count[2] == 123
-    assert cmr10.state.skip[1] == glue.Glue()
-    assert cmr10.state.count[3] == 123
+    assert cmr10.skip[0] == glue.Glue(3, glue.Stretchness(2), glue.Stretchness(1))
+    assert cmr10.count[0] == 0
+    assert cmr10.dimen[0] == 0
+    assert cmr10.dimen[1] == 4
+    assert cmr10.count[1] == 0
+    assert cmr10.count[2] == 123
+    assert cmr10.skip[1] == glue.Glue()
+    assert cmr10.count[3] == 123
 
 
 def test_italic_correction(cmr10):
@@ -345,4 +345,4 @@ def test_italic_correction(cmr10):
     assert node.char == "l"
     node = top[2]
     assert node.node_type == nd.NODE_TYPE.KERN
-    assert node.kern == cmr10.state.parameters["currentfont"]["l"].italic
+    assert node.kern == cmr10.parameters["currentfont"]["l"].italic

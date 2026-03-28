@@ -34,7 +34,7 @@ def plain_dump(parser):
     plain = parser.resolver.openIn('plain', "source")
     assert plain is not None
     parser.parse(plain)
-    assert parser.state.parameters["currentfont"].backend.name != "nullfont"
+    assert parser.parameters["currentfont"].backend.name != "nullfont"
     data = parser.dump()
     dump.write(data)
     dump.close()
@@ -60,7 +60,7 @@ def test_plain(plain):
 
 
 def test_plain_preserves_fontchar(plain):
-    current = plain.state.parameters["currentfont"]
+    current = plain.parameters["currentfont"]
     assert current.name == "\\tenrm"
     assert current.fontchar["hyphenchar"] == 45
     assert current.hyphenChar() is not None

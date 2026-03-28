@@ -127,7 +127,7 @@ def test_parser_group_mismatch(parser):
 
 
 def test_insert_runtime_lists(parser):
-    inserts = parser.state.globals["insert"]
+    inserts = parser.globals["insert"]
     assert len(inserts) == 256
     assert inserts[0] == []
     inserts[0].append("x")
@@ -137,7 +137,7 @@ def test_insert_runtime_lists(parser):
 
 def test_dump(parser):
     parser.parse("\\count0=1{\\count0=2}\\def\\a{123}")
-    data = parser.state.dump()
+    data = parser.dumpState()
     assert "globals" not in data
     assert "count" in data
     assert "insert" not in data

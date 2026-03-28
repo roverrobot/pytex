@@ -66,18 +66,18 @@ def test_integer_array(parser):
 
 def test_global_integer(parser):
     checkValues(parser, "{\\prevgraf=7", [["globals", "prevgraf", 7]])
-    dump = parser.state.dump()
+    dump = parser.dumpState()
     assert "globals" not in dump
 
 def test_chardef(collector):
     collector.parse("\\chardef\\a=65 \\a")
     assert collector.getString() == "A"
     collector.parse("\\count0=\\a")
-    assert collector.state.count[0] == 65
+    assert collector.count[0] == 65
 
 def test_mathchardef(parser):
     parser.parse("\\mathchardef\\a=65 \\count0=\\a")
-    assert parser.state.count[0] == 65
+    assert parser.count[0] == 65
 
 
 def test_date(collector):

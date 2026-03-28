@@ -39,7 +39,7 @@ def test_ligatures(cmr10, input, char):
 ])
 def test_kern(cmr10, input):
     cmr10.parse(input)
-    at = cmr10.state.parameters["currentfont"].at
+    at = cmr10.parameters["currentfont"].at
     top = cmr10.lists[-1]
     assert len(top) == len(input) + 2
     packed = []
@@ -49,7 +49,7 @@ def test_kern(cmr10, input):
     knode = packed[2]
     assert isinstance(knode, nd.Kern)
     assert knode.automatic
-    font = cmr10.state.parameters["currentfont"]
+    font = cmr10.parameters["currentfont"]
     char = font[input[0]]
     next = ord(input[1])
     program = char.char_info.program
@@ -108,7 +108,7 @@ class _FakeFont:
 
 
 def test_left_boundary_ligature_is_applied(parser):
-    parser.state.lccode[ord("a")] = ord("a")
+    parser.lccode[ord("a")] = ord("a")
     left = tfm.LigOp(ord("a"), ord("b"), 0)
     font = _FakeFont(left_boundary=left)
     a = font.add("a", {})
@@ -125,7 +125,7 @@ def test_left_boundary_ligature_is_applied(parser):
 
 
 def test_right_boundary_kern_is_applied(parser):
-    parser.state.lccode[ord("a")] = ord("a")
+    parser.lccode[ord("a")] = ord("a")
     bchar = types.SimpleNamespace(next_char=ord("#"))
     font = _FakeFont(right_boundary=bchar)
     a = font.add("a", {ord("#"): tfm.KernOp(ord("#"), 2)})

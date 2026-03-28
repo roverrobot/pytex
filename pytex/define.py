@@ -165,7 +165,7 @@ class RegisterDefAccessor(accessor.ParameterAccessor):
 
     def readValue(self, parser):
         i = parser.readInteger()
-        register = getattr(parser.state, self.register)
+        register = getattr(parser, self.register)
         c = self.accessor_generator(register, i)
         c.name = parser.formatName(f"\\{self.register}{i}")
         return c

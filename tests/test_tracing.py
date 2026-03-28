@@ -50,7 +50,7 @@ def test_showbox_respects_breadth_limit(cmr10):
 
 def test_box_meaning_reports_glue_set(cmr10):
     cmr10.parse("\\setbox1=\\hbox to 20pt{a\\hfil}")
-    box = cmr10.state.box[1]
+    box = cmr10.box[1]
     box.typeset(cmr10, [])
     assert "glue set" in box.meaning(cmr10)
 
@@ -90,7 +90,7 @@ def test_showlists_expands_inline_math_nodes(cmr10):
 
 def test_showlists_expands_display_math_nodes(cmr10):
     _init_math_fonts(cmr10)
-    cmr10.state.layout["baselineskip"] = Glue(Dimen(12))
+    cmr10.layout["baselineskip"] = Glue(Dimen(12))
     cmr10.parse("\\hsize=200pt $$a$$\\showlists")
     log = cmr10.logContent()
     assert "\\glue(\\abovedisplayshortskip)" in log

@@ -18,13 +18,13 @@ def test_read_dimen(parser):
     result = parser.readDimen()
     assert result == -1
     parser.parse("\\count0=10 \\dimen0=\\count0pt")
-    d0 = parser.state.dimen[0]
+    d0 = parser.dimen[0]
     assert d0 == 10
 
 
 def test_read_true_dimen(parser):
     # magnify by a factor of 2.0
-    parser.state.parameters["mag"] = 2000
+    parser.parameters["mag"] = 2000
     parser.readFrom("-1Truept")
     result = parser.readDimen()
     assert result == -0.5 # handling true dimension is done by reducing the unit by \mag/1000
@@ -71,8 +71,8 @@ def test_dimen_array(parser):
 
 def test_negated_internal_dimen_does_not_mutate_source(parser):
     parser.parse("\\dimen0=12pt\\dimen1=-\\dimen0")
-    assert parser.state.dimen[0] == 12
-    assert parser.state.dimen[1] == -12
+    assert parser.dimen[0] == 12
+    assert parser.dimen[1] == -12
 
 
 def test_dimen_parameter(parser):
@@ -100,13 +100,13 @@ def test_dimen_repr_matches_tex_print_scaled():
 
 def test_pt_and_in_parsing_match_tex_scaled_points(parser):
     parser.parse("\\dimen0=72.27pt\\dimen1=1in")
-    assert int(parser.state.dimen[0]) == 4736287
-    assert int(parser.state.dimen[1]) == 4736286
+    assert int(parser.dimen[0]) == 4736287
+    assert int(parser.dimen[1]) == 4736286
 
 
 def test_inch_decimal_coefficient_uses_tex_integer_path(parser):
     parser.parse("\\dimen0=12.3in")
-    assert int(parser.state.dimen[0]) == 58256341
+    assert int(parser.dimen[0]) == 58256341
 
 
 def test_read_mu_decimal_uses_scaled_rounding(parser):
@@ -118,4 +118,4 @@ def test_read_mu_decimal_uses_scaled_rounding(parser):
 def test_parsing_print_scaled_pt_round_trips_scaled_value(parser):
     s = repr(Dimen(integer=30785865))
     parser.parse(f"\\dimen0={s}pt")
-    assert int(parser.state.dimen[0]) == 30785865
+    assert int(parser.dimen[0]) == 30785865

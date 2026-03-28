@@ -27,7 +27,7 @@ def test_dimen_divide(parser):
 
 def test_dimen_divide_truncates_like_tex(parser):
     parser.parse("\\dimen0=16.71499pt\\divide\\dimen0 by 65536")
-    assert parser.state.dimen[0] == Dimen(integer=16)
+    assert parser.dimen[0] == Dimen(integer=16)
 
 
 def test_int_divide(parser):

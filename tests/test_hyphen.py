@@ -5,19 +5,19 @@ from pytex.token import CATCODE
 
 
 def _set_common_catcodes(parser):
-    parser.state.catcode[ord("{")] = CATCODE.BEGIN_GROUP
-    parser.state.catcode[ord("}")] = CATCODE.END_GROUP
-    parser.state.catcode[ord("$")] = CATCODE.MATH_SHIFT
-    parser.state.catcode[ord("&")] = CATCODE.ALIGNMENT_TAB
-    parser.state.catcode[ord("#")] = CATCODE.PARAMETER
-    parser.state.catcode[ord("^")] = CATCODE.SUPERSCRIPT
-    parser.state.catcode[ord("_")] = CATCODE.SUBSCRIPT
+    parser.catcode[ord("{")] = CATCODE.BEGIN_GROUP
+    parser.catcode[ord("}")] = CATCODE.END_GROUP
+    parser.catcode[ord("$")] = CATCODE.MATH_SHIFT
+    parser.catcode[ord("&")] = CATCODE.ALIGNMENT_TAB
+    parser.catcode[ord("#")] = CATCODE.PARAMETER
+    parser.catcode[ord("^")] = CATCODE.SUPERSCRIPT
+    parser.catcode[ord("_")] = CATCODE.SUBSCRIPT
 
 
 def test_hyphenator_dump_load_roundtrip(parser):
     parser.parse("\\hyphenation{tech-ni-cal}")
     parser.parse("\\language 1 \\hyphenation{micro-wave}")
-    parser.hyphenator.setLanguage(parser.state.parameters["language"])
+    parser.hyphenator.setLanguage(parser.parameters["language"])
     parser.hyphenator._insertPattern(
         parser.hyphenator.pattern_trie,
         "abc",
@@ -60,7 +60,7 @@ def test_hyphenator_container_dump_load_is_lazy(parser, monkeypatch):
     monkeypatch.setattr(type(loaded.hyphenator), "_insertPattern", staticmethod(tracking_insert))
     loaded.load(io.BytesIO(data))
 
-    assert loaded.state.count[0] == 123
+    assert loaded.count[0] == 123
     assert loaded.formatfile is not None
     assert loaded.hyphenator.language == 1
     assert calls == []

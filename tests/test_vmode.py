@@ -201,21 +201,21 @@ def test_last_item_quantities_vmode(cmr10):
         "\\skip1=\\lastskip"
         "\\count3=\\lastpennalty"
     )
-    assert cmr10.state.skip[0] == glue.Glue(5, glue.Stretchness(1), glue.Stretchness(1))
-    assert cmr10.state.dimen[0] == 0
-    assert cmr10.state.count[0] == 0
-    assert cmr10.state.dimen[1] == 2
-    assert cmr10.state.count[1] == 0
-    assert cmr10.state.count[2] == 77
-    assert cmr10.state.skip[1] == glue.Glue()
-    assert cmr10.state.count[3] == 77
+    assert cmr10.skip[0] == glue.Glue(5, glue.Stretchness(1), glue.Stretchness(1))
+    assert cmr10.dimen[0] == 0
+    assert cmr10.count[0] == 0
+    assert cmr10.dimen[1] == 2
+    assert cmr10.count[1] == 0
+    assert cmr10.count[2] == 77
+    assert cmr10.skip[1] == glue.Glue()
+    assert cmr10.count[3] == 77
 
 
 def test_lastskip_after_display_math_uses_concrete_vertical_tail(cmr10):
     cmr10.parse("$$a$$\\par\\skip0=\\lastskip\\dimen0=\\lastkern\\count0=\\lastpenalty\\end")
-    assert cmr10.state.skip[0] == cmr10.state.layout["belowdisplayshortskip"]
-    assert cmr10.state.dimen[0] == 0
-    assert cmr10.state.count[0] == 0
+    assert cmr10.skip[0] == cmr10.layout["belowdisplayshortskip"]
+    assert cmr10.dimen[0] == 0
+    assert cmr10.count[0] == 0
 
 
 class _LeafHBox(nd.Box):
@@ -240,9 +240,9 @@ def _break_pages(parser):
     pages = list(parser.shipout.pages)
     main._contributePending()
     material = list(main.contrib)
-    context = page.PageBuilderContext(parser.state.layout)
+    context = page.PageBuilderContext(parser.layout)
     breaker = page.PageBreaker(parser, material, context)
-    topmark = list(parser.state.parameters["botmark"])
+    topmark = list(parser.parameters["botmark"])
     page.MainVList._clearInsertScratch(parser)
     start = 0
     while True:
@@ -262,11 +262,11 @@ def _break_pages(parser):
         page.MainVList._clearInsertScratch(parser)
         box.list[:], carry = main._extractPageInserts(parser, page_nodes, breaker)
         pages.append(box.typeset(parser))
-        parser.state.layout["outputpenalty"] = break_penalty
-        parser.state.globals["insertpenalties"] = breaker.last_insert_penalties
-        parser.state.parameters["topmark"] = list(topmark)
-        parser.state.parameters["firstmark"] = list(firstmark)
-        parser.state.parameters["botmark"] = list(botmark)
+        parser.layout["outputpenalty"] = break_penalty
+        parser.globals["insertpenalties"] = breaker.last_insert_penalties
+        parser.parameters["topmark"] = list(topmark)
+        parser.parameters["firstmark"] = list(firstmark)
+        parser.parameters["botmark"] = list(botmark)
         topmark = list(botmark)
         context = breaker.advanceContext(start, next_start, context)
         if carry:
@@ -280,15 +280,15 @@ def _concrete_vlist(parser, nodes):
         return _vertical_nodes(nodes)
     if isinstance(nodes, vmode.VList):
         return list(nodes.list)
-    saved_prevdepth = parser.state.globals["prevdepth"]
+    saved_prevdepth = parser.globals["prevdepth"]
     try:
-        parser.state.globals["prevdepth"] = vmode.init_prevdepth
+        parser.globals["prevdepth"] = vmode.init_prevdepth
         vlist = vmode.VList(parser, [])
         for node in nodes:
             vlist.append(node)
         return list(vlist.list)
     finally:
-        parser.state.globals["prevdepth"] = saved_prevdepth
+        parser.globals["prevdepth"] = saved_prevdepth
 
 
 class _ProbeWhatsit(nd.WhatsIt):
@@ -338,7 +338,7 @@ def test_prevdepth_kept_across_glue_kern_penalty(parser):
     vlist.append(nd.Glue(glue.Glue(1), None))
     vlist.append(nd.Kern(1))
     vlist.append(nd.Penalty(0))
-    assert parser.state.globals["prevdepth"] == 3
+    assert parser.globals["prevdepth"] == 3
 
 
 def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
@@ -358,7 +358,7 @@ def test_rule_resets_resolved_prevdepth(parser):
     vlist = vmode.VList(parser, [])
     vlist.append(_test_hbox(parser, depth=3))
     vlist.append(nd.Rule(0, 4, 0))
-    assert parser.state.globals["prevdepth"] == vmode.init_prevdepth
+    assert parser.globals["prevdepth"] == vmode.init_prevdepth
 
 
 def test_box_interline_penalty_override(parser):
@@ -399,12 +399,12 @@ def test_extend_built_vertical_stream_does_not_duplicate_interline_penalty(parse
 
 def test_prevdepth_accessor_is_vlist_local(parser):
     parser.parse("\\prevdepth=5pt\\dimen0=\\prevdepth")
-    assert parser.state.dimen[0] == 5
+    assert parser.dimen[0] == 5
 
 
 def test_prevdepth_assignment_is_not_grouped(parser):
     parser.parse("{\\prevdepth=100pt}\\dimen0=\\prevdepth")
-    assert parser.state.dimen[0] == 100
+    assert parser.dimen[0] == 100
 
 
 def test_prevdepth_assignment_affects_next_box_context(parser):
@@ -413,7 +413,7 @@ def test_prevdepth_assignment_affects_next_box_context(parser):
     first = _test_hbox(parser)
     second = _test_hbox(parser)
     vlist.append(first)
-    parser.state.globals["prevdepth"] = Dimen(10)
+    parser.globals["prevdepth"] = Dimen(10)
     vlist.append(second)
     packed = _concrete_vlist(parser, vlist)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
@@ -424,7 +424,7 @@ def test_prevdepth_assignment_affects_next_box_context(parser):
 
 def test_prevdepth_assignment_is_allowed_in_horizontal_mode(cmr10):
     cmr10.parse("a\\prevdepth=1pt\\dimen0=\\prevdepth")
-    assert cmr10.state.dimen[0] == 1
+    assert cmr10.dimen[0] == 1
 
 
 def test_page_break_inserts_topskip_and_splits_pages(parser):
@@ -507,14 +507,14 @@ def test_page_break_extracts_insert_into_class_box(parser):
     pages = _break_pages(parser)
     assert len(pages) == 1
     assert all(node.node_type != nd.NODE_TYPE.INS for node in pages[0].list)
-    assert parser.state.globals["insertpenalties"] == 0
-    ins = parser.state.box[2]
+    assert parser.globals["insertpenalties"] == 0
+    ins = parser.box[2]
     assert ins is not None
     assert ins.node_type == nd.NODE_TYPE.VLIST
     assert len(ins.list) == 1
     assert ins.list[0].node_type == nd.NODE_TYPE.GLUE
     assert ins.list[0].glue == glue.Glue(72.26999)
-    scratch = parser.state.globals["insert"][2]
+    scratch = parser.globals["insert"][2]
     assert len(scratch) == 1
     assert scratch[0].node_type == nd.NODE_TYPE.VLIST
 
@@ -539,7 +539,7 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     main.append(_test_hbox(parser, height=1, depth=0))
     main._contributePending()
     material = list(main.contrib)
-    context = page.PageBuilderContext(parser.state.layout)
+    context = page.PageBuilderContext(parser.layout)
     breaker = page.PageBreaker(parser, material, context)
     start, context = breaker.pruneTop(0, context)
     end, _, _, _, _ = breaker.bestBreak(start, context)
@@ -559,7 +559,7 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     assert len(carry) == 2
     assert carry[0].node_type == nd.NODE_TYPE.INS
     assert carry[1].node_type == nd.NODE_TYPE.INS
-    ins = parser.state.box[2]
+    ins = parser.box[2]
     assert ins is not None
     assert ins.node_type == nd.NODE_TYPE.VLIST
     assert len(ins.list) == 1
@@ -570,7 +570,7 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
 
 def test_page_cost_matches_tex_formula(parser):
     parser.parse("")
-    breaker = page.PageBreaker(parser, [], page.PageBuilderContext(parser.state.layout))
+    breaker = page.PageBreaker(parser, [], page.PageBuilderContext(parser.layout))
     total = glue.Glue(0, glue.Stretchness(1))
     assert breaker.cost(total, Dimen(5), 0) == 100000
     assert breaker.cost(total, Dimen(5), 10000) == float("inf")
@@ -599,7 +599,7 @@ def test_page_topskip_includes_rule(parser):
 def test_main_vlist_moves_triggered_nodes_into_contrib(parser):
     parser.parse("")
     main = parser.lists[0]
-    parser.state.layout["vsize"] = Dimen(20)
+    parser.layout["vsize"] = Dimen(20)
     box = _test_hbox(parser, height=6, depth=0)
     main.append(box)
     assert len(main.list) == 0
@@ -609,13 +609,13 @@ def test_main_vlist_moves_triggered_nodes_into_contrib(parser):
 
 def test_lastpenalty_sees_contributed_tail_penalty(parser):
     parser.parse("\\vsize=20pt\\penalty50\\count0=\\lastpenalty")
-    assert parser.state.count[0] == 50
+    assert parser.count[0] == 50
 
 
 def test_main_vlist_prunes_top_discardables_when_contributing(parser):
     parser.parse("")
     main = parser.lists[0]
-    parser.state.layout["vsize"] = Dimen(20)
+    parser.layout["vsize"] = Dimen(20)
     main.append(nd.Glue(glue.Glue(3), "\\parskip"))
     main.append(nd.Penalty(50))
     box = _test_hbox(parser, height=6, depth=0)
@@ -626,7 +626,7 @@ def test_main_vlist_prunes_top_discardables_when_contributing(parser):
 def test_main_vlist_keeps_leading_whatsits_while_pruning_top_discardables(parser):
     parser.parse("")
     main = parser.lists[0]
-    parser.state.layout["vsize"] = Dimen(20)
+    parser.layout["vsize"] = Dimen(20)
     special = nd.Special("abc")
     main.append(special)
     main.append(nd.Glue(glue.Glue(3), "\\parskip"))
@@ -643,7 +643,7 @@ def test_page_break_uses_current_layout_at_break_time(parser):
     second = _test_hbox(parser, height=6, depth=0)
     main.append(first)
     main.append(nd.Glue(glue.Glue(2, glue.Stretchness(1, 1)), None))
-    parser.state.layout["vsize"] = Dimen(20)
+    parser.layout["vsize"] = Dimen(20)
     main.append(second)
     main.append(nd.Penalty(-10000))
     pages = _break_pages(parser)
@@ -664,8 +664,8 @@ def test_end_default_shipout(cmr10):
     cmr10.end()
     shipout = cmr10.shipout
     assert len(shipout.pages) == 1
-    assert cmr10.state.box[255] is None
-    assert cmr10.state.globals["deadcycles"] == 0
+    assert cmr10.box[255] is None
+    assert cmr10.globals["deadcycles"] == 0
 
 
 def test_end_skips_empty_page_with_only_whatsits(parser):
@@ -704,8 +704,8 @@ def test_output_routine_can_carry_material_forward(cmr10):
     cmr10.end()
     shipout = cmr10.shipout
     assert len(shipout.pages) == 2
-    assert cmr10.state.count[0] == 1
-    assert cmr10.state.globals["deadcycles"] == 0
+    assert cmr10.count[0] == 1
+    assert cmr10.globals["deadcycles"] == 0
     first = shipout.pages[0].list[1]
     second = shipout.pages[1].list[1]
     assert first.node_type == nd.NODE_TYPE.HLIST
@@ -721,7 +721,7 @@ def test_output_routine_sees_outputpenalty(cmr10):
         "\\vsize=20pt\\topskip=0pt\\hbox{A}\\penalty123"
     )
     cmr10.end()
-    assert cmr10.state.count[0] == 123
+    assert cmr10.count[0] == 123
 
 
 def test_output_uses_default_when_maxdeadcycles_reached(cmr10):
@@ -733,9 +733,9 @@ def test_output_uses_default_when_maxdeadcycles_reached(cmr10):
     cmr10.end()
     shipout = cmr10.shipout
     assert len(shipout.pages) == 1
-    assert cmr10.state.count[0] == 0
-    assert cmr10.state.box[255] is None
-    assert cmr10.state.globals["deadcycles"] == 0
+    assert cmr10.count[0] == 0
+    assert cmr10.box[255] is None
+    assert cmr10.globals["deadcycles"] == 0
 
 
 def test_end_ships_explicit_shipout_before_page(cmr10):

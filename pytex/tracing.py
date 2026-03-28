@@ -196,7 +196,7 @@ class TracingEntry(NamedEntry):
         """
         domain = kargs["domain"]
         name = kargs["name"]
-        return cls(getattr(parser.state, domain), name)
+        return cls(getattr(parser, domain), name)
 
     def set(self, value):
         """
@@ -232,7 +232,7 @@ class Tracing(Dict):
     It is a Dict, so it can be used to access the tracing parameters.
     """
     def __init__(self, parser):
-        super().__init__("tracing", parser.state)
+        super().__init__("tracing", parser)
         self.parser = parser
 
     def entry(self, key):

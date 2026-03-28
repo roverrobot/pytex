@@ -498,31 +498,6 @@ class State(StateOwner):
         return self.endStateGroup(position, group_type)
 
 
-class StateProxy:
-    """
-    Compatibility view that exposes parser-owned state through parser.state.
-    """
-    def __init__(self, owner):
-        object.__setattr__(self, "_owner", owner)
-
-    def __getattr__(self, name):
-        return getattr(self._owner, name)
-
-    def __setattr__(self, name, value):
-        setattr(self._owner, name, value)
-
-    def dump(self):
-        return self._owner.dumpState()
-
-    def load(self, data):
-        self._owner.loadState(data)
-
-    def beginGroup(self, position, group_type: GROUP_TYPE, to_end=None, ended=None):
-        self._owner.beginStateGroup(position, group_type, to_end=to_end, ended=ended)
-
-    def endGroup(self, position, group_type: GROUP_TYPE):
-        return self._owner.endStateGroup(position, group_type)
-
 class BeginGroup(Command):
     """
     the \\begingroup command

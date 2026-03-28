@@ -41,24 +41,20 @@ class Tokenizer:
         self.chars = enumerate(line)
         self.pos = -1
         self.first = -1
-        self.saved = []
         last = None
         last_pos = -1
+        self.peek = None
         for self.pos, c in self.chars:
             last = c
             last_pos = self.pos
             catcode = self.catcode[ord(c)]
             if catcode != CATCODE.SPACE and catcode != CATCODE.IGNORE:
                 self.first = self.pos
-                self.saved = [c]
-                break
-        else:
-            if last is not None:
-                # line has only spaces; keep the last one for current behavior
-                self.pos = last_pos
-                self.first = last_pos
-                self.saved = [last]
-
+                self.peek = c
+                return
+        # line has only spaces; keep the last one for current behavior
+        self.pos = last_pos
+        self.first = last_pos
 
     def char(self):
         """
@@ -66,65 +62,71 @@ class Tokenizer:
         @return: the character and its category code, or (None, None) if the end of the
         line is reached
         """
-        if self.saved:
-            c = self.saved.pop()
-        else:
-            item = next(self.chars, None)
-            if item is None:
-                return None, None
-            self.pos, c = item
-        return c, self.catcode[ord(c)]
+        item = next(self.chars, None)
+        if item is None:
+            return None
+        self.pos, c = item
+        return c
     
-    def unread(self, c):
-        """
-        save a character for later reading
-        @param c: the character to save
-        """
-        if c is not None:
-            self.saved.append(c)
-
     def charExpand(self):
         """
         read a character from the line, and expand ^^. 
         @return: the character and its category code
         """
-        c, catcode = self.char()
+        if self.peek is None:
+            return None, None
+        c = self.peek
+        self.peek = self.char()
+        catcode = self.catcode[ord(c)]
         if catcode != CATCODE.SUPERSCRIPT:
             return c, catcode
         # handle ^^
-        c1, catcode1 = self.char()
-        if catcode1 != CATCODE.SUPERSCRIPT:
-            self.unread(c1)
+        c1 = self.peek
+        if c1 is None:
             return c, catcode
-        c2, catcode2 = self.char()
+        catcode1 = self.catcode[ord(c1)]
+        if catcode1 != CATCODE.SUPERSCRIPT:
+            self.peek = c1
+            return c, catcode
+        c2 = self.char()
         if c2 is None:
-            self.unread(c1)
+            self.peek = c1
             return c, catcode
         # handle ^^ followed by two hex digits
         if ("0" <= c2 <= "9") or ("a" <= c2 <= "f") or ("A" <= c2 <= "F"):
-            c3, catcode3 = self.char()
+            c3 = self.char()
             if c3 is not None and (("0" <= c3 <= "9") or ("a" <= c3 <= "f") or ("A" <= c3 <= "F")):
-                c = int(c2 + c3, 16)
-                catcode = self.catcode[c]
-                return chr(c), catcode
-            self.unread(c3)
-        c = ord(c2)
-        if c >= 64:
-            c -= 64
+                c4 = int(c2 + c3, 16)
+                catcode4 = self.catcode[c4]
+                self.peek = self.char()
+                return chr(c4), catcode4
+            self.peek = c3
         else:
-            c += 64
-        catcode = self.catcode[c]
-        return chr(c), catcode
+            self.peek = None
+        c3 = ord(c2)
+        if c3 >= 64:
+            c3 -= 64
+        else:
+            c3 += 64
+        catcode3 = self.catcode[c3]
+        if self.peek is None:
+            self.peek = self.char()
+        return chr(c3), catcode3
 
     def skipSpaces(self):
         """
         read a token and if it is a space, skip spaces and return a single space
         """
-        catcode = CATCODE.SPACE
-        while catcode == CATCODE.SPACE:
-            c, catcode = self.charExpand()
-        if catcode != CATCODE.END_OF_LINE:
-            self.unread(c)
+        while True:
+            c = self.peek
+            if c is None:
+                return
+            catcode = self.catcode[ord(c)]
+            if catcode != CATCODE.SPACE:
+                break
+            self.charExpand()
+        if catcode == CATCODE.END_OF_LINE:
+            self.peek = None
 
     def read(self) -> typing.Optional[Token]:
         """
@@ -148,21 +150,23 @@ class Tokenizer:
             t = ActiveToken(c, catcode)
             t.entry = self.equitable.entry(c)
             return t
-        if catcode != CATCODE.ESCAPE:
+        if catcode is not CATCODE.ESCAPE:
             return self.read() if catcode == CATCODE.IGNORE else Token.token(c, catcode)
         c, catcode = self.charExpand()
         name = "\\" + c
-        if catcode == CATCODE.LETTER:
-            c, catcode = self.charExpand()
-            while catcode == CATCODE.LETTER:
+        while catcode == CATCODE.LETTER:
+            c = self.peek
+            if c is None: 
+                break
+            catcode = self.catcode[ord(c)]
+            if catcode == CATCODE.LETTER:
                 name += c
-                c, catcode = self.charExpand()
-            if catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
+                self.charExpand()
+            elif catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
                 self.skipSpaces()
-            else:
-                self.unread(c)
+                break
         t = CommandToken(name)
-        t.entry = self.equitable.entry(name)
+        t.entry = self.equitable.entry(name)        
         return t
 
     def position(self):

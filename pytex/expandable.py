@@ -187,7 +187,7 @@ class RomanNumeral(Number):
 
 
 def formatName(parser, name: str) -> str:
-    """
+    r"""
     format the command name, handle the \\ according to \escapechar
     @param parser: the parser
     @param name: the command name

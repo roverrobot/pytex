@@ -1,4 +1,4 @@
-"""
+r"""
 this module implements the tex commands \advance, \multiple and \divide
 
 \\advance <number variable><optional signs><number>

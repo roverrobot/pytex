@@ -289,7 +289,7 @@ class Macro(Command):
                 parser.input.push(TokenListScanner(self.replacement))
             else:
                 top = parser.input.top
-                if isinstance(top, MacroScanner) and parser.input.peek is None:
+                if isinstance(top, MacroScanner) and not parser.input.saved:
                     top.pushExpansion(self.replacement, args)
                 else:
                     parser.input.push(MacroScanner(self.replacement, args))

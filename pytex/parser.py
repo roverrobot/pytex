@@ -40,6 +40,8 @@ class Parser:
     """
     The parser is the main class that processes the input and executes the commands.
     """
+    _STATE_VALUE_MISSING = object()
+
     def __init__(self, project_dir: typing.Optional[str] = None):
         self.initState()
         # the builtin commands
@@ -122,6 +124,44 @@ class Parser:
             self.current_group.remove(domain, index)
             for group in self.groups:
                 group.remove(domain, index)
+
+    def get(self, domain, key):
+        """
+        get a value from a parser-state domain and store it in current_value
+        @param domain: the parser attribute name of the domain
+        @param key: the item key within the domain
+        @return: the retrieved value
+        """
+        domain = getattr(self, domain)
+        value = domain[key]
+        self.current_value = value
+        return value
+
+    def set(self, domain, key, scope: str = "local", value=_STATE_VALUE_MISSING):
+        """
+        set a parser-state domain entry from current_value or an explicit value
+        @param domain: the parser attribute name of the domain
+        @param key: the item key within the domain
+        @param scope: "local" or "global"
+        @param value: optional explicit value; defaults to current_value
+        @return: the written value
+        """
+        domain = getattr(self, domain)
+        if value is self._STATE_VALUE_MISSING:
+            value = self.current_value
+        else:
+            self.current_value = value
+        if scope == "local":
+            domain[key] = value
+        elif scope == "global" or domain is self.globals:
+            setter = getattr(domain, "setGlobal", None)
+            if setter is not None:
+                setter(key, value)
+            else:
+                domain[key] = value
+        else:
+            raise ValueError(f"unknown scope {scope}")
+        return value
 
     def logFileName(self):
         """

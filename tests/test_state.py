@@ -169,6 +169,37 @@ def test_parser_group_mismatch(parser):
         assert "mismatch" in str(e)
 
 
+def test_parser_get_and_set_explicit_value(parser):
+    parser.set("count", 0, value=123)
+    assert parser.count[0] == 123
+    assert parser.current_value == 123
+    assert parser.get("count", 0) == 123
+    assert parser.current_value == 123
+
+
+def test_parser_set_uses_current_value(parser):
+    parser.current_value = 456
+    parser.set("count", 0)
+    assert parser.count[0] == 456
+    assert parser.current_value == 456
+
+
+def test_parser_set_global_scope(parser):
+    parser.set("count", 0, value=1)
+    parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
+    parser.set("count", 0, value=2)
+    parser.set("count", 0, scope="global", value=3)
+    parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
+    assert parser.count[0] == 3
+
+
+def test_parser_get_set_globals(parser):
+    parser.set("globals", "demo", value="x")
+    assert parser.globals["demo"] == "x"
+    assert parser.get("globals", "demo") == "x"
+    assert parser.current_value == "x"
+
+
 def test_insert_runtime_lists(parser):
     inserts = parser.globals["insert"]
     assert len(inserts) == 256

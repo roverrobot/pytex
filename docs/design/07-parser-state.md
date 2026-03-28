@@ -49,17 +49,21 @@ The current code already has this flavor in [pytex/state.py](/Users/jma/dev/pyte
 - registered arrays such as `catcode`, `count`, `dimen`, `skip`, `toks`, and similar tables
 
 The important abstraction is not whether a domain is implemented as a dict or an
-array. The important abstraction is that commands read and write typed items in a
+array. The important abstraction is that commands get and set typed items in a
 named domain.
 
 ## Core IR
 
 The minimal grouped-state IR is:
 
-- `read(domain, key)`
-- `write(domain, key, scope)`
+- `get(domain, key)`
+- `set(domain, key, scope)`
 - `begin_group(kind)`
 - `end_group(kind)`
+
+We prefer `get`/`set` here rather than `read`/`write` to avoid confusion with
+token scanning and file I/O, which already use "read" and "write" heavily in
+other parts of the engine.
 
 Where:
 
@@ -71,9 +75,9 @@ Where:
 In practice, provenance such as source position may also be attached for
 diagnostics, but it is not part of the essential algebra.
 
-The intended convention is that `write(domain, key, scope)` consumes the
+The intended convention is that `set(domain, key, scope)` consumes the
 current tagged execution value. The typed reader or constructor that ran just
-before the write determines the value's type.
+before the set determines the value's type.
 
 At a lower implementation level, this can still be understood as an explicit
 store operation with a value argument. The public execution IR is simply
@@ -96,18 +100,18 @@ So `key` is the better general term. Array domains can still use integer keys.
 
 Most domains are subject to grouping rules.
 
-The local write rule is:
+The local set rule is:
 
-- on the first local write to `(domain, key)` in the current group, save the old value in the current group frame
-- write the new value in place
+- on the first local set to `(domain, key)` in the current group, save the old value in the current group frame
+- set the new value in place
 - on `end_group`, restore the saved old values
 
-The global write rule is:
+The global set rule is:
 
-- write the new value in place
+- set the new value in place
 - remove any saved restoration entries for that `(domain, key)` from open groups
 
-This matches the current implementation in [pytex/state.py](/Users/jma/dev/pytex/pytex/state.py), where local writes capture previous values in the current `Group`, while global writes clear pending restores.
+This matches the current implementation in [pytex/state.py](/Users/jma/dev/pytex/pytex/state.py), where local sets capture previous values in the current `Group`, while global sets clear pending restores.
 
 ## Group Kind Matters
 
@@ -139,12 +143,12 @@ In the current code:
 
 This suggests that each domain should declare at least two traits:
 
-- `scoped`: whether local writes are restored by group exit
+- `scoped`: whether local sets are restored by group exit
 - `dumped`: whether the domain participates in format/state serialization
 
 ## `\aftergroup`
 
-`\aftergroup` is not an ordinary domain write.
+`\aftergroup` is not an ordinary domain set.
 
 It is a group-local queue attached to the current group frame. Conceptually, the
 relevant operation is:
@@ -189,9 +193,9 @@ do not need a larger state algebra.
 
 They can be understood as:
 
-- `read(domain, key)`
+- `get(domain, key)`
 - compute new value
-- `write(domain, key, scope)`
+- `set(domain, key, scope)`
 
 If we want a more faithful execution trace, we can also admit a first-class
 derived operation:
@@ -245,8 +249,8 @@ hooks.
 
 Its clean core is:
 
-- `read(domain, key)`
-- `write(domain, key, value, scope)`
+- `get(domain, key)`
+- `set(domain, key, scope)`
 - `begin_group(kind)`
 - `end_group(kind)`
 

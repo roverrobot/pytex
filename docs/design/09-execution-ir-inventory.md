@@ -40,9 +40,9 @@ This gives a very compact discipline:
 Under this convention, many public operations no longer need an explicit value
 operand. For example:
 
-- `write(domain, key, scope)`
+- `set(domain, key, scope)`
 
-means "write `current_value` into `(domain, key)` with the given scope."
+means "set `(domain, key)` from `current_value` with the given scope."
 
 This appears to be enough for TeX execution, since most commands need at most
 two live dynamic inputs at once.
@@ -71,7 +71,7 @@ Examples:
 
 - `read_int()` corresponds to a parser method
 - `read_to(...)` corresponds to a parser method
-- `write(domain, key, scope)` corresponds to a parser method
+- `set(domain, key, scope)` corresponds to a parser method
 - `skip_conditional(...)` corresponds to a parser method
 
 But helper details such as saved-value restoration or low-level token-list
@@ -113,7 +113,7 @@ Start with human-readable tracing of major parser ops, for example:
 
 - token flow: `push`, `pop`, `unread`, `read_next_raw`
 - capture/readers: `read_to`, `read_general_text`, `read_int`, `read_dimen`, `read_glue`
-- state: `begin_group`, `end_group`, `write`, `update`
+- state: `begin_group`, `end_group`, `set`, `update`
 - control: conditional push/pop/skip
 - execution-to-layout bridge calls
 
@@ -237,7 +237,7 @@ For example, a macro definition can be described as:
 - `params = read_to(BEGIN_GROUP, balanced=False, include_tail=False, expand_mode=raw)`
 - `body = read_to(END_GROUP, balanced=True, include_tail=False, expand_mode=raw)`
 - `macro = make_macro(params, body)`
-- `write(equitable, key, scope)`
+- `set(equitable, key, scope)`
 
 So token-list construction is still real, but it is better treated as the
 internal realization of higher-level capture ops.
@@ -245,7 +245,7 @@ internal realization of higher-level capture ops.
 A hook assignment such as `\everypar` then looks like:
 
 - `read_general_text()`
-- `write(parameters, "everypar", scope)`
+- `set(parameters, "everypar", scope)`
 
 ## 3. Typed Value Reader IR
 
@@ -284,8 +284,8 @@ This is the grouped typed-store part of execution.
 
 ### Core Operations
 
-- `read(domain, key)`
-- `write(domain, key, scope)`
+- `get(domain, key)`
+- `set(domain, key, scope)`
 - `begin_group(kind)`
 - `end_group(kind)`
 
@@ -300,7 +300,7 @@ This is the grouped typed-store part of execution.
 - `update(domain, key, op, scope)`
 
 This is optional sugar for operations such as `\advance`, `\multiply`, and
-`\divide`, which can also be lowered to `read + compute + write`. Under the
+`\divide`, which can also be lowered to `get + compute + set`. Under the
 holder convention, the new operand comes from `current_value`.
 
 ### Hidden Micro-Ops

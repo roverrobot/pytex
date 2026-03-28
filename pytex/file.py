@@ -23,12 +23,28 @@ class EndFileScanToken(token.Token):
         raise RuntimeError("unexpected file scan terminator")
 
 
+class EndFileScanScanner(TokenListScanner):
+    def __init__(self):
+        super().__init__([EndFileScanToken()])
+
+
 def pushFileScan(parser, scanner):
     """
     Push a temporary scanner that should stop before resuming the normal input stack.
     """
-    parser.input.push(TokenListScanner([EndFileScanToken()]))
+    parser.input.push(EndFileScanScanner())
     parser.input.push(scanner)
+
+
+def popFileScan(parser):
+    """
+    Pop a temporary file scan, including any active line tokenizer layer.
+    """
+    while parser.input.top is not None:
+        top = parser.input.top
+        parser.input.pop()
+        if isinstance(top, EndFileScanScanner):
+            break
 
 
 class OpenOp(ArrayItemAccessor):
@@ -121,7 +137,7 @@ class WriteOp(FileOp):
         while True:
             t, expanded = toks.token_expand(parser)
             if isinstance(t, EndFileScanToken):
-                parser.input.pop()
+                popFileScan(parser)
                 break
             if t is None:
                 break
@@ -167,7 +183,7 @@ class ReadOp(ParameterAccessor):
             while True:
                 t = parser.token()
                 if isinstance(t, EndFileScanToken):
-                    parser.input.pop()
+                    popFileScan(parser)
                     done = level == 0
                     break
                 if t is None:
@@ -177,8 +193,7 @@ class ReadOp(ParameterAccessor):
                     level += 1
                 elif t.catcode == token.CATCODE.END_GROUP:
                     if level == 0:
-                        parser.input.pop()
-                        parser.input.pop()
+                        popFileScan(parser)
                         done = True
                         break
                     level -= 1

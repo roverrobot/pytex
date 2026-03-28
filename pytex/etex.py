@@ -515,7 +515,7 @@ class ScanTokens(token.Command):
     def expand(self, parser):
         toks = parser.readGeneralText(expand=False)
         s = expandable.toksToString(parser, toks)
-        parser.input.push(lexer.StringScanner((s, " ")))
+        parser.input.push(lexer.StringScanner(parser, s))
 
 
 class Unexpanded(The):

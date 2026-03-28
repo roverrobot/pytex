@@ -412,14 +412,13 @@ class OutputRoutineEndCallback:
     Pop the temporary output list when the output routine group ends.
     """
 
-    def __init__(self, parser, vlist):
-        self.parser = parser
+    def __init__(self, vlist):
         self.vlist = vlist
 
-    def __call__(self):
-        if self.parser.lists and self.parser.lists[-1] is self.vlist:
-            state = self.parser.lists.pop()
-            self.parser.globals["prevdepth"] = state.saved_prevdepth
+    def __call__(self, parser):
+        if parser.lists and parser.lists[-1] is self.vlist:
+            state = parser.lists.pop()
+            parser.globals["prevdepth"] = state.saved_prevdepth
 
 
 class EndOutputRoutineToken(Token):
@@ -1066,7 +1065,7 @@ class MainVList(vmode.VList):
         parser.beginGroup(
             parser.input.position(),
             GROUP_TYPE.OUTPUT,
-            ended=OutputRoutineEndCallback(parser, outlist),
+            ended=OutputRoutineEndCallback(outlist),
         )
         parser.input.push(lexer.TokenListScanner([EndOutputRoutineToken()]))
         parser.input.push(lexer.TokenListScanner(output))

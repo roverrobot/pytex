@@ -451,17 +451,17 @@ class Discretionary(HorizontalCommand):
         post_state = DiscHList(parser, post)
         replace_state = DiscHList(parser, replace)
         
-        def finish():
+        def finish(_parser):
             # we need to handle ligatures and boxes so their width are fixed.
             node = Disc(pre, post, replace)
             if math and len(node.replace) > 0:
                 raise ValueError("replace part of discretionary must be empty in math mode")
             out.append(node)
 
-        def readReplace():
+        def readReplace(_parser):
             parser.readList(replace_state, GROUP_TYPE.DISC, finish)
 
-        def readPost():
+        def readPost(_parser):
             parser.readList(post_state, GROUP_TYPE.DISC, readReplace)
 
         parser.readList(pre_state, GROUP_TYPE.DISC, readPost)

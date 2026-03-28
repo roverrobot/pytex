@@ -415,34 +415,29 @@ def readBoxSpec(parser, keywords=["to", "spread"]):
 
 
 class ListEndCallback:
-    def __init__(self, parser):
-        self.parser = parser
-    
-    def __call__(self):
-        state = self.parser.lists.pop()
+    def __call__(self, parser):
+        state = parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            self.parser.globals["prevdepth"] = state.saved_prevdepth
+            parser.globals["prevdepth"] = state.saved_prevdepth
 
 
 class ReadBoxEndCallback(ListEndCallback):
-    def __init__(self, parser, box):
-        super().__init__(parser)
+    def __init__(self, box):
         self.box = box
         self.finished = False
 
-    def __call__(self):
-        super().__call__()
-        self.parser.lastbox = self.box
+    def __call__(self, parser):
+        super().__call__(parser)
+        parser.lastbox = self.box
         self.finished = True
-        self.parser.run = False
+        parser.run = False
 
 
 class BoxPretypesetCallback:
     def __init__(self, box):
         self.box = box
 
-    def __call__(self):
-        parser = self.box.parser
+    def __call__(self, parser):
         if self.box.node_type == nd.NODE_TYPE.VLIST:
             top = parser.lists[-1]
             if top.type == LISTTYPE.HORIZONTAL and not top.inner:
@@ -489,7 +484,7 @@ class BuildBox(Command):
             if parser.tracingcommands > 0 and parser.checkRange():
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         if not setbox:
-            callback = ReadBoxEndCallback(parser, box)
+            callback = ReadBoxEndCallback(box)
             parser.beginGroup(parser.input.position(), self.group_type, to_end=to_end, ended=callback)
             parser.loop()
             if callback.finished:
@@ -521,18 +516,17 @@ def readBox(parser, setbox=False):
     
 
 class SetBoxEndCallback:
-    def __init__(self, parser, accessor, box):
-        self.parser = parser
+    def __init__(self, accessor, box):
         self.accessor = accessor
         self.box = box
 
-    def __call__(self):
-        state = self.parser.lists.pop()
+    def __call__(self, parser):
+        state = parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            self.parser.globals["prevdepth"] = state.saved_prevdepth
-        self.box = self.box.typeset(self.parser)
-        self.parser.lastbox = self.box
-        self.accessor._set(self.parser)
+            parser.globals["prevdepth"] = state.saved_prevdepth
+        self.box = self.box.typeset(parser)
+        parser.lastbox = self.box
+        self.accessor._set(parser)
 
 
 class BoxArrayItemAccessor(ArrayItemAccessor):
@@ -566,7 +560,7 @@ class BoxArrayItemAccessor(ArrayItemAccessor):
                 parser.input.position(),
                 new.group_type,
                 to_end=to_end,
-                ended=SetBoxEndCallback(parser, self, self.value[0]),
+                ended=SetBoxEndCallback(self, self.value[0]),
             )
         else:
             self._set(parser)
@@ -941,17 +935,16 @@ def _appendLeader(parser, type, box):
 
 
 class LeaderBoxCallback:
-    def __init__(self, parser, type, box):
-        self.parser = parser
+    def __init__(self, type, box):
         self.type = type
         self.box = box
 
-    def __call__(self):
-        state = self.parser.lists.pop()
+    def __call__(self, parser):
+        state = parser.lists.pop()
         if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            self.parser.globals["prevdepth"] = state.saved_prevdepth
-        self.parser.lastbox = self.box
-        _appendLeader(self.parser, self.type, self.box)
+            parser.globals["prevdepth"] = state.saved_prevdepth
+        parser.lastbox = self.box
+        _appendLeader(parser, self.type, self.box)
 
 
 class Leaders(Command):
@@ -988,7 +981,7 @@ class Leaders(Command):
             parser.beginGroup(
                 parser.input.position(),
                 new.group_type,
-                ended=LeaderBoxCallback(parser, self.type, box),
+                ended=LeaderBoxCallback(self.type, box),
             )
         else:
             _appendLeader(parser, self.type, box)

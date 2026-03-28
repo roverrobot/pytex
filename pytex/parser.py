@@ -145,14 +145,14 @@ class Parser:
         if not group.match(group_type):
             raise ValueError(f"mismatched group type starting at {group.position} and ending at {position}")
         if to_end:
-            to_end()
+            to_end(self)
         group.end(position, group_type)
         if self.groups:
             self.current_group = self.groups.pop()
         else:
             self.current_group = None
         if ended:
-            ended()
+            ended(self)
         return aftergroup
     
     def logFileName(self):
@@ -431,14 +431,14 @@ class Parser:
         begin a group
         @param position: the position of the begin group token
         @param group_type: the type of the group
-        @param to_end: callback before local values are restored
-        @param ended: callback after group close
+        @param to_end: callback before local values are restored, called as to_end(parser)
+        @param ended: callback after group close, called as ended(parser)
         """
         # if we are already in math mode, then we are reading a subformula
         if group_type == state.GROUP_TYPE.SIMPLE and self.lists[-1].type == lists.LISTTYPE.MATH:
             subformula = mmode.Subformula()
             self.lists.append(mmode.MList(self, subformula.list))
-            ended = mmode.MathEndGroupCallback(self, subformula)
+            ended = mmode.MathEndGroupCallback(subformula)
         self.beginStateGroup(position, group_type, to_end=to_end, ended=ended)
     
     def endGroup(self, position, group_type: state.GROUP_TYPE = state.GROUP_TYPE.SIMPLE):

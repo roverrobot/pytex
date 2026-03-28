@@ -142,18 +142,17 @@ class IfInner(conditional.Conditional):
 
 
 class ListReadEndCallback:
-    def __init__(self, parser, state, ended):
-        self.parser = parser
+    def __init__(self, state, ended):
         self.state = state
         self.ended = ended
 
-    def __call__(self):
+    def __call__(self, parser):
         if self.state is not None:
-            state = self.parser.lists.pop()
+            state = parser.lists.pop()
             if state.type == LISTTYPE.VERTICAL:
-                self.parser.globals["prevdepth"] = state.saved_prevdepth
+                parser.globals["prevdepth"] = state.saved_prevdepth
         if self.ended is not None:
-            self.ended()
+            self.ended(parser)
 
 
 def readList(parser, state, reason: GROUP_TYPE, ended=None):
@@ -173,7 +172,7 @@ def readList(parser, state, reason: GROUP_TYPE, ended=None):
     if state is not None:
         assert isinstance(state, List)
         parser.lists.append(state)
-        ended = ListReadEndCallback(parser, state, ended)
+        ended = ListReadEndCallback(state, ended)
     parser.beginGroup(pos, reason, ended=ended)
     return None if state is None else state.list
 

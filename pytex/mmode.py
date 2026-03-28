@@ -1443,8 +1443,7 @@ class Box(Atom):
 
 
 class MathEndGroupCallback:
-    def __init__(self, parser, node):
-        self.parser = parser
+    def __init__(self, node):
         self.node = node
 
     def finalize(self, parser, top, mlist):
@@ -1455,13 +1454,12 @@ class MathEndGroupCallback:
                 return
         top.append(self.node)
 
-    def __call__(self):
-        parser = self.parser
+    def __call__(self, parser):
         mlist = parser.lists.pop()
         assert mlist.type == lists.LISTTYPE.MATH
         # we need to check if we are building a general fraction
         if getattr(mlist, "building_atom", None) is not None:
-            raise ValueError("missing field", self.parser.input.position())
+            raise ValueError("missing field", parser.input.position())
         if getattr(mlist, "is_denominator", False):
             mlist= parser.lists.pop()
         top = parser.lists[-1]
@@ -1469,8 +1467,7 @@ class MathEndGroupCallback:
 
 
 class MathShiftEndGroupCallback(MathEndGroupCallback):    
-    def prepare(self):
-        parser = self.parser
+    def prepare(self, parser):
         mlist = parser.lists[-1]
         if mlist.type != lists.LISTTYPE.MATH:
             return
@@ -1570,7 +1567,7 @@ def mathShift(parser):
     parser.lists.append(MList(parser, node.list, inner=inner))
     # \fam=-1 when entering math mode
     parser.parameters["fam"] = -1
-    callback = MathShiftEndGroupCallback(parser, node)
+    callback = MathShiftEndGroupCallback(node)
     parser.beginGroup(
         parser.input.position(),
         GROUP_TYPE.MATH_SHIFT,
@@ -1821,8 +1818,8 @@ class ChoiceNode(nd.Node):
 
 
 class MathChoiceEndGroupCallback(MathEndGroupCallback):
-    def __init__(self, parser, node):
-        super().__init__(parser, node)
+    def __init__(self, node):
+        super().__init__(node)
         self.state = 0
         self.attr = ["display", "text", "script", "scriptscript"]
 
@@ -1849,7 +1846,7 @@ class MathChoice(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         choice = ChoiceNode(None, None, None, None)
         mlist.append(choice)
-        callback = MathChoiceEndGroupCallback(parser, choice)
+        callback = MathChoiceEndGroupCallback(choice)
         callback.beginGroup(parser)
 
 
@@ -2167,8 +2164,8 @@ class Radical(lists.ModeDependentCommand):
 
 
 class MathLeftEndGroupCallBack(MathEndGroupCallback):
-    def __init__(self, parser, node, atom):
-        super().__init__(parser, node)
+    def __init__(self, node, atom):
+        super().__init__(node)
         self.atom = atom
 
     def finalize(self, parser, top, mlist):
@@ -2189,7 +2186,7 @@ class Left(lists.ModeDependentCommand):
         parser.beginGroup(
             parser.input.position(),
             GROUP_TYPE.MATH_LEFT,
-            ended=MathLeftEndGroupCallBack(parser, subformula, atom),
+            ended=MathLeftEndGroupCallBack(subformula, atom),
         )
 
 
@@ -2546,7 +2543,7 @@ class Eqno(lists.ModeDependentCommand):
         self.left = left
 
     def math(self, parser, mlist):
-        def callback():
+        def callback(parser):
             eq_state = parser.lists.pop()
             eqno = getattr(parser.lists[-1], "eqno", [None, None])[0]
             assert eq_state is eqno_builder

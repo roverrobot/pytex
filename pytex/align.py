@@ -128,7 +128,7 @@ class RowBuildState:
         if owner.noalign is None:
             owner.noalign = parser.readVList(
                 GROUP_TYPE.NO_ALIGN,
-                lambda: self.finishRow(parser),
+                lambda parser: self.finishRow(parser),
             )
             return
         parser.clearParagraphSettings()
@@ -136,7 +136,7 @@ class RowBuildState:
         parser.readList(
             state,
             GROUP_TYPE.NO_ALIGN,
-            lambda: self.finishRow(parser),
+            lambda parser: self.finishRow(parser),
         )
 
     def finishRow(self, parser):
@@ -597,19 +597,17 @@ class Column:
 
 
 class AlignmentEndCallback:
-    def __init__(self, parser, builder, target):
-        self.parser = parser
+    def __init__(self, builder, target):
         self.builder = builder
         self.target = target
 
-    def __call__(self):
-        if self.parser.alignments.currentCell() is not None:
-            raise ValueError("expecting \\cr", self.parser.input.position())
-        top = self.parser.lists[-1]
+    def __call__(self, parser):
+        if parser.alignments.currentCell() is not None:
+            raise ValueError("expecting \\cr", parser.input.position())
+        top = parser.lists[-1]
         alignment = self.builder.alignment
         self.target.append(alignment)
         if top.type == lists.LISTTYPE.MATH:
-            parser = self.parser
             initial_prevdepth = parser.globals["prevdepth"]
             alignment._typeset_cache = vmode.VList(parser, [], inner=True)
             parser.globals["prevdepth"] = initial_prevdepth
@@ -620,8 +618,8 @@ class AlignmentEndCallback:
                     n.shifted = indent
                     n.display = True
             top.isalign = True
-        if self.parser.alignments and self.parser.alignments[-1] is self.builder:
-            self.parser.alignments.pop()
+        if parser.alignments and parser.alignments[-1] is self.builder:
+            parser.alignments.pop()
 
 
 class AlignmentBuilder:
@@ -725,7 +723,7 @@ class AlignmentBuilder:
         parser.beginGroup(
             parser.input.position(),
             GROUP_TYPE.ALIGN,
-            to_end=AlignmentEndCallback(parser, self, target),
+            to_end=AlignmentEndCallback(self, target),
         )
         self.readPreamble(parser)
 

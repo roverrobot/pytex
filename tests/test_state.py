@@ -36,14 +36,14 @@ class _StateOwner:
         if not group.match(group_type):
             raise ValueError(f"mismatched group type starting at {group.position} and ending at {position}")
         if to_end:
-            to_end()
+            to_end(self)
         group.end(position, group_type)
         if self.groups:
             self.current_group = self.groups.pop()
         else:
             self.current_group = None
         if ended:
-            ended()
+            ended(self)
         return aftergroup
 
 
@@ -126,8 +126,8 @@ def test_group_to_end_and_ended_order(state):
     s.beginGroup(
         group_type=st.GROUP_TYPE.SIMPLE,
         position=0,
-        to_end=lambda: seen.append(("to_end", d["key1"])),
-        ended=lambda: seen.append(("ended", d["key1"])),
+        to_end=lambda _: seen.append(("to_end", d["key1"])),
+        ended=lambda _: seen.append(("ended", d["key1"])),
     )
     d["key1"] = "inner"
     s.endGroup(group_type=st.GROUP_TYPE.SIMPLE, position=1)
@@ -141,7 +141,7 @@ def test_group_ended_hook_runs_after_restore(state):
     s.beginGroup(
         group_type=st.GROUP_TYPE.SIMPLE,
         position=0,
-        ended=lambda: seen.append(d["key1"]),
+        ended=lambda _: seen.append(d["key1"]),
     )
     d["key1"] = "inner"
     s.endGroup(group_type=st.GROUP_TYPE.SIMPLE, position=1)

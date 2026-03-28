@@ -151,6 +151,11 @@ class Parser:
             value = self.current_value
         else:
             self.current_value = value
+        globaldefs = self.parameters["globaldefs"]
+        if globaldefs > 0:
+            global_scope = True
+        elif globaldefs < 0:
+            global_scope = False
         if global_scope or domain is self.globals:
             setter = getattr(domain, "setGlobal", None)
             if setter is not None:

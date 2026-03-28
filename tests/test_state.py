@@ -193,6 +193,24 @@ def test_parser_set_global_scope(parser):
     assert parser.count[0] == 3
 
 
+def test_parser_set_globaldefs_positive_forces_global(parser):
+    parser.set("count", 0, value=1)
+    parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
+    parser.parameters["globaldefs"] = 1
+    parser.set("count", 0, value=2)
+    parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
+    assert parser.count[0] == 2
+
+
+def test_parser_set_globaldefs_negative_forces_local(parser):
+    parser.set("count", 0, value=1)
+    parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
+    parser.parameters["globaldefs"] = -1
+    parser.set("count", 0, global_scope=True, value=2)
+    parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
+    assert parser.count[0] == 1
+
+
 def test_parser_get_set_globals(parser):
     parser.set("globals", "demo", value="x")
     assert parser.globals["demo"] == "x"

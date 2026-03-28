@@ -135,6 +135,44 @@ def test_input_stack(parser):
     assert token is None
 
 
+def test_input_stack_peek_slot(parser):
+    stack = parser.input
+    stack.push(lexer.StringScanner(parser, "AB"))
+    token = stack.read()
+    assert token is not None
+    assert token.name == "A"
+    stack.unread(token)
+    assert stack.peek is not None
+    assert stack.peek.name == "A"
+    token = stack.read()
+    assert token is not None
+    assert token.name == "A"
+    token = stack.read()
+    assert token is not None
+    assert token.name == "B"
+
+
+def test_input_stack_peek_restores_after_nested_push(parser):
+    stack = parser.input
+    stack.push(lexer.StringScanner(parser, "AB"))
+    token = stack.read()
+    assert token is not None
+    assert token.name == "A"
+    stack.unread(token)
+    assert stack.peek is not None
+    assert stack.peek.name == "A"
+    stack.push(lexer.StringScanner(parser, "1"))
+    token = stack.read()
+    assert token is not None
+    assert token.name == "1"
+    token = stack.read()
+    assert token is not None
+    assert token.name == " "
+    token = stack.read()
+    assert token is not None
+    assert token.name == "A"
+
+
 def test_unicode(parser):
     s = "1é测"
     scanner = lexer.StringScanner(parser, s)

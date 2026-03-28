@@ -298,10 +298,13 @@ class InputStack:
         self.top = None
         # the stack of scanners
         self.stack = []
+        # one-token lookahead
+        self.peek = None
         # the saved tokens that are unread
         self.saved = []
         # the last scanner in teh stack that can return a position
         self.active = None
+
 
     def read(self) -> typing.Optional[Token]:
         """
@@ -309,43 +312,45 @@ class InputStack:
         exhausted, pop it and read from the next scanner on the stack.
         @return: the next token, or None if the end of the stack is reached
         """
-        if self.saved:
-            t = self.saved.pop()
-            entry = t.entry
-            if entry is not None:
-                t.definition = entry.value
-            return t
-        while self.top:
+        while True:
+            if self.peek is not None:
+                t = self.peek
+                self.peek = self.saved.pop() if self.saved else None
+                break
+            if self.top is None:
+                return None
             t = self.top.read()
-            if t:
-                entry = t.entry
-                if entry is not None:
-                    t.definition = entry.value
-                return t
-            self.top, self.active, self.saved = self.stack.pop()
-            if self.saved:
-                t = self.saved.pop()
-                entry = t.entry
-                if entry is not None:
-                    t.definition = entry.value
-                return t
+            if t is not None:
+                break
+            self.pop()
+        entry = t.entry
+        if entry is not None:
+            t.definition = entry.value
+        return t
 
     def unread(self, token):
         """
         save a token for later reading
         @param token: the token to save
         """
-        self.saved.append(token)
+        if token is None:
+            return
+        if self.peek is None:
+            self.peek = token
+        else:
+            self.saved.append(self.peek)
+            self.peek = token
 
     def push(self, lexer):
         """
         push a new scanner on the stack
         @param lexer: the scanner to push
         """
-        self.stack.append((self.top, self.active, self.saved))
+        self.stack.append((self.top, self.active, self.peek, self.saved))
         self.top = lexer
         if lexer.position is not None:
             self.active = lexer
+        self.peek = None
         self.saved = []
     
     def pop(self):
@@ -354,10 +359,11 @@ class InputStack:
         @param to: the scanner to pop to (including to)
         """
         try:
-            self.top, self.active, self.saved = self.stack.pop()
+            self.top, self.active, self.peek, self.saved = self.stack.pop()
         except IndexError:
             self.top = None
             self.active = None
+            self.peek = None
             self.saved = []
 
     def clear(self):
@@ -365,6 +371,7 @@ class InputStack:
         clear the stack of scanners
         """
         self.top = None
+        self.peek = None
         self.saved = []
         self.stack = []
         self.active = None
@@ -379,6 +386,10 @@ class InputStack:
     
     def __repr__(self):
         l = ["Input stack:"]
+        if self.peek is not None:
+            t = self.peek
+            s = t.name + " " if isinstance(t, CommandToken) else t.name
+            l.append(f"  peek: {s}")
         if len(self.saved) > 0:
             f = lambda t: t.name + " " if isinstance(t, CommandToken) else t.name
             s = "".join(map(f, reversed(self.saved)))

@@ -83,6 +83,122 @@ class MacroScanner:
             return t
 
 
+def _macroMismatch(parser):
+    raise ValueError("macro does not match the definition", parser.input.position())
+
+
+def _matchDelimited(parser, bracket, bracket_len):
+    """
+    Match the next delimiter in a macro parameter list.
+    @param parser: the parser
+    @param bracket: a token list to match
+    @param bracket_len: the length of bracket
+    @return: None for matched, or the first token that failed to match
+    """
+    p = bracket[0]
+    t = parser.token()
+    if t is None:
+        _macroMismatch(parser)
+    if t.catcode != p.catcode or t.name != p.name:
+        return t
+    matched = []
+    first = t
+    i = 1
+    while i < bracket_len:
+        p = bracket[i]
+        i += 1
+        t = parser.token()
+        if t is None:
+            _macroMismatch(parser)
+        if t.catcode != p.catcode or t.name != p.name:
+            parser.input.unread(t)
+            if i > 2:
+                for m in reversed(matched):
+                    parser.input.unread(m)
+            return first
+        matched.append(t)
+    return None
+
+
+def readArgUnDelim(parser):
+    """
+    Read the next undelimited macro argument.
+    @param parser: the parser
+    @return: the argument as a list of tokens
+    """
+    t = parser.skipSpaces(False)
+    if t is None:
+        return []
+    if t.catcode != CATCODE.BEGIN_GROUP:
+        return [t]
+    result, _end = parser.readTo(CATCODE.END_GROUP)
+    return result
+
+
+def readArgDelim1(parser, bracket):
+    """
+    Read the next macro argument delimited by a single token.
+    @param parser: the parser
+    @param bracket: the delimiter token
+    @return: the argument as a list of tokens
+    """
+    token = parser.token
+    result = []
+    append = result.append
+    while True:
+        t = token()
+        if t is None:
+            _macroMismatch(parser)
+        if t.catcode == bracket.catcode and t.name == bracket.name:
+            return result
+        if t.catcode == CATCODE.BEGIN_GROUP:
+            keep = bool(result)
+            append(t)
+            result, end = parser.readTo(CATCODE.END_GROUP, result)
+            if keep:
+                append(end)
+                continue
+            t = token()
+            if t is None:
+                _macroMismatch(parser)
+            if t.catcode == bracket.catcode and t.name == bracket.name:
+                return result[1:]
+            append(end)
+            append(t)
+            continue
+        append(t)
+
+
+def readArgDelim2(parser, bracket):
+    """
+    Read the next macro argument delimited by two or more tokens.
+    @param parser: the parser
+    @param bracket: the delimiter token list
+    @return: the argument as a list of tokens
+    """
+    bracket_len = len(bracket)
+    t = _matchDelimited(parser, bracket, bracket_len)
+    if t is None:
+        return []
+    if t.catcode == CATCODE.BEGIN_GROUP:
+        result, end = parser.readTo(CATCODE.END_GROUP, [t])
+        t = _matchDelimited(parser, bracket, bracket_len)
+        if t is None:
+            return result[1:]
+        result.append(end)
+        result.append(t)
+    else:
+        result = [t]
+    while True:
+        t = _matchDelimited(parser, bracket, bracket_len)
+        if t is None:
+            return result
+        result.append(t)
+        if t.catcode == CATCODE.BEGIN_GROUP:
+            result, end = parser.readTo(CATCODE.END_GROUP, result)
+            result.append(end)
+
+
 class Macro(Command):
     """
     a macro is defined by brackets and the replacement text
@@ -102,11 +218,11 @@ class Macro(Command):
         for b in brackets[1:]:
             n = len(b)
             if n == 0:
-                self.callers.append((b, lambda parser, bracket: self.readArgument0(parser)))
+                self.callers.append((b, lambda parser, bracket: parser.readArgUnDelim()))
             elif n == 1:
-                self.callers.append((b, lambda parser, bracket: self.readArgument1(parser, bracket[0])))
+                self.callers.append((b, lambda parser, bracket: parser.readArgDelim1(bracket[0])))
             else:
-                self.callers.append((b, lambda parser, bracket: self.readArgument(parser, bracket)))
+                self.callers.append((b, lambda parser, bracket: parser.readArgDelim2(bracket)))
 
     def className(self):
         return Serializable.className(self)
@@ -149,124 +265,6 @@ class Macro(Command):
         protected = "\\protected " if self.protected else ""
         return f"{long}{outer}{protected}macro:{parser.toksToString(self.parameters(self.brackets))}->{parser.toksToString(self.replacement)}"
     
-    def matchDelimited(self, parser, bracket, bracket_len):
-        """
-        match the next delimiter in the parameter list
-        @param parser: the parser
-        @param bracket: a token list to match
-        @param bracket_len: the length of bracket
-        @return None for matched, or a token list that has been read but not matched
-        """
-        p = bracket[0]
-        t = parser.token()
-        if t is None:
-            raise ValueError(f"macro does not match the definition {self}", parser.input.position())
-        if t.catcode != p.catcode or t.name != p.name:
-            return t
-        matched = []
-        first = t
-        i = 1
-        while i < bracket_len:
-            p = bracket[i]
-            i += 1
-            t = parser.token()
-            if t is None:
-                raise ValueError(f"macro does not match the definition {self}", parser.input.position())
-            if t.catcode != p.catcode or t.name != p.name:
-                parser.input.unread(t)
-                if i > 2:
-                    for m in reversed(matched):
-                        parser.input.unread(m)
-                return first
-            matched.append(t)
-        return None
-
-    def readArgument0(self, parser):
-        """
-        read the next unbracketed argument
-        @param parser: the parser
-        @return: the argument as a list of tokens
-        """
-        # skip spaces
-        t = parser.skipSpaces(False)
-        if t is None:
-            return []
-        if t.catcode != CATCODE.BEGIN_GROUP:
-            return [t]
-        result, _end = parser.readTo(CATCODE.END_GROUP)
-        return result
-    
-    def readArgument1(self, parser, bracket):
-        """
-        read the next argument delimited by a single-token bracket
-        @param parser: the parser
-        @param bracket: the token
-        @return: the argument as a list of tokens
-        """
-        # otherwise, the argument is delimited. In this case, we match the next delimiter
-        # in the parameter list. If the delimiter is not matched, we put the unmatched token
-        # in the argument and match again.
-        token = parser.token
-        result = []
-        append = result.append
-        while True:
-            t = token()
-            if t is None:
-                raise ValueError(f"macro does not match the definition {self}", parser.input.position())
-            if t.catcode == bracket.catcode and t.name == bracket.name:
-                return result
-            if t.catcode == CATCODE.BEGIN_GROUP:
-                keep = bool(result)
-                append(t)
-                result, end = parser.readTo(CATCODE.END_GROUP, result)
-                if keep:
-                    append(end)
-                    continue
-                # did ewe match?
-                t = token()
-                if t is None:
-                    raise ValueError(f"macro does not match the definition {self}", parser.input.position())
-                # this argument is {....}, we drop the outmost {}
-                if t.catcode == bracket.catcode and t.name == bracket.name:
-                    return result[1:]
-                append(end)
-                append(t)
-                continue
-            append(t)
-                
-    def readArgument(self, parser, bracket):
-        """
-        read the next argument
-        @param parser: the parser
-        @param bracket: the list of tokens
-        @return: the argument as a list of tokens
-        """
-        bracket_len = len(bracket)
-        # otherwise, the argument is delimited. In this case, we match the next delimiter
-        # in the parameter list. If the delimiter is not matched, we put the unmatched token
-        # in the argument and match again.
-        t = self.matchDelimited(parser, bracket, bracket_len)
-        if t is None:
-            return []
-        if t.catcode == CATCODE.BEGIN_GROUP:
-            result, end = parser.readTo(CATCODE.END_GROUP, [t])
-            t = self.matchDelimited(parser, bracket, bracket_len)
-            if t is None:
-                # matched the bracket: the argument is enclosed in {}. Drop them
-                return result[1:]
-            result.append(end)
-            result.append(t)
-        else:
-            result = [t]
-        while True:
-            t = self.matchDelimited(parser, bracket, bracket_len)
-            if t is None:
-                return result
-            result.append(t)
-            if t.catcode == CATCODE.BEGIN_GROUP:
-                result, end = parser.readTo(CATCODE.END_GROUP, result)
-                result.append(end)
-
     def expand(self, parser):
         """
         expand the macro
@@ -434,6 +432,11 @@ class Outer(Prefix):
 
 
 mod = Module("macro",
+  attributes={
+    "readArgUnDelim": readArgUnDelim,
+    "readArgDelim1": readArgDelim1,
+    "readArgDelim2": readArgDelim2,
+  },
   commands={
     "def": Def(globally=False, expand_body=False),
     "gdef": Def(globally=True, expand_body=False),

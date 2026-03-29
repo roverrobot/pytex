@@ -210,11 +210,13 @@ def readGlue(parser, mu: bool=False):
     t = parser.token_expand()
     if t is None:
         raise Exception("glue expected")
-    try:
-        value = t.definition.muglueValue(parser) if mu else t.definition.glueValue(parser)
+    value = parser.readInternalValue(
+        t.definition,
+        VALUE_TYPE.MUGLUE if mu else VALUE_TYPE.GLUE,
+    )
+    if value is not None:
         return value * sign
-    except AttributeError:
-        parser.input.unread(t)
+    parser.input.unread(t)
     dimen = readUnsignedDimen(parser, mu, False) * sign
     shrink = None
     if parser.readKeyword({"plus"}):

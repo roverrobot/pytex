@@ -139,6 +139,21 @@ class Parser:
             raise ValueError("expecting a register or a parameter", self.input.position())
         return meaning.getTarget(self)
 
+    def _bindInternalAccessor(self, meaning):
+        """
+        Return an accessor-like meaning bound to its current key, if possible.
+        """
+        if meaning is None:
+            return None
+        if isinstance(meaning, accessor.Accessor):
+            if meaning.key is None and meaning.needsKey():
+                return None
+            return meaning
+        get_item = getattr(meaning, "getItemAccessor", None)
+        if get_item is not None:
+            return get_item(self)
+        return None
+
     def get(self, target):
         """
         get a value from a bound target
@@ -179,6 +194,35 @@ class Parser:
                 return value
             return None
         return value if value_type == accessor.VALUE_TYPE.UNKNOWN else None
+
+    def readInternalValue(self, meaning, value_type):
+        """
+        Read an internal value of the requested type from an accessor-style meaning.
+        """
+        getter_name = {
+            accessor.VALUE_TYPE.INT: "intValue",
+            accessor.VALUE_TYPE.DIMEN: "dimenValue",
+            accessor.VALUE_TYPE.GLUE: "glueValue",
+            accessor.VALUE_TYPE.MUGLUE: "muglueValue",
+        }.get(value_type)
+        bound = self._bindInternalAccessor(meaning)
+        if bound is not None:
+            try:
+                value = self.cast(self.get(self.readTarget(bound)), value_type)
+            except (IndexError, KeyError, TypeError):
+                value = None
+            if value is not None:
+                return value
+            if getter_name is not None:
+                getter = getattr(bound, getter_name, None)
+                if getter is not None:
+                    return getter(self)
+            return None
+        if getter_name is not None:
+            getter = getattr(meaning, getter_name, None)
+            if getter is not None:
+                return getter(self)
+        return None
 
     def resolveGlobalScope(self, global_scope: bool = False):
         """

@@ -10,6 +10,7 @@ from math import inf
 from copy import deepcopy
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
 from pytex.glue import Glue, GlueCommand as GlueValueCommand
+from pytex.accessor import ReadOnlyTarget, VALUE_TYPE
 import enum
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
@@ -339,6 +340,12 @@ class LastPenalty(Command):
     """
     The \\lastpenalty command.
     """
+    def getTarget(self, parser):
+        top = parser.lists[-1]
+        node = _last_list_node(top)
+        value = 0 if node is None or node.node_type != nd.NODE_TYPE.PENALTY else node.penalty
+        return ReadOnlyTarget(value, VALUE_TYPE.INT)
+
     def intValue(self, parser):
         top = parser.lists[-1]
         node = _last_list_node(top)

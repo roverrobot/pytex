@@ -161,6 +161,9 @@ class NumExpr(Expr):
     def divide(self, x, y):
         d = int(abs(x) / abs(y) + 0.5)
         return -d if x < 0 < y or y < 0 < x else d
+
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.INT)
     
     def intValue(self, parser):
         """
@@ -260,6 +263,11 @@ class LastNodeType(tk.Command):
     """
     The \\lastnodetype command
     """
+    def getTarget(self, parser):
+        top = parser.lists[-1]
+        value = -1 if len(top) == 0 else top[-1].node_type
+        return accessor.ReadOnlyTarget(value, accessor.VALUE_TYPE.INT)
+
     def intValue(self, parser):
         top = parser.lists[-1]
         if len(top) == 0:
@@ -271,6 +279,11 @@ class CurrentGroupType(tk.Command):
     """
     The \\currentgrouptype command
     """
+    def getTarget(self, parser):
+        groups = parser.groups
+        value = -1 if len(groups) == 0 else groups[-1].group_type
+        return accessor.ReadOnlyTarget(value, accessor.VALUE_TYPE.INT)
+
     def intValue(self, parser):
         groups = parser.groups
         if len(groups) == 0:
@@ -282,6 +295,9 @@ class CurrentGroupLevel(tk.Command):
     """
     The \\currentgrouplevel command
     """
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(len(parser.groups), accessor.VALUE_TYPE.INT)
+
     def intValue(self, parser):
         return len(parser.groups)
 
@@ -290,6 +306,9 @@ class CurrentIfLevel(tk.Command):
     """
     The \\currentiflevel command
     """
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(len(parser.ifstack), accessor.VALUE_TYPE.INT)
+
     def intValue(self, parser):
         return len(parser.ifstack)
     
@@ -321,6 +340,10 @@ class CurrentIfType(tk.Command):
         "ifcsname",
         "iffontchar", #20
     ]
+    def getTarget(self, parser):
+        value = -1 if len(parser.ifstack) == 0 else self.if_types.index(parser.ifstack[-1][0].name[1:])
+        return accessor.ReadOnlyTarget(value, accessor.VALUE_TYPE.INT)
+
     def intValue(self, parser):
         if len(parser.ifstack) == 0:
             return -1
@@ -331,6 +354,10 @@ class CurrentIfBranch(tk.Command):
     """
     The \\currentifbranch command
     """
+    def getTarget(self, parser):
+        b = parser.ifstack[-1][2]
+        return accessor.ReadOnlyTarget(1 if b == 0 else -1, accessor.VALUE_TYPE.INT)
+
     def intValue(self, parser):
         b = parser.ifstack[-1][2]
         return 1 if b == 0 else -1
@@ -343,6 +370,10 @@ class GlueOrder(tk.Command):
     def __init__(self, field):
         self.field = field
 
+    def getTarget(self, parser):
+        glue = parser.readGlue()
+        return accessor.ReadOnlyTarget(getattr(glue, self.field).order, accessor.VALUE_TYPE.INT)
+
     def intValue(self, parser):
         glue = parser.readGlue()
         return getattr(glue, self.field).order
@@ -354,6 +385,14 @@ class Penalties(tk.Command):
     """
     def __init__(self, penalties):
         self.penalties = penalties
+
+    def getTarget(self, parser):
+        index = parser.readInteger()
+        if index < 0:
+            return accessor.ReadOnlyTarget(0, accessor.VALUE_TYPE.INT)
+        penalties = parser.layout[self.penalties]
+        value = len(penalties) if index == 0 else penalties[index - 1]
+        return accessor.ReadOnlyTarget(value, accessor.VALUE_TYPE.INT)
 
     def intValue(self, parser):
         index = parser.readInteger()

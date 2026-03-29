@@ -1634,9 +1634,6 @@ class MathCharValue(lists.ModeDependentCommand):
     def getTarget(self, parser):
         return ReadOnlyTarget(self.mathcode, VALUE_TYPE.INT)
 
-    def intValue(self, parser):
-        return self.mathcode
-
     def mathCharValue(self, parser):
         return parser.mathChar(self.mathcode)
     

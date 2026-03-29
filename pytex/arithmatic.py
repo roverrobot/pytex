@@ -33,7 +33,7 @@ class Arithmatics(Command):
         meaning = t.definition
         if getattr(meaning, "getTarget", None) is None:
             raise ValueError("expecting a register or a parameter", parser.input.position())
-        target = parser.readTarget(meaning)
+        target = meaning.getTarget(parser)
         x = parser.get(target)
         is_integer = isinstance(x, int)
         parser.readKeyword(["by"])

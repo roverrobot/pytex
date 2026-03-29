@@ -1,4 +1,5 @@
 import pytest
+from pytex.accessor import VALUE_TYPE
 from pytex import box as bx
 from pytex import conditional
 from pytex import glue
@@ -54,6 +55,11 @@ def test_loop(collector):
 def test_dimexpr(collector):
     collector.parse("\\dimen0=\\dimexpr 1pt + (2pt - 3pt)/2 \\relax\\the\\dimen0")
     assert collector.getString() == "0.5pt"
+
+
+def test_read_internal_integer_from_dimexpr(parser):
+    parser.readFrom("\\dimexpr 1pt\\relax")
+    assert parser.readInternalValue(VALUE_TYPE.INT) == 65536
 
 def test_glueexpr(collector):
     collector.parse("\\the\\glueexpr (1pt plus 2pt minus 3pt)*2+1pt")

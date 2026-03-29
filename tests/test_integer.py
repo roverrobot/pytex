@@ -145,6 +145,12 @@ def test_integer_reader_uses_target_cast_for_dimensions(parser):
     assert parser.count[0] == int(parser.dimen[0])
 
 
+def test_read_internal_integer_from_count_target(parser):
+    parser.parse("\\count0=123")
+    parser.readFrom("\\count0")
+    assert parser.readInternalValue(VALUE_TYPE.INT) == 123
+
+
 def test_integer_reader_preserves_outer_target(parser):
     parser.parse("\\count0=1 \\count1=2 \\count0=\\count1")
     assert parser.count[0] == 2

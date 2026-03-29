@@ -337,13 +337,6 @@ class DimenCommand:
     """
     base class that converts a dimension to an integer
     """
-    def intValue(self, parser):
-        """
-        get the integer value of the dimension
-        @param parser: the parser
-        @return: the integer value of the dimension
-        """
-        return int(self.dimenValue(parser))  # convert to int for consistency with other parameters
 
 
 class DimenArrayItemAccessor(Accessor, DimenCommand):

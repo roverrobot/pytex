@@ -149,14 +149,14 @@ class IntegerArrayItemAccessor(Accessor):
     """
     target_type = VALUE_TYPE.INT
 
+    def canBindInternalValue(self):
+        return True
+
     def readKey(self, parser):
         return parser.readInteger()
 
     def readValue(self, parser):
         return parser.readInteger()
-
-    def intValue(self, parser):
-        return self.domain[self.currentKey(parser)]
 
 
 class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
@@ -291,9 +291,6 @@ class FixedInteger(Command):
 
     def getTarget(self, parser):
         return ReadOnlyTarget(self.value, VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        return self.value
     
     def execute(self, parser):
         raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())
@@ -305,10 +302,6 @@ class InputLineNo(Command):
     """
     def getTarget(self, parser):
         return ReadOnlyTarget(parser.input.position().line, VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        # the line number is the current line number
-        return parser.input.position().line
 
     def execute(self, parser):
         raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())

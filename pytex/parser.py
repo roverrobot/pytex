@@ -193,7 +193,6 @@ class Parser:
             return None
         meaning = t.definition
         getter_name = {
-            accessor.VALUE_TYPE.INT: "intValue",
             accessor.VALUE_TYPE.DIMEN: "dimenValue",
             accessor.VALUE_TYPE.GLUE: "glueValue",
             accessor.VALUE_TYPE.MUGLUE: "muglueValue",
@@ -201,12 +200,35 @@ class Parser:
             accessor.VALUE_TYPE.FONT: "fontValue",
             accessor.VALUE_TYPE.MEANING: "meaningValue",
         }.get(value_type)
+        cast_getters = ()
+        if value_type == accessor.VALUE_TYPE.INT:
+            cast_getters = ("dimenValue", "glueValue", "muglueValue")
         value = None
         get_target = getattr(meaning, "getTarget", None)
         can_bind = False
         if get_target is not None:
             if isinstance(meaning, accessor.Accessor):
-                can_bind = meaning.canBindInternalValue()
+                compatible_targets = {
+                    accessor.VALUE_TYPE.INT: {accessor.VALUE_TYPE.INT},
+                    accessor.VALUE_TYPE.DIMEN: {accessor.VALUE_TYPE.INT, accessor.VALUE_TYPE.DIMEN},
+                    accessor.VALUE_TYPE.GLUE: {
+                        accessor.VALUE_TYPE.INT,
+                        accessor.VALUE_TYPE.DIMEN,
+                        accessor.VALUE_TYPE.GLUE,
+                    },
+                    accessor.VALUE_TYPE.MUGLUE: {
+                        accessor.VALUE_TYPE.INT,
+                        accessor.VALUE_TYPE.DIMEN,
+                        accessor.VALUE_TYPE.MUGLUE,
+                    },
+                    accessor.VALUE_TYPE.TOKS: {accessor.VALUE_TYPE.TOKS},
+                    accessor.VALUE_TYPE.FONT: {accessor.VALUE_TYPE.FONT},
+                    accessor.VALUE_TYPE.MEANING: {accessor.VALUE_TYPE.MEANING},
+                }
+                can_bind = (
+                    meaning.canBindInternalValue()
+                    and value_type in compatible_targets.get(meaning.target_type, set())
+                )
             else:
                 can_bind = True
         if can_bind:
@@ -224,6 +246,14 @@ class Parser:
             getter = getattr(meaning, getter_name, None)
             if getter is not None:
                 value = getter(self)
+        if value is None:
+            for getter_name in cast_getters:
+                getter = getattr(meaning, getter_name, None)
+                if getter is None:
+                    continue
+                value = self.cast(getter(self), value_type)
+                if value is not None:
+                    break
         if value is not None:
             return value
         self.input.unread(t)

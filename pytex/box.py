@@ -247,9 +247,6 @@ class BadnessAccessor(IntegerArrayItemAccessor):
                 box.typeset(parser)
         return KeyTarget(self.domain, key, self.target_type)
 
-    def intValue(self, parser):
-        return self.getTarget(parser).get()
-
 
 class HBox(Box, hmode.HListHolder):
     """

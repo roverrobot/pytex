@@ -23,14 +23,6 @@ class PDFElapsedtime(token.Command):
     def getTarget(self, parser):
         return ReadOnlyTarget(int(time.time() - parser.timer), VALUE_TYPE.INT)
 
-    def intValue(self, parser):
-        """
-        Get the integer value of the command.
-        @param parser: the parser
-        @return: the integer value
-        """
-        return int(time.time() - parser.timer)
-
 
 class PDFResettimer(token.Command):
     """

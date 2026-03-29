@@ -1068,9 +1068,6 @@ class PrevGraf(IntegerArrayItemAccessor):
                 parser.globals["prevgraf"] = 0
         return super().getTarget(parser)
 
-    def intValue(self, parser):
-        return self.getTarget(parser).get()
-
 
 mod = Module("paragraph",
     commands={

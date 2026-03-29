@@ -99,12 +99,6 @@ class CharDefValue(Command):
 
     def getTarget(self, parser):
         return accessor.ReadOnlyTarget(self.value, accessor.VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        """
-        get the integer value
-        """
-        return self.value
     
     def meaning(self, parser):
         """

@@ -165,14 +165,6 @@ class NumExpr(Expr):
     def getTarget(self, parser):
         return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.INT)
     
-    def intValue(self, parser):
-        """
-        Get the integer value of the expression
-        @param parser: the parser
-        @return: the integer value of the expression
-        """
-        return self.readExpr(parser, False)
-    
 
 class DimExpr(Expr, DimenCommand):
     """
@@ -180,6 +172,9 @@ class DimExpr(Expr, DimenCommand):
     """
     def readValue(self, parser):
         return parser.readDimen()
+
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.DIMEN)
     
     def dimenValue(self, parser):
         """
@@ -196,6 +191,9 @@ class GlueExpr(Expr, GlueCommand):
     """
     def readValue(self, parser):
         return parser.readGlue()
+
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.GLUE)
     
     def glueValue(self, parser):
         """
@@ -212,6 +210,9 @@ class MuExpr(Expr, MuGlueCommand):
     """
     def readValue(self, parser):
         return parser.readGlue(mu=True)
+
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.MUGLUE)
     
     def muglueValue(self, parser):
         """
@@ -267,12 +268,6 @@ class LastNodeType(tk.Command):
         top = parser.lists[-1]
         value = -1 if len(top) == 0 else top[-1].node_type
         return accessor.ReadOnlyTarget(value, accessor.VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        top = parser.lists[-1]
-        if len(top) == 0:
-            return -1
-        return top[-1].node_type
     
 
 class CurrentGroupType(tk.Command):
@@ -283,12 +278,6 @@ class CurrentGroupType(tk.Command):
         groups = parser.groups
         value = -1 if len(groups) == 0 else groups[-1].group_type
         return accessor.ReadOnlyTarget(value, accessor.VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        groups = parser.groups
-        if len(groups) == 0:
-            return -1
-        return groups[-1].group_type
     
 
 class CurrentGroupLevel(tk.Command):
@@ -298,9 +287,6 @@ class CurrentGroupLevel(tk.Command):
     def getTarget(self, parser):
         return accessor.ReadOnlyTarget(len(parser.groups), accessor.VALUE_TYPE.INT)
 
-    def intValue(self, parser):
-        return len(parser.groups)
-
 
 class CurrentIfLevel(tk.Command):
     """
@@ -308,9 +294,6 @@ class CurrentIfLevel(tk.Command):
     """
     def getTarget(self, parser):
         return accessor.ReadOnlyTarget(len(parser.ifstack), accessor.VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        return len(parser.ifstack)
     
 
 class CurrentIfType(tk.Command):
@@ -344,11 +327,6 @@ class CurrentIfType(tk.Command):
         value = -1 if len(parser.ifstack) == 0 else self.if_types.index(parser.ifstack[-1][0].name[1:])
         return accessor.ReadOnlyTarget(value, accessor.VALUE_TYPE.INT)
 
-    def intValue(self, parser):
-        if len(parser.ifstack) == 0:
-            return -1
-        return self.if_types.index(parser.ifstack[-1][0].name[1:])
-
 
 class CurrentIfBranch(tk.Command):
     """
@@ -357,10 +335,6 @@ class CurrentIfBranch(tk.Command):
     def getTarget(self, parser):
         b = parser.ifstack[-1][2]
         return accessor.ReadOnlyTarget(1 if b == 0 else -1, accessor.VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        b = parser.ifstack[-1][2]
-        return 1 if b == 0 else -1
     
 
 class GlueOrder(tk.Command):
@@ -373,10 +347,6 @@ class GlueOrder(tk.Command):
     def getTarget(self, parser):
         glue = parser.readGlue()
         return accessor.ReadOnlyTarget(getattr(glue, self.field).order, accessor.VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        glue = parser.readGlue()
-        return getattr(glue, self.field).order
 
 
 class Penalties(tk.Command):
@@ -393,15 +363,6 @@ class Penalties(tk.Command):
         penalties = parser.layout[self.penalties]
         value = len(penalties) if index == 0 else penalties[index - 1]
         return accessor.ReadOnlyTarget(value, accessor.VALUE_TYPE.INT)
-
-    def intValue(self, parser):
-        index = parser.readInteger()
-        if index < 0:
-            return 0
-        penalties = parser.layout[self.penalties]
-        if index == 0:
-            return len(penalties)
-        return penalties[index - 1]
 
     def execute(self, parser):
         # read a length n followed by n penalties
@@ -421,6 +382,9 @@ class ParShapeDimen(tk.Command, DimenCommand):
     """
     def __init__(self, index):
         self.index = index
+
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(self.dimenValue(parser), accessor.VALUE_TYPE.DIMEN)
 
     def dimenValue(self, parser):
         row = parser.readInteger()
@@ -445,6 +409,9 @@ class GlueStrechness(tk.Command, DimenCommand):
     def __init__(self, field):
         self.field = field
 
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(self.dimenValue(parser), accessor.VALUE_TYPE.DIMEN)
+
     def dimenValue(self, parser):
         glue = parser.readGlue()
         return Dimen(getattr(glue, self.field).factor)
@@ -456,6 +423,9 @@ class FontCharDimen(tk.Command, DimenCommand):
     """
     def __init__(self, field):
         self.field = field
+
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(self.dimenValue(parser), accessor.VALUE_TYPE.DIMEN)
 
     def dimenValue(self, parser):
         f = font.readFont(parser)

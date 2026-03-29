@@ -225,9 +225,6 @@ class FontCharAccessor(Accessor):
         font = self.currentKey(parser)
         return KeyTarget(font.fontchar, self.field, self.target_type, supports_global=False)
 
-    def intValue(self, parser):
-        return self.currentKey(parser).fontchar[self.field]
-
     def setGlobal(self, parser, value):
         """
         set the value of the font character globally

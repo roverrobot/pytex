@@ -346,18 +346,14 @@ class LastPenalty(Command):
         value = 0 if node is None or node.node_type != nd.NODE_TYPE.PENALTY else node.penalty
         return ReadOnlyTarget(value, VALUE_TYPE.INT)
 
-    def intValue(self, parser):
-        top = parser.lists[-1]
-        node = _last_list_node(top)
-        if node is None or node.node_type != nd.NODE_TYPE.PENALTY:
-            return 0
-        return node.penalty
-
 
 class LastKern(Command, DimenCommand):
     """
     The \\lastkern command.
     """
+    def getTarget(self, parser):
+        return ReadOnlyTarget(self.dimenValue(parser), VALUE_TYPE.DIMEN)
+
     def dimenValue(self, parser):
         top = parser.lists[-1]
         node = _last_list_node(top)
@@ -370,6 +366,9 @@ class LastSkip(Command, GlueValueCommand):
     """
     The \\lastskip command.
     """
+    def getTarget(self, parser):
+        return ReadOnlyTarget(self.glueValue(parser), VALUE_TYPE.GLUE)
+
     def glueValue(self, parser):
         top = parser.lists[-1]
         node = _last_list_node(top)

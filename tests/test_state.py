@@ -246,7 +246,7 @@ def test_parser_cast_dimen_to_int(parser):
 
 def test_parser_read_target_from_accessor(parser):
     acc = integer.IntegerArrayItemAccessor(parser.count, 2, builtin=False)
-    target = parser.readTarget(acc)
+    target = acc.getTarget(parser)
     assert target.domain is parser.count
     assert target.key == 2
     assert target.value_type == accessor.VALUE_TYPE.INT

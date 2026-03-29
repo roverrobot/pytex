@@ -481,8 +481,7 @@ class BuildBox(Command):
         to_end = BoxPretypesetCallback(box)
         parser.skipFiller()
         t = parser.token_expand()
-        t = parser.token_meaning(t)
-        if t.catcode != CATCODE.BEGIN_GROUP:
+        if t is None or not t.isTokenExpand(CATCODE.BEGIN_GROUP):
             raise ValueError("expecting a {", parser.input.position())
         if self.vertical:
             state = vmode.VList(parser, box.list, inner=True)

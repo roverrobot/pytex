@@ -79,7 +79,7 @@ def readUnsigned(parser):
         parser.input.unread(t)
         value = int(readDigits(parser, 10), 10)
     # skip the optional space
-    parser.skipSpace()
+    parser.skipSpaceExapnd()
     return value
 
 

@@ -5,7 +5,7 @@ This module implements command definition, such as \\let etc.
 
 from pytex import accessor
 from pytex.module import Module
-from pytex.token import relax, Command
+from pytex.token import relax, Command, CATCODE
 from pytex.serialization import Serializable
 
 
@@ -36,7 +36,9 @@ class LetAccessor(EquitableAccessor):
     """
     def readEq(self, parser):
         parser.skipEq(expand=False)
-        parser.skipSpace(expand=False)
+        t = parser.token()
+        if t is not None and t.catcode != CATCODE.SPACE:
+            parser.input.unread(t)
 
     def readValue(self, parser):
         t = parser.token()

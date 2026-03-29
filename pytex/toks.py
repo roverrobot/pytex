@@ -223,7 +223,14 @@ def readGeneralText(parser, expand: bool = True):
     """
     skipFiller(parser)
     lbrace = parser.token_expand() if expand else parser.token()
-    if lbrace is None or lbrace.catcode != CATCODE.BEGIN_GROUP:
+    is_begin_group = (
+        lbrace is not None and (
+            lbrace.isTokenExpand(CATCODE.BEGIN_GROUP)
+            if expand else
+            lbrace.catcode == CATCODE.BEGIN_GROUP
+        )
+    )
+    if not is_begin_group:
         raise ValueError("expecting {", parser.input.position())
     balanced = readBalancedTextExpanded if expand else readBalancedText
     toks = balanced(parser, [])

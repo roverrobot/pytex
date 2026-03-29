@@ -440,13 +440,13 @@ class Parser:
         else:
             self.input.push(lexer.Scanner(self, input, name))
 
-    def skipSpace(self, expand: bool = True):
+    def skipSpaceExapnd(self):
         """
         skip one optional space
         @param expand: whether to expand tokens
         """
-        t = self.token_expand() if expand else self.token()
-        if t is not None and not t.isSpace(expand):
+        t = self.token_expand()
+        if t is not None and not t.isTokenExpand(token.CATCODE.SPACE):
             self.input.unread(t)
 
     def skipSpaces(self, expand: bool = True):

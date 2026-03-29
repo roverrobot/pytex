@@ -714,8 +714,7 @@ class AlignmentBuilder:
         # start a new group
         parser.skipFiller()
         t = parser.token_expand()
-        t = parser.token_meaning(t)
-        if t is None or t.catcode != CATCODE.BEGIN_GROUP:
+        if t is None or not t.isTokenExpand(CATCODE.BEGIN_GROUP):
             raise ValueError("expecting a {", parser.input.position())
         parser.alignments.append(self)
         parser.beginGroup(

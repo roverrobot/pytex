@@ -144,7 +144,16 @@ class Token(Command):
         @param expand: bool indicating if the token should be expanded
         @return: bool
         """
-        return False
+        return self.isTokenExpand(CATCODE.SPACE) if expand else self.catcode == CATCODE.SPACE
+
+    def isTokenExpand(self, catcode):
+        """
+        Check whether the token behaves like the requested catcode when token
+        aliases such as \\bgroup are taken into account.
+        @param catcode: the catcode to test
+        @return: bool
+        """
+        return self.catcode == catcode
 
     # the token generators for each category code
     generators = None
@@ -230,13 +239,8 @@ class CommandToken(Token):
         if self.definition is not None:
             return self.definition.execute(parser)
 
-    def isSpace(self, expand):
-        """ 
-        Check if the command is a space command.
-        @param expand: bool indicating if the command should be expanded
-        @return: bool
-        """
-        return expand and isinstance(self.definition, Token) and self.definition.isSpace(True)
+    def isTokenExpand(self, catcode):
+        return self.definition is not None and self.definition.catcode == catcode
 
     def meaning(self, parser):
         """
@@ -277,6 +281,10 @@ class ActiveToken(CommandToken):
         t.entry = parser.equitable.entry(name)
         return t
     
+    def isTokenExpand(self, catcode):
+        return self.catcode == catcode or (self.definition is not None and self.definition.catcode == catcode)
+
+
 class CellEndType(IntEnum):
     __slots__ = ()
     TAB = 0 # &
@@ -353,15 +361,6 @@ class SpaceToken(Token):
     def new(cls, parser, **kargs):
         return cls()
     
-    def isSpace(self, expand):
-        """ 
-        Check if the token is a space token.
-        @param expand: bool indicating if the token should be expanded
-        @return: bool
-        """
-        return True
-
-
 class CharToken(Token):
     """ a letter or other character """
     def execute(self, parser):

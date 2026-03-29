@@ -285,7 +285,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         units.add("fil")
     unit = parser.readKeyword(units)
     # skip a space
-    parser.skipSpace()
+    parser.skipSpaceExapnd()
     if unit is None:
         if mu:
             raise ValueError("mu dimension expected", parser.input.position())

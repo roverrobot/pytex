@@ -1825,9 +1825,8 @@ class MathChoiceEndGroupCallback(MathEndGroupCallback):
 
     def beginGroup(self, parser):
         t = parser.token_expand()
-        t = parser.token_meaning(t)
         pos = parser.input.position()
-        if t.catcode != CATCODE.BEGIN_GROUP:
+        if t is None or not t.isTokenExpand(CATCODE.BEGIN_GROUP):
             raise ValueError("expecting a \"{\"", pos)
         parser.lists.append(MList(parser))
         parser.beginGroup(pos, GROUP_TYPE.MATH_CHOICE, ended=self)

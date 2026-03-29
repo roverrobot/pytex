@@ -398,7 +398,7 @@ def readFileName(parser) -> str:
                 break
             name += t.name
         # skip an optional space
-        parser.skipSpace(expand=True)
+        parser.skipSpaceExapnd()
     elif t.catcode == CATCODE.BEGIN_GROUP:
         toks = parser.readBalancedTextExpanded([])
         # pop the trailing }

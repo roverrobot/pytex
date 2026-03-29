@@ -95,6 +95,11 @@ def test_read_internal_integer_from_mathchardef_target(parser):
     assert parser.readInternalValue(VALUE_TYPE.INT) == 65
 
 
+def test_read_internal_integer_from_inputlineno_target(parser):
+    parser.readFrom("\\inputlineno")
+    assert parser.readInternalValue(VALUE_TYPE.INT) == 1
+
+
 def test_chardef_target_is_read_only(parser):
     parser.parse("\\chardef\\a=65")
     target = parser.lookup("\\a").getTarget(parser)

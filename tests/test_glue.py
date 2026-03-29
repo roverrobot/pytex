@@ -1,5 +1,6 @@
 import pytest
 from pytex.glue import Glue, Stretchness, MuGlue, MuStretchness
+from pytex.accessor import VALUE_TYPE
 from tests import checkValues
 
 
@@ -56,3 +57,23 @@ def test_muglue_array(parser):
         assert False, "cannot accept pt as unit when reading a mu glue"
     except Exception as e:
         assert "mu dimension expected" in str(e)
+
+
+def test_read_internal_glue_from_skip_target(parser):
+    parser.parse("\\skip0=1pt plus 2pt minus 3pt")
+    parser.readFrom("\\skip0")
+    assert parser.readInternalValue(VALUE_TYPE.GLUE) == Glue(1, Stretchness(2), Stretchness(3))
+
+
+def test_read_internal_muglue_from_muskip_target(parser):
+    parser.parse("\\muskip0=1mu plus 2mu minus 3mu")
+    parser.readFrom("\\muskip0")
+    assert parser.readInternalValue(VALUE_TYPE.MUGLUE) == MuGlue(1, MuStretchness(2), MuStretchness(3))
+
+
+def test_read_internal_glue_rejects_executable_glue_command(parser):
+    parser.readFrom("\\hskip 1pt")
+    assert parser.readInternalValue(VALUE_TYPE.GLUE) is None
+    t = parser.token_expand()
+    assert t is not None
+    assert t.name == "\\hskip"

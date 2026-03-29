@@ -11,7 +11,6 @@ from pytex.module import Module
 from pytex.lists import ModeDependentCommand
 from pytex.integer import FixedInteger, IntegerArrayItemAccessor
 from pytex.dimen import Dimen, DimenCommand
-from pytex.glue import GlueCommand, MuGlueCommand
 from pytex.toks import The, ToksArrayItemAccessor
 from pytex import token
 from pytex import expandable
@@ -185,7 +184,7 @@ class DimExpr(Expr, DimenCommand):
         return self.readExpr(parser, False)
 
 
-class GlueExpr(Expr, GlueCommand):
+class GlueExpr(Expr):
     """
     The \\glueexpr command
     """
@@ -194,17 +193,9 @@ class GlueExpr(Expr, GlueCommand):
 
     def getTarget(self, parser):
         return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.GLUE)
-    
-    def glueValue(self, parser):
-        """
-        Get the glue value of the expression
-        @param parser: the parser
-        @return: the glue value of the expression
-        """
-        return self.readExpr(parser, False)
 
 
-class MuExpr(Expr, MuGlueCommand):
+class MuExpr(Expr):
     """
     The \\muexpr command
     """
@@ -213,14 +204,6 @@ class MuExpr(Expr, MuGlueCommand):
 
     def getTarget(self, parser):
         return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.MUGLUE)
-    
-    def muglueValue(self, parser):
-        """
-        Get the mu glue value of the expression
-        @param parser: the parser
-        @return: the mu glue value of the expression
-        """
-        return self.readExpr(parser, False)
 
 
 class Marks(token.Command):

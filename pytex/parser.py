@@ -193,16 +193,10 @@ class Parser:
             return None
         meaning = t.definition
         getter_name = {
-            accessor.VALUE_TYPE.DIMEN: "dimenValue",
-            accessor.VALUE_TYPE.GLUE: "glueValue",
-            accessor.VALUE_TYPE.MUGLUE: "muglueValue",
             accessor.VALUE_TYPE.TOKS: "toksValue",
             accessor.VALUE_TYPE.FONT: "fontValue",
             accessor.VALUE_TYPE.MEANING: "meaningValue",
         }.get(value_type)
-        cast_getters = ()
-        if value_type == accessor.VALUE_TYPE.INT:
-            cast_getters = ("dimenValue", "glueValue", "muglueValue")
         value = None
         get_target = getattr(meaning, "getTarget", None)
         can_bind = False
@@ -238,22 +232,10 @@ class Parser:
                     value = self.cast(self.get(target), value_type)
                 except (IndexError, KeyError, TypeError):
                     value = None
-            if value is None and getter_name is not None:
-                getter = getattr(meaning, getter_name, None)
-                if getter is not None:
-                    value = getter(self)
         elif getter_name is not None:
             getter = getattr(meaning, getter_name, None)
             if getter is not None:
                 value = getter(self)
-        if value is None:
-            for getter_name in cast_getters:
-                getter = getattr(meaning, getter_name, None)
-                if getter is None:
-                    continue
-                value = self.cast(getter(self), value_type)
-                if value is not None:
-                    break
         if value is not None:
             return value
         self.input.unread(t)

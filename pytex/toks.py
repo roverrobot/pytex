@@ -396,16 +396,6 @@ class The(Command):
             t = CommandToken(f.name)
             t.entry = parser.equitable.entry(f.name)
             return [t]
-        if hasattr(meaning, "muglueValue"):
-            value = str(meaning.muglueValue(parser))
-        elif hasattr(meaning, "glueValue"):
-            value = str(meaning.glueValue(parser))
-        elif hasattr(meaning, "dimenValue"):
-            value = repr(meaning.dimenValue(parser)) + "pt"
-        else:
-            raise ValueError(f"invalid token after \\the: {t0.name}", parser.input.position())
-        if value is not None:
-            return toToks(value)
         raise ValueError(f"invalid token after \\the: {t0.name}", parser.input.position())
     
     def expand(self, parser):

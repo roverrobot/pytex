@@ -9,7 +9,7 @@ from pytex.token import Command, CATCODE
 from math import inf
 from copy import deepcopy
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
-from pytex.glue import Glue, GlueCommand as GlueValueCommand
+from pytex.glue import Glue
 from pytex.accessor import ReadOnlyTarget, VALUE_TYPE
 import enum
 from pytex.module import Module
@@ -362,19 +362,15 @@ class LastKern(Command, DimenCommand):
         return node.kern
 
 
-class LastSkip(Command, GlueValueCommand):
+class LastSkip(Command):
     """
     The \\lastskip command.
     """
     def getTarget(self, parser):
-        return ReadOnlyTarget(self.glueValue(parser), VALUE_TYPE.GLUE)
-
-    def glueValue(self, parser):
         top = parser.lists[-1]
         node = _last_list_node(top)
-        if node is None or node.node_type != nd.NODE_TYPE.GLUE:
-            return Glue()
-        return deepcopy(node.glue)
+        value = Glue() if node is None or node.node_type != nd.NODE_TYPE.GLUE else deepcopy(node.glue)
+        return ReadOnlyTarget(value, VALUE_TYPE.GLUE)
 
 
 class ItalicCorrection(ModeDependentCommand):

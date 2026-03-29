@@ -218,9 +218,6 @@ class FontCharAccessor(Accessor):
     def readValue(self, parser):
         return parser.readInteger()
 
-    def canBindInternalValue(self):
-        return True
-
     def getTarget(self, parser):
         font = self.currentKey(parser)
         return KeyTarget(font.fontchar, self.field, self.target_type, supports_global=False)

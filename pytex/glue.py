@@ -231,18 +231,7 @@ def readGlue(parser, mu: bool=False):
     return Glue(dimen, stretch, shrink)
 
 
-class GlueCommand(DimenCommand):
-    """
-    the base class that converts a glue to a dimen
-    """
-    def dimenValue(self, parser):
-        """
-        return the dimension value of the glue
-        """
-        return self.glueValue(parser).dimen
-    
-
-class GlueArrayItemAccessor(Accessor, GlueCommand):
+class GlueArrayItemAccessor(Accessor):
     """
     access the value of a glue parameter
     """
@@ -258,12 +247,6 @@ class GlueArrayItemAccessor(Accessor, GlueCommand):
         """
         return readGlue(parser, mu=False)
 
-    def glueValue(self, parser):
-        """
-        return the glue value
-        """
-        return self.domain[self.currentKey(parser)]
-
 
 class SkipArray(Array):
     """
@@ -274,18 +257,7 @@ class SkipArray(Array):
         self.mu = False
 
 
-class MuGlueCommand(DimenCommand):
-    """
-    the base class that converts a mu glue to a dimen
-    """
-    def dimenValue(self, parser):
-        """
-        return the glue value
-        """
-        return self.muglueValue(parser).dimen
-
-
-class MuGlueArrayItemAccessor(Accessor, MuGlueCommand):
+class MuGlueArrayItemAccessor(Accessor):
     """
     access the value of a glue parameter
     """
@@ -300,12 +272,6 @@ class MuGlueArrayItemAccessor(Accessor, MuGlueCommand):
         @param parser: the parser
         """
         return readGlue(parser, mu=True)
-
-    def muglueValue(self, parser):
-        """
-        return the glue value
-        """
-        return self.domain[self.currentKey(parser)]
 mod = Module("glue",
     attributes={
         "readGlue": readGlue,

@@ -168,7 +168,7 @@ class Accessor(token.Command):
         """
         whether this accessor can safely bind itself for parser.readInternalValue()
         """
-        return self.key is not None or not self.needsKey()
+        return True
 
     def readEq(self, parser):
         """

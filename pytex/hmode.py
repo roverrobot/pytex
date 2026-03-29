@@ -563,22 +563,8 @@ class SpaceFactor(Accessor):
             raise ValueError("\\spacefactor can only be used in horizontal mode")
         return KeyTarget(self.domain, key, self.target_type)
 
-    def setGlobal(self, parser, value):
-        return self.set(parser, value)
-    
-    def set(self, parser, value):
-        if value < 0:
-            raise ValueError("invalid space factor")
-        top = parser.lists[-1]
-        if top.type != lists.LISTTYPE.HORIZONTAL:
-            raise ValueError("\\spacefactor can only be used in horizontal mode")
-        self.domain[self.key] = value
-
     def intValue(self, parser):
-        top = parser.lists[-1]
-        if top.type != lists.LISTTYPE.HORIZONTAL:
-            raise ValueError("\\spacefactor can only be used in horizontal mode")
-        return self.domain[self.key]
+        return self.getTarget(parser).get()
     
     def readValue(self, parser):
         value = parser.readInteger()

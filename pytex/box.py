@@ -238,14 +238,6 @@ class BadnessAccessor(IntegerArrayItemAccessor):
     """
     Lazily realize the most recent box pack when \\badness is inspected.
     """
-    def intValue(self, parser):
-        box = parser.lastbox
-        if box is not None:
-            parser.lastbox = None
-            if box._packed is None:
-                box.typeset(parser)
-        return super().intValue(parser)
-
     def getTarget(self, parser):
         key = self.currentKey(parser)
         box = parser.lastbox
@@ -255,13 +247,8 @@ class BadnessAccessor(IntegerArrayItemAccessor):
                 box.typeset(parser)
         return KeyTarget(self.domain, key, self.target_type)
 
-    def set(self, parser, value):
-        parser.lastbox = None
-        super().set(parser, value)
-
-    def setGlobal(self, parser, value):
-        parser.lastbox = None
-        super().setGlobal(parser, value)
+    def intValue(self, parser):
+        return self.getTarget(parser).get()
 
 
 class HBox(Box, hmode.HListHolder):

@@ -1048,21 +1048,28 @@ class SetLanguage(HorizontalCommand):
 
 
 class PrevGraf(IntegerArrayItemAccessor):
-    def intValue(self, parser):
+    def getTarget(self, parser):
         value = parser.globals["prevgraf"]
-        if value is not None:
-            return value
-        # when this is accessed here, we are in building a list. So we use parser.paragraph_before_last_display_math
-        # if this paragraph does not exist, then the value has not been changed. we should have returned early
-        # we look for a paragraph
-        for vlist in reversed(parser.lists):
-            if vlist.type == lists.LISTTYPE.VERTICAL:
-                break
-        for para in reversed(vlist):
-            if isinstance(para, Paragraph):
-                para.typeset(parser, [])
-                return parser.globals["prevgraf"]
-        return 0
+        if value is None:
+            # when this is accessed here, we are in building a list. So we use
+            # parser.paragraph_before_last_display_math if available by forcing the
+            # last built paragraph to realize prevgraf.
+            for vlist in reversed(parser.lists):
+                if vlist.type == lists.LISTTYPE.VERTICAL:
+                    break
+            else:
+                vlist = None
+            if vlist is not None:
+                for para in reversed(vlist):
+                    if isinstance(para, Paragraph):
+                        para.typeset(parser, [])
+                        break
+            if parser.globals["prevgraf"] is None:
+                parser.globals["prevgraf"] = 0
+        return super().getTarget(parser)
+
+    def intValue(self, parser):
+        return self.getTarget(parser).get()
 
 
 mod = Module("paragraph",

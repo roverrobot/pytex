@@ -669,7 +669,9 @@ class AlignmentBuilder:
                 if t is None:
                     raise ValueError("expecting a \\cr", parser.input.position())
                 if t.catcode == CATCODE.BEGIN_GROUP:
-                    template.extend(parser.readBalancedText([t]))
+                    group, end = parser.readTo(CATCODE.END_GROUP, [t])
+                    group.append(end)
+                    template.extend(group)
                 elif t.catcode == CATCODE.ALIGNMENT_TAB:
                     # end of column, but no crcr
                     t = None

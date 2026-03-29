@@ -98,62 +98,6 @@ def readTo(parser, stop, toks=None, expand: bool = False, macro_body: bool = Fal
         append(t)
 
 
-def readBalancedTextExpanded(parser, toks=None):
-    """
-    read until an enclosing }, including balanced { and }.
-    @param parser: the parser
-    @param toks: the list to read into
-    @param expand: whether to expand the tokens
-    @param macro: whether reading the body of a macro definition
-    @return: toks with the balanced text added (including the enclosing }
-    """
-    toks, end = readTo(parser, CATCODE.END_GROUP, toks=toks, expand=True)
-    toks.append(end)
-    return toks
-
-
-def readMacroBodyExpanded(parser):
-    """
-    read until an enclosing }, including balanced { and }.
-    @param parser: the parser
-    @param toks: the list to read into
-    @param expand: whether to expand the tokens
-    @param macro: whether reading the body of a macro definition
-    @return: toks with the balanced text added (including the enclosing }
-    """
-    toks, end = readTo(parser, CATCODE.END_GROUP, expand=True, macro_body=True)
-    toks.append(end)
-    return toks
-
-
-def readBalancedText(parser, toks=None):
-    """
-    read until an enclosing }, including balanced { and }.
-    @param parser: the parser
-    @param toks: the list to read into
-    @param expand: whether to expand the tokens
-    @param macro: whether reading the body of a macro definition
-    @return: toks with the balanced text added (including the enclosing }
-    """
-    toks, end = readTo(parser, CATCODE.END_GROUP, toks=toks)
-    toks.append(end)
-    return toks
-
-
-def reaadMacroBody(parser):
-    """
-    read until an enclosing }, including balanced { and }.
-    @param parser: the parser
-    @param toks: the list to read into
-    @param expand: whether to expand the tokens
-    @param macro: whether reading the body of a macro definition
-    @return: toks with the balanced text added (including the enclosing }
-    """
-    toks, end = readTo(parser, CATCODE.END_GROUP, macro_body=True)
-    toks.append(end)
-    return toks
-
-
 def skipFiller(parser):
     """
     read a filler
@@ -191,10 +135,7 @@ def readGeneralText(parser, expand: bool = True):
     )
     if not is_begin_group:
         raise ValueError("expecting {", parser.input.position())
-    balanced = readBalancedTextExpanded if expand else readBalancedText
-    toks = balanced(parser, [])
-    # remove the trailing }
-    toks.pop()
+    toks, _end = parser.readTo(CATCODE.END_GROUP, expand=expand)
     return toks
 
 
@@ -368,10 +309,6 @@ class PageMark(Command):
 mod = Module("toks",
     attributes = {
         "readTo": readTo,
-        "readBalancedText": readBalancedText,
-        "readBalancedTextExpanded": readBalancedTextExpanded,
-        "readMacroBody": reaadMacroBody,
-        "readMacroBodyExpanded": readMacroBodyExpanded,
         "skipFiller": skipFiller,
         "readGeneralText": readGeneralText,
     },

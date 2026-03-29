@@ -9,10 +9,10 @@ from tests.test_vmode import _test_hbox
 
 def test_read_toks(parser):
     parser.readFrom("abcd}")
-    k = parser.readBalancedText([])
-    # a, b, c, d, }, space
-    assert len(k) == 5
+    k, end = parser.readTo(CATCODE.END_GROUP)
+    assert len(k) == 4
     assert k[3].name == "d"
+    assert end.catcode == CATCODE.END_GROUP
     
 
 def test_read_to_end_group(parser):

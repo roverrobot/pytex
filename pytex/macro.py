@@ -193,8 +193,7 @@ class Macro(Command):
             return []
         if t.catcode != CATCODE.BEGIN_GROUP:
             return [t]
-        result = parser.readBalancedText([])
-        result.pop() # remove the trailing }
+        result, _end = parser.readTo(CATCODE.END_GROUP)
         return result
     
     def readArgument1(self, parser, bracket):
@@ -219,8 +218,9 @@ class Macro(Command):
             if t.catcode == CATCODE.BEGIN_GROUP:
                 keep = bool(result)
                 append(t)
-                result = parser.readBalancedText(result)
+                result, end = parser.readTo(CATCODE.END_GROUP, result)
                 if keep:
+                    append(end)
                     continue
                 # did ewe match?
                 t = token()
@@ -228,7 +228,8 @@ class Macro(Command):
                     raise ValueError(f"macro does not match the definition {self}", parser.input.position())
                 # this argument is {....}, we drop the outmost {}
                 if t.catcode == bracket.catcode and t.name == bracket.name:
-                    return result[1:-1]
+                    return result[1:]
+                append(end)
                 append(t)
                 continue
             append(t)
@@ -248,11 +249,12 @@ class Macro(Command):
         if t is None:
             return []
         if t.catcode == CATCODE.BEGIN_GROUP:
-            result = parser.readBalancedText([t])
+            result, end = parser.readTo(CATCODE.END_GROUP, [t])
             t = self.matchDelimited(parser, bracket, bracket_len)
             if t is None:
                 # matched the bracket: the argument is enclosed in {}. Drop them
-                return result[1:-1]
+                return result[1:]
+            result.append(end)
             result.append(t)
         else:
             result = [t]
@@ -262,7 +264,8 @@ class Macro(Command):
                 return result
             result.append(t)
             if t.catcode == CATCODE.BEGIN_GROUP:
-                result = parser.readBalancedText(result)
+                result, end = parser.readTo(CATCODE.END_GROUP, result)
+                result.append(end)
 
     def expand(self, parser):
         """
@@ -371,10 +374,11 @@ class MacroAccessor(EquitableAccessor):
             else:
                 bracket.append(t)
         # read the replacement text
-        balanced = parser.readMacroBodyExpanded if self.expand_body else parser.readMacroBody
-        replacement = balanced()
-        # remove the trailing }
-        replacement.pop()
+        replacement, _end = parser.readTo(
+            CATCODE.END_GROUP,
+            expand=self.expand_body,
+            macro_body=True,
+        )
         if tail:
             replacement.append(tail)
         macro = Macro(brackets, replacement)

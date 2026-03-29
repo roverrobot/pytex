@@ -202,7 +202,6 @@ class Parser:
             return None
         meaning = t.definition
         getter_name = {
-            accessor.VALUE_TYPE.FONT: "fontValue",
             accessor.VALUE_TYPE.MEANING: "meaningValue",
         }.get(value_type)
         value = None

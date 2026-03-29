@@ -378,19 +378,10 @@ class The(Command):
                 t = CommandToken(f.name)
                 t.entry = parser.equitable.entry(f.name)
                 return [t]
-
         t = parser.token_expand()
         if t is None:
-            raise ValueError(f"invalid token after \\the: {t}", parser.input.position())
-        t0 = t
-        meaning = t.definition
-
-        if hasattr(meaning, "fontValue"):
-            f = meaning.fontValue(parser)
-            t = CommandToken(f.name)
-            t.entry = parser.equitable.entry(f.name)
-            return [t]
-        raise ValueError(f"invalid token after \\the: {t0.name}", parser.input.position())
+            raise ValueError(f"expecting a token after \\the", parser.input.position())
+        raise ValueError(f"invalid token after \\the: {t.name}", parser.input.position())
     
     def expand(self, parser):
         """

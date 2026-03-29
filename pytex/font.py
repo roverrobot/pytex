@@ -8,7 +8,7 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget, ReadOnlyTarget
 from pytex.integer import IntegerArrayItemAccessor
 from pytex.dimen import Dimen
 from pytex.glue import Glue, Stretchness
@@ -111,13 +111,9 @@ class Font(Command):
 
     def meaning(self, parser):
         return f"select font {self.backend.name} at {self.at}pt"
-        
-    def fontValue(self, parser):
-        """
-        get the font value
-        @param parser: the parser
-        """
-        return self
+
+    def getTarget(self, parser):
+        return ReadOnlyTarget(self, VALUE_TYPE.FONT)
     
     def hyphenChar(self):
         """
@@ -148,14 +144,10 @@ def readFont(parser):
     read a font from the input stack
     @param parser: the parser
     """
-    t = parser.token_expand()
-    if t is None or t.definition is None:
+    value = parser.readInternalValue(VALUE_TYPE.FONT)
+    if value is None:
         raise ValueError("expecting a font")
-    # is the font specified by a command seqeunce?
-    try:
-        return t.definition.fontValue(parser)
-    except AttributeError:
-        raise ValueError("expecting a font")
+    return value
 
 
 class FontArrayItemAccessor(Accessor):
@@ -169,13 +161,6 @@ class FontArrayItemAccessor(Accessor):
 
     def readValue(self, parser):
         return readFont(parser)
-    
-    def fontValue(self, parser):
-        """
-        get the font value
-        @param parser: the parser
-        """
-        return self.domain[self.currentKey(parser)]
 
 nullfont = NullFont(backend=nullfont_backend, at=0)
 nullfont.name = "\\nullfont"
@@ -267,24 +252,21 @@ class FontAccessor(Accessor):
     An accessor for the current font
     """
     target_type = VALUE_TYPE.FONT
-
-    def fontValue(self, parser):
-        """
-        get the current font value
-        @param parser: the parser
-        """
-        return self.domain[self.currentKey(parser)]
         
 
 class FontCommand(FontDefineAccessor):
     """
     The \\font command
     """
+    target_type = VALUE_TYPE.FONT
+
     def __init__(self):
         super().__init__(None)
-        
-    def fontValue(self, parser):
-        return parser.currentfont.value
+
+    def getTarget(self, parser):
+        if self.key is not None:
+            return super().getTarget(parser)
+        return ReadOnlyTarget(parser.parameters["currentfont"], VALUE_TYPE.FONT)
 
 
 class FontDimenAccessor(Accessor):

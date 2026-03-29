@@ -1,5 +1,7 @@
 import pytest
 from pytex.token import Token, CATCODE
+from pytex.token import Command
+from pytex.accessor import AttrTarget
 from pytex.accessor import VALUE_TYPE
 from tests import checkValues
 import datetime
@@ -115,6 +117,22 @@ def test_advance_rejects_read_only_chardef_target(parser):
 def test_advance_rejects_read_only_mathchardef_target(parser):
     with pytest.raises(ValueError, match="writable target"):
         parser.parse("\\mathchardef\\a=0 \\advance\\a by 1")
+
+
+def test_read_internal_integer_rejects_write_only_target(parser):
+    class WriteOnlyInteger(Command):
+        def __init__(self, value):
+            self.value = value
+
+        def getTarget(self, parser):
+            return AttrTarget(self, "value", VALUE_TYPE.INT, readable=False, writable=True)
+
+    parser.equitable["\\a"] = WriteOnlyInteger(7)
+    parser.readFrom("\\a")
+    assert parser.readInternalValue(VALUE_TYPE.INT) is None
+    t = parser.token_expand()
+    assert t is not None
+    assert t.name == "\\a"
 
 
 def test_integer_reader_uses_target_cast_for_dimensions(parser):

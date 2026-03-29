@@ -206,8 +206,12 @@ class Parser:
             else:
                 can_bind = True
         if can_bind:
+            target = get_target(self)
+            if not getattr(target, "readable", True):
+                self.input.unread(t)
+                return None
             try:
-                value = self.cast(self.get(get_target(self)), value_type)
+                value = self.cast(self.get(target), value_type)
             except (IndexError, KeyError, TypeError):
                 value = None
             if value is not None:

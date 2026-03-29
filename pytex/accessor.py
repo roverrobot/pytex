@@ -152,6 +152,12 @@ class Accessor(token.Command):
         """
         return type(self).readKey is not Accessor.readKey
 
+    def canBindInternalValue(self):
+        """
+        whether this accessor can safely bind itself for parser.readInternalValue()
+        """
+        return self.key is not None or not self.needsKey()
+
     def readEq(self, parser):
         """
         read the equal sign from the input stack

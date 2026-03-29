@@ -202,7 +202,7 @@ class Parser:
         can_bind = False
         if get_target is not None:
             if isinstance(meaning, accessor.Accessor):
-                can_bind = meaning.key is not None or not meaning.needsKey()
+                can_bind = meaning.canBindInternalValue()
             else:
                 can_bind = True
         if can_bind:

@@ -116,6 +116,12 @@ def test_skewchar(collector):
     assert collector.getString() == '127'
 
 
+def test_fontchar_internal_integer_reads_use_target_path(parser):
+    parser.parse('\\font\\f=cmr10 \\hyphenchar\\f=45 \\count0=\\hyphenchar\\f \\count1=\\skewchar\\f')
+    assert parser.count[0] == 45
+    assert parser.count[1] == parser.equitable["\\f"].fontchar["skewchar"]
+
+
 def test_fontname(collector):
     collector.parse("\\font\\f=cmr10 \\fontname\\f")
     assert collector.getString() == "nullfont"

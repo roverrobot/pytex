@@ -514,59 +514,44 @@ def readBox(parser, setbox=False):
     
 
 class SetBoxEndCallback:
-    def __init__(self, accessor, box):
-        self.accessor = accessor
+    def __init__(self, index, box, globally):
+        self.index = index
         self.box = box
+        self.globally = globally
 
     def __call__(self, parser):
         parser.lists.pop()
         self.box = self.box.typeset(parser)
         parser.lastbox = self.box
-        self.accessor._set(parser)
+        parser.setTarget((parser.box, self.index), VALUE_TYPE.BOX)
+        parser.set(global_scope=self.globally, value=self.box)
 
 
-class BoxArrayItemAccessor(Accessor):
-    target_type = VALUE_TYPE.BOX
-
-    def readKey(self, parser):
-        return parser.readInteger()
-
-    def readValue(self, parser):
-        return readBox(parser, setbox=True)
-    
-    def set(self, parser, value):
-        # the actualy value setting is done in assign
-        self.value = (self.currentKey(parser), value, False)
-
-    def setGlobal(self, parser, value):
-        # the actualy value setting is done in assign
-        self.value = (self.currentKey(parser), value, True)
-
-    def _set(self, parser):
-        key, value, globally = self.value
-        if globally:
-            parser.set(self.domain.name, key, global_scope=True, value=value)
-        else:
-            parser.set(self.domain.name, key, value=value)
-
+class SetBox(Command):
     def assign(self, parser, prefixes):
-        if self.key is None and self.needsKey():
-            return self.bindKey(self.readKey(parser)).assign(parser, prefixes)
+        index = parser.readInteger()
+        parser.skipEq(expand=True)
         top = parser.lists[-1]
-        super().assign(parser, prefixes)
+        value = readBox(parser, setbox=True)
+        globally = False
+        for prefix in prefixes:
+            value, globally = prefix.modify(value, globally)
+        parser.current_value = value
+        parser.afterAssignment()
         new = parser.lists[-1]
         if new is not top:
-            # we are reading a list, but the group has not started yet to accommodate \afterassignment
-            value = self.value[1]
-            to_end = BoxPretypesetCallback(value)
             parser.beginGroup(
                 parser.input.position(),
                 new.group_type,
-                to_end=to_end,
-                ended=SetBoxEndCallback(self, self.value[1]),
+                to_end=BoxPretypesetCallback(value),
+                ended=SetBoxEndCallback(index, value, globally),
             )
         else:
-            self._set(parser)
+            parser.setTarget((parser.box, index), VALUE_TYPE.BOX)
+            parser.set(global_scope=globally, value=value)
+
+    def execute(self, parser):
+        self.assign(parser, prefixes=[])
 
 class IfBox(conditional.Conditional):
     """
@@ -1004,7 +989,7 @@ class LastBox(Command):
 
 mod = Module("hbox", 
     domains={
-        "box": {"generator": lambda state: Array("box", state), "accessor": BoxArrayItemAccessor},
+        "box": {"generator": lambda state: Array("box", state), "accessor": None},
     },
     parameters={
         "badness": {"value": 0, "accessor": BadnessAccessor, "domain": "globals"},
@@ -1014,6 +999,7 @@ mod = Module("hbox",
         "readBoxSpec": readBoxSpec,
     },
     commands={
+        "setbox": SetBox(),
         "box": BoxCommand(True),
         "copy": BoxCommand(False),
         "ifvoid": IfBox(None),

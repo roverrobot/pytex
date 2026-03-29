@@ -7,7 +7,7 @@ from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.serialization import Builtin
 from pytex.state import Array
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget
 from pytex.define import registerdef
 
 
@@ -290,7 +290,7 @@ class FixedInteger(Command):
         self.value = value
 
     def getTarget(self, parser):
-        return AttrTarget(self, "value", VALUE_TYPE.INT, readable=True, writable=False)
+        return ReadOnlyTarget(self.value, VALUE_TYPE.INT)
 
     def intValue(self, parser):
         return self.value
@@ -304,7 +304,7 @@ class InputLineNo(Command):
     \\inputlineno, which returns the current line number in the source file
     """
     def getTarget(self, parser):
-        return AttrTarget(parser.input.position(), "line", VALUE_TYPE.INT, readable=True, writable=False)
+        return ReadOnlyTarget(parser.input.position().line, VALUE_TYPE.INT)
 
     def intValue(self, parser):
         # the line number is the current line number

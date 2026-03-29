@@ -98,9 +98,7 @@ class CharDefValue(Command):
         return parser.addChar(chr(self.value))
 
     def getTarget(self, parser):
-        return accessor.AttrTarget(
-            self, "value", accessor.VALUE_TYPE.INT, readable=True, writable=False
-        )
+        return accessor.ReadOnlyTarget(self.value, accessor.VALUE_TYPE.INT)
 
     def intValue(self, parser):
         """

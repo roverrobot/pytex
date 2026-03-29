@@ -115,12 +115,12 @@ def test_mathchardef_target_is_read_only(parser):
 
 
 def test_advance_rejects_read_only_chardef_target(parser):
-    with pytest.raises(ValueError, match="writable target"):
+    with pytest.raises(ValueError, match="not writable"):
         parser.parse("\\chardef\\a=0 \\advance\\a by 1")
 
 
 def test_advance_rejects_read_only_mathchardef_target(parser):
-    with pytest.raises(ValueError, match="writable target"):
+    with pytest.raises(ValueError, match="not writable"):
         parser.parse("\\mathchardef\\a=0 \\advance\\a by 1")
 
 
@@ -130,7 +130,7 @@ def test_read_internal_integer_rejects_write_only_target(parser):
             self.value = value
 
         def getTarget(self, parser):
-            return AttrTarget(self, "value", VALUE_TYPE.INT, readable=False, writable=True)
+            return AttrTarget(self, "value", VALUE_TYPE.INT, readable=False)
 
     parser.equitable["\\a"] = WriteOnlyInteger(7)
     parser.readFrom("\\a")

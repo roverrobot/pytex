@@ -13,7 +13,7 @@ from pytex import node as nd
 from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget
 from pytex.define import EquitableAccessor
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
@@ -1632,7 +1632,7 @@ class MathCharValue(lists.ModeDependentCommand):
         mlist.append(self.mathCharValue(parser))
 
     def getTarget(self, parser):
-        return AttrTarget(self, "mathcode", VALUE_TYPE.INT, readable=True, writable=False)
+        return ReadOnlyTarget(self.mathcode, VALUE_TYPE.INT)
 
     def intValue(self, parser):
         return self.mathcode

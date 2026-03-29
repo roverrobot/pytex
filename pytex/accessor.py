@@ -50,10 +50,10 @@ class KeyTarget:
     """
     A target backed by ``domain[key]``.
     """
-    __slots__ = ("domain", "key", "value_type", "supports_global", "readable", "writable")
+    __slots__ = ("domain", "key", "value_type", "supports_global", "readable")
 
     def __init__(self, domain, key, value_type=VALUE_TYPE.UNKNOWN, supports_global=None,
-                 readable=True, writable=True):
+                 readable=True):
         self.domain = domain
         self.key = key
         self.value_type = value_type
@@ -61,7 +61,6 @@ class KeyTarget:
             supports_global = hasattr(domain, "setGlobal")
         self.supports_global = supports_global
         self.readable = readable
-        self.writable = writable
 
     def get(self):
         if not self.readable:
@@ -69,8 +68,6 @@ class KeyTarget:
         return self.domain[self.key]
 
     def set(self, value, global_scope=False):
-        if not self.writable:
-            raise ValueError("target is not writable")
         if global_scope and self.supports_global:
             self.domain.setGlobal(self.key, value)
         else:
@@ -82,14 +79,13 @@ class AttrTarget:
     """
     A target backed by ``getattr(obj, attr)`` / ``setattr(obj, attr, value)``.
     """
-    __slots__ = ("domain", "key", "value_type", "readable", "writable")
+    __slots__ = ("domain", "key", "value_type", "readable")
 
-    def __init__(self, obj, attr, value_type=VALUE_TYPE.UNKNOWN, readable=True, writable=True):
+    def __init__(self, obj, attr, value_type=VALUE_TYPE.UNKNOWN, readable=True):
         self.domain = obj
         self.key = attr
         self.value_type = value_type
         self.readable = readable
-        self.writable = writable
 
     def get(self):
         if not self.readable:
@@ -97,10 +93,26 @@ class AttrTarget:
         return getattr(self.domain, self.key)
 
     def set(self, value, global_scope=False):
-        if not self.writable:
-            raise ValueError("target is not writable")
         setattr(self.domain, self.key, value)
         return value
+
+
+class ReadOnlyTarget:
+    """
+    A target that simply stores a readable value.
+    """
+    __slots__ = ("value", "value_type", "readable")
+
+    def __init__(self, value, value_type=VALUE_TYPE.UNKNOWN):
+        self.value = value
+        self.value_type = value_type
+        self.readable = True
+
+    def get(self):
+        return self.value
+
+    def set(self, value, global_scope=False):
+        raise ValueError("target is not writable")
 
 
 def makeTarget(domain, key, value_type=VALUE_TYPE.UNKNOWN, **kwargs):

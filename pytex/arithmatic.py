@@ -34,8 +34,6 @@ class Arithmatics(Command):
         if getattr(meaning, "getTarget", None) is None:
             raise ValueError("expecting a register or a parameter", parser.input.position())
         target = parser.readTarget(meaning)
-        if not getattr(target, "writable", True):
-            raise ValueError("expecting a writable target", parser.input.position())
         x = parser.get(target)
         is_integer = isinstance(x, int)
         parser.readKeyword(["by"])

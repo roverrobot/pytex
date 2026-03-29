@@ -11,50 +11,26 @@ Some of these are already fairly crisp. Others are still provisional.
 
 ## Execution Holder Convention
 
-The public execution IR becomes much smaller if most value-producing and
-value-consuming operations communicate through two conceptual holders:
+The earlier sketch used parser-visible holders such as `current_value` and
+`scratch`.
 
-- `current_value`
-- `scratch`
+The final runtime direction is more target-centric:
 
-`current_value` is a tagged holder. Its type is determined by the operation
-that produced it.
+- bind a `target` first
+- let the target carry its own `value_type`
+- use parser methods to read and coerce ordinary Python values
+- keep temporary values in command-local variables instead of parser-owned
+  registers
 
-Examples:
+So the practical shape is:
 
-- `read_int()` sets `current_value` to an integer
-- `read_dimen()` sets `current_value` to a dimension
-- `read_glue()` sets `current_value` to a glue value
-- `read_general_text()` sets `current_value` to a token list
-- `read_next_raw()` can set `current_value` to a token
+- `target = readTarget()`
+- `value = readValue(target.value_type)`
+- `current = get(target)` when needed
+- `value = cast(value, target.value_type)`
 
-`scratch` is the one extra holder used when an operation needs two live values.
-
-This gives a very compact discipline:
-
-- producers set `current_value`
-- `store(scratch)` saves the current value for later use
-- consumers read `current_value`
-- binary operations use `scratch` plus `current_value`
-
-Under this convention, many public operations no longer need an explicit value
-operand in the conceptual IR.
-
-However, the runtime implementation does not need to store these holders on the
-parser itself. TeX execution is reentrant, and nested reads would force a
-stack-backed save/restore mechanism around parser-owned holders.
-
-So the better runtime model is:
-
-- let `target` carry its own type information
-- let bound targets carry their own `get/set` behavior
-- keep `current_value` / `scratch` as conceptual IR names
-- implement them as command-local variables
-- let parser methods return values instead of mutating parser-owned holders,
-  except where parser-owned state is truly the point
-
-This preserves the compact IR model while letting ordinary language locals
-provide stack discipline essentially for free.
+This still gives a small execution vocabulary, but avoids stack-backed
+parser-held holders in a reentrant engine.
 
 ## Implementation Model
 
@@ -78,9 +54,9 @@ incremental and often cannot be planned as one static op list ahead of time.
 
 Examples:
 
-- `read_int()` corresponds to a parser method
+- `readValue(INT)` corresponds to a parser method
 - `read_to(...)` corresponds to a parser method
-- `set(domain, key, scope)` corresponds to a parser method
+- `set(target, value, global_scope=False)` corresponds to a parser method
 - `skip_conditional(...)` corresponds to a parser method
 
 But helper details such as saved-value restoration or low-level token-list
@@ -121,7 +97,7 @@ This gives a practical incremental path:
 Start with human-readable tracing of major parser ops, for example:
 
 - token flow: `push`, `pop`, `unread`, `read_next_raw`
-- capture/readers: `read_to`, `read_general_text`, `read_int`, `read_dimen`, `read_glue`
+- capture/readers: `read_to`, `read_general_text`, `readValue(INT)`, `readValue(DIMEN)`, `readValue(GLUE)`
 - state: `begin_group`, `end_group`, `set`, `update`
 - control: conditional push/pop/skip
 - execution-to-layout bridge calls
@@ -142,8 +118,9 @@ Once parser-op tracing exists, debugging can build on it with:
 
 - step-by-op execution
 - breakpoints on commands or parser ops
-- watchpoints on `(domain, key)` writes
-- inspection of `current_value`, `scratch`, group stack, if-stack, and input stack
+- watchpoints on bound-target writes
+- inspection of bound targets, temporary scanned values, group stack, if-stack,
+  and input stack
 
 So tracing/debugging is very feasible, but it should be built as instrumentation
 over the parser-op interface rather than by forcing every token to pre-emit a
@@ -180,14 +157,13 @@ Some execution behavior needs more than plain scanner push/pop. In particular,
 operations such as:
 
 - `read_next_raw()`
-- `store(scratch)`
+- `store(token)`
 - `expand_current_once()`
 - `unread(token)`
 
-Here `read_next_raw()` places the token in `current_value`, and `scratch` holds
-the postponed token when needed. So token control can use the same holder model
-as typed value scanning, rather than introducing a separate dedicated token
-register family.
+Here `read_next_raw()` returns a token, and the postponed token can simply live
+in a command-local variable until it is unread. So token control does not need
+its own parser-visible holder registers.
 
 ### Purpose
 
@@ -215,8 +191,7 @@ This is a distinct family from plain scanner/input-stack mechanics.
 - `read_general_text()`
 
 These are higher-level scanning operations that consume from the token-flow
-layer and place structured results such as command names or token lists into
-`current_value`.
+layer and return structured results such as command names or token lists.
 
 ### Purpose
 
@@ -246,7 +221,8 @@ For example, a macro definition can be described as:
 - `params = read_to(BEGIN_GROUP, balanced=False, include_tail=False, expand_mode=raw)`
 - `body = read_to(END_GROUP, balanced=True, include_tail=False, expand_mode=raw)`
 - `macro = make_macro(params, body)`
-- `set(equitable, key, scope)`
+- `target = equitable_target(key)`
+- `set(target, macro, global_scope=False)`
 
 So token-list construction is still real, but it is better treated as the
 internal realization of higher-level capture ops.
@@ -254,7 +230,8 @@ internal realization of higher-level capture ops.
 A hook assignment such as `\everypar` then looks like:
 
 - `read_general_text()`
-- `set(parameters, "everypar", scope)`
+- `target = parameter_target("everypar")`
+- `set(target, value, global_scope=False)`
 
 ## 3. Typed Value Reader IR
 
@@ -265,27 +242,27 @@ That suggests a distinct family of typed scanning operations.
 
 ### Core Operations
 
-- `read_int()`
-- `read_dimen()`
-- `read_glue()`
+- `readValue(INT)`
+- `readValue(DIMEN)`
+- `readValue(GLUE)`
 
 ### Likely Helper Operations
 
-- `read_muglue()`
+- `readValue(MUGLUE)`
 - `read_stretch()`
 - `read_shrink()`
 - `read_keyword(...)`
 - `read_optional_signs()`
 
 Some of these may stay internal helpers rather than public IR operations.
-For example, stretch and shrink parsing may simply be part of `read_glue()`.
+For example, stretch and shrink parsing may simply be part of `readValue(GLUE)`.
 
 ### Purpose
 
 This IR family answers:
 
 - how typed TeX values are scanned from tokens
-- how assignment and command semantics receive normalized values through `current_value`
+- how assignment and command semantics receive normalized values by `VALUE_TYPE`
 
 ## 4. Parser-State IR
 
@@ -293,8 +270,9 @@ This is the grouped typed-store part of execution.
 
 ### Core Operations
 
-- `get(domain, key)`
-- `set(domain, key, scope)`
+- `readTarget()`
+- `get(target)`
+- `set(target, value, global_scope=False)`
 - `begin_group(kind)`
 - `end_group(kind)`
 
@@ -306,11 +284,10 @@ This is the grouped typed-store part of execution.
 
 ### Derived Update Operation
 
-- `update(domain, key, op, scope)`
+- `update(target, op, global_scope=False)`
 
 This is optional sugar for operations such as `\advance`, `\multiply`, and
-`\divide`, which can also be lowered to `get + compute + set`. Under the
-holder convention, the new operand comes from `current_value`.
+`\divide`, which can also be lowered to `get + compute + set`.
 
 ### Hidden Micro-Ops
 
@@ -327,7 +304,7 @@ This IR family answers:
 
 - what mutable parser state exists
 - how grouping restores local state
-- how assignments affect domains and registers
+- how assignments affect bound targets and grouped domains
 
 ## 5. Command And Expansion Control IR
 
@@ -374,16 +351,16 @@ Typical condition-evaluation operations include:
 - `test_equal()`
 - `test_larger()`
 - `test_odd()`
-- `read_int()` for integer-selected branching such as `\ifcase`
+- `readValue(INT)` for integer-selected branching such as `\ifcase`
 
 So conditionals reuse the typed reader layer as part of their front end.
 
-Under the holder convention:
+Under the local-value convention:
 
-- `test_equal()` compares `scratch` with `current_value`
-- `test_larger()` compares `scratch` with `current_value`
-- `test_odd()` inspects `current_value`
-- `read_int()` places the branch selector into `current_value`
+- `test_equal(lhs, rhs)` compares two local values
+- `test_larger(lhs, rhs)` compares two local values
+- `test_odd(value)` inspects one local value
+- `readValue(INT)` returns the branch selector directly
 
 #### Conditional Stack
 
@@ -428,7 +405,7 @@ An ordinary conditional can be modeled as:
 
 An `\ifcase`-style conditional is the integer-valued variant:
 
-1. `selector = read_int()`
+1. `selector = readValue(INT)`
 2. `push_if_frame(IFCASE, selector)`
 3. skip across `\or` arms until the selected one, or to `\else` / `\fi`
 4. `\fi` performs `pop_if_frame()`

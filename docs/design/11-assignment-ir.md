@@ -1,319 +1,298 @@
 # Assignment IR
 
-This note consolidates the current direction for assignment execution.
+This note records the assignment and internal-value design that the codebase now
+uses.
 
-The main idea is to make assignments target-centric.
+The design is target-centric:
 
-Instead of threading `(domain, key)` pairs through every assignment-like
-operation, commands should work with an explicit target plus a small number of
-typed local values.
+- commands bind a target
+- the parser reads values by `VALUE_TYPE`
+- bound targets own the concrete get/set semantics
+- assignment policy such as `\globaldefs` and `\afterassignment` stays outside
+  the target itself
 
 ## Main Conclusion
 
-Assignments should be expressed in terms of parser operations such as:
+The execution vocabulary for assignment-like commands is:
 
-- `readTarget() -> target`
+- `readTarget() -> target | None`
 - `readValue(value_type) -> value`
+- `readInternalValue(value_type, expand=True) -> value | None`
 - `cast(value, value_type) -> value | None`
+- `resolveGlobalScope(global_scope=False) -> bool`
+- `afterAssignment()`
 
-Under this model:
+And the bound target vocabulary is:
 
-- accessors parse target syntax
-- bound targets own target semantics
-- the parser owns typed value reading
-- the parser owns typed coercions
-- assignment commands/accessors own assignment policy such as `\globaldefs`
-- `afterAssignment()` remains a separate operation from `set()`
+- `target.value_type`
+- `target.get() -> value`
+- `target.set(value, global_scope=False) -> value`
 
-This is a better fit for the execution-IR direction than letting accessors keep
-their own ad hoc read/write logic.
+This is the stable split:
 
-## Conceptual Registers vs Runtime Locals
+- `Parser` owns scanning, typed readers, coercion, and assignment-adjacent
+  policy
+- `Accessor` owns target syntax
+- `target` owns the already-bound storage semantics
 
-The execution model is still easiest to describe using a few conceptual
-registers:
+## Target Model
 
-- `target`
-- `current_value`
-- `scratch`
-- `scratch_type`
+The runtime does not use parser-owned `target`, `current_value`, or `scratch`
+registers.
 
-But these should not be understood as mandatory long-lived parser instance
-variables.
+Those are still useful conceptual names, but the implementation uses ordinary
+Python locals. This avoids stack/save-restore machinery for nested scans such
+as:
 
-In practice, TeX execution is highly reentrant. Nested internal reads can occur
-while an outer assignment is still being scanned. If these values are kept on
-the parser itself, commands such as `\advance` end up needing a stack-backed
-save/restore mechanism just to protect outer state from inner reads.
+- `\advance\count0 by \count1`
+- `\multiply\dimen0 by \count2`
 
-That is both awkward and expensive in a hot path.
+So the runtime shape is:
 
-So the implementation direction should be:
+- `target = parser.readTarget()`
+- `value = parser.readValue(target.value_type)`
+- `current = parser.get(target)` when needed
+- `value = parser.cast(value, target.value_type)` when needed
 
-- keep these names as conceptual IR registers
-- implement them as local variables inside command execution
-- let parser operations return values instead of mutating parser-held holders
+The target itself carries the type information needed for assignment and
+internal reads.
 
-This gives the same conceptual model, but Python locals provide the necessary
-stack discipline for free.
+## Concrete Target Types
 
-`target` is the active location being assigned to or read from, together with
-the type restriction for that location.
+The current code uses three concrete target forms in
+[pytex/accessor.py](/Users/jma/dev/pytex/pytex/accessor.py):
 
-Examples:
+- `KeyTarget`
+  - backed by `domain[key]`
+  - optionally uses `domain.setGlobal(key, value)` when supported
+- `AttrTarget`
+  - backed by `getattr(obj, attr)` / `setattr(obj, attr, value)`
+- `ReadOnlyTarget`
+  - stores a readable value directly
+  - rejects writes
+
+This is enough for the current engine:
+
+- plain registers and parameters use `KeyTarget`
+- object-backed locations such as box dimensions use `AttrTarget`
+- read-only internal values use `ReadOnlyTarget`
+
+Examples of read-only targets:
+
+- `\chardef` values
+- `\mathchardef` values
+- fixed integer commands
+- e-TeX read-only introspection values
+- mark token-list readers
+
+## Parser-Side Target Operations
+
+### `readTarget()`
+
+`Parser.readTarget()` is a scanner operation.
+
+It:
+
+1. reads the next expanded token
+2. checks whether its meaning supports `getTarget(parser)`
+3. returns the bound target when available
+4. otherwise unreads the token and returns `None`
+
+So `readTarget()` is now the normal entry point for target-based commands such
+as:
+
+- `\the`
+- arithmetic assignments
+- box reads
+- internal-value readers
+
+### `get(target)` and `set(target, value, global_scope=False)`
+
+`Parser.get()` and `Parser.set()` remain as thin convenience wrappers.
+
+Semantically, the real behavior belongs to the bound target:
+
+- `parser.get(target)` delegates to `target.get()`
+- `parser.set(target, value, ...)` delegates to `target.set(...)`
+
+This means parser-side get/set are convenience parser ops, not the true owner
+of storage semantics.
+
+## Value Types
+
+The current type family is represented by `VALUE_TYPE` in
+[pytex/accessor.py](/Users/jma/dev/pytex/pytex/accessor.py):
 
 - `INT`
 - `DIMEN`
 - `GLUE`
 - `MUGLUE`
-- `TOKS`
 - `BOX`
+- `TOKS`
 - `FONT`
+- `MEANING`
 
-`current_value` is the main value loaded by `get()` or `readValue()`.
+The important rule is:
 
-`scratch` is the secondary local value used when a command needs an extra
-operand.
+- targets carry their own `value_type`
+- parser readers and casts dispatch from that type
 
-`scratch_type` is needed because the scratch operand does not always have the
-same type as the target.
+## Parser Value Readers
 
-Example:
+The parser now has a reader table keyed by `VALUE_TYPE`, exposed through
+`Parser.readValue(value_type)` in
+[pytex/parser.py](/Users/jma/dev/pytex/pytex/parser.py).
 
-- `\multiply\dimen0 by 2`
-- target type is `DIMEN`
-- scratch type is `INT`
-
-So one target-local type plus one temporary `scratch_type` is enough. The
-target's type should travel with the target itself, not as a separate parallel
-value.
-
-## What A Target Is
-
-`target` is the position to read or write.
-
-In the simplest representation, it can be:
-
-- `(domain, key)`
-
-where `domain` is any array/dict-like mutable store and `key` is the index or
-name inside that store.
-
-That means targets are not limited to parser-owned register arrays. They can
-also point to domain-like objects such as:
-
-- a font parameter array for `\fontdimen`
-- a font-character attribute array for `\hyphenchar` / `\skewchar`
-- other array/dict-like stores used by the engine
-
-So `target` is not just "where"; it is "where plus what kind of value belongs
-there."
-
-A simple representation would be:
-
-- `(domain, key, value_type)`
-
-But the more useful representation is a bound target object with fields and
-methods such as:
-
-- `domain`
-- `key`
-- `value_type`
-- `get()`
-- `set(value, global_scope=False)`
-
-This is better than a raw `(domain, key)` pair because some TeX targets are not
-just ordinary parser domains. Examples include:
-
-- `\wd`, `\ht`, `\dp`
-- `\fontdimen`
-- guarded or mode-sensitive targets such as `\spacefactor`
-
-Those are still assignment targets, but their semantics belong with the bound
-target rather than inside generic parser `get/set` methods.
-
-The important distinction is:
-
-- accessors need `parser` while binding a target
-- a bound target should not need `parser` anymore
-
-So target construction is parser-dependent, but target use is parser-free.
-
-## Parser Operations
-
-### `readTarget() -> target`
-
-This operation reads the next assignment target and returns:
-
-- `target`
-
-It should be implemented through accessors.
-
-### `readValue(value_type) -> value`
-
-This operation reads a value from input according to the requested type.
-
-The parser should dispatch through a reader table keyed by the requested type:
+Conceptually:
 
 - `INT -> readInteger`
 - `DIMEN -> readDimen`
 - `GLUE -> readGlue`
-- `TOKS -> readGeneralText` or token-list reader
-- etc.
+- `MUGLUE -> readGlue(mu=True)`
+- `BOX -> readBox`
+- `TOKS -> readToks`
+- `FONT -> readFont`
 
-Commands that need a truly special scan rule can still use a specialized parser
-method directly.
+This means ordinary typed accessors no longer need to implement their own RHS
+reader logic. They can simply say what type they carry.
 
-### `cast(value, value_type) -> value | None`
+## Internal Value Reads
 
-This operation attempts a coercion.
+`Parser.readInternalValue(value_type, expand=True)` is the generic internal
+value reader.
 
-It should return:
+Its behavior is:
 
-- the coerced value on success
-- `None` when the value is not valid for that type in the current context
+1. read one token, expanded or raw depending on `expand`
+2. if the meaning supports target binding, bind the target
+3. if the target is readable, call `target.get()`
+4. cast the result to the requested type
+5. if that fails, unread the token and return `None`
 
-For example, when a command wants a dimension-like internal quantity, it can:
+The only remaining non-target fallback is for special meaning-like values such
+as `MEANING`.
 
-1. bind a target
-2. `value = get(target)`
-3. `value = cast(value, DIMEN)`
-4. treat `None` as "not a dimen"
-
-## Target Operations
-
-The bound target should provide:
-
-- `target.value_type`
-- `target.get() -> value`
-- `target.set(value, global_scope=False)`
-
-That means generic parser-side `get/set` helpers are optional convenience
-wrappers at most. The primary runtime API should live on the target itself.
-
-This keeps responsibilities clearer:
-
-- `Parser` handles token scanning, typed readers, coercion, and
-  `afterAssignment`
-- assignment commands/accessors handle prefix processing and `globaldefs`
-  resolution
-- `target` handles the semantics of one already-bound assignment location
+So integer, dimension, glue, token-list, font, and box internal reads now all
+prefer the target path.
 
 ## Accessor Role
 
-Under this model, accessors become mostly syntax adapters.
+The important role of an accessor is now:
 
-They should provide:
+- parse target syntax
+- expose `target_type` / `value_type`
+- optionally customize `getTarget(parser)`
+- reuse the generic assignment flow
 
-- `readEq(parser)` when the command family uses TeX assignment syntax
-- `getTarget(parser)` to parse and return the target location
-- `target_type` metadata, or an equivalent way for `readTarget()` to learn the
-  target's type
+Plain typed array/parameter accessors are no longer meaningful subclasses.
 
-So the parser's `readTarget()` can be implemented as:
+Instead, [pytex/accessor.py](/Users/jma/dev/pytex/pytex/accessor.py) provides
+`typedAccessor(value_type, read_key=None)`, which returns a generator for a
+plain configured `Accessor`.
 
-1. read the accessor-like command occurrence
-2. ask it for `target = accessor.getTarget(parser)`
-3. return that typed target
+So the common families now mean:
 
-This means:
+- "make me an accessor whose target/value type is `INT`"
+- "make me an accessor whose target/value type is `DIMEN`"
+- etc.
 
-1. the accessor uses `parser` to parse target syntax and construct a bound
-   target
-2. the parser performs typed reads, coercions, and assignment-completion
-   behavior
-3. the bound target performs the eventual `get/set` without needing `parser`
+Only genuinely special accessors remain real subclasses, for example:
+
+- equitable accessors
+- font character and font dimension accessors
+- box dimension accessors
+- guarded accessors such as `\spacefactor`, `\prevgraf`, `\badness`
 
 ## Ordinary Assignment Shape
 
-The normal assignment flow becomes:
+The normal assignment flow is now:
 
-1. read the accessor command
-2. `target = readTarget()`
-3. `readEq()`
-4. `value = readValue(target.value_type)`
-5. apply prefixes to determine requested `global_scope` and any value
-   modification
-6. apply `\globaldefs` to determine the effective `global_scope`
-7. `target.set(value, global_scope=...)`
-8. `afterAssignment()`
+1. bind the target
+2. `readEq()`
+3. `value = readValue(self.value_type)`
+4. apply prefixes
+5. `global_scope = parser.resolveGlobalScope(global_scope)`
+6. `target.set(value, global_scope=global_scope)`
+7. `parser.afterAssignment()`
 
-This gives a clean separation:
+That is implemented by the generic `Accessor.assign()` path in
+[pytex/accessor.py](/Users/jma/dev/pytex/pytex/accessor.py).
 
-- `set()` is state mutation
-- `afterAssignment()` is assignment completion
+The key separation is:
 
-That distinction matters because not every future use of `set()` will represent
-a TeX assignment. For example, layout-layer updates like `prevdepth` should not
-trigger `\afterassignment`.
+- `target.set(...)` is storage mutation
+- `afterAssignment()` is one-shot assignment completion
 
 ## Arithmetic Shape
 
-Arithmetic commands become much cleaner under this model.
+Arithmetic commands are now target-driven rather than accessor-driven.
 
-### `\advance`
+The intended shape is:
 
-1. `target = readTarget()`
-2. `current_value = target.get()`
-3. `scratch_type = target.value_type`
-4. `readKeyword(["by"])`
-5. `scratch = readValue(scratch_type)`
-6. compute from `current_value` and `scratch`
-7. apply prefixes and `\globaldefs` to determine effective `global_scope`
-8. `target.set(result, global_scope=...)`
-9. `afterAssignment()`
+1. `target = parser.readTarget()`
+2. `current = parser.get(target)`
+3. read the operand
+4. compute
+5. `parser.set(target, result, global_scope=...)`
+6. `parser.afterAssignment()`
 
-### `\multiply` / `\divide`
+The command should reject failure through target semantics, not through an
+independent "must be an accessor" rule.
 
-1. `target = readTarget()`
-2. `current_value = target.get()`
-3. `scratch_type = INT`
-4. `readKeyword(["by"])`
-5. `scratch = readValue(scratch_type)`
-6. compute from `current_value` and `scratch`
-7. apply prefixes and `\globaldefs` to determine effective `global_scope`
-8. `target.set(result, global_scope=...)`
-9. `afterAssignment()`
+So read-only targets naturally reject:
 
-This is one of the main reasons `scratch_type` is needed.
+- `\advance\foo by 1` when `\foo` is a read-only integer value
 
-## Why This Is More IR-Centric
+## `\globaldefs` And `\afterassignment`
 
-This design shifts the important work into parser operations:
+These do not belong on the target itself.
 
-- target binding
-- typed value scanning
-- target reads
-- target writes
-- typed coercion
-- assignment completion
+### `\globaldefs`
 
-More precisely:
+`\globaldefs` is assignment policy, not storage semantics.
 
-- parser operations cover scanning, target binding, typed reads, coercion, and
-  assignment support
-- assignment commands/accessors cover prefix handling and `\globaldefs`
-  resolution
-- bound targets cover reads and writes at one already-bound location
+So the final rule is:
 
-That still makes command implementations read like short execution programs over
-a small fixed vocabulary.
+- prefixes produce a requested `global_scope`
+- assignment code calls `parser.resolveGlobalScope(...)`
+- the resulting boolean is passed to `target.set(...)`
 
-It also reduces the amount of behavior hidden inside individual accessor
-classes.
+### `\afterassignment`
 
-## Migration Path
+`\afterassignment` is also separate from `target.set(...)`.
 
-A practical incremental migration is:
+The assignment command calls:
 
-1. add `Accessor.getTarget(parser)` and type metadata consistently
-2. make `Parser.readTarget()` return a typed target
-3. make `Parser.readValue(value_type)` dispatch from an explicit type
-4. add `Parser.cast(value, value_type)`
-5. move ordinary `Accessor.assign()` onto `readTarget()`, `readValue()`, and
-   `target.set(...)`
-6. rework arithmetic commands to bind a target once, use locals for
-   `current_value` / `scratch`, and then `target.set(...)`
+- `parser.afterAssignment()`
 
-This keeps the change incremental while still moving toward the cleaner
-execution model.
+after the assignment actually commits.
+
+This matters for delayed assignments such as `\setbox`, where the write and the
+assignment completion are not necessarily at the same earlier scan point.
+
+## Box And Token-List Notes
+
+Two cases were subtle enough to matter for the final design:
+
+### Box Reads
+
+Box reads now follow the same target model for true box-valued meanings such as:
+
+- `\box`
+- `\copy`
+- `\lastbox`
+- `\vsplit`
+
+Builder commands such as `\hbox`, `\vbox`, and `\vtop` remain explicit
+box-building readers rather than simple value targets.
+
+### Token Lists
+
+Token-list internal reads use:
+
+- `readInternalValue(VALUE_TYPE.TOKS, expand=False)`
+
+because token-list sources such as marks must be recognized without expansion.
+
+So `TOKS` follows the same target model, but with a non-expanding internal-read
+entry point.

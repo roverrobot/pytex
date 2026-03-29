@@ -130,11 +130,14 @@ class Parser:
         """
         if meaning is None:
             t = self.token_expand()
-            if t is None or t.definition is None:
-                raise ValueError("expecting a register or a parameter", self.input.position())
+            if t is None:
+                return None
+            if t.definition is None or getattr(t.definition, "getTarget", None) is None:
+                self.input.unread(t)
+                return None
             meaning = t.definition
         if getattr(meaning, "getTarget", None) is None:
-            raise ValueError("expecting a register or a parameter", self.input.position())
+            return None
         return meaning.getTarget(self)
 
     def get(self, target):
@@ -198,6 +201,7 @@ class Parser:
             accessor.VALUE_TYPE.FONT: "fontValue",
             accessor.VALUE_TYPE.MEANING: "meaningValue",
         }.get(value_type)
+        value = None
         get_target = getattr(meaning, "getTarget", None)
         can_bind = False
         if get_target is not None:
@@ -207,23 +211,21 @@ class Parser:
                 can_bind = True
         if can_bind:
             target = get_target(self)
-            if not getattr(target, "readable", True):
-                self.input.unread(t)
-                return None
-            try:
-                value = self.cast(self.get(target), value_type)
-            except (IndexError, KeyError, TypeError):
-                value = None
-            if value is not None:
-                return value
-            if getter_name is not None:
+            if getattr(target, "readable", True):
+                try:
+                    value = self.cast(self.get(target), value_type)
+                except (IndexError, KeyError, TypeError):
+                    value = None
+            if value is None and getter_name is not None:
                 getter = getattr(meaning, getter_name, None)
                 if getter is not None:
-                    return getter(self)
-        if getter_name is not None:
+                    value = getter(self)
+        elif getter_name is not None:
             getter = getattr(meaning, getter_name, None)
             if getter is not None:
-                return getter(self)
+                value = getter(self)
+        if value is not None:
+            return value
         self.input.unread(t)
         return None
 

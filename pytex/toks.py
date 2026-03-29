@@ -364,30 +364,48 @@ class The(Command):
         @param parser: the parser
         @return: the token list
         """
+        target = parser.readTarget()
+        if target is not None:
+            value = parser.get(target)
+            if target.value_type == accessor.VALUE_TYPE.MUGLUE:
+                return toToks(str(value))
+            if target.value_type == accessor.VALUE_TYPE.GLUE:
+                return toToks(str(value))
+            if target.value_type == accessor.VALUE_TYPE.DIMEN:
+                return toToks(repr(value) + "pt")
+            if target.value_type == accessor.VALUE_TYPE.INT:
+                return toToks(repr(parser.cast(value, accessor.VALUE_TYPE.INT)))
+            if target.value_type == accessor.VALUE_TYPE.TOKS:
+                return value
+            if target.value_type == accessor.VALUE_TYPE.FONT:
+                f = value
+                t = CommandToken(f.name)
+                t.entry = parser.equitable.entry(f.name)
+                return [t]
+
         t = parser.token_expand()
-        if t is None or t.definition is None:
+        if t is None:
             raise ValueError(f"invalid token after \\the: {t}", parser.input.position())
         t0 = t
-        t = t.definition
-        if hasattr(t, "muglueValue"):
-            value = str(t.muglueValue(parser))
-        elif hasattr(t, "glueValue"):
-            value = str(t.glueValue(parser))
-        elif hasattr(t, "dimenValue"):
-            value = repr(t.dimenValue(parser)) + "pt"
-        elif hasattr(t, "intValue"):
-            value = repr(t.intValue(parser))
-        else:
-            value = None
-        if value is not None:
-            return toToks(value)
-        if hasattr(t, "toksValue"):
-            return t.toksValue(parser)
-        if hasattr(t, "fontValue"):
-            f = t.fontValue(parser)
+        meaning = t.definition
+
+        if hasattr(meaning, "toksValue"):
+            return meaning.toksValue(parser)
+        if hasattr(meaning, "fontValue"):
+            f = meaning.fontValue(parser)
             t = CommandToken(f.name)
             t.entry = parser.equitable.entry(f.name)
             return [t]
+        if hasattr(meaning, "muglueValue"):
+            value = str(meaning.muglueValue(parser))
+        elif hasattr(meaning, "glueValue"):
+            value = str(meaning.glueValue(parser))
+        elif hasattr(meaning, "dimenValue"):
+            value = repr(meaning.dimenValue(parser)) + "pt"
+        else:
+            raise ValueError(f"invalid token after \\the: {t0.name}", parser.input.position())
+        if value is not None:
+            return toToks(value)
         raise ValueError(f"invalid token after \\the: {t0.name}", parser.input.position())
     
     def expand(self, parser):

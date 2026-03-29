@@ -8,7 +8,7 @@ from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex.token import Command, CommandToken
-from pytex.dimen import Dimen, GlobalDimenAccessor
+from pytex.dimen import Dimen, DimenArrayItemAccessor
 from pytex.state import GROUP_TYPE
 
 
@@ -283,6 +283,6 @@ mod = Module("vmode",
         "readVList": readVList
     },
     parameters={
-        "prevdepth": {"value": Dimen(), "accessor": GlobalDimenAccessor, "domain": "globals"},
+        "prevdepth": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "globals"},
     },
 )

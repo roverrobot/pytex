@@ -266,10 +266,6 @@ class GlueArrayItemAccessor(Accessor, GlueCommand):
         return self.domain[self.currentKey(parser)]
 
 
-class GlueArrayAccessor(GlueArrayItemAccessor, GlueCommand):
-    pass
-
-
 class SkipArray(Array):
     """
     the skip array
@@ -309,74 +305,36 @@ class MuGlueArrayItemAccessor(Accessor, MuGlueCommand):
         return the glue value
         """
         return self.domain[self.currentKey(parser)]
-
-
-class MuGlueArrayAccessor(MuGlueArrayItemAccessor, MuGlueCommand):
-    pass
-
-
-class GlueParameterAccessor(GlueArrayItemAccessor, GlueCommand):
-    """
-    access a glue parameter
-    """
-    def readValue(self, parser):
-        return readGlue(parser, mu=False)
-
-    def glueValue(self, parser):
-        """
-        return the glue value of the parameter
-        @param parser: the parser
-        @return: the glue value of the parameter
-        """
-        return self.domain[self.currentKey(parser)]
-
-
-class MuGlueParameterAccessor(MuGlueArrayItemAccessor, MuGlueCommand):
-    """
-    access a mu glue parameter
-    """
-    def readValue(self, parser):
-        return readGlue(parser, mu=True)
-    
-    def muglueValue(self, parser):
-        """
-        return the mu glue value of the parameter
-        @param parser: the parser
-        @return: the mu glue value of the parameter
-        """
-        return self.domain[self.currentKey(parser)]
-
-
 mod = Module("glue",
     attributes={
         "readGlue": readGlue,
     },
     domains={
-        "skip": {"generator": SkipArray, "accessor": GlueArrayAccessor},
-        "muskip": {"generator": lambda state: Array("muskip", state, MuGlue), "accessor": MuGlueArrayAccessor},
+        "skip": {"generator": SkipArray, "accessor": GlueArrayItemAccessor},
+        "muskip": {"generator": lambda state: Array("muskip", state, MuGlue), "accessor": MuGlueArrayItemAccessor},
     },
     parameters={
         # glue parameters
-        "baselineskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "lineskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "abovedisplayskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "abovedisplayshortskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "belowdisplayskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "belowdisplayshortskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "leftskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "rightskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "topskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "splittopskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "layout"},
-        "thinmuskip": {"value": MuGlue(), "accessor": MuGlueParameterAccessor, "domain": "layout"},
-        "medmuskip": {"value": MuGlue(), "accessor": MuGlueParameterAccessor, "domain": "layout"},
-        "thickmuskip": {"value": MuGlue(), "accessor": MuGlueParameterAccessor, "domain": "layout"},
+        "baselineskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "lineskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "abovedisplayskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "abovedisplayshortskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "belowdisplayskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "belowdisplayshortskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "leftskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "rightskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "topskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "splittopskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "layout"},
+        "thinmuskip": {"value": MuGlue(), "accessor": MuGlueArrayItemAccessor, "domain": "layout"},
+        "medmuskip": {"value": MuGlue(), "accessor": MuGlueArrayItemAccessor, "domain": "layout"},
+        "thickmuskip": {"value": MuGlue(), "accessor": MuGlueArrayItemAccessor, "domain": "layout"},
         # the following glues are not used in typesetting snapshots, i.e., lazy typesetting. Instead, tehy are
         # used in list building time. So they are in parameters not layout.
-        "parskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "parameters"},
-        "parfillskip": {"value": Glue(0, Stretchness(1,1)), "accessor": GlueParameterAccessor, "domain": "parameters"},
-        "spaceskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "parameters"},
-        "xspaceskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "parameters"},
-        "tabskip": {"value": Glue(), "accessor": GlueParameterAccessor, "domain": "parameters"},
+        "parskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "parameters"},
+        "parfillskip": {"value": Glue(0, Stretchness(1,1)), "accessor": GlueArrayItemAccessor, "domain": "parameters"},
+        "spaceskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "parameters"},
+        "xspaceskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "parameters"},
+        "tabskip": {"value": Glue(), "accessor": GlueArrayItemAccessor, "domain": "parameters"},
     },
     commands={
         "skipdef": registerdef("skip", GlueArrayItemAccessor),

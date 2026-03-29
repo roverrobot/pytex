@@ -365,14 +365,6 @@ class DimenArrayItemAccessor(Accessor, DimenCommand):
         return self.domain[self.currentKey(parser)]
 
 
-class GlobalDimenAccessor(DimenArrayItemAccessor):
-    pass
-
-
-class DimenArrayAccessor(DimenArrayItemAccessor, DimenCommand):
-    pass
-
-
 class DimenArray(Array):
     """
     an array of dimensions
@@ -381,53 +373,33 @@ class DimenArray(Array):
         super().__init__("dimen", state, Dimen)
 
 
-class DimenParameterAccessor(DimenArrayItemAccessor, DimenCommand):
-    """
-    access a dimen parameter
-    """
-    def readValue(self, parser):
-        """
-        read the value from the input stack
-        @param parser: the parser
-        """
-        return readDimen(parser, mu=False)
-
-    def dimenValue(self, parser):
-        """
-        get the dimension value of the parameter
-        @param parser: the parser
-        @return: the dimension value of the parameter
-        """
-        return self.domain[self.currentKey(parser)]
-
-
 mod = Module("dimen",
     attributes = {
         "readDimen": readDimen,
     },
     domains={
-        "dimen": {"generator": DimenArray, "accessor": DimenArrayAccessor},
+        "dimen": {"generator": DimenArray, "accessor": DimenArrayItemAccessor},
     },
     parameters={
-        "hfuzz": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "vfuzz": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "overfullrule": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "emergencystretch": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "hsize": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "vsize": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "maxdepth": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "splitmaxdepth": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "boxmaxdepth": {"value": MAX_DIMEN, "accessor": DimenParameterAccessor, "domain": "layout"},
-        "lineskiplimit": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "delimitershortfall": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "nulldelimiterspace": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "scriptspace": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "mathsurround": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "hoffset": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
-        "voffset": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "layout"},
+        "hfuzz": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "vfuzz": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "overfullrule": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "emergencystretch": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "hsize": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "vsize": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "maxdepth": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "splitmaxdepth": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "boxmaxdepth": {"value": MAX_DIMEN, "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "lineskiplimit": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "delimitershortfall": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "nulldelimiterspace": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "scriptspace": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "mathsurround": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "hoffset": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
+        "voffset": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "layout"},
         # this value is nit in layout, because it is not used in a snapshot for typesetting
-        "parindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "parameters"},
-        "hangindent": {"value": Dimen(), "accessor": DimenParameterAccessor, "domain": "volatile"},
+        "parindent": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "parameters"},
+        "hangindent": {"value": Dimen(), "accessor": DimenArrayItemAccessor, "domain": "volatile"},
     },
     commands={
         "dimendef": registerdef("dimen", DimenArrayItemAccessor),

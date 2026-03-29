@@ -158,10 +158,6 @@ class IntegerArrayItemAccessor(Accessor):
         return self.domain[self.currentKey(parser)]
 
 
-class GlobalIntAccessor(IntegerArrayItemAccessor):
-    pass
-
-
 class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
     def __init__(self, domain, key=None, range=None, builtin=True):
         super().__init__(domain, key, builtin)
@@ -189,14 +185,6 @@ class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
         super().setGlobal(parser, value)
 
 
-class IntegerArrayAccessor(IntegerArrayItemAccessor):
-    pass
-
-
-class RangedIntegerArrayAccessor(RangedIntergerArrayItemAccessor):
-    pass
-
-
 class CatCode(Array):
     """
     The category code array \\catcode
@@ -220,7 +208,7 @@ class CatCode(Array):
         self[ord("\\")] = CATCODE.ESCAPE
 
 
-class CatCodeArrayAccessor(RangedIntegerArrayAccessor):
+class CatCodeArrayAccessor(RangedIntergerArrayItemAccessor):
     def __init__(self, domain, key=None, builtin=True):
         super().__init__(domain, key, range=(0, 15), builtin=builtin)
 
@@ -319,83 +307,72 @@ class InputLineNo(Command):
         raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())
 
 
-class IntegerParameterAccessor(IntegerArrayItemAccessor):
-    """
-    An accessor for an integer parameter
-    """
-    def readValue(self, parser):
-        return parser.readInteger()
-
-    def intValue(self, parser):
-        return self.domain[self.currentKey(parser)]
-
-
 module = Module("integer", 
     attributes={"readInteger": readInteger},
     parameters={
         # integer parameters
-        "pretolerance": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "tolerance": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "hbadness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "vbadness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "linepenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "hyphenpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "exhyphenpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "binoppenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "relpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "clubpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "widowpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "displaywidowpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "brokenpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "predisplaypenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "postdisplaypenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "interlinepenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "floatingpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "outputpenalty": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "doublehyphendemerits": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "finalhyphendemerits": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "adjdemerits": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "uchyph": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "lefthyphenmin": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "righthyphenmin": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "mag": {"value": 1000, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "delimiterfactor": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "pretolerance": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "tolerance": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "hbadness": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "vbadness": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "linepenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "hyphenpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "exhyphenpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "binoppenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "relpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "clubpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "widowpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "displaywidowpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "brokenpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "predisplaypenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "postdisplaypenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "interlinepenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "floatingpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "outputpenalty": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "doublehyphendemerits": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "finalhyphendemerits": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "adjdemerits": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "uchyph": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "lefthyphenmin": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "righthyphenmin": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "mag": {"value": 1000, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "delimiterfactor": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
         # escapechar is a layout parameter because \write may use it
-        "escapechar": {"value": ord("\\"), "accessor": IntegerParameterAccessor, "domain": "layout"},
+        "escapechar": {"value": ord("\\"), "accessor": IntegerArrayItemAccessor, "domain": "layout"},
         # control parameters
-        "fam": {"value": -1, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "pausing": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "holdinginserts": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "language": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "globaldefs": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "endlinechar": {"value": ord("\r"), "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "newlinechar": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "maxdeadcycles": {"value": 25, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "showboxbreadth": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "showboxdepth": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "errorcontextlines": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "defaulthyphenchar": {"value": ord("-"), "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "defaultskewchar": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
+        "fam": {"value": -1, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "pausing": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "holdinginserts": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "language": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "globaldefs": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "endlinechar": {"value": ord("\r"), "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "newlinechar": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "maxdeadcycles": {"value": 25, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "showboxbreadth": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "showboxdepth": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "errorcontextlines": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "defaulthyphenchar": {"value": ord("-"), "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "defaultskewchar": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
         # volatile parameters
-        "time": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
-        "day": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
-        "month": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
-        "year": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
+        "time": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "volatile"},
+        "day": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "volatile"},
+        "month": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "volatile"},
+        "year": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "volatile"},
         # these are reset at the end of every paragraph
-        "looseness": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "volatile"},
-        "hangafter": {"value": 1, "accessor": IntegerParameterAccessor, "domain": "volatile"},
+        "looseness": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "volatile"},
+        "hangafter": {"value": 1, "accessor": IntegerArrayItemAccessor, "domain": "volatile"},
         # global parameters
-        "deadcycles": {"value": 0, "accessor": GlobalIntAccessor, "domain": "globals"},
-        "insertpenalties": {"value": 0, "accessor": GlobalIntAccessor, "domain": "globals"},
+        "deadcycles": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
+        "insertpenalties": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
     },
     domains={
         "catcode": {"generator": CatCode, "accessor": CatCodeArrayAccessor},
-        "lccode": {"generator": LCCode, "accessor": IntegerArrayAccessor},
-        "uccode": {"generator": UCCode, "accessor": IntegerArrayAccessor},
-        "sfcode": {"generator": SFCode, "accessor": IntegerArrayAccessor},
-        "delcode": {"generator": DelCode, "accessor": IntegerArrayAccessor},
-        "mathcode": {"generator": MathCode, "accessor": IntegerArrayAccessor},
-        "count": {"generator": Count, "accessor": IntegerArrayAccessor},
+        "lccode": {"generator": LCCode, "accessor": IntegerArrayItemAccessor},
+        "uccode": {"generator": UCCode, "accessor": IntegerArrayItemAccessor},
+        "sfcode": {"generator": SFCode, "accessor": IntegerArrayItemAccessor},
+        "delcode": {"generator": DelCode, "accessor": IntegerArrayItemAccessor},
+        "mathcode": {"generator": MathCode, "accessor": IntegerArrayItemAccessor},
+        "count": {"generator": Count, "accessor": IntegerArrayItemAccessor},
     },
     commands={
         "inputlineno": InputLineNo(),

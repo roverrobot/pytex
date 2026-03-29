@@ -268,31 +268,6 @@ class ToksArrayItemAccessor(accessor.Accessor):
         @return: the toks value
         """
         return self.domain[self.currentKey(parser)]
-
-
-class ToksArrayAccessor(ToksArrayItemAccessor):
-    pass
-
-
-class ToksParameterAccessor(ToksArrayItemAccessor):
-    """
-    an accessor for a toks parameter
-    """
-    def readValue(self, parser):
-        """
-        read the value from the input stack
-        @param parser: the parser
-        @return: the toks value
-        """
-        return readToks(parser)
-
-    def toksValue(self, parser):
-        """
-        get the toks value
-        @param parser: the parser
-        @return: the toks value
-        """
-        return self.domain[self.currentKey(parser)]
     
 
 class ToksArray(Array):
@@ -465,19 +440,19 @@ mod = Module("toks",
         "toksdef": registerdef("toks", ToksArrayItemAccessor),
     },
     domains = {
-        "toks": {"generator": ToksArray, "accessor": ToksArrayAccessor},
+        "toks": {"generator": ToksArray, "accessor": ToksArrayItemAccessor},
     },
     parameters={
         "aftergroup": {"value": [], "accessor": None, "domain": "globals"},
-        "output": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everyhbox": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everyvbox": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everyjob": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everycr": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "errhelp": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everypar": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everymath": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
-        "everydisplay": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "output": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "everyhbox": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "everyvbox": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "everyjob": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "everycr": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "errhelp": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "everypar": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "everymath": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "everydisplay": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
         "topmark": {"value": [], "accessor": None, "domain": "parameters"},
         "botmark": {"value": [], "accessor": None, "domain": "parameters"},
         "firstmark": {"value": [], "accessor": None, "domain": "parameters"},

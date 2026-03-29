@@ -9,8 +9,8 @@ from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
 from pytex.accessor import Accessor, ArrayAccessor
-from pytex.integer import IntegerArrayAccessor, IntegerArrayItemAccessor
-from pytex.dimen import Dimen, DimenCommand, DimenArrayAccessor, DimenArrayItemAccessor
+from pytex.integer import IntegerArrayItemAccessor
+from pytex.dimen import Dimen, DimenCommand, DimenArrayItemAccessor
 from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
 from pytex.define import Define, EquitableAccessor
@@ -174,10 +174,6 @@ class FontArrayItemAccessor(Accessor):
         @param parser: the parser
         """
         return self.domain[self.currentKey(parser)]
-
-
-class FontArrayAccessor(FontArrayItemAccessor):
-    pass
 
 nullfont = NullFont(backend=nullfont_backend, at=0)
 nullfont.name = "\\nullfont"
@@ -349,9 +345,9 @@ mod = Module("font",
         "currentfont": {"value": nullfont, "accessor": FontAccessor,  "domain": "parameters"},
     },
     domains = {
-        "textfont": {"generator": fontarray("textfont"), "accessor": FontArrayAccessor},
-        "scriptfont": {"generator": fontarray("scriptfont"), "accessor": FontArrayAccessor},
-        "scriptscriptfont": {"generator": fontarray("scriptscriptfont"), "accessor": FontArrayAccessor},
+        "textfont": {"generator": fontarray("textfont"), "accessor": FontArrayItemAccessor},
+        "scriptfont": {"generator": fontarray("scriptfont"), "accessor": FontArrayItemAccessor},
+        "scriptscriptfont": {"generator": fontarray("scriptscriptfont"), "accessor": FontArrayItemAccessor},
     },
     commands = {
         "fontdimen": FontDimen(),

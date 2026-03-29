@@ -9,10 +9,10 @@ by importing it.
 from pytex import token as tk
 from pytex.module import Module
 from pytex.lists import ModeDependentCommand
-from pytex.integer import FixedInteger, GlobalIntAccessor, IntegerParameterAccessor, IntegerArrayItemAccessor
+from pytex.integer import FixedInteger, IntegerArrayItemAccessor
 from pytex.dimen import Dimen, DimenCommand
 from pytex.glue import GlueCommand, MuGlueCommand
-from pytex.toks import The, ToksParameterAccessor
+from pytex.toks import The, ToksArrayItemAccessor
 from pytex import token
 from pytex import expandable
 from pytex import lexer
@@ -618,18 +618,18 @@ mod = Module("etex",
         "readline": Readline(),
     },
     parameters={
-        "interactionmode": {"value": 0, "accessor": GlobalIntAccessor, "domain": "globals"},
-        "TeXXeTstate": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "tracingassigns": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "tracinggroups": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "tracingifs": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "tracingscantokens": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "tracingnesting": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "predisplaydirection": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "lastlinefit": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "layout"},
-        "savingvdiscards": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "savinghyphcodes": {"value": 0, "accessor": IntegerParameterAccessor, "domain": "parameters"},
-        "everyeof": {"value": [], "accessor": ToksParameterAccessor, "domain": "parameters"},
+        "interactionmode": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "globals"},
+        "TeXXeTstate": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "tracingassigns": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "tracinggroups": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "tracingifs": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "tracingscantokens": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "tracingnesting": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "predisplaydirection": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "lastlinefit": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
+        "savingvdiscards": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "savinghyphcodes": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
+        "everyeof": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
         "topmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
         "botmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
         "firstmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},

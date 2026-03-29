@@ -77,6 +77,27 @@ def test_toks_token_expand_keeps_token_alias(parser):
     assert t is t0
 
 
+def test_token_catcode_predicates_check_current_meaning():
+    begin = CommandToken("\\bgroup")
+    begin.definition = Token("{", CATCODE.BEGIN_GROUP)
+    assert begin.catcode is None
+    assert begin.isTokenExpand(CATCODE.BEGIN_GROUP)
+
+    space = CommandToken("\\spacealias")
+    space.definition = Token(" ", CATCODE.SPACE)
+    assert not space.isSpace(False)
+    assert space.isSpace(True)
+
+
+def test_read_general_text_accepts_begin_group_alias(parser):
+    parser.parse("\\let\\bgroup={")
+    parser.readFrom("\\bgroup abcd}")
+    k = parser.readGeneralText(expand=True)
+    assert len(k) == 4
+    assert k[0].name == "a"
+    assert k[3].name == "d"
+
+
 def test_page_mark_commands_expand(collector):
     collector.parameters["topmark"] = toToks("AB")
     collector.parameters["firstmark"] = toToks("CD")

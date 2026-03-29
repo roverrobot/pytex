@@ -190,9 +190,33 @@ def readUnsignedNumberRatio(parser):
     t = parser.token_expand()
     if t is None:
         raise ValueError("expecting a number", parser.input.position())
+    definition = t.definition
+    bound = None
+    if definition is not None:
+        if isinstance(definition, Accessor):
+            bound = definition
+        elif hasattr(definition, "getItemAccessor"):
+            bound = definition.getItemAccessor(parser)
+    if bound is not None and getattr(bound, "target_type", VALUE_TYPE.UNKNOWN) in (
+        VALUE_TYPE.INT,
+        VALUE_TYPE.DIMEN,
+        VALUE_TYPE.GLUE,
+        VALUE_TYPE.MUGLUE,
+    ):
+        target = parser.readTarget(bound)
+        try:
+            value = parser.cast(parser.get(target), VALUE_TYPE.INT)
+        except (IndexError, KeyError, TypeError):
+            value = None
+        if value is not None:
+            return value, 1
+        try:
+            return int(bound.intValue(parser)), 1
+        except AttributeError:
+            pass
     if t.catcode != CATCODE.OTHER or t.name != ".":
-        if hasattr(t.definition, "intValue"):
-            return int(t.definition.intValue(parser)), 1
+        if hasattr(definition, "intValue"):
+            return int(definition.intValue(parser)), 1
         parser.input.unread(t)
         int_part = int(readDigits(parser, 10), 10)
         t = parser.token_expand()
@@ -251,6 +275,28 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     """
     def dimenValue(t):
         definition = getattr(t, "definition", None)
+        bound = None
+        if definition is not None:
+            if isinstance(definition, Accessor):
+                bound = definition
+            elif hasattr(definition, "getItemAccessor"):
+                bound = definition.getItemAccessor(parser)
+        if bound is not None and getattr(bound, "target_type", VALUE_TYPE.UNKNOWN) in (
+            VALUE_TYPE.DIMEN,
+            VALUE_TYPE.GLUE,
+            VALUE_TYPE.MUGLUE,
+        ):
+            target = parser.readTarget(bound)
+            try:
+                value = parser.cast(parser.get(target), VALUE_TYPE.DIMEN)
+            except (IndexError, KeyError, TypeError):
+                value = None
+            if value is not None:
+                return value
+            try:
+                return bound.dimenValue(parser)
+            except AttributeError:
+                pass
         dimenValue = getattr(definition, "dimenValue", None)
         if dimenValue is None:
             parser.input.unread(t)

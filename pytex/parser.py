@@ -40,8 +40,6 @@ class Parser:
     """
     The parser is the main class that processes the input and executes the commands.
     """
-    _STATE_VALUE_MISSING = object()
-
     def __init__(self, project_dir: typing.Optional[str] = None):
         self.initState()
         # the builtin commands
@@ -76,11 +74,6 @@ class Parser:
         self.lastbox = None
         self.ended = False
         self.formatfile = None
-        self.current_value = None
-        self.target = None
-        self.target_type = accessor.VALUE_TYPE.UNKNOWN
-        self.scratch = None
-        self.scratch_type = accessor.VALUE_TYPE.UNKNOWN
 
     def initState(self):
         self.groups = []
@@ -129,19 +122,9 @@ class Parser:
             for group in self.groups:
                 group.remove(domain, index)
 
-    def setTarget(self, target, target_type=accessor.VALUE_TYPE.UNKNOWN):
-        """
-        set the current execution target
-        @param target: the target location as a (domain, key) pair
-        @param target_type: the type expected at the target
-        """
-        self.target = target
-        self.target_type = target_type
-        return target
-
     def readTarget(self, meaning=None):
         """
-        read an assignment target and store it in the parser target registers
+        read an assignment target and return a bound target
         @param meaning: optional accessor-like object; if omitted it is read from input
         @return: the resolved target
         """
@@ -154,25 +137,48 @@ class Parser:
             meaning = meaning.getItemAccessor(self)
         elif not isinstance(meaning, accessor.Accessor):
             raise ValueError("expecting a register or a parameter", self.input.position())
-        target = meaning.getTarget(self)
-        return self.setTarget(target, getattr(meaning, "target_type", accessor.VALUE_TYPE.UNKNOWN))
+        return meaning.getTarget(self)
 
-    def get(self, *, use_scratch: bool = False):
+    def get(self, target):
         """
-        get a value from the current parser target and store it in the active holder
-        @param use_scratch: whether to store in scratch instead of current_value
+        get a value from a bound target
+        @param target: the bound target
         @return: the retrieved value
         """
-        if self.target is None:
-            raise ValueError("no current target", self.input.position())
-        domain, key = self.target
-        value = domain[key]
-        if use_scratch:
-            self.scratch = value
-            self.scratch_type = self.target_type
-        else:
-            self.current_value = value
-        return value
+        return target.get()
+
+    def cast(self, value, value_type):
+        """
+        cast a value to a new type
+        @param value: the source value
+        @param value_type: the desired VALUE_TYPE
+        @return: the casted value, or None if the cast is unsupported
+        """
+        if value is None:
+            return None
+        if value_type == accessor.VALUE_TYPE.INT:
+            if isinstance(value, int):
+                return value
+            if isinstance(value, dimen.Dimen):
+                return int(value)
+            if isinstance(value, (glue.Glue, glue.MuGlue)):
+                return int(value.dimen)
+            return None
+        if value_type == accessor.VALUE_TYPE.DIMEN:
+            if isinstance(value, dimen.Dimen):
+                return value
+            if isinstance(value, (glue.Glue, glue.MuGlue)):
+                return value.dimen
+            return None
+        if value_type == accessor.VALUE_TYPE.GLUE:
+            if isinstance(value, glue.Glue):
+                return value
+            return None
+        if value_type == accessor.VALUE_TYPE.MUGLUE:
+            if isinstance(value, glue.MuGlue):
+                return value
+            return None
+        return value if value_type == accessor.VALUE_TYPE.UNKNOWN else None
 
     def resolveGlobalScope(self, global_scope: bool = False):
         """
@@ -187,36 +193,15 @@ class Parser:
             return False
         return global_scope
 
-    def set(self, *, global_scope: bool = False, value=_STATE_VALUE_MISSING, use_scratch: bool = False):
+    def set(self, target, value, *, global_scope: bool = False):
         """
-        set the current parser target from an active holder or an explicit value
+        set a bound target
+        @param target: the bound target
+        @param value: the value to write
         @param global_scope: whether to write globally instead of locally
-        @param value: optional explicit value; defaults to current_value or scratch
-        @param use_scratch: whether to use scratch instead of current_value when no explicit value is provided
         @return: the written value
         """
-        if self.target is None:
-            raise ValueError("no current target", self.input.position())
-        domain, key = self.target
-        if value is self._STATE_VALUE_MISSING:
-            value = self.scratch if use_scratch else self.current_value
-        else:
-            if use_scratch:
-                self.scratch = value
-            else:
-                self.current_value = value
-        global_scope = self.resolveGlobalScope(global_scope)
-        if domain is self.globals:
-            domain[key] = value
-        elif global_scope:
-            setter = getattr(domain, "setGlobal", None)
-            if setter is not None:
-                setter(key, value)
-            else:
-                domain[key] = value
-        else:
-            domain[key] = value
-        return value
+        return target.set(value, global_scope=global_scope)
 
     def afterAssignment(self):
         """

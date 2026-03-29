@@ -80,6 +80,16 @@ def test_mathchardef(parser):
     assert parser.count[0] == 65
 
 
+def test_integer_reader_uses_target_cast_for_dimensions(parser):
+    parser.parse("\\dimen0=123pt \\count0=\\dimen0")
+    assert parser.count[0] == int(parser.dimen[0])
+
+
+def test_integer_reader_preserves_outer_target(parser):
+    parser.parse("\\count0=1 \\count1=2 \\count0=\\count1")
+    assert parser.count[0] == 2
+
+
 def test_date(collector):
     collector.parse("\\the\\year-\\the\\month-\\the\\day")
     date = datetime.date.today()

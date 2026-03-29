@@ -37,24 +37,9 @@ class Arithmatics(Command):
             p = t
         else:
             raise ValueError("expecting a register or a parameter", parser.input.position())
-        parser.readTarget(p)
-        domain, key = parser.target
-        is_integer = False
-        if domain is not None and key is not None:
-            x = parser.get()
-            is_integer = isinstance(x, int)
-        else:
-            if hasattr(p, "muglueValue"):
-                x = p.muglueValue(parser)
-            elif hasattr(p, "glueValue"):
-                x = p.glueValue(parser)
-            elif hasattr(p, "dimenValue"):
-                x = p.dimenValue(parser)
-            elif hasattr(p, "intValue"):
-                x = p.intValue(parser)
-                is_integer = True
-            else:
-                raise ValueError("expecting a register or a parameter of integer, dimension, or glue", parser.input.position())
+        target = parser.readTarget(p)
+        x = parser.get(target)
+        is_integer = isinstance(x, int)
         parser.readKeyword(["by"])
         y = self.readByValue(parser, p)
         value = self.op(x, y)
@@ -68,14 +53,8 @@ class Arithmatics(Command):
         except ValueError as e:
             e.args = (e.args[0], parser.input.position())
             raise e
-        if domain is not None and key is not None:
-            parser.set(global_scope=globally, value=value)
-        else:
-            parser.current_value = value
-            if globally:
-                p.setGlobal(parser, value)
-            else:
-                p.set(parser, value)
+        globally = parser.resolveGlobalScope(globally)
+        target.set(value, global_scope=globally)
         parser.afterAssignment()
 
     def readByValue(self, parser, item_accessor):

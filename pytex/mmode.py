@@ -13,7 +13,7 @@ from pytex import node as nd
 from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import Accessor, VALUE_TYPE
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget
 from pytex.define import Define, EquitableAccessor
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
@@ -2685,14 +2685,16 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
 
     def readValue(self, parser):
         return parser.readDimen()
+
+    def getTarget(self, parser):
+        pos = parser.input.position()
+        return AttrTarget(VolatileParameterSlot(parser, self.index, pos), "value", self.target_type)
     
     def set(self, parser, value):
-        parser.setTarget((parser.volatile, self.index), self.target_type)
-        parser.set(value=value)
+        self.getTarget(parser).set(value, global_scope=False)
     
     def setGlobal(self, parser, value):
-        parser.setTarget((parser.volatile, self.index), self.target_type)
-        parser.set(global_scope=True, value=value)
+        self.getTarget(parser).set(value, global_scope=True)
     
     def dimenValue(self, parser):
         value = parser.volatile[self.index]
@@ -2704,6 +2706,30 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
         assert para is not None
         para.typeset(parser, [])
         return parser.volatile[self.index]
+
+
+class VolatileParameterSlot:
+    def __init__(self, parser, index, pos):
+        self.parser = parser
+        self.index = index
+        self.pos = pos
+
+    @property
+    def value(self):
+        value = self.parser.volatile[self.index]
+        if value is not None:
+            return value
+        para = self.parser.paragraph_before_last_display_math
+        assert para is not None
+        para.typeset(self.parser, [])
+        value = self.parser.volatile[self.index]
+        if value is None:
+            raise ValueError(f"volatile parameter {self.index} is undefined", self.pos)
+        return value
+
+    @value.setter
+    def value(self, new_value):
+        self.parser.volatile[self.index] = new_value
 
     
 mod = Module("mmode",

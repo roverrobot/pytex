@@ -8,7 +8,7 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import Accessor, ArrayAccessor, VALUE_TYPE
+from pytex.accessor import Accessor, ArrayAccessor, VALUE_TYPE, AttrTarget
 from pytex.integer import IntegerArrayItemAccessor
 from pytex.dimen import Dimen, DimenCommand, DimenArrayItemAccessor
 from pytex.glue import Glue, Stretchness
@@ -300,6 +300,10 @@ class FontDimenAccessor(DimenArrayItemAccessor):
         if self.key < 0 or self.key >= len(self.domain):
             raise ValueError(f"fontdimen index {self.key} out of range {len(self.domain)} for font {self.font.backend.name}  @{int(self.font.at)}", parser.input.position())
         return self.domain[self.key]
+
+    def getTarget(self, parser):
+        pos = parser.input.position()
+        return AttrTarget(FontDimenSlot(self.font, self.domain, self.key, pos), "value", self.target_type)
     
     def set(self, parser, value):
         """
@@ -333,6 +337,26 @@ class FontDimen(ArrayAccessor, DimenCommand):
         if i < 0 or i >= len(f.param):
             raise ValueError(f"fontdimen index {i+1} of out of range of {len(f.param)} for font {f.backend.name}  @{int(f.at)}", parser.input.position())
         return f.param[i]
+
+
+class FontDimenSlot:
+    def __init__(self, font, params, index, pos):
+        self.font = font
+        self.params = params
+        self.index = index
+        self.pos = pos
+
+    @property
+    def value(self):
+        if self.index < 0 or self.index >= len(self.params):
+            raise ValueError(f"fontdimen index {self.index} out of range {len(self.params)} for font {self.font.backend.name}  @{int(self.font.at)}", self.pos)
+        return self.params[self.index]
+
+    @value.setter
+    def value(self, new_value):
+        if self.index >= len(self.params):
+            self.params.extend([Dimen() for _ in range(self.index - len(self.params) + 1)])
+        self.params[self.index] = new_value
 
 
 class FontName(Command):

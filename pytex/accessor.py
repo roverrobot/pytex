@@ -49,6 +49,54 @@ class VALUE_TYPE(enum.IntEnum):
     FONT = 7
     MEANING = 8
 
+
+class KeyTarget:
+    """
+    A target backed by ``domain[key]``.
+    """
+    __slots__ = ("domain", "key", "value_type", "supports_global")
+
+    def __init__(self, domain, key, value_type=VALUE_TYPE.UNKNOWN, supports_global=None):
+        self.domain = domain
+        self.key = key
+        self.value_type = value_type
+        if supports_global is None:
+            supports_global = hasattr(domain, "setGlobal")
+        self.supports_global = supports_global
+
+    def get(self):
+        return self.domain[self.key]
+
+    def set(self, value, global_scope=False):
+        if global_scope and self.supports_global:
+            self.domain.setGlobal(self.key, value)
+        else:
+            self.domain[self.key] = value
+        return value
+
+
+class AttrTarget:
+    """
+    A target backed by ``getattr(obj, attr)`` / ``setattr(obj, attr, value)``.
+    """
+    __slots__ = ("domain", "key", "value_type")
+
+    def __init__(self, obj, attr, value_type=VALUE_TYPE.UNKNOWN):
+        self.domain = obj
+        self.key = attr
+        self.value_type = value_type
+
+    def get(self):
+        return getattr(self.domain, self.key)
+
+    def set(self, value, global_scope=False):
+        setattr(self.domain, self.key, value)
+        return value
+
+
+def makeTarget(domain, key, value_type=VALUE_TYPE.UNKNOWN):
+    return KeyTarget(domain, key, value_type)
+
 class Accessor(token.Command):
     """
     access a value in a domain
@@ -120,10 +168,9 @@ class Accessor(token.Command):
 
     def getTarget(self, parser):
         """
-        return the target location for this accessor occurrence
-        @return: a (domain, key) pair
+        return the bound target for this accessor occurrence
         """
-        return self.domain, self.currentKey(parser)
+        return KeyTarget(self.domain, self.currentKey(parser), self.target_type)
 
     def readTarget(self, parser):
         """
@@ -146,10 +193,9 @@ class Accessor(token.Command):
         """
         target = self.getTarget(parser)
         try:
-            parser.setTarget(target, self.target_type)
-            parser.set(value=value)
+            target.set(value, global_scope=False)
         except IndexError:
-            domain, key = target
+            domain, key = target.domain, target.key
             name = getattr(domain, "name", domain)
             raise ValueError(f"index {key} out of range for domain {name}", parser.input.position())
     
@@ -159,8 +205,7 @@ class Accessor(token.Command):
         @param parser: the parser
         @param value: the value
         """
-        parser.setTarget(self.getTarget(parser), self.target_type)
-        parser.set(global_scope=True, value=value)
+        self.getTarget(parser).set(value, global_scope=True)
 
     def assign(self, parser, prefixes):
         """
@@ -170,8 +215,7 @@ class Accessor(token.Command):
         """
         if self.key is None and self.needsKey():
             return self.bindKey(self.readKey(parser)).assign(parser, prefixes)
-        if self.domain is not None:
-            parser.readTarget(self)
+        target = self.getTarget(parser)
         self.readEq(parser)
         value = self.readValue(parser)
         globally = False
@@ -181,11 +225,8 @@ class Accessor(token.Command):
         except ValueError as e:
             e.args = (e.args[0], parser.input.position())
             raise e
-        parser.current_value = value
-        if globally:
-            self.setGlobal(parser, value)
-        else:
-            self.set(parser, value)
+        globally = parser.resolveGlobalScope(globally)
+        target.set(value, global_scope=globally)
         parser.afterAssignment()
 
     def meaning(self, parser):

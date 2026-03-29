@@ -667,10 +667,30 @@ def test_wd(box, cmd, attr):
     assert getattr(box.box[0], attr) == 100
 
 
+def test_box_dimension_accessor_coerces_to_integer(parser):
+    parser.parse("\\setbox0=\\hbox{A}\\count0=\\wd0")
+    assert parser.count[0] == int(parser.box[0].width)
+
+
 def test_box_void(box):
     box.parse("\\box1")
     top = box.lists[-1]
     assert len(_concrete_nodes(top)) == 0
+
+
+def test_wd_assignment_materializes_void_box(parser):
+    parser.parse("\\wd0=20pt")
+    box0 = parser.box[0]
+    assert box0 is not None
+    assert box0.node_type == NODE_TYPE.HLIST
+    assert box0.width == Dimen(20)
+    assert box0.height == Dimen()
+    assert box0.depth == Dimen()
+
+
+def test_wd_assignment_to_void_box_leaves_horizontal_space(parser):
+    parser.parse("\\wd0=20pt\\setbox1=\\hbox{12\\copy0ab}\\setbox2=\\hbox{12ab}")
+    assert parser.box[1].typeset(parser).width == parser.box[2].typeset(parser).width + Dimen(20)
 
 
 def test_unhbox(box):

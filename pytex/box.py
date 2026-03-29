@@ -7,7 +7,7 @@ from pytex import hmode
 from pytex import vmode
 from pytex.glue import Glue
 from pytex.module import Module
-from pytex.accessor import Accessor, ArrayAccessor, VALUE_TYPE
+from pytex.accessor import Accessor, ArrayAccessor, VALUE_TYPE, KeyTarget, AttrTarget
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen, DimenCommand
@@ -59,6 +59,23 @@ class Box(nd.Box):
         # sign is -1, 0, or 1; num >= 0; den >= 1.
         self.glue_ratio = GlueRatio(0, 0, 1)
         self._packed = None
+
+    def __getitem__(self, key):
+        if key not in ("width", "height", "depth"):
+            raise KeyError(key)
+        value = getattr(self, key, None)
+        if value is None and self._packed is None and self.parser is not None:
+            self.typeset(self.parser)
+            value = getattr(self, key, None)
+        return value
+
+    def __setitem__(self, key, value):
+        if key not in ("width", "height", "depth"):
+            raise KeyError(key)
+        setattr(self, key, value)
+        packed = self._packed
+        if packed is not None and packed is not self:
+            setattr(packed, key, value)
 
     def saveInfo(self):
         packed = None if self._packed == self else self._packed
@@ -228,6 +245,15 @@ class BadnessAccessor(IntegerArrayItemAccessor):
             if box._packed is None:
                 box.typeset(parser)
         return super().intValue(parser)
+
+    def getTarget(self, parser):
+        key = self.currentKey(parser)
+        box = parser.lastbox
+        if box is not None:
+            parser.lastbox = None
+            if box._packed is None:
+                box.typeset(parser)
+        return KeyTarget(self.domain, key, self.target_type)
 
     def set(self, parser, value):
         parser.lastbox = None
@@ -523,8 +549,7 @@ class SetBoxEndCallback:
         parser.lists.pop()
         self.box = self.box.typeset(parser)
         parser.lastbox = self.box
-        parser.setTarget((parser.box, self.index), VALUE_TYPE.BOX)
-        parser.set(global_scope=self.globally, value=self.box)
+        KeyTarget(parser.box, self.index, VALUE_TYPE.BOX).set(self.box, global_scope=self.globally)
 
 
 class SetBox(Command):
@@ -536,7 +561,7 @@ class SetBox(Command):
         globally = False
         for prefix in prefixes:
             value, globally = prefix.modify(value, globally)
-        parser.current_value = value
+        globally = parser.resolveGlobalScope(globally)
         parser.afterAssignment()
         new = parser.lists[-1]
         if new is not top:
@@ -547,8 +572,7 @@ class SetBox(Command):
                 ended=SetBoxEndCallback(index, value, globally),
             )
         else:
-            parser.setTarget((parser.box, index), VALUE_TYPE.BOX)
-            parser.set(global_scope=globally, value=value)
+            KeyTarget(parser.box, index, VALUE_TYPE.BOX).set(value, global_scope=globally)
 
     def execute(self, parser):
         self.assign(parser, prefixes=[])
@@ -693,26 +717,22 @@ class VTopCommand(VBoxCommand):
 class BoxDimenAccessor(Accessor, DimenCommand):
     target_type = VALUE_TYPE.DIMEN
 
+    def __init__(self, domain, key, *, index=None, builtin=True):
+        super().__init__(domain, key, builtin=builtin)
+        self.index = index
+
     def readValue(self, parser):
         return parser.readDimen()
 
-    def set(self, parser, value):
-        assert self.domain is not None
-        setattr(self.domain, self.key, value)
-
-    def setGlobal(self, parser, value):
-        assert self.domain is not None
-        setattr(self.domain, self.key, value)
+    def getTarget(self, parser):
+        key = self.currentKey(parser)
+        return BoxDimensionTarget(parser.box, self.index, key, self.target_type)
 
     def dimenValue(self, parser):
         box = self.domain
         if box is None:
             return Dimen()
-        d = getattr(box, self.key, None)
-        if d is None:
-            box = box.typeset(parser)
-            d = getattr(box, self.key)
-        return d
+        return box[self.key]
 
 
 class BoxDimenCommand(ArrayAccessor, DimenCommand):
@@ -724,10 +744,44 @@ class BoxDimenCommand(ArrayAccessor, DimenCommand):
         super().__init__(domain)
 
     def getItemAccessor(self, parser):
-        return BoxDimenAccessor(parser.box[parser.readInteger()], self.domain)
+        index = parser.readInteger()
+        return BoxDimenAccessor(parser.box[index], self.domain, index=index)
     
     def dimenValue(self, parser):
         return self.getItemAccessor(parser).dimenValue(parser)
+
+
+class BoxDimensionTarget(AttrTarget):
+    """
+    A bound target for \\wd/\\ht/\\dp assignments.
+
+    Reading a void box metric yields 0pt. Writing to a void box metric
+    materializes an empty horizontal box in the register before setting the
+    requested dimension.
+    """
+    __slots__ = ("index",)
+
+    def __init__(self, domain, index, key, value_type=VALUE_TYPE.DIMEN):
+        super().__init__(domain, key, value_type)
+        self.index = index
+
+    def get(self):
+        box = self.domain[self.index]
+        if box is None:
+            return Dimen()
+        return box[self.key]
+
+    def set(self, value, global_scope=False):
+        box = self.domain[self.index]
+        if box is None:
+            box = EmptyBox(width=Dimen(), height=Dimen(), depth=Dimen())
+        box[self.key] = value
+        if box is not self.domain[self.index]:
+            if global_scope and hasattr(self.domain, "setGlobal"):
+                self.domain.setGlobal(self.index, box)
+            else:
+                self.domain[self.index] = box
+        return value
 
 
 class UnBox(Command):
@@ -883,17 +937,38 @@ class IndentBox(Box):
     """
     An indent box.
     """
-    def __init__(self, parser):
+    def __init__(self, parser, width=None, height=None, depth=None):
         super().__init__(parser, None, None)
-        self.width = parser.parameters["parindent"]
-        self.height = Dimen()
-        self.depth = Dimen()
+        self.width = parser.parameters["parindent"] if width is None else Dimen(width)
+        self.height = Dimen() if height is None else Dimen(height)
+        self.depth = Dimen() if depth is None else Dimen(depth)
         self.typeset = None
 
     def saveInfo(self):
         return {}, None
     
     init_needs_parser = True
+
+    node_type = nd.NODE_TYPE.HLIST
+
+
+class EmptyBox(Box):
+    """
+    An empty horizontal box used to materialize writes to void box metrics.
+    """
+    def __init__(self, width=None, height=None, depth=None):
+        super().__init__(None, None, None)
+        self.width = Dimen() if width is None else Dimen(width)
+        self.height = Dimen() if height is None else Dimen(height)
+        self.depth = Dimen() if depth is None else Dimen(depth)
+        self.typeset = None
+
+    def saveInfo(self):
+        return {
+            "width": self.width,
+            "height": self.height,
+            "depth": self.depth,
+        }, None
 
     node_type = nd.NODE_TYPE.HLIST
 

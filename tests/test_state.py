@@ -172,86 +172,84 @@ def test_parser_group_mismatch(parser):
 
 
 def test_parser_get_and_set_explicit_value(parser):
-    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
-    parser.set(value=123)
+    target = accessor.makeTarget(parser.count, 0, accessor.VALUE_TYPE.INT)
+    parser.set(target, 123)
     assert parser.count[0] == 123
-    assert parser.current_value == 123
-    assert parser.get() == 123
-    assert parser.current_value == 123
+    assert parser.get(target) == 123
 
 
-def test_parser_set_uses_current_value(parser):
-    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
-    parser.current_value = 456
-    parser.set()
+def test_parser_set_writes_explicit_value(parser):
+    target = accessor.makeTarget(parser.count, 0, accessor.VALUE_TYPE.INT)
+    parser.set(target, 456)
     assert parser.count[0] == 456
-    assert parser.current_value == 456
 
 
 def test_parser_set_global_scope(parser):
-    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
-    parser.set(value=1)
+    target = accessor.makeTarget(parser.count, 0, accessor.VALUE_TYPE.INT)
+    parser.set(target, 1)
     parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
-    parser.set(value=2)
-    parser.set(global_scope=True, value=3)
+    parser.set(target, 2)
+    parser.set(target, 3, global_scope=True)
     parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     assert parser.count[0] == 3
 
 
 def test_parser_set_globaldefs_positive_forces_global(parser):
-    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
-    parser.set(value=1)
+    target = accessor.makeTarget(parser.count, 0, accessor.VALUE_TYPE.INT)
+    parser.set(target, 1)
     parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     parser.parameters["globaldefs"] = 1
-    parser.set(value=2)
+    parser.set(target, 2, global_scope=parser.resolveGlobalScope(False))
     parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     assert parser.count[0] == 2
 
 
 def test_parser_set_globaldefs_negative_forces_local(parser):
-    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
-    parser.set(value=1)
+    target = accessor.makeTarget(parser.count, 0, accessor.VALUE_TYPE.INT)
+    parser.set(target, 1)
     parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     parser.parameters["globaldefs"] = -1
-    parser.set(global_scope=True, value=2)
+    parser.set(target, 2, global_scope=parser.resolveGlobalScope(True))
     parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     assert parser.count[0] == 1
 
 
 def test_parser_get_set_globals(parser):
-    parser.setTarget((parser.globals, "demo"))
-    parser.set(value="x")
+    target = accessor.makeTarget(parser.globals, "demo")
+    parser.set(target, "x")
     assert parser.globals["demo"] == "x"
-    assert parser.get() == "x"
-    assert parser.current_value == "x"
+    assert parser.get(target) == "x"
 
 
-def test_parser_set_target_and_use_implicit_get_set(parser):
+def test_parser_get_and_set_with_bound_target(parser):
     parser.count[0] = 12
-    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
-    assert parser.get() == 12
-    assert parser.current_value == 12
-    parser.current_value = 34
-    parser.set()
+    target = accessor.makeTarget(parser.count, 0, accessor.VALUE_TYPE.INT)
+    assert parser.get(target) == 12
+    parser.set(target, 34)
     assert parser.count[0] == 34
 
 
-def test_parser_get_and_set_scratch_with_target(parser):
+def test_parser_get_and_set_with_second_target(parser):
     parser.count[1] = 7
-    parser.setTarget((parser.count, 1), accessor.VALUE_TYPE.INT)
-    assert parser.get(use_scratch=True) == 7
-    assert parser.scratch == 7
-    assert parser.scratch_type == accessor.VALUE_TYPE.INT
-    parser.scratch = 9
-    parser.set(use_scratch=True)
+    target = accessor.makeTarget(parser.count, 1, accessor.VALUE_TYPE.INT)
+    assert parser.get(target) == 7
+    parser.set(target, 9)
     assert parser.count[1] == 9
+
+
+def test_parser_cast_dimen_to_int(parser):
+    parser.dimen[0] = 123
+    target = accessor.makeTarget(parser.dimen, 0, accessor.VALUE_TYPE.DIMEN)
+    expected = int(parser.dimen[0])
+    assert parser.cast(parser.get(target), accessor.VALUE_TYPE.INT) == expected
 
 
 def test_parser_read_target_from_accessor(parser):
     acc = integer.IntegerArrayItemAccessor(parser.count, 2, builtin=False)
-    assert parser.readTarget(acc) == (parser.count, 2)
-    assert parser.target == (parser.count, 2)
-    assert parser.target_type == accessor.VALUE_TYPE.INT
+    target = parser.readTarget(acc)
+    assert target.domain is parser.count
+    assert target.key == 2
+    assert target.value_type == accessor.VALUE_TYPE.INT
 
 
 def test_insert_runtime_lists(parser):

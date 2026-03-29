@@ -10,7 +10,7 @@ from pytex.dimen import Dimen
 from pytex.module import Module
 from pytex.token import Command, CATCODE, relax
 from pytex.state import GROUP_TYPE
-from pytex.accessor import Accessor
+from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget
 from pytex.define import CharDefValue
 from pytex.ligature import ligature_step, run_ligature_program
 import types
@@ -554,6 +554,15 @@ class SpaceFactor(Accessor):
     """
     The \\spacefactor command, which sets the space factor in a horizontal list.
     """
+    target_type = VALUE_TYPE.INT
+
+    def getTarget(self, parser):
+        key = self.currentKey(parser)
+        top = parser.lists[-1]
+        if top.type != lists.LISTTYPE.HORIZONTAL:
+            raise ValueError("\\spacefactor can only be used in horizontal mode")
+        return KeyTarget(self.domain, key, self.target_type)
+
     def setGlobal(self, parser, value):
         return self.set(parser, value)
     
@@ -572,7 +581,10 @@ class SpaceFactor(Accessor):
         return self.domain[self.key]
     
     def readValue(self, parser):
-        return parser.readInteger()
+        value = parser.readInteger()
+        if value < 0:
+            raise ValueError("invalid space factor")
+        return value
     
 
 mod = Module("hmode",

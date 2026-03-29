@@ -56,8 +56,27 @@ def readUnsigned(parser):
     t = parser.token_expand()
     if t is None:
         raise ValueError("expecting an integer", parser.input.position())
+    definition = t.definition
+    bound = None
+    if definition is not None:
+        if isinstance(definition, Accessor):
+            bound = definition
+        elif hasattr(definition, "getItemAccessor"):
+            bound = definition.getItemAccessor(parser)
+    if bound is not None:
+        target = parser.readTarget(bound)
+        try:
+            value = parser.cast(parser.get(target), VALUE_TYPE.INT)
+        except (IndexError, KeyError, TypeError):
+            value = None
+        if value is not None:
+            return value
+        try:
+            return bound.intValue(parser)
+        except AttributeError:
+            pass
     try:
-        return t.definition.intValue(parser)
+        return definition.intValue(parser)
     except AttributeError:
         pass
     # a normal integer is either a ` followed by a character, or a ' followed by

@@ -11,7 +11,6 @@ from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget, AttrTarget, ReadOnly
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen
-from pytex.integer import IntegerArrayItemAccessor
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
@@ -234,10 +233,13 @@ class Box(nd.Box):
         return box
 
 
-class BadnessAccessor(IntegerArrayItemAccessor):
+class BadnessAccessor(Accessor):
     """
     Lazily realize the most recent box pack when \\badness is inspected.
     """
+    target_type = VALUE_TYPE.INT
+    value_type = VALUE_TYPE.INT
+
     def getTarget(self, parser):
         key = self.currentKey(parser)
         box = parser.lastbox

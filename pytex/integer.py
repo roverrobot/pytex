@@ -7,7 +7,7 @@ from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.serialization import Builtin
 from pytex.state import Array
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget, typedAccessor
 from pytex.define import registerdef
 
 
@@ -143,26 +143,19 @@ def readDigits(parser, base, optional=False):
     return value
 
 
-class IntegerArrayItemAccessor(Accessor):
-    """
-    integer accessor common functions
-    """
+IntegerArrayItemAccessor = typedAccessor(VALUE_TYPE.INT)
+
+
+class RangedIntergerArrayItemAccessor(Accessor):
     target_type = VALUE_TYPE.INT
+    value_type = VALUE_TYPE.INT
 
-    def canBindInternalValue(self):
-        return True
-
-    def readKey(self, parser):
-        return parser.readInteger()
-
-    def readValue(self, parser):
-        return parser.readInteger()
-
-
-class RangedIntergerArrayItemAccessor(IntegerArrayItemAccessor):
     def __init__(self, domain, key=None, range=None, builtin=True):
         super().__init__(domain, key, builtin)
         self.range = range
+
+    def readKey(self, parser):
+        return parser.readInteger()
 
     def checkRange(self, value, pos):
         """

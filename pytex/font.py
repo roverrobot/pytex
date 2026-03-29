@@ -8,7 +8,7 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget, ReadOnlyTarget
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget, ReadOnlyTarget, typedAccessor
 from pytex.integer import IntegerArrayItemAccessor
 from pytex.dimen import Dimen
 from pytex.glue import Glue, Stretchness
@@ -150,17 +150,7 @@ def readFont(parser):
     return value
 
 
-class FontArrayItemAccessor(Accessor):
-    """
-    A font accessor
-    """
-    target_type = VALUE_TYPE.FONT
-
-    def readKey(self, parser):
-        return parser.readInteger()
-
-    def readValue(self, parser):
-        return readFont(parser)
+FontArrayItemAccessor = typedAccessor(VALUE_TYPE.FONT)
 
 nullfont = NullFont(backend=nullfont_backend, at=0)
 nullfont.name = "\\nullfont"

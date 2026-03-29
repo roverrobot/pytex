@@ -67,6 +67,14 @@ class Parser:
         # for now, characters and spaces are collected in a string
         for name, mod in ModuleManager.items():
             mod.populate(self)
+        self.value_readers = [None] * (max(accessor.VALUE_TYPE) + 1)
+        self.value_readers[accessor.VALUE_TYPE.INT] = self.readInteger
+        self.value_readers[accessor.VALUE_TYPE.DIMEN] = self.readDimen
+        self.value_readers[accessor.VALUE_TYPE.GLUE] = self.readGlue
+        self.value_readers[accessor.VALUE_TYPE.MUGLUE] = lambda: self.readGlue(mu=True)
+        self.value_readers[accessor.VALUE_TYPE.BOX] = self.readBox
+        self.value_readers[accessor.VALUE_TYPE.TOKS] = lambda: toks.readToks(self)
+        self.value_readers[accessor.VALUE_TYPE.FONT] = lambda: font.readFont(self)
         if isinstance(getattr(self, "resolver", None), resolver.FileResolver):
             self.resolver = self.resolver.clone(project_dir=project_dir)
         # the current command token
@@ -186,6 +194,17 @@ class Parser:
         }:
             return value
         return value if value_type == accessor.VALUE_TYPE.UNKNOWN else None
+
+    def readValue(self, value_type):
+        """
+        Read a value according to the requested VALUE_TYPE.
+        """
+        if value_type == accessor.VALUE_TYPE.UNKNOWN:
+            raise NotImplementedError("readValue requires a concrete value type")
+        reader = self.value_readers[value_type]
+        if reader is None:
+            raise NotImplementedError(f"no reader registered for value type {value_type}")
+        return reader()
 
     def readInternalValue(self, value_type, expand: bool = True):
         """

@@ -251,22 +251,7 @@ def readToks(parser):
     return readGeneralText(parser, expand=False)
     
 
-class ToksAccessor(accessor.Accessor):
-    """
-    aaccessor for a toks parameter
-    """
-    target_type = accessor.VALUE_TYPE.TOKS
-
-    def readKey(self, parser):
-        return parser.readInteger()
-
-    def readValue(self, parser):
-        """
-        read the value from the input stack
-        @param parser: the parser
-        @return: the toks value
-        """
-        return readToks(parser)
+ToksAccessor = accessor.typedAccessor(accessor.VALUE_TYPE.TOKS)
 
 class ToksArray(Array):
     """

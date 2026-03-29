@@ -118,6 +118,31 @@ class ReadOnlyTarget:
 def makeTarget(domain, key, value_type=VALUE_TYPE.UNKNOWN, **kwargs):
     return KeyTarget(domain, key, value_type, **kwargs)
 
+
+def typedAccessor(value_type, read_key=None):
+    """
+    Generate a plain typed-accessor factory.
+
+    This is used for the common array/parameter accessor families where the
+    only real variability is the value type plus how to read the key.
+    """
+    if read_key is None:
+        def _read_key(parser):
+            return parser.readInteger()
+    else:
+        def _read_key(parser):
+            return read_key(parser)
+    def _factory(domain=None, key=None, builtin=True):
+        return Accessor(
+            domain,
+            key,
+            builtin,
+            target_type=value_type,
+            value_type=value_type,
+            read_key=_read_key,
+        )
+    return _factory
+
 class Accessor(token.Command):
     """
     access a value in a domain
@@ -127,11 +152,20 @@ class Accessor(token.Command):
     """
     _MISSING_KEY = object()
     target_type = VALUE_TYPE.UNKNOWN
+    value_type = VALUE_TYPE.UNKNOWN
 
-    def __init__(self, domain=None, key=None, builtin=True):
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "value_type" not in cls.__dict__:
+            cls.value_type = getattr(cls, "target_type", VALUE_TYPE.UNKNOWN)
+
+    def __init__(self, domain=None, key=None, builtin=True, *, target_type=None, value_type=None, read_key=None):
         self.domain = domain
         self.key = key
         self.builtin = builtin
+        self.target_type = self.__class__.target_type if target_type is None else target_type
+        self.value_type = self.__class__.value_type if value_type is None else value_type
+        self._read_key = read_key
 
     def className(self):
         return Builtin.className(self) if self.builtin else Serializable.className(self)
@@ -139,7 +173,11 @@ class Accessor(token.Command):
     def saveInfo(self):
         if self.builtin:
             return Builtin.saveInfo(self)
-        return {"domain": self.domain.name, "key": self.key}, None
+        info = {"domain": self.domain.name, "key": self.key}
+        if type(self) is Accessor:
+            info["target_type"] = int(self.target_type)
+            info["value_type"] = int(self.value_type)
+        return info, None
 
     init_needs_parser = True
 
@@ -148,7 +186,13 @@ class Accessor(token.Command):
         """
         create a non-builtin accessor from serialized data
         """
-        return cls(getattr(parser, kargs["domain"]), kargs["key"], builtin=False)
+        return cls(
+            getattr(parser, kargs["domain"]),
+            kargs["key"],
+            builtin=False,
+            target_type=VALUE_TYPE(kargs.get("target_type", cls.target_type)),
+            value_type=VALUE_TYPE(kargs.get("value_type", cls.value_type)),
+        )
 
     def bindKey(self, key):
         """
@@ -162,7 +206,7 @@ class Accessor(token.Command):
         """
         whether this accessor reads a key from input when it is not fixed
         """
-        return type(self).readKey is not Accessor.readKey
+        return self._read_key is not None or type(self).readKey is not Accessor.readKey
 
     def canBindInternalValue(self):
         """
@@ -181,6 +225,8 @@ class Accessor(token.Command):
         """
         read the key from the input stack when this accessor is not bound to one
         """
+        if self._read_key is not None:
+            return self._read_key(parser)
         raise NotImplementedError("readKey method must be implemented when key is not fixed")
 
     def currentKey(self, parser):
@@ -210,7 +256,7 @@ class Accessor(token.Command):
         read the value from the input stack
         @param parser: the parser
         """
-        raise NotImplementedError("readValue method must be implemented in a subclass")
+        return parser.readValue(self.value_type)
 
     def set(self, parser, value):
         """

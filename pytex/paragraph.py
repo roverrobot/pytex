@@ -8,10 +8,10 @@ from pytex import box as bx
 from pytex import vmode
 from pytex import lists
 from pytex.module import Module
+from pytex.accessor import Accessor, VALUE_TYPE
 from pytex.dimen import Dimen
 from pytex.glue import Glue, Stretchness
 from pytex.hmode import HorizontalCommand
-from pytex.integer import IntegerArrayItemAccessor
 
 
 class Language(nd.WhatsIt):
@@ -1047,7 +1047,10 @@ class SetLanguage(HorizontalCommand):
         hlist.append(Language(language))
 
 
-class PrevGraf(IntegerArrayItemAccessor):
+class PrevGraf(Accessor):
+    target_type = VALUE_TYPE.INT
+    value_type = VALUE_TYPE.INT
+
     def getTarget(self, parser):
         value = parser.globals["prevgraf"]
         if value is None:

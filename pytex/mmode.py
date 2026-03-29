@@ -17,7 +17,7 @@ from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget
 from pytex.define import EquitableAccessor
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
-from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
+from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex import box
 from pytex.hmode import Ligature
 from pytex.ligature import ligature_step, run_ligature_program
@@ -2673,7 +2673,7 @@ class Line(Atom):
         return Dimen()
 
 
-class VolatileParameterAccessor(Accessor, DimenCommand):
+class VolatileParameterAccessor(Accessor):
     target_type = VALUE_TYPE.DIMEN
 
     def __init__(self, index):
@@ -2695,17 +2695,6 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
     
     def setGlobal(self, parser, value):
         self.getTarget(parser).set(value, global_scope=True)
-    
-    def dimenValue(self, parser):
-        value = parser.volatile[self.index]
-        if value is not None:
-            return value
-        # when this is accessed here, we are in building a list. So we use parser.paragraph_before_last_display_math
-        # if this paragraph does not exist, then the value has not been changed. we should have returned early
-        para = parser.paragraph_before_last_display_math
-        assert para is not None
-        para.typeset(parser, [])
-        return parser.volatile[self.index]
 
 
 class VolatileParameterSlot:

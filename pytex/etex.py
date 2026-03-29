@@ -10,7 +10,7 @@ from pytex import token as tk
 from pytex.module import Module
 from pytex.lists import ModeDependentCommand
 from pytex.integer import FixedInteger, IntegerArrayItemAccessor
-from pytex.dimen import Dimen, DimenCommand
+from pytex.dimen import Dimen
 from pytex.toks import The, ToksArrayItemAccessor
 from pytex import token
 from pytex import expandable
@@ -165,7 +165,7 @@ class NumExpr(Expr):
         return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.INT)
     
 
-class DimExpr(Expr, DimenCommand):
+class DimExpr(Expr):
     """
     The \\dimexpr command
     """
@@ -174,14 +174,6 @@ class DimExpr(Expr, DimenCommand):
 
     def getTarget(self, parser):
         return accessor.ReadOnlyTarget(self.readExpr(parser, False), accessor.VALUE_TYPE.DIMEN)
-    
-    def dimenValue(self, parser):
-        """
-        Get the dimension value of the expression
-        @param parser: the parser
-        @return: the dimension value of the expression
-        """
-        return self.readExpr(parser, False)
 
 
 class GlueExpr(Expr):
@@ -356,7 +348,7 @@ class Penalties(tk.Command):
         parser.layout[self.penalties] = penalties
 
 
-class ParShapeDimen(tk.Command, DimenCommand):
+class ParShapeDimen(tk.Command):
     """
     The \\parshapeindent and \\parshapelength and \\parshapedimen commands
     @param index: the index of the parshape dimen for a specific line
@@ -367,12 +359,9 @@ class ParShapeDimen(tk.Command, DimenCommand):
         self.index = index
 
     def getTarget(self, parser):
-        return accessor.ReadOnlyTarget(self.dimenValue(parser), accessor.VALUE_TYPE.DIMEN)
-
-    def dimenValue(self, parser):
         row = parser.readInteger()
         if row < 0:
-            return Dimen()
+            return accessor.ReadOnlyTarget(Dimen(), accessor.VALUE_TYPE.DIMEN)
         parshape = parser.volatile["parshape"]
         if self.index < 0:
             # \\parshapedimen
@@ -382,10 +371,10 @@ class ParShapeDimen(tk.Command, DimenCommand):
             index = self.index
         if row >= len(parshape):
             row = len(parshape) - 1
-        return parshape[row][index]
+        return accessor.ReadOnlyTarget(parshape[row][index], accessor.VALUE_TYPE.DIMEN)
 
 
-class GlueStrechness(tk.Command, DimenCommand):
+class GlueStrechness(tk.Command):
     """
     The \\gluestretch and \\glueshrink command
     """
@@ -393,14 +382,11 @@ class GlueStrechness(tk.Command, DimenCommand):
         self.field = field
 
     def getTarget(self, parser):
-        return accessor.ReadOnlyTarget(self.dimenValue(parser), accessor.VALUE_TYPE.DIMEN)
-
-    def dimenValue(self, parser):
         glue = parser.readGlue()
-        return Dimen(getattr(glue, self.field).factor)
+        return accessor.ReadOnlyTarget(Dimen(getattr(glue, self.field).factor), accessor.VALUE_TYPE.DIMEN)
     
 
-class FontCharDimen(tk.Command, DimenCommand):
+class FontCharDimen(tk.Command):
     """
     The \\fontcharwd, \\fontcharht, and \\fontchardp commands
     """
@@ -408,13 +394,10 @@ class FontCharDimen(tk.Command, DimenCommand):
         self.field = field
 
     def getTarget(self, parser):
-        return accessor.ReadOnlyTarget(self.dimenValue(parser), accessor.VALUE_TYPE.DIMEN)
-
-    def dimenValue(self, parser):
         f = font.readFont(parser)
         char = parser.readInteger()
         box = f[chr(char)]
-        return getattr(box, self.field)
+        return accessor.ReadOnlyTarget(getattr(box, self.field), accessor.VALUE_TYPE.DIMEN)
 
 
 class Middle(ModeDependentCommand):

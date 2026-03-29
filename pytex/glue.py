@@ -4,7 +4,7 @@ This module implements glue parsing and handling.
 
 
 from pytex import serialization
-from pytex.dimen import readUnsignedDimen, Dimen, DimenCommand
+from pytex.dimen import readUnsignedDimen, Dimen
 from pytex.integer import readSigns
 from pytex.state import Array
 from pytex.accessor import Accessor, VALUE_TYPE

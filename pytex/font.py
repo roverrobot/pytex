@@ -10,7 +10,7 @@ from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
 from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget
 from pytex.integer import IntegerArrayItemAccessor
-from pytex.dimen import Dimen, DimenCommand
+from pytex.dimen import Dimen
 from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
 from pytex.define import EquitableAccessor
@@ -287,7 +287,7 @@ class FontCommand(FontDefineAccessor):
         return parser.currentfont.value
 
 
-class FontDimenAccessor(Accessor, DimenCommand):
+class FontDimenAccessor(Accessor):
     """
     An accessor for the \\fontdimen command
     """
@@ -299,12 +299,6 @@ class FontDimenAccessor(Accessor, DimenCommand):
 
     def readValue(self, parser):
         return parser.readDimen()
-
-    def dimenValue(self, parser):
-        font, index = self.currentKey(parser)
-        if index < 0 or index >= len(font.param):
-            raise ValueError(f"fontdimen index {index} out of range {len(font.param)} for font {font.backend.name}  @{int(font.at)}", parser.input.position())
-        return font.param[index]
 
     def getTarget(self, parser):
         font, index = self.currentKey(parser)

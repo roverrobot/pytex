@@ -8,7 +8,7 @@ from pytex import node as nd
 from pytex.token import Command, CATCODE
 from math import inf
 from copy import deepcopy
-from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
+from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.glue import Glue
 from pytex.accessor import ReadOnlyTarget, VALUE_TYPE
 import enum
@@ -347,19 +347,15 @@ class LastPenalty(Command):
         return ReadOnlyTarget(value, VALUE_TYPE.INT)
 
 
-class LastKern(Command, DimenCommand):
+class LastKern(Command):
     """
     The \\lastkern command.
     """
     def getTarget(self, parser):
-        return ReadOnlyTarget(self.dimenValue(parser), VALUE_TYPE.DIMEN)
-
-    def dimenValue(self, parser):
         top = parser.lists[-1]
         node = _last_list_node(top)
-        if node is None or node.node_type != nd.NODE_TYPE.KERN:
-            return Dimen()
-        return node.kern
+        value = Dimen() if node is None or node.node_type != nd.NODE_TYPE.KERN else node.kern
+        return ReadOnlyTarget(value, VALUE_TYPE.DIMEN)
 
 
 class LastSkip(Command):

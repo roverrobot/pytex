@@ -10,7 +10,7 @@ from pytex.module import Module
 from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget, AttrTarget
 from pytex.state import Array
 from pytex.token import Command, CATCODE
-from pytex.dimen import Dimen, DimenCommand
+from pytex.dimen import Dimen
 from pytex.integer import IntegerArrayItemAccessor
 from pytex import conditional
 from pytex.state import GROUP_TYPE
@@ -698,7 +698,7 @@ class VTopCommand(VBoxCommand):
     group_type = GROUP_TYPE.VTOP
 
 
-class BoxDimenAccessor(Accessor, DimenCommand):
+class BoxDimenAccessor(Accessor):
     target_type = VALUE_TYPE.DIMEN
 
     def readKey(self, parser):
@@ -710,12 +710,6 @@ class BoxDimenAccessor(Accessor, DimenCommand):
     def getTarget(self, parser):
         index = self.currentKey(parser)
         return BoxDimensionTarget(parser.box, index, self.domain, self.target_type)
-
-    def dimenValue(self, parser):
-        box = parser.box[self.currentKey(parser)]
-        if box is None:
-            return Dimen()
-        return box[self.domain]
 
 
 class BoxDimensionTarget(AttrTarget):

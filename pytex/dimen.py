@@ -250,23 +250,16 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     @return: the unsigned dimension if stretchness is False, otherwise the 
     dimension and the infinity level
     """
-    def dimenValue(t):
+    def readInternalDimen(t):
         parser.input.unread(t)
-        value = parser.readInternalValue(VALUE_TYPE.DIMEN)
-        if value is not None:
-            return value
-        definition = getattr(t, "definition", None)
-        dimen_value = getattr(definition, "dimenValue", None)
-        if dimen_value is None:
-            return None
-        return dimen_value(parser)
+        return parser.readInternalValue(VALUE_TYPE.DIMEN)
     # an unsigned dimension
     t = parser.token_expand()
     if t is None:
         raise Exception("dimension expected")
     # an internal dimension or a glue (both have a dimenValue method)
     # a number
-    value = dimenValue(t)
+    value = readInternalDimen(t)
     if value is not None:
         return (value, 0) if stretchness else value
     num, den = readUnsignedNumberRatio(parser)
@@ -274,7 +267,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     # a unit
     if t is None:
         raise ValueError("dimension unit expected", parser.input.position())
-    value = dimenValue(t)
+    value = readInternalDimen(t)
     if value is not None:
         dimen = Dimen(integer=Dimen._trunc_div(num * int(value), den))
         return (dimen, 0) if stretchness else dimen
@@ -333,13 +326,7 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     return dimen
 
 
-class DimenCommand:
-    """
-    base class that converts a dimension to an integer
-    """
-
-
-class DimenArrayItemAccessor(Accessor, DimenCommand):
+class DimenArrayItemAccessor(Accessor):
     """
     access the value of a dimen parameter
     """
@@ -354,14 +341,6 @@ class DimenArrayItemAccessor(Accessor, DimenCommand):
         @param parser: the parser
         """
         return readDimen(parser, mu=False)
-    
-    def dimenValue(self, parser):
-        """
-        get the dimension value from the input stack
-        @param parser: the parser
-        @return: the dimension value
-        """
-        return self.domain[self.currentKey(parser)]
 
 
 class DimenArray(Array):

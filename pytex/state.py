@@ -110,6 +110,8 @@ class NamedSavedValue:
     a saved value in the group for a Dict.
     @param value: the Entry holding the value
     """
+    __slots__ = ("domain", "index", "entry", "value")
+
     def __init__(self, domain, name, value):
         self.domain = domain
         self.index = name
@@ -169,6 +171,8 @@ class NamedEntry:
     @param name: the name of the command
     @param value: the value of the command, None meaning undefined.
     """
+    __slots__ = ("state", "domain", "name", "value")
+
     def __init__(self, state, domain, name, value=None):
         self.state = state
         self.domain = domain
@@ -296,6 +300,8 @@ class ArraySavedValue:
     @param index: the index of the value
     @param value: the vEntry holding the value
     """
+    __slots__ = ("domain", "array", "index", "value")
+
     def __init__(self, domain, index):
         self.domain = domain.name
         self.array = domain
@@ -317,6 +323,8 @@ class Array:
     """
     an array of values
     """
+    __slots__ = ("default", "list", "dict", "state", "name")
+
     def __init__(self, name: str, state=None, default=None):
         self.default = default() if callable(default) else default
         self.list = [self.default for i in range(self.SIZE)]

@@ -5,7 +5,7 @@ This module implements macros.
 
 from pytex.token import CATCODE, Command, ParameterToken
 from pytex.accessor import Prefix, GlobalPrefix, Accessor
-from pytex.define import Define, EquitableAccessor
+from pytex.define import EquitableAccessor
 from pytex.module import Module
 from pytex.lexer import TokenListScanner
 from pytex.serialization import Serializable
@@ -394,7 +394,7 @@ class MacroAccessor(EquitableAccessor):
         super().assign(parser, prefixes)
 
 
-class Def(Define):
+class Def(MacroAccessor):
     """
     define a macro
 
@@ -402,15 +402,9 @@ class Def(Define):
     @param expand_body: whether the replacement text is expanded
     """
     def __init__(self, globally, expand_body):
-        super().__init__(MacroAccessor)
+        super().__init__(None)
         self.globally = globally
         self.expand_body = expand_body
-    
-    def getItemAccessor(self, parser):
-        p = super().getItemAccessor(parser)
-        p.expand_body = self.expand_body
-        p.globally = self.globally
-        return p
 
 
 class Long(Prefix):

@@ -12,10 +12,6 @@ There are two main methods in the Accessor class: getValue and assign. When the 
 is executed, it is an assignment.  On the other hand, the command may be read by other 
 commands. In this case, the command is not an assignment, but the getValue() method is called.
 
-An ArrayAccessor command specifies how to access an array, such as the \\catcode array 
-or the \\count registers. Its main method is getItemAccessor, which returns an accessor to
-an item in the array. The method calles the newItemAccessor method, which must be implemented
-in a subclass to provide the accessor to the item.
 """
 
 import copy
@@ -242,39 +238,6 @@ class Accessor(token.Command):
         @param parser: the parser
         """
         self.assign(parser, prefixes=[])
-
-class ArrayAccessor(token.Command):
-    """
-    An array accessor provides that accesses an array of registers or parameters. It is a command
-    that takes a single argument, the name of the register or parameter, and returns the value of the
-    register or parameter.
-
-    @param domain: the domain of the assignment
-    """
-    def __init__(self, domain):
-        """
-        @param domain: the domain of the assignment
-        """
-        self.domain = domain
-
-    def assign(self, parser, prefixes):
-        """
-        make an assignment
-        
-        @param parser: the parser
-        @param prefixes: the prefixes to the assignment
-
-        the index is read from the input stack, then an accessor to the 
-        item is created, and its assign method is called.
-        """
-        self.getItemAccessor(parser).assign(parser, prefixes)
-    
-    def execute(self, parser):
-        """
-        execute the command
-        @param parser: the parser
-        """
-        self.getItemAccessor(parser).assign(parser, prefixes=[])
 
 class Prefix(token.Command):
     """

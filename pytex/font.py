@@ -13,7 +13,7 @@ from pytex.integer import IntegerArrayItemAccessor
 from pytex.dimen import Dimen, DimenCommand
 from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
-from pytex.define import Define, EquitableAccessor
+from pytex.define import EquitableAccessor
 from pytex.state import Array
 from pytex.expandable import toToks
 from pytex.lexer import TokenListScanner
@@ -279,12 +279,12 @@ class FontAccessor(Accessor):
         return self.domain[self.currentKey(parser)]
         
 
-class FontCommand(Define):
+class FontCommand(FontDefineAccessor):
     """
     The \\font command
     """
     def __init__(self):
-        super().__init__(FontDefineAccessor)
+        super().__init__(None)
         
     def fontValue(self, parser):
         return parser.currentfont.value

@@ -14,7 +14,7 @@ from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget
-from pytex.define import Define, EquitableAccessor
+from pytex.define import EquitableAccessor
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, DimenCommand
@@ -1654,7 +1654,7 @@ class MathCharDefAccesor(EquitableAccessor):
         return MathCharValue(parser.readInteger())
 
 
-mathchardef = Define(MathCharDefAccesor)
+mathchardef = MathCharDefAccesor()
 
 
 def mudimen(source, style, dimen):

@@ -22,32 +22,12 @@ class EquitableAccessor(accessor.Accessor):
         self.setDefault(t)
         return t.name
 
+    def getTarget(self, parser):
+        return accessor.KeyTarget(parser.equitable, self.currentKey(parser), self.target_type)
+
     def setDefault(self, t):
         if t.definition is None:
             t.entry.value = t.definition = relax
-
-
-class Define(accessor.ArrayAccessor):
-    """
-    the base class for defining commands
-    @param accessor_generator: the generator for the accessor to the equitable item
-    """
-    def __init__(self, accessor_generator=accessor.Accessor):
-        # provide a default value for the command before the assignment.
-        # Typically this is \\relax. However, in font assignment. For example, in
-        # \\font\\f=cmr10 \\fontname\\f
-        # the \\fontname is expanded before the assignment because the \\font command
-        # is looking for a keyword "scale" or "to". However, at this stage the assignmnt
-        # for \\f has not happended yet as pytex is still reading the font specification.
-        # Thus, \\f should recive a default value of \\nullfont, as in TeX82.
-        self.accessor_generator = accessor_generator
-
-    def getItemAccessor(self, parser):
-        """
-        get the index of the command
-        @param parser: the parser
-        """
-        return self.accessor_generator(parser.equitable, builtin=False)
 
 
 class LetAccessor(EquitableAccessor):
@@ -65,7 +45,7 @@ class LetAccessor(EquitableAccessor):
         return t.definition if t.entry is not None else t
 
 
-let = Define(LetAccessor)
+let = LetAccessor()
 
 
 class FutureLetAccessor(EquitableAccessor):
@@ -94,7 +74,7 @@ class FutureLetAccessor(EquitableAccessor):
         return t2.definition if t2.entry is not None else t2
 
 
-futurelet = Define(FutureLetAccessor)
+futurelet = FutureLetAccessor()
 
 
 class CharDefValue(Command):
@@ -146,7 +126,7 @@ class CharDefAccessor(EquitableAccessor):
         return CharDefValue(parser.readInteger())
 
 
-chardef = Define(CharDefAccessor)
+chardef = CharDefAccessor()
 
 
 class RegisterDefAccessor(EquitableAccessor):
@@ -156,7 +136,7 @@ class RegisterDefAccessor(EquitableAccessor):
     @param register: the register name, such as "count", "dimen", etc.
     @param accessor_generator: the generator for the accessor to the register item
     """
-    def __init__(self, domain, key=None, register=None, accessor_generator=None, builtin=False):
+    def __init__(self, domain, key=None, register=None, accessor_generator=None, builtin=True):
         super().__init__(domain, key, builtin)
         self.register = register
         self.accessor_generator = accessor_generator
@@ -170,8 +150,7 @@ class RegisterDefAccessor(EquitableAccessor):
 
 
 def registerdef(register, accessor_generator): 
-    generator = lambda domain, key=None, builtin=False: RegisterDefAccessor(domain, key, register, accessor_generator, builtin=builtin)
-    return Define(generator)
+    return RegisterDefAccessor(None, register=register, accessor_generator=accessor_generator)
 
 
 mod = Module("define",

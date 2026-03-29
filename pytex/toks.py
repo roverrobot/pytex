@@ -41,7 +41,64 @@ def token_expand(parser):
             return t, None
 
 
-def readBalancedTextExpanded(parser, toks: list = []):
+def readTo(parser, stop, toks=None, expand: bool = False, macro_body: bool = False):
+    """
+    Read tokens until a stop catcode is found.
+
+    @param parser: the parser
+    @param stop: the catcode that terminates the read
+    @param toks: the list to read into
+    @param expand: whether to expand tokens while reading
+    @param macro_body: whether to parse #1..#9 / ## in the token stream
+    @return: (tokens, end_token)
+    """
+    if toks is None:
+        toks = []
+    append = toks.append
+    extend = toks.extend
+    token_factory = Token.token
+    level = 0
+
+    while True:
+        if expand:
+            t, expanded = token_expand(parser)
+        else:
+            t = parser.token()
+            expanded = None
+        if t is None:
+            raise ValueError("unbalanced token list", parser.input.position())
+        catcode = t.catcode
+        if catcode == stop and level == 0:
+            return toks, t
+        if expanded is not None:
+            extend(expanded)
+            continue
+        if catcode == CATCODE.BEGIN_GROUP:
+            level += 1
+            append(t)
+            continue
+        if catcode == CATCODE.END_GROUP:
+            level -= 1
+            if level < 0:
+                raise ValueError("unbalanced token list", parser.input.position())
+            append(t)
+            continue
+        if macro_body and catcode == CATCODE.PARAMETER:
+            t = token_factory(t.name, CATCODE.PARAMETER)
+            if expand:
+                t1, _expanded = token_expand(parser)
+            else:
+                t1 = parser.token()
+            if t1 is None:
+                raise ValueError("invalid parameter", parser.input.position())
+            if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
+                t.parameter = int(t1.name) - 1
+            elif t1.catcode != CATCODE.PARAMETER:
+                raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
+        append(t)
+
+
+def readBalancedTextExpanded(parser, toks=None):
     """
     read until an enclosing }, including balanced { and }.
     @param parser: the parser
@@ -50,31 +107,9 @@ def readBalancedTextExpanded(parser, toks: list = []):
     @param macro: whether reading the body of a macro definition
     @return: toks with the balanced text added (including the enclosing }
     """
-    begin_group = CATCODE.BEGIN_GROUP
-    end_group = CATCODE.END_GROUP
-    parameter = CATCODE.PARAMETER
-    other = CATCODE.OTHER
-    append = toks.append
-    extend = toks.extend
-    level = 0
-
-    token_factory = Token.token
-    while True:
-        t, expanded = token_expand(parser)
-        if t is None:
-            raise ValueError("unbalanced token list", parser.input.position())
-        catcode = t.catcode
-        if catcode == begin_group:
-            level += 1
-        elif catcode == end_group:
-            if level == 0:
-                append(t)
-                return toks
-            level -= 1
-        elif expanded is not None:
-            extend(expanded)
-            continue
-        append(t)
+    toks, end = readTo(parser, CATCODE.END_GROUP, toks=toks, expand=True)
+    toks.append(end)
+    return toks
 
 
 def readMacroBodyExpanded(parser):
@@ -86,42 +121,12 @@ def readMacroBodyExpanded(parser):
     @param macro: whether reading the body of a macro definition
     @return: toks with the balanced text added (including the enclosing }
     """
-    begin_group = CATCODE.BEGIN_GROUP
-    end_group = CATCODE.END_GROUP
-    parameter = CATCODE.PARAMETER
-    other = CATCODE.OTHER
-    toks = []
-    append = toks.append
-    extend = toks.extend
-    level = 0
-
-    token_factory = Token.token
-    while True:
-        t, expanded = token_expand(parser)
-        if t is None:
-            raise ValueError("unbalanced token list", parser.input.position())
-        catcode = t.catcode
-        if catcode == begin_group:
-            level += 1
-        elif catcode == end_group:
-            if level == 0:
-                append(t)
-                return toks
-            level -= 1
-        elif expanded is not None:
-            extend(expanded)
-            continue
-        elif catcode == parameter:
-            t = token_factory(t.name, parameter)
-            t1, _expanded = token_expand(parser)
-            if t1.catcode == other and ("1" <= t1.name <= "9"):
-                t.parameter = int(t1.name) - 1
-            elif t1.catcode != parameter:
-                raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
-        append(t)
+    toks, end = readTo(parser, CATCODE.END_GROUP, expand=True, macro_body=True)
+    toks.append(end)
+    return toks
 
 
-def readBalancedText(parser, toks: list = []):
+def readBalancedText(parser, toks=None):
     """
     read until an enclosing }, including balanced { and }.
     @param parser: the parser
@@ -130,28 +135,9 @@ def readBalancedText(parser, toks: list = []):
     @param macro: whether reading the body of a macro definition
     @return: toks with the balanced text added (including the enclosing }
     """
-    begin_group = CATCODE.BEGIN_GROUP
-    end_group = CATCODE.END_GROUP
-    parameter = CATCODE.PARAMETER
-    other = CATCODE.OTHER
-    append = toks.append
-    extend = toks.extend
-    level = 0
-    tok = parser.token
-    token_factory = Token.token
-    while True:
-        t = tok()
-        if t is None:
-            raise ValueError("unbalanced token list", parser.input.position())
-        catcode = t.catcode
-        if catcode == begin_group:
-            level += 1
-        elif catcode == end_group:
-            if level == 0:
-                append(t)
-                return toks
-            level -= 1
-        append(t)
+    toks, end = readTo(parser, CATCODE.END_GROUP, toks=toks)
+    toks.append(end)
+    return toks
 
 
 def reaadMacroBody(parser):
@@ -163,36 +149,9 @@ def reaadMacroBody(parser):
     @param macro: whether reading the body of a macro definition
     @return: toks with the balanced text added (including the enclosing }
     """
-    begin_group = CATCODE.BEGIN_GROUP
-    end_group = CATCODE.END_GROUP
-    parameter = CATCODE.PARAMETER
-    other = CATCODE.OTHER
-    toks = []
-    append = toks.append
-    extend = toks.extend
-    level = 0
-    tok = parser.token
-    token_factory = Token.token
-    while True:
-        t = tok()
-        if t is None:
-            raise ValueError("unbalanced token list", parser.input.position())
-        catcode = t.catcode
-        if catcode == begin_group:
-            level += 1
-        elif catcode == end_group:
-            if level == 0:
-                append(t)
-                return toks
-            level -= 1
-        elif catcode == parameter:
-            t = token_factory(t.name, parameter)
-            t1 = tok()
-            if t1.catcode == other and ("1" <= t1.name <= "9"):
-                t.parameter = int(t1.name) - 1
-            elif t1.catcode != parameter:
-                raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
-        append(t)
+    toks, end = readTo(parser, CATCODE.END_GROUP, macro_body=True)
+    toks.append(end)
+    return toks
 
 
 def skipFiller(parser):
@@ -408,6 +367,7 @@ class PageMark(Command):
 
 mod = Module("toks",
     attributes = {
+        "readTo": readTo,
         "readBalancedText": readBalancedText,
         "readBalancedTextExpanded": readBalancedTextExpanded,
         "readMacroBody": reaadMacroBody,

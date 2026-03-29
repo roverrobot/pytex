@@ -15,6 +15,22 @@ def test_read_toks(parser):
     assert k[3].name == "d"
     
 
+def test_read_to_end_group(parser):
+    parser.readFrom("abcd}")
+    toks_value, end = parser.readTo(CATCODE.END_GROUP)
+    assert [t.name for t in toks_value] == ["a", "b", "c", "d"]
+    assert end.name == "}"
+    assert end.catcode == CATCODE.END_GROUP
+
+
+def test_read_to_begin_group(parser):
+    parser.readFrom("ab{cd}")
+    toks_value, end = parser.readTo(CATCODE.BEGIN_GROUP)
+    assert [t.name for t in toks_value] == ["a", "b"]
+    assert end.name == "{"
+    assert end.catcode == CATCODE.BEGIN_GROUP
+
+
 def test_read_general_text(parser):
     parser.readFrom(" \\relax  {abcd}")
     k = parser.readGeneralText(expand=False)

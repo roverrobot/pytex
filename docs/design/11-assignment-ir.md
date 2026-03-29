@@ -5,23 +5,22 @@ This note consolidates the current direction for assignment execution.
 The main idea is to make assignments target-centric.
 
 Instead of threading `(domain, key)` pairs through every assignment-like
-operation, the parser should own an explicit target register and a small number
-of typed value holders.
+operation, commands should work with an explicit target plus a small number of
+typed local values.
 
 ## Main Conclusion
 
 Assignments should be expressed in terms of parser operations such as:
 
-- `readTarget()`
-- `setTarget(target, target_type)`
-- `get(use_scratch=False)`
-- `set(global_scope=False, use_scratch=False)`
-- `readValue(use_scratch=False)`
+- `readTarget() -> (target, target_type)`
+- `get(target) -> value`
+- `set(target, value, global_scope=False)`
+- `readValue(value_type) -> value`
+- `cast(value, value_type) -> value | None`
 
 Under this model:
 
 - accessors parse target syntax
-- the parser owns the active target
 - the parser owns typed value reading
 - the parser owns target reads and writes
 - `afterAssignment()` remains a separate operation from `set()`
@@ -29,15 +28,35 @@ Under this model:
 This is a better fit for the execution-IR direction than letting accessors keep
 their own ad hoc read/write logic.
 
-## Runtime Registers
+## Conceptual Registers vs Runtime Locals
 
-The parser should own these assignment-related registers:
+The execution model is still easiest to describe using a few conceptual
+registers:
 
 - `target`
 - `target_type`
 - `current_value`
 - `scratch`
 - `scratch_type`
+
+But these should not be understood as mandatory long-lived parser instance
+variables.
+
+In practice, TeX execution is highly reentrant. Nested internal reads can occur
+while an outer assignment is still being scanned. If these values are kept on
+the parser itself, commands such as `\advance` end up needing a stack-backed
+save/restore mechanism just to protect outer state from inner reads.
+
+That is both awkward and expensive in a hot path.
+
+So the implementation direction should be:
+
+- keep these names as conceptual IR registers
+- implement them as local variables inside command execution
+- let parser operations return values instead of mutating parser-held holders
+
+This gives the same conceptual model, but Python locals provide the necessary
+stack discipline for free.
 
 `target` is the active location being assigned to or read from.
 
@@ -53,10 +72,10 @@ Examples:
 - `BOX`
 - `FONT`
 
-`current_value` is the main value holder used by `get()`, `readValue()`, and
-later `set()`.
+`current_value` is the main value loaded by `get()` or `readValue()`.
 
-`scratch` is the secondary holder used when a command needs an extra operand.
+`scratch` is the secondary local value used when a command needs an extra
+operand.
 
 `scratch_type` is needed because the scratch operand does not always have the
 same type as the target.
@@ -67,7 +86,8 @@ Example:
 - target type is `DIMEN`
 - scratch type is `INT`
 
-So one persistent target type is not enough by itself.
+So one type is not enough by itself, but the extra type only needs to live as a
+local variable inside the command that is using it.
 
 ## What A Target Is
 
@@ -92,62 +112,35 @@ there."
 
 ## Parser Operations
 
-### `readTarget()`
+### `readTarget() -> (target, target_type)`
 
-This operation reads the next assignment target and loads:
+This operation reads the next assignment target and returns:
 
-- `parser.target`
-- `parser.target_type`
+- `target`
+- `target_type`
 
 It should be implemented through accessors.
 
-### `setTarget(target, target_type)`
+### `get(target) -> value`
 
-This operation sets the active target registers explicitly.
+This operation reads from `target`.
 
-It is useful when:
+The value returned by `get()` must conform to `target_type`.
 
-- a command wants to bind a target once and reuse it later
-- a delayed assignment needs to preserve the target
-- an operation such as `\setbox` or `\read` needs to carry target information
-  across more parsing
+### `set(target, value, global_scope=False)`
 
-### `get(use_scratch=False)`
-
-This operation reads from `parser.target`.
-
-By default it loads the result into `current_value`.
-
-If `use_scratch=True`, it loads into `scratch` instead.
-
-The value loaded by `get()` must conform to `target_type`.
-
-### `set(global_scope=False, use_scratch=False)`
-
-This operation writes to `parser.target`.
-
-By default it stores `current_value`.
-
-If `use_scratch=True`, it stores `scratch`.
+This operation writes `value` to `target`.
 
 The stored value must conform to `target_type`.
 
 This is a pure state-write operation. It should not implicitly run
 `\afterassignment`.
 
-### `readValue(use_scratch=False)`
+### `readValue(value_type) -> value`
 
-This operation reads a value from input according to the destination type.
+This operation reads a value from input according to the requested type.
 
-The rule is:
-
-- if reading into `current_value`, use `target_type`
-- if reading into `scratch`, use `scratch_type`
-
-So `readValue()` should not take an explicit type argument.
-
-The parser should instead dispatch through a reader table keyed by the active
-type:
+The parser should dispatch through a reader table keyed by the requested type:
 
 - `INT -> readInteger`
 - `DIMEN -> readDimen`
@@ -157,6 +150,22 @@ type:
 
 Commands that need a truly special scan rule can still use a specialized parser
 method directly.
+
+### `cast(value, value_type) -> value | None`
+
+This operation attempts a coercion.
+
+It should return:
+
+- the coerced value on success
+- `None` when the value is not valid for that type in the current context
+
+For example, when a command wants a dimension-like internal quantity, it can:
+
+1. bind a target
+2. `value = get(target)`
+3. `value = cast(value, DIMEN)`
+4. treat `None` as "not a dimen"
 
 ## Accessor Role
 
@@ -173,22 +182,21 @@ So the parser's `readTarget()` can be implemented as:
 
 1. read the accessor-like command occurrence
 2. ask it for `target = accessor.getTarget(parser)`
-3. load `parser.target = target`
-4. load `parser.target_type = accessor.target_type`
+3. return `target` plus `accessor.target_type`
 
 This means the accessor parses target syntax, but the parser performs the
-execution-layer state changes.
+execution-layer reads, writes, and casts.
 
 ## Ordinary Assignment Shape
 
 The normal assignment flow becomes:
 
 1. read the accessor command
-2. `readTarget()`
+2. `target, target_type = readTarget()`
 3. `readEq()`
-4. `readValue()`
+4. `value = readValue(target_type)`
 5. apply prefixes to determine final `global_scope` and any value modification
-6. `set(global_scope=...)`
+6. `set(target, value, global_scope=...)`
 7. `afterAssignment()`
 
 This gives a clean separation:
@@ -206,24 +214,24 @@ Arithmetic commands become much cleaner under this model.
 
 ### `\advance`
 
-1. `readTarget()`
-2. `get()`
-3. set `scratch_type = target_type`
+1. `target, target_type = readTarget()`
+2. `current_value = get(target)`
+3. `scratch_type = target_type`
 4. `readKeyword(["by"])`
-5. `readValue(use_scratch=True)`
+5. `scratch = readValue(scratch_type)`
 6. compute from `current_value` and `scratch`
-7. `set(global_scope=...)`
+7. `set(target, result, global_scope=...)`
 8. `afterAssignment()`
 
 ### `\multiply` / `\divide`
 
-1. `readTarget()`
-2. `get()`
-3. set `scratch_type = INT`
+1. `target, target_type = readTarget()`
+2. `current_value = get(target)`
+3. `scratch_type = INT`
 4. `readKeyword(["by"])`
-5. `readValue(use_scratch=True)`
+5. `scratch = readValue(scratch_type)`
 6. compute from `current_value` and `scratch`
-7. `set(global_scope=...)`
+7. `set(target, result, global_scope=...)`
 8. `afterAssignment()`
 
 This is one of the main reasons `scratch_type` is needed.
@@ -236,6 +244,7 @@ This design shifts the important work into parser operations:
 - typed value scanning
 - target reads
 - target writes
+- typed coercion
 - assignment completion
 
 That makes command implementations read more like short execution programs over
@@ -248,15 +257,14 @@ classes.
 
 A practical incremental migration is:
 
-1. add `target`, `target_type`, `scratch_type`, and `setTarget(...)` to
-   `Parser`
-2. add `Accessor.getTarget(parser)` and type metadata consistently
-3. make `Parser.readTarget()` populate the target registers
-4. make `Parser.readValue()` dispatch from `target_type` / `scratch_type`
+1. add `Accessor.getTarget(parser)` and type metadata consistently
+2. make `Parser.readTarget()` return `(target, target_type)`
+3. make `Parser.readValue(value_type)` dispatch from an explicit type
+4. add `Parser.cast(value, value_type)`
 5. move ordinary `Accessor.assign()` onto `readTarget()`, `readValue()`, and
    `set()`
-6. rework arithmetic commands to use `get()`, `readValue(use_scratch=True)`,
-   and `set()`
+6. rework arithmetic commands to bind a target once, use locals for
+   `current_value` / `scratch`, and then `set()`
 
 This keeps the change incremental while still moving toward the cleaner
 execution model.

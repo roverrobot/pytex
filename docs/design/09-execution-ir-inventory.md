@@ -12,7 +12,7 @@ Some of these are already fairly crisp. Others are still provisional.
 ## Execution Holder Convention
 
 The public execution IR becomes much smaller if most value-producing and
-value-consuming operations communicate through two runtime holders:
+value-consuming operations communicate through two conceptual holders:
 
 - `current_value`
 - `scratch`
@@ -38,14 +38,20 @@ This gives a very compact discipline:
 - binary operations use `scratch` plus `current_value`
 
 Under this convention, many public operations no longer need an explicit value
-operand. For example:
+operand in the conceptual IR.
 
-- `set(domain, key, scope)`
+However, the runtime implementation does not need to store these holders on the
+parser itself. TeX execution is reentrant, and nested reads would force a
+stack-backed save/restore mechanism around parser-owned holders.
 
-means "set `(domain, key)` from `current_value` with the given scope."
+So the better runtime model is:
 
-This appears to be enough for TeX execution, since most commands need at most
-two live dynamic inputs at once.
+- keep `current_value` / `scratch` as conceptual IR names
+- implement them as command-local variables
+- let parser methods return values instead of mutating parser-owned holders
+
+This preserves the compact IR model while letting ordinary language locals
+provide stack discipline essentially for free.
 
 ## Implementation Model
 

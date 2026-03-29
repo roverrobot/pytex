@@ -187,13 +187,12 @@ def readUnsignedNumberRatio(parser):
     coefficient is represented as n / 2^16.
     """
     # an unsigned number
+    value = parser.readInternalValue(VALUE_TYPE.INT)
+    if value is not None:
+        return int(value), 1
     t = parser.token_expand()
     if t is None:
         raise ValueError("expecting a number", parser.input.position())
-    definition = t.definition
-    value = parser.readInternalValue(definition, VALUE_TYPE.INT)
-    if value is not None:
-        return int(value), 1
     if t.catcode != CATCODE.OTHER or t.name != ".":
         parser.input.unread(t)
         int_part = int(readDigits(parser, 10), 10)
@@ -252,13 +251,13 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     dimension and the infinity level
     """
     def dimenValue(t):
-        definition = getattr(t, "definition", None)
-        value = parser.readInternalValue(definition, VALUE_TYPE.DIMEN)
+        parser.input.unread(t)
+        value = parser.readInternalValue(VALUE_TYPE.DIMEN)
         if value is not None:
             return value
+        definition = getattr(t, "definition", None)
         dimen_value = getattr(definition, "dimenValue", None)
         if dimen_value is None:
-            parser.input.unread(t)
             return None
         return dimen_value(parser)
     # an unsigned dimension

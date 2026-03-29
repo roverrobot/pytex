@@ -53,13 +53,12 @@ def readUnsigned(parser):
     # an unsigned integer is an innternal integer (one with an intValue method),
     # or a coersed integer, or a normal integer
     # a coerced integer is either a dimension or a glue, both have an intValue method
+    value = parser.readInternalValue(VALUE_TYPE.INT)
+    if value is not None:
+        return int(value)
     t = parser.token_expand()
     if t is None:
         raise ValueError("expecting an integer", parser.input.position())
-    definition = t.definition
-    value = parser.readInternalValue(definition, VALUE_TYPE.INT)
-    if value is not None:
-        return int(value)
     # a normal integer is either a ` followed by a character, or a ' followed by
     # an octant number, or a " followed by a hex number, or a number
     if t.catcode != CATCODE.OTHER:

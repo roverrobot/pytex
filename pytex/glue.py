@@ -207,16 +207,11 @@ def readGlue(parser, mu: bool=False):
     """
     sign = readSigns(parser)
     # check for internal glue
-    t = parser.token_expand()
-    if t is None:
-        raise Exception("glue expected")
     value = parser.readInternalValue(
-        t.definition,
         VALUE_TYPE.MUGLUE if mu else VALUE_TYPE.GLUE,
     )
     if value is not None:
         return value * sign
-    parser.input.unread(t)
     dimen = readUnsignedDimen(parser, mu, False) * sign
     shrink = None
     if parser.readKeyword({"plus"}):

@@ -121,6 +121,11 @@ def test_spacefactor_accessor(cmr10):
     assert cmr10.count[0] == 900
 
 
+def test_spacefactor_restored_after_inner_hlist(cmr10):
+    cmr10.parse("\\noindent\\spacefactor=1200\\setbox0=\\hbox{A\\spacefactor=900}\\count0=\\spacefactor\\par")
+    assert cmr10.count[0] == 1200
+
+
 def test_hrule_wrongmode(cmr10):
     try:
         cmr10.parse("1\\hrule width 345pt\n")

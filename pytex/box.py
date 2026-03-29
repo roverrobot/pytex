@@ -416,9 +416,7 @@ def readBoxSpec(parser, keywords=["to", "spread"]):
 
 class ListEndCallback:
     def __call__(self, parser):
-        state = parser.lists.pop()
-        if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            parser.globals["prevdepth"] = state.saved_prevdepth
+        parser.lists.pop()
 
 
 class ReadBoxEndCallback(ListEndCallback):
@@ -521,9 +519,7 @@ class SetBoxEndCallback:
         self.box = box
 
     def __call__(self, parser):
-        state = parser.lists.pop()
-        if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            parser.globals["prevdepth"] = state.saved_prevdepth
+        parser.lists.pop()
         self.box = self.box.typeset(parser)
         parser.lastbox = self.box
         self.accessor._set(parser)
@@ -943,9 +939,7 @@ class LeaderBoxCallback:
         self.box = box
 
     def __call__(self, parser):
-        state = parser.lists.pop()
-        if getattr(state, "type", None) == LISTTYPE.VERTICAL:
-            parser.globals["prevdepth"] = state.saved_prevdepth
+        parser.lists.pop()
         parser.lastbox = self.box
         _appendLeader(parser, self.type, self.box)
 

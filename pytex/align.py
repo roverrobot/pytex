@@ -72,9 +72,7 @@ class CellBuildState:
     def close(self, parser):
         self.node.typeset(parser)
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
-        state = parser.lists.pop()
-        if getattr(state, "type", None) == lists.LISTTYPE.VERTICAL:
-            parser.globals["prevdepth"] = state.saved_prevdepth
+        parser.lists.pop()
         return self.node
 
 
@@ -610,8 +608,8 @@ class AlignmentEndCallback:
         if top.type == lists.LISTTYPE.MATH:
             initial_prevdepth = parser.globals["prevdepth"]
             alignment._typeset_cache = vmode.VList(parser, [], inner=True)
-            parser.globals["prevdepth"] = initial_prevdepth
             HAlignment.typeset(alignment, parser, alignment._typeset_cache)
+            parser.globals["prevdepth"] = initial_prevdepth
             indent = parser.volatile["displayindent"]
             for n in alignment._typeset_cache:
                 if n.node_type == nd.NODE_TYPE.HLIST:

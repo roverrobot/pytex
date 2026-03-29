@@ -192,9 +192,17 @@ class HList(lists.List):
     """
     def __init__(self, parser, list, inner=True):
         super().__init__(parser, list, inner)
-        self.spacefactor = 1000
         self.sfcode = parser.sfcode
         self.type = lists.LISTTYPE.HORIZONTAL
+
+    def open(self):
+        super().open()
+        self.saved_spacefactor = self.parser.globals["spacefactor"]
+        self.parser.globals["spacefactor"] = 1000
+
+    def close(self):
+        self.parser.globals["spacefactor"] = self.saved_spacefactor
+        super().close()
 
     @property
     def list_type_name(self):
@@ -204,14 +212,15 @@ class HList(lists.List):
         if getattr(node, "pretypeset_in_hlist", False):
             node.pretypeset(self.parser)
         if node.node_type != nd.NODE_TYPE.CHAR:
-            self.spacefactor = 1000
+            self.parser.globals["spacefactor"] = 1000
             self.list.append(node)
             return
         sf = self.sfcode[ord(node.char)]
         if sf != 0:
-            if self.spacefactor < 1000 < sf:
+            spacefactor = self.parser.globals["spacefactor"]
+            if spacefactor < 1000 < sf:
                 sf = 1000
-            self.spacefactor = sf
+            self.parser.globals["spacefactor"] = sf
         self.list.append(node)
 
 
@@ -551,13 +560,13 @@ class SpaceFactor(Accessor):
         top = parser.lists[-1]
         if top.type != lists.LISTTYPE.HORIZONTAL:
             raise ValueError("\\spacefactor can only be used in horizontal mode")
-        top.spacefactor = value
+        self.domain[self.key] = value
 
     def intValue(self, parser):
         top = parser.lists[-1]
         if top.type != lists.LISTTYPE.HORIZONTAL:
             raise ValueError("\\spacefactor can only be used in horizontal mode")
-        return getattr(top, "spacefactor", 1000)
+        return self.domain[self.key]
     
     def readValue(self, parser):
         return parser.readInteger()
@@ -579,9 +588,9 @@ mod = Module("hmode",
         "discretionary": Discretionary(),
         "vadjust": VAdjust(),
         "accent": Accent(),
-        "spacefactor": SpaceFactor(),
     },
     parameters={
         "parshape": {"value": list, "accessor": None, "domain": "volatile"},
+        "spacefactor": {"value": 1000, "accessor": SpaceFactor, "domain": "globals"},
     },
 )

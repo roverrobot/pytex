@@ -417,8 +417,7 @@ class OutputRoutineEndCallback:
 
     def __call__(self, parser):
         if parser.lists and parser.lists[-1] is self.vlist:
-            state = parser.lists.pop()
-            parser.globals["prevdepth"] = state.saved_prevdepth
+            parser.lists.pop()
 
 
 class EndOutputRoutineToken(Token):

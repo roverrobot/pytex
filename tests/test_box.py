@@ -36,17 +36,16 @@ def _source_nodes(vlist, cls):
 
 
 def _expanded_vbox(parser, nodes):
-    saved_prevdepth = parser.globals["prevdepth"]
+    vlist = vmode.VList(parser, [])
+    vlist.open()
     try:
-        parser.globals["prevdepth"] = vmode.init_prevdepth
-        vlist = vmode.VList(parser, [])
         for node in nodes:
             vlist.append(node)
         box = bx.VBox(parser, None, 0)
         box.list[:] = list(vlist.list)
         return box
     finally:
-        parser.globals["prevdepth"] = saved_prevdepth
+        vlist.close()
 
 
 @pytest.fixture()
@@ -334,19 +333,23 @@ def test_vbox_preserves_prevdepth_across_explicit_glue(parser):
     parser.layout["lineskiplimit"] = Dimen()
     vbox = bx.VBox(parser, None, 0)
     builder = vmode.VList(parser, vbox.list, inner=True)
-    first = _synthetic_hbox(parser, height=6, depth=2, width=10)
-    second = _synthetic_hbox(parser, height=6, depth=2, width=10)
-    builder.append(first)
-    builder.append(nd.Glue(glue.Glue(15), None))
-    builder.append(second)
-    assert len(builder.list) == 4
-    assert builder.list[0] is first
-    assert builder.list[1].node_type == NODE_TYPE.GLUE
-    assert builder.list[1].glue.dimen == 15
-    assert builder.list[2].node_type == NODE_TYPE.GLUE
-    assert builder.list[2].name == "\\baselineskip"
-    assert builder.list[2].glue.dimen == 4
-    assert builder.list[3] is second
+    builder.open()
+    try:
+        first = _synthetic_hbox(parser, height=6, depth=2, width=10)
+        second = _synthetic_hbox(parser, height=6, depth=2, width=10)
+        builder.append(first)
+        builder.append(nd.Glue(glue.Glue(15), None))
+        builder.append(second)
+        assert len(builder.list) == 4
+        assert builder.list[0] is first
+        assert builder.list[1].node_type == NODE_TYPE.GLUE
+        assert builder.list[1].glue.dimen == 15
+        assert builder.list[2].node_type == NODE_TYPE.GLUE
+        assert builder.list[2].name == "\\baselineskip"
+        assert builder.list[2].glue.dimen == 4
+        assert builder.list[3] is second
+    finally:
+        builder.close()
 
 
 def test_vbox_pack_reuses_live_vertical_builder(parser):
@@ -356,11 +359,15 @@ def test_vbox_pack_reuses_live_vertical_builder(parser):
     parser.layout["interlinepenalty"] = 100
     vbox = bx.VBox(parser, None, 0)
     builder = vmode.VList(parser, vbox.list, inner=True)
-    first = _synthetic_hbox(parser, height=0, depth=0, width=0)
-    builder.append(first)
-    builder.append(nd.Glue(glue.Glue(20), None))
-    title = _synthetic_hbox(parser, height=12, depth=0, width=10)
-    builder.append(title)
+    builder.open()
+    try:
+        first = _synthetic_hbox(parser, height=0, depth=0, width=0)
+        builder.append(first)
+        builder.append(nd.Glue(glue.Glue(20), None))
+        title = _synthetic_hbox(parser, height=12, depth=0, width=10)
+        builder.append(title)
+    finally:
+        builder.close()
     parser.layout["baselineskip"] = glue.Glue(12)
     typed = vbox.typeset(parser)
     assert len(typed.list) == 4

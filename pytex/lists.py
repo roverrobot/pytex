@@ -34,6 +34,7 @@ class List:
         self.parser = parser
         self.list = nodes
         self.inner = inner
+        self._opened = False
 
     list_type_name = None
 
@@ -67,6 +68,55 @@ class List:
 
     def clear(self):
         self.list.clear()
+
+    def open(self):
+        """
+        Hook called when the list is pushed onto parser.lists.
+        """
+        if self._opened:
+            raise RuntimeError(f"{self.__class__.__name__} is already open")
+        self._opened = True
+
+    def close(self):
+        """
+        Hook called when the list is popped from parser.lists.
+        """
+        if not self._opened:
+            raise RuntimeError(f"{self.__class__.__name__} is not open")
+        self._opened = False
+
+
+class ListStack(list):
+    """
+    Stack wrapper for parser list states.
+
+    Pushing a list state calls its `open()` hook; popping calls its `close()`
+    hook. This keeps build-time state caching and restoration local to the list
+    wrappers themselves.
+    """
+    def __init__(self, items=()):
+        super().__init__()
+        self.extend(items)
+
+    def append(self, item):
+        super().append(item)
+        item.open()
+        return item
+
+    push = append
+
+    def extend(self, items):
+        for item in items:
+            self.append(item)
+
+    def pop(self, *args):
+        item = super().pop(*args)
+        item.close()
+        return item
+
+    def clear(self):
+        while self:
+            self.pop()
 
 
 class ModeDependentCommand(Command):
@@ -148,9 +198,7 @@ class ListReadEndCallback:
 
     def __call__(self, parser):
         if self.state is not None:
-            state = parser.lists.pop()
-            if state.type == LISTTYPE.VERTICAL:
-                parser.globals["prevdepth"] = state.saved_prevdepth
+            parser.lists.pop()
         if self.ended is not None:
             self.ended(parser)
 

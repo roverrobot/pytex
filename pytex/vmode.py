@@ -63,16 +63,21 @@ class VList(lists.List):
     build-time state.
     """
     def __init__(self, parser, nodes, inner=True, add_interline=True):
-        self.parser = parser
+        super().__init__(parser, nodes, inner)
         self.raw = []
-        self.list = nodes
-        self.inner = inner
-        self.saved_prevdepth = parser.globals.get("prevdepth", init_prevdepth)
-        self.parser.globals["prevdepth"] = init_prevdepth
         self.add_interline = add_interline
 
     list_type_name = "VList"
     type = lists.LISTTYPE.VERTICAL
+
+    def open(self):
+        super().open()
+        self.saved_prevdepth = self.parser.globals.get("prevdepth", init_prevdepth)
+        self.parser.globals["prevdepth"] = init_prevdepth
+
+    def close(self):
+        self.parser.globals["prevdepth"] = self.saved_prevdepth
+        super().close()
 
     def extend(self, nodes, add_interline=True):
         for node in nodes:

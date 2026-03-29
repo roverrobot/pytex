@@ -114,7 +114,11 @@ def test_left_boundary_ligature_is_applied(parser):
     a = font.add("a", {})
     font.add("b", {})
     hlist = hmode.HList(parser, [], inner=True)
-    hlist.append(a)
+    hlist.open()
+    try:
+        hlist.append(a)
+    finally:
+        hlist.close()
     packed = []
     hmode.typesetHorizontalNodes(parser, hlist.list, packed)
     assert len(packed) == 1
@@ -130,7 +134,11 @@ def test_right_boundary_kern_is_applied(parser):
     font = _FakeFont(right_boundary=bchar)
     a = font.add("a", {ord("#"): tfm.KernOp(ord("#"), 2)})
     hlist = hmode.HList(parser, [], inner=True)
-    hlist.append(a)
+    hlist.open()
+    try:
+        hlist.append(a)
+    finally:
+        hlist.close()
     packed = []
     hmode.typesetHorizontalNodes(parser, hlist.list, packed)
     assert len(packed) == 2

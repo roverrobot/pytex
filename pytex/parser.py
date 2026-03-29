@@ -339,7 +339,7 @@ class Parser:
         """
         # we first set up today etc.
         if self.lists is None:
-            self.lists = [page.MainVList(self)]
+            self.lists = lists.ListStack([page.MainVList(self)])
         date = datetime.datetime.now()
         self.volatile["year"] = date.year
         self.volatile["month"] = date.month
@@ -475,7 +475,7 @@ class Parser:
             return
         # In horizontal mode, a space token appends glue to the current list,
         # see the TeX Book pp.76 for more details.
-        f = getattr(top, "spacefactor", 1000)
+        f = self.globals["spacefactor"]
         # If the space factor f is diﬀerent from 1000, the interword glue is 
         # computed as follows: Take the normal space glue for the current font, 
         # and add the extra space if f ≥ 2000. (Each font specifies a normal space, 
@@ -597,7 +597,6 @@ class Parser:
                 self.input.push(lexer.TokenListScanner(everypar))
                 if self.tracingcommands > 0 and self.checkRange():
                     self.message(f"everypar: {self.toksToString(everypar)}")
-            # the spacefactor is set to 1000 at the beginning of a paragraph
             self.globals["prevgraf"] = 0
         return para
 

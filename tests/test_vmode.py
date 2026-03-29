@@ -1,5 +1,6 @@
 import pytest
 import types
+from contextlib import contextmanager
 from pytex import node as nd
 from pytex import glue
 from pytex import lists
@@ -20,6 +21,16 @@ def _vertical_nodes(vlist):
     contrib = list(getattr(vlist, "contrib", []))
     pending = list(getattr(vlist, "list", vlist))
     return contrib + pending
+
+
+@contextmanager
+def _opened_vlist(parser, nodes=None, **kwargs):
+    vlist = vmode.VList(parser, [] if nodes is None else nodes, **kwargs)
+    vlist.open()
+    try:
+        yield vlist
+    finally:
+        vlist.close()
 
 
 @pytest.mark.parametrize(
@@ -280,15 +291,10 @@ def _concrete_vlist(parser, nodes):
         return _vertical_nodes(nodes)
     if isinstance(nodes, vmode.VList):
         return list(nodes.list)
-    saved_prevdepth = parser.globals["prevdepth"]
-    try:
-        parser.globals["prevdepth"] = vmode.init_prevdepth
-        vlist = vmode.VList(parser, [])
+    with _opened_vlist(parser) as vlist:
         for node in nodes:
             vlist.append(node)
         return list(vlist.list)
-    finally:
-        parser.globals["prevdepth"] = saved_prevdepth
 
 
 class _ProbeWhatsit(nd.WhatsIt):
@@ -306,11 +312,11 @@ class _ProbeWhatsit(nd.WhatsIt):
 
 def test_prevdepth_penalty_does_not_reset(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
-    vlist = vmode.VList(parser, [])
-    vlist.append(_test_hbox(parser))
-    vlist.append(nd.Penalty(0))
-    vlist.append(_test_hbox(parser))
-    packed = _concrete_vlist(parser, vlist)
+    with _opened_vlist(parser) as vlist:
+        vlist.append(_test_hbox(parser))
+        vlist.append(nd.Penalty(0))
+        vlist.append(_test_hbox(parser))
+        packed = _concrete_vlist(parser, vlist)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 1
     assert glues[0].glue.dimen == 4
@@ -318,36 +324,36 @@ def test_prevdepth_penalty_does_not_reset(parser):
 
 def test_vlist_append_inserts_interline_glue_after_discardables(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
-    vlist = vmode.VList(parser, [])
-    first = _test_hbox(parser)
-    second = _test_hbox(parser)
-    vlist.append(first)
-    vlist.append(nd.Glue(glue.Glue(2), None))
-    vlist.append(second)
-    assert vlist.list[0] is first
-    assert vlist.list[1].node_type == nd.NODE_TYPE.GLUE
-    assert vlist.list[1].glue.dimen == 2
-    assert vlist.list[2].node_type == nd.NODE_TYPE.GLUE
-    assert vlist.list[2].name == "\\baselineskip"
-    assert vlist.list[3] is second
+    with _opened_vlist(parser) as vlist:
+        first = _test_hbox(parser)
+        second = _test_hbox(parser)
+        vlist.append(first)
+        vlist.append(nd.Glue(glue.Glue(2), None))
+        vlist.append(second)
+        assert vlist.list[0] is first
+        assert vlist.list[1].node_type == nd.NODE_TYPE.GLUE
+        assert vlist.list[1].glue.dimen == 2
+        assert vlist.list[2].node_type == nd.NODE_TYPE.GLUE
+        assert vlist.list[2].name == "\\baselineskip"
+        assert vlist.list[3] is second
 
 
 def test_prevdepth_kept_across_glue_kern_penalty(parser):
-    vlist = vmode.VList(parser, [])
-    vlist.append(_test_hbox(parser, depth=3))
-    vlist.append(nd.Glue(glue.Glue(1), None))
-    vlist.append(nd.Kern(1))
-    vlist.append(nd.Penalty(0))
-    assert parser.globals["prevdepth"] == 3
+    with _opened_vlist(parser) as vlist:
+        vlist.append(_test_hbox(parser, depth=3))
+        vlist.append(nd.Glue(glue.Glue(1), None))
+        vlist.append(nd.Kern(1))
+        vlist.append(nd.Penalty(0))
+        assert parser.globals["prevdepth"] == 3
 
 
 def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
-    vlist = vmode.VList(parser, [])
-    vlist.append(_test_hbox(parser))
-    vlist.append(nd.Rule(0, 4, 0))
-    vlist.append(_test_hbox(parser))
-    packed = _concrete_vlist(parser, vlist)
+    with _opened_vlist(parser) as vlist:
+        vlist.append(_test_hbox(parser))
+        vlist.append(nd.Rule(0, 4, 0))
+        vlist.append(_test_hbox(parser))
+        packed = _concrete_vlist(parser, vlist)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
     assert len(glues) == 0
@@ -355,21 +361,21 @@ def test_rule_resets_prevdepth_and_suppresses_interline_glue(parser):
 
 
 def test_rule_resets_resolved_prevdepth(parser):
-    vlist = vmode.VList(parser, [])
-    vlist.append(_test_hbox(parser, depth=3))
-    vlist.append(nd.Rule(0, 4, 0))
-    assert parser.globals["prevdepth"] == vmode.init_prevdepth
+    with _opened_vlist(parser) as vlist:
+        vlist.append(_test_hbox(parser, depth=3))
+        vlist.append(nd.Rule(0, 4, 0))
+        assert parser.globals["prevdepth"] == vmode.init_prevdepth
 
 
 def test_box_interline_penalty_override(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt\\interlinepenalty=0")
-    vlist = vmode.VList(parser, [])
-    first = _test_hbox(parser)
-    second = _test_hbox(parser)
-    second.interline_penalty = 123
-    vlist.append(first)
-    vlist.append(second)
-    packed = _concrete_vlist(parser, vlist)
+    with _opened_vlist(parser) as vlist:
+        first = _test_hbox(parser)
+        second = _test_hbox(parser)
+        second.interline_penalty = 123
+        vlist.append(first)
+        vlist.append(second)
+        packed = _concrete_vlist(parser, vlist)
     penalties = [n for n in packed if n.node_type == nd.NODE_TYPE.PENALTY]
     assert len(penalties) == 1
     assert penalties[0].penalty == 123
@@ -377,24 +383,24 @@ def test_box_interline_penalty_override(parser):
 
 def test_extend_built_vertical_stream_does_not_duplicate_interline_penalty(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt\\interlinepenalty=0")
-    built = vmode.VList(parser, [])
-    first = _test_hbox(parser)
-    second = _test_hbox(parser)
-    second.interline_penalty = 123
-    built.append(first)
-    built.append(second)
-    assert [n.node_type for n in built.list] == [
-        nd.NODE_TYPE.HLIST,
-        nd.NODE_TYPE.PENALTY,
-        nd.NODE_TYPE.GLUE,
-        nd.NODE_TYPE.HLIST,
-    ]
-    copy = vmode.VList(parser, [])
-    copy.extend(built.list, add_interline=False)
-    assert copy.list == built.list
-    penalties = [n for n in copy.list if n.node_type == nd.NODE_TYPE.PENALTY]
-    assert len(penalties) == 1
-    assert penalties[0].penalty == 123
+    with _opened_vlist(parser) as built:
+        first = _test_hbox(parser)
+        second = _test_hbox(parser)
+        second.interline_penalty = 123
+        built.append(first)
+        built.append(second)
+        assert [n.node_type for n in built.list] == [
+            nd.NODE_TYPE.HLIST,
+            nd.NODE_TYPE.PENALTY,
+            nd.NODE_TYPE.GLUE,
+            nd.NODE_TYPE.HLIST,
+        ]
+        with _opened_vlist(parser) as copy:
+            copy.extend(built.list, add_interline=False)
+            assert copy.list == built.list
+            penalties = [n for n in copy.list if n.node_type == nd.NODE_TYPE.PENALTY]
+            assert len(penalties) == 1
+            assert penalties[0].penalty == 123
 
 
 def test_prevdepth_accessor_is_vlist_local(parser):
@@ -409,13 +415,13 @@ def test_prevdepth_assignment_is_not_grouped(parser):
 
 def test_prevdepth_assignment_affects_next_box_context(parser):
     parser.parse("\\baselineskip=12pt\\lineskiplimit=0pt\\lineskip=1pt")
-    vlist = vmode.VList(parser, [])
-    first = _test_hbox(parser)
-    second = _test_hbox(parser)
-    vlist.append(first)
-    parser.globals["prevdepth"] = Dimen(10)
-    vlist.append(second)
-    packed = _concrete_vlist(parser, vlist)
+    with _opened_vlist(parser) as vlist:
+        first = _test_hbox(parser)
+        second = _test_hbox(parser)
+        vlist.append(first)
+        parser.globals["prevdepth"] = Dimen(10)
+        vlist.append(second)
+        packed = _concrete_vlist(parser, vlist)
     glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
     assert len(glues) == 1
     assert glues[0].name == "\\lineskip"

@@ -33,9 +33,12 @@ def _source_nodes(vlist, cls):
 
 def _typeset_halign(parser, node):
     packed = vmode.VList(parser, [], inner=True)
-    node.typeset(parser, packed)
-    parser.globals["prevdepth"] = packed.saved_prevdepth
-    return list(packed.list)
+    packed.open()
+    try:
+        node.typeset(parser, packed)
+        return list(packed.list)
+    finally:
+        packed.close()
 
 
 def test_halign(cmr10):

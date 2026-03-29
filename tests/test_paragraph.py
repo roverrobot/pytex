@@ -309,7 +309,9 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
 
 
 def _reset_outer_vlist(parser):
-    parser.lists = [page.MainVList(parser)]
+    if parser.lists is not None:
+        parser.lists.clear()
+    parser.lists = lists.ListStack([page.MainVList(parser)])
 
 
 def test_linebreak_plain_paragraph_cases(parser):
@@ -370,15 +372,14 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     out = []
     para.typeset(cmr10, out)
-    saved_prevdepth = cmr10.globals["prevdepth"]
+    vlist = vmode.VList(cmr10, [])
+    vlist.open()
     try:
-        cmr10.globals["prevdepth"] = vmode.init_prevdepth
-        vlist = vmode.VList(cmr10, [])
         for node in out:
             vlist.append(node)
         packed = list(vlist.list)
     finally:
-        cmr10.globals["prevdepth"] = saved_prevdepth
+        vlist.close()
     lines = _lineBoxes(packed)
     assert len(lines) > 1
     interline = [node for node in packed if node.node_type == nd.NODE_TYPE.GLUE]

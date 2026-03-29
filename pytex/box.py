@@ -7,7 +7,7 @@ from pytex import hmode
 from pytex import vmode
 from pytex.glue import Glue
 from pytex.module import Module
-from pytex.accessor import Accessor, ArrayAccessor
+from pytex.accessor import Accessor, ArrayAccessor, VALUE_TYPE
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen, DimenCommand
@@ -530,6 +530,8 @@ class SetBoxEndCallback:
 
 
 class BoxArrayItemAccessor(Accessor):
+    target_type = VALUE_TYPE.BOX
+
     def readKey(self, parser):
         return parser.readInteger()
 
@@ -708,6 +710,8 @@ class VTopCommand(VBoxCommand):
 
 
 class BoxDimenAccessor(Accessor, DimenCommand):
+    target_type = VALUE_TYPE.DIMEN
+
     def readValue(self, parser):
         return parser.readDimen()
 

@@ -1,5 +1,7 @@
 import pytest
 from pytex import state as st
+from pytex import accessor
+from pytex import integer
 from tests import checkValues
 from pytex import macro
 
@@ -216,6 +218,34 @@ def test_parser_get_set_globals(parser):
     assert parser.globals["demo"] == "x"
     assert parser.get("globals", "demo") == "x"
     assert parser.current_value == "x"
+
+
+def test_parser_set_target_and_use_implicit_get_set(parser):
+    parser.count[0] = 12
+    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
+    assert parser.get() == 12
+    assert parser.current_value == 12
+    parser.current_value = 34
+    parser.set()
+    assert parser.count[0] == 34
+
+
+def test_parser_get_and_set_scratch_with_target(parser):
+    parser.count[1] = 7
+    parser.setTarget((parser.count, 1), accessor.VALUE_TYPE.INT)
+    assert parser.get(use_scratch=True) == 7
+    assert parser.scratch == 7
+    assert parser.scratch_type == accessor.VALUE_TYPE.INT
+    parser.scratch = 9
+    parser.set(use_scratch=True)
+    assert parser.count[1] == 9
+
+
+def test_parser_read_target_from_accessor(parser):
+    acc = integer.IntegerArrayItemAccessor(parser.count, 2, builtin=False)
+    assert parser.readTarget(acc) == (parser.count, 2)
+    assert parser.target == (parser.count, 2)
+    assert parser.target_type == accessor.VALUE_TYPE.INT
 
 
 def test_insert_runtime_lists(parser):

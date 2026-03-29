@@ -250,6 +250,8 @@ class ToksArrayItemAccessor(accessor.Accessor):
     """
     aaccessor for a toks parameter
     """
+    target_type = accessor.VALUE_TYPE.TOKS
+
     def readKey(self, parser):
         return parser.readInteger()
 

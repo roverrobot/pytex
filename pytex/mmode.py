@@ -13,7 +13,7 @@ from pytex import node as nd
 from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import Accessor
+from pytex.accessor import Accessor, VALUE_TYPE
 from pytex.define import Define, EquitableAccessor
 from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
@@ -2674,6 +2674,8 @@ class Line(Atom):
 
 
 class VolatileParameterAccessor(Accessor, DimenCommand):
+    target_type = VALUE_TYPE.DIMEN
+
     def __init__(self, index):
         super().__init__(None, index)
         self.index = index

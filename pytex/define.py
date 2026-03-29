@@ -13,6 +13,8 @@ class EquitableAccessor(accessor.Accessor):
     """
     An accessor whose target key is a control sequence in the equitable domain.
     """
+    target_type = accessor.VALUE_TYPE.MEANING
+
     def readKey(self, parser):
         t = parser.token()
         if t is None or t.entry is None:

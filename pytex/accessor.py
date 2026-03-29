@@ -19,6 +19,7 @@ in a subclass to provide the accessor to the item.
 """
 
 import copy
+import enum
 from pytex import token
 from pytex.module import Module
 from pytex.serialization import Serializable, Builtin
@@ -36,6 +37,18 @@ def skipEq(parser, expand: bool=True):
     if t.catcode != token.CATCODE.OTHER or t.name != "=":
         parser.input.unread(t)
 
+
+class VALUE_TYPE(enum.IntEnum):
+    UNKNOWN = 0
+    INT = 1
+    DIMEN = 2
+    GLUE = 3
+    MUGLUE = 4
+    BOX = 5
+    TOKS = 6
+    FONT = 7
+    MEANING = 8
+
 class Accessor(token.Command):
     """
     access a value in a domain
@@ -44,6 +57,7 @@ class Accessor(token.Command):
     @param builtin: whether the accessor is a builtin command for serialization
     """
     _MISSING_KEY = object()
+    target_type = VALUE_TYPE.UNKNOWN
 
     def __init__(self, domain=None, key=None, builtin=True):
         self.domain = domain
@@ -104,12 +118,18 @@ class Accessor(token.Command):
             return self.readKey(parser)
         return None
 
-    def readTarget(self, parser):
+    def getTarget(self, parser):
         """
-        read and bind the target location for this accessor occurrence
+        return the target location for this accessor occurrence
         @return: a (domain, key) pair
         """
         return self.domain, self.currentKey(parser)
+
+    def readTarget(self, parser):
+        """
+        compatibility alias for older target-reading call sites
+        """
+        return self.getTarget(parser)
 
     def readValue(self, parser):
         """
@@ -124,10 +144,12 @@ class Accessor(token.Command):
         @param parser: the parser
         @param value: the value
         """
-        domain, key = self.readTarget(parser)
+        target = self.getTarget(parser)
         try:
-            parser.set(domain, key, value=value)
+            parser.setTarget(target, self.target_type)
+            parser.set(value=value)
         except IndexError:
+            domain, key = target
             name = getattr(domain, "name", domain)
             raise ValueError(f"index {key} out of range for domain {name}", parser.input.position())
     
@@ -137,8 +159,8 @@ class Accessor(token.Command):
         @param parser: the parser
         @param value: the value
         """
-        domain, key = self.readTarget(parser)
-        parser.set(domain, key, global_scope=True, value=value)
+        parser.setTarget(self.getTarget(parser), self.target_type)
+        parser.set(global_scope=True, value=value)
 
     def assign(self, parser, prefixes):
         """
@@ -148,6 +170,8 @@ class Accessor(token.Command):
         """
         if self.key is None and self.needsKey():
             return self.bindKey(self.readKey(parser)).assign(parser, prefixes)
+        if self.domain is not None:
+            parser.readTarget(self)
         self.readEq(parser)
         value = self.readValue(parser)
         globally = False

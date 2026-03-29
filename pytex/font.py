@@ -8,7 +8,7 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import Accessor, ArrayAccessor
+from pytex.accessor import Accessor, ArrayAccessor, VALUE_TYPE
 from pytex.integer import IntegerArrayItemAccessor
 from pytex.dimen import Dimen, DimenCommand, DimenArrayItemAccessor
 from pytex.glue import Glue, Stretchness
@@ -162,6 +162,8 @@ class FontArrayItemAccessor(Accessor):
     """
     A font accessor
     """
+    target_type = VALUE_TYPE.FONT
+
     def readKey(self, parser):
         return parser.readInteger()
 
@@ -265,6 +267,8 @@ class FontAccessor(Accessor):
     """
     An accessor for the current font
     """
+    target_type = VALUE_TYPE.FONT
+
     def fontValue(self, parser):
         """
         get the current font value

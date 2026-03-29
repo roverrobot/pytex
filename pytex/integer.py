@@ -7,7 +7,7 @@ from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.serialization import Builtin
 from pytex.state import Array
-from pytex.accessor import Accessor
+from pytex.accessor import Accessor, VALUE_TYPE
 from pytex.define import registerdef
 
 
@@ -148,6 +148,8 @@ class IntegerArrayItemAccessor(Accessor):
     """
     integer accessor common functions
     """
+    target_type = VALUE_TYPE.INT
+
     def readKey(self, parser):
         return parser.readInteger()
 

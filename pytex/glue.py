@@ -7,7 +7,7 @@ from pytex import serialization
 from pytex.dimen import readUnsignedDimen, Dimen, DimenCommand
 from pytex.integer import readSigns
 from pytex.state import Array
-from pytex.accessor import Accessor
+from pytex.accessor import Accessor, VALUE_TYPE
 from pytex.module import Module
 from pytex.define import registerdef
 
@@ -249,6 +249,8 @@ class GlueArrayItemAccessor(Accessor, GlueCommand):
     """
     access the value of a glue parameter
     """
+    target_type = VALUE_TYPE.GLUE
+
     def readKey(self, parser):
         return parser.readInteger()
 
@@ -290,6 +292,8 @@ class MuGlueArrayItemAccessor(Accessor, MuGlueCommand):
     """
     access the value of a glue parameter
     """
+    target_type = VALUE_TYPE.MUGLUE
+
     def readKey(self, parser):
         return parser.readInteger()
 

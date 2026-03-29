@@ -41,6 +41,7 @@ class Parser:
     The parser is the main class that processes the input and executes the commands.
     """
     _STATE_VALUE_MISSING = object()
+    _TARGET_MISSING = object()
 
     def __init__(self, project_dir: typing.Optional[str] = None):
         self.initState()
@@ -77,6 +78,10 @@ class Parser:
         self.ended = False
         self.formatfile = None
         self.current_value = None
+        self.target = None
+        self.target_type = accessor.VALUE_TYPE.UNKNOWN
+        self.scratch = None
+        self.scratch_type = accessor.VALUE_TYPE.UNKNOWN
 
     def initState(self):
         self.groups = []
@@ -125,17 +130,67 @@ class Parser:
             for group in self.groups:
                 group.remove(domain, index)
 
-    def get(self, domain, key):
+    def setTarget(self, target, target_type=accessor.VALUE_TYPE.UNKNOWN):
         """
-        get a value from a parser-state domain and store it in current_value
-        @param domain: the parser attribute name of the domain or the domain object
-        @param key: the item key within the domain
-        @return: the retrieved value
+        set the current execution target
+        @param target: the target location as a (domain, key) pair
+        @param target_type: the type expected at the target
         """
+        self.target = target
+        self.target_type = target_type
+        return target
+
+    def readTarget(self, meaning=None):
+        """
+        read an assignment target and store it in the parser target registers
+        @param meaning: optional accessor-like object; if omitted it is read from input
+        @return: the resolved target
+        """
+        if meaning is None:
+            t = self.token_expand()
+            if t is None or t.definition is None:
+                raise ValueError("expecting a register or a parameter", self.input.position())
+            meaning = t.definition
+        if hasattr(meaning, "getItemAccessor"):
+            meaning = meaning.getItemAccessor(self)
+        elif not isinstance(meaning, accessor.Accessor):
+            raise ValueError("expecting a register or a parameter", self.input.position())
+        target = meaning.getTarget(self)
+        return self.setTarget(target, getattr(meaning, "target_type", accessor.VALUE_TYPE.UNKNOWN))
+
+    def _resolveTarget(self, domain, key):
+        if domain is self._TARGET_MISSING:
+            if self.target is None:
+                raise ValueError("no current target", self.input.position())
+            domain, key = self.target
+            from_target = True
+        else:
+            if key is self._TARGET_MISSING:
+                if isinstance(domain, tuple) and len(domain) == 2:
+                    domain, key = domain
+                else:
+                    raise TypeError("expected a (domain, key) target pair")
+            from_target = False
         if isinstance(domain, str):
             domain = getattr(self, domain)
+        return domain, key, from_target
+
+    def get(self, domain=_TARGET_MISSING, key=_TARGET_MISSING, *, use_scratch: bool = False):
+        """
+        get a value from a parser-state domain and store it in the active holder
+        @param domain: the parser attribute name of the domain, a domain object, or omitted to use parser.target
+        @param key: the item key within the domain
+        @param use_scratch: whether to store in scratch instead of current_value
+        @return: the retrieved value
+        """
+        domain, key, from_target = self._resolveTarget(domain, key)
         value = domain[key]
-        self.current_value = value
+        if use_scratch:
+            self.scratch = value
+            if from_target:
+                self.scratch_type = self.target_type
+        else:
+            self.current_value = value
         return value
 
     def resolveGlobalScope(self, global_scope: bool = False):
@@ -151,21 +206,25 @@ class Parser:
             return False
         return global_scope
 
-    def set(self, domain, key, *, global_scope: bool = False, value=_STATE_VALUE_MISSING):
+    def set(self, domain=_TARGET_MISSING, key=_TARGET_MISSING, *, global_scope: bool = False,
+            value=_STATE_VALUE_MISSING, use_scratch: bool = False):
         """
-        set a parser-state domain entry from current_value or an explicit value
-        @param domain: the parser attribute name of the domain or the domain object
+        set a parser-state domain entry from an active holder or an explicit value
+        @param domain: the parser attribute name of the domain, a domain object, or omitted to use parser.target
         @param key: the item key within the domain
         @param global_scope: whether to write globally instead of locally
-        @param value: optional explicit value; defaults to current_value
+        @param value: optional explicit value; defaults to current_value or scratch
+        @param use_scratch: whether to use scratch instead of current_value when no explicit value is provided
         @return: the written value
         """
-        if isinstance(domain, str):
-            domain = getattr(self, domain)
+        domain, key, _ = self._resolveTarget(domain, key)
         if value is self._STATE_VALUE_MISSING:
-            value = self.current_value
+            value = self.scratch if use_scratch else self.current_value
         else:
-            self.current_value = value
+            if use_scratch:
+                self.scratch = value
+            else:
+                self.current_value = value
         global_scope = self.resolveGlobalScope(global_scope)
         if domain is self.globals:
             domain[key] = value

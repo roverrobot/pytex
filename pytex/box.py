@@ -7,7 +7,7 @@ from pytex import hmode
 from pytex import vmode
 from pytex.glue import Glue
 from pytex.module import Module
-from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget, AttrTarget
+from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget, AttrTarget, ReadOnlyTarget
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen
@@ -397,18 +397,20 @@ class BoxCommand(Command):
         self.wipe = wipe
     
     def execute(self, parser):
-        box = self.boxValue(parser, False)
+        box = self.getTarget(parser).get()
         if box is None:
             return
         parser.lists[-1].append(box)
-    
-    def boxValue(self, parser, setbox):
+
+    def getTarget(self, parser):
         index = parser.readInteger()
         box = parser.box[index]
         if self.wipe:
             parser.box[index] = None
-            return box
-        return box.copy()    
+            return ReadOnlyTarget(box, VALUE_TYPE.BOX)
+        if box is None:
+            return ReadOnlyTarget(None, VALUE_TYPE.BOX)
+        return ReadOnlyTarget(box.copy(), VALUE_TYPE.BOX)
 
 
 def readBoxSpec(parser, keywords=["to", "spread"]):
@@ -468,10 +470,10 @@ class BuildBox(Command):
     
     def execute(self, parser):
         top = parser.lists[-1]
-        box = self.boxValue(parser, False)
+        box = self.readBox(parser, False)
         top.append(box)
 
-    def boxValue(self, parser, setbox):
+    def readBox(self, parser, setbox):
         spec, d = readBoxSpec(parser)
         box = self.box(parser, d, None) if spec == "to" else self.box(parser, None, d)
         to_end = BoxPretypesetCallback(box)
@@ -517,10 +519,18 @@ def readBox(parser, setbox=False):
     @param parser: the parser
     @param setbox: whether the this function is called from setbox
     """
-    box_value = getattr(parser.token_expand().definition, "boxValue", None)
-    if box_value is None:
+    target = parser.readTarget()
+    if target is not None:
+        if target.value_type != VALUE_TYPE.BOX or not getattr(target, "readable", True):
+            raise ValueError("expecting a box", parser.input.position())
+        return target.get()
+    t = parser.token_expand()
+    if t is None:
         raise ValueError("expecting a box", parser.input.position())
-    return box_value(parser, setbox)
+    read_box = getattr(t.definition, "readBox", None)
+    if read_box is None:
+        raise ValueError("expecting a box", parser.input.position())
+    return read_box(parser, setbox)
     
 
 class SetBoxEndCallback:
@@ -986,11 +996,8 @@ class Leaders(Command):
             _appendLeader(parser, self.type, box)
             return
         # box
-        top = parser.lists[-1]
-        box_value = getattr(t.definition, "boxValue", None)
-        if box_value is None:
-            raise ValueError("expecting a rule or a box", parser.input.position())
-        box = box_value(parser, setbox=True)
+        parser.input.unread(t)
+        box = readBox(parser, setbox=True)
         if (box.node_type == nd.NODE_TYPE.HLIST and top.type == LISTTYPE.VERTICAL) or (box.node_type == nd.NODE_TYPE.VLIST and top.type != LISTTYPE.VERTICAL):
             raise ValueError("box in the wrong mode", parser.input.position())
         new = parser.lists[-1]
@@ -1009,7 +1016,7 @@ class LastBox(Command):
     """
     The \\lastbox command.
     """
-    def boxValue(self, parser, setbox):
+    def getTarget(self, parser):
         top = parser.lists[-1]
         # this command can only be unsed in horizontal mode or in ner vertical mode
         if top.type == LISTTYPE.VERTICAL and not top.inner:
@@ -1017,10 +1024,10 @@ class LastBox(Command):
                 raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
         if top.type == LISTTYPE.MATH:
             raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())
-        return top.pop() if top and isinstance(top[-1], Box) else None
+        return ReadOnlyTarget(top.pop() if top and isinstance(top[-1], Box) else None, VALUE_TYPE.BOX)
     
     def execute(self, parser):
-        self.boxValue(parser, False)
+        self.getTarget(parser).get()
 
 
 mod = Module("hbox", 

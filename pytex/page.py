@@ -7,6 +7,7 @@ from fractions import Fraction
 from math import inf
 
 from pytex import box as bx
+from pytex import accessor
 from pytex import lexer
 from pytex import node as nd
 from pytex import vmode
@@ -1130,7 +1131,7 @@ class VSplit(Command):
     The \\vsplit command.
     """
 
-    def boxValue(self, parser, setbox):
+    def getTarget(self, parser):
         index = parser.readInteger()
         spec, dim = parser.readBoxSpec(["to"])
         if spec != "to":
@@ -1150,7 +1151,7 @@ class VSplit(Command):
             if splitfirstmarks is not None:
                 parser.globals["splitfirstmarks"] = splitfirstmarks
                 parser.globals["splitbotmarks"] = splitbotmarks
-            return None
+            return accessor.ReadOnlyTarget(None, accessor.VALUE_TYPE.BOX)
         if source.node_type != nd.NODE_TYPE.VLIST:
             raise ValueError("expecting a vbox", parser.input.position())
         source = source.typeset(parser)
@@ -1169,7 +1170,7 @@ class VSplit(Command):
             if splitfirstmarks is not None:
                 parser.globals["splitfirstmarks"] = splitfirstmarks
                 parser.globals["splitbotmarks"] = splitbotmarks
-            return None
+            return accessor.ReadOnlyTarget(None, accessor.VALUE_TYPE.BOX)
         end, next_start, break_context, _, _ = breaker.bestBreak(start, split_context)
         if end <= start:
             end = min(start + 1, len(nodes))
@@ -1211,10 +1212,13 @@ class VSplit(Command):
             remainder = bx.VBox(parser, None, Dimen())
             remainder.list[:] = breaker.buildSlice(next_start, len(nodes), remainder_context, "\\splittopskip")
             parser.box[index] = remainder.typeset(parser, maxdepth=remainder_context.maxdepth)
-        return result.typeset(parser, maxdepth=break_context.maxdepth)
+        return accessor.ReadOnlyTarget(
+            result.typeset(parser, maxdepth=break_context.maxdepth),
+            accessor.VALUE_TYPE.BOX,
+        )
 
     def execute(self, parser):
-        box = self.boxValue(parser, False)
+        box = self.getTarget(parser).get()
         if box is not None:
             parser.lists[-1].append(box)
 

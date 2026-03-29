@@ -2608,10 +2608,10 @@ class VCenter(box.VBoxCommand):
         top = parser.lists[-1]
         if top.type != lists.LISTTYPE.MATH:
             raise ValueError("\\vcenter can only be used in math mode", parser.input.position())
-        box = super().boxValue(parser, False)
+        box = super().readBox(parser, False)
         top.append(VCent(box))
 
-    def boxValue(self, parser, inner):
+    def readBox(self, parser, inner):
         raise ValueError("\\vcenter does not return a be used in math mode")
     
     group_type = GROUP_TYPE.VCENTER

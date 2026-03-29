@@ -6,7 +6,7 @@ this module implements the tex commands \advance, \multiple and \divide
 \\divide <number variable><optional signs><number>
 """
 
-from pytex.accessor import Accessor
+from pytex.accessor import VALUE_TYPE
 from pytex.token import Command
 from pytex.module import Module
 
@@ -28,18 +28,18 @@ class Arithmatics(Command):
         @param prefixes: the prefixes
         """
         t = parser.token_expand()
-        if t.definition is None:
+        if t is None or t.definition is None:
             raise ValueError("expecting a register or a parameter", parser.input.position())
-        t = t.definition
-        if isinstance(t, Accessor):
-            p = t
-        else:
+        meaning = t.definition
+        if getattr(meaning, "getTarget", None) is None:
             raise ValueError("expecting a register or a parameter", parser.input.position())
-        target = parser.readTarget(p)
+        target = parser.readTarget(meaning)
+        if not getattr(target, "writable", True):
+            raise ValueError("expecting a writable target", parser.input.position())
         x = parser.get(target)
         is_integer = isinstance(x, int)
         parser.readKeyword(["by"])
-        y = self.readByValue(parser, p)
+        y = self.readByValue(parser, target)
         value = self.op(x, y)
         if is_integer:
             value = int(value)
@@ -55,13 +55,21 @@ class Arithmatics(Command):
         target.set(value, global_scope=globally)
         parser.afterAssignment()
 
-    def readByValue(self, parser, item_accessor):
+    def readByValue(self, parser, target):
         """
         read the value of the by keyword
         @param parser: the parser
-        @param item_accessor: the item accessor
+        @param target: the bound target
         """
-        return item_accessor.readValue(parser)
+        if target.value_type == VALUE_TYPE.INT:
+            return parser.readInteger()
+        if target.value_type == VALUE_TYPE.DIMEN:
+            return parser.readDimen()
+        if target.value_type == VALUE_TYPE.GLUE:
+            return parser.readGlue()
+        if target.value_type == VALUE_TYPE.MUGLUE:
+            return parser.readGlue(mu=True)
+        raise ValueError("expecting a numeric target", parser.input.position())
     
     def execute(self, parser):
         return self.assign(parser, [])
@@ -82,11 +90,11 @@ class Multiply(Arithmatics):
     def op(self, x, y):
         return x * y
     
-    def readByValue(self, parser, item_accessor):
+    def readByValue(self, parser, target):
         """
         read the value of the by keyword
         @param parser: the parser
-        @param item_accessor: the item accessor
+        @param target: the bound target
         """
         return parser.readInteger()
 

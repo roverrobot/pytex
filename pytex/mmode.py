@@ -1631,6 +1631,9 @@ class MathCharValue(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         mlist.append(self.mathCharValue(parser))
 
+    def getTarget(self, parser):
+        return AttrTarget(self, "mathcode", VALUE_TYPE.INT, readable=True, writable=False)
+
     def intValue(self, parser):
         return self.mathcode
 

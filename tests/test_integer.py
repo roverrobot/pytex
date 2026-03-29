@@ -1,5 +1,6 @@
 import pytest
 from pytex.token import Token, CATCODE
+from pytex.accessor import VALUE_TYPE
 from tests import checkValues
 import datetime
 
@@ -78,6 +79,42 @@ def test_chardef(collector):
 def test_mathchardef(parser):
     parser.parse("\\mathchardef\\a=65 \\count0=\\a")
     assert parser.count[0] == 65
+
+
+def test_read_internal_integer_from_chardef_target(parser):
+    parser.parse("\\chardef\\a=65")
+    parser.readFrom("\\a")
+    assert parser.readInternalValue(VALUE_TYPE.INT) == 65
+
+
+def test_read_internal_integer_from_mathchardef_target(parser):
+    parser.parse("\\mathchardef\\a=65")
+    parser.readFrom("\\a")
+    assert parser.readInternalValue(VALUE_TYPE.INT) == 65
+
+
+def test_chardef_target_is_read_only(parser):
+    parser.parse("\\chardef\\a=65")
+    target = parser.lookup("\\a").getTarget(parser)
+    with pytest.raises(ValueError, match="not writable"):
+        target.set(66)
+
+
+def test_mathchardef_target_is_read_only(parser):
+    parser.parse("\\mathchardef\\a=65")
+    target = parser.lookup("\\a").getTarget(parser)
+    with pytest.raises(ValueError, match="not writable"):
+        target.set(66)
+
+
+def test_advance_rejects_read_only_chardef_target(parser):
+    with pytest.raises(ValueError, match="writable target"):
+        parser.parse("\\chardef\\a=0 \\advance\\a by 1")
+
+
+def test_advance_rejects_read_only_mathchardef_target(parser):
+    with pytest.raises(ValueError, match="writable target"):
+        parser.parse("\\mathchardef\\a=0 \\advance\\a by 1")
 
 
 def test_integer_reader_uses_target_cast_for_dimensions(parser):

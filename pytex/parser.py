@@ -133,7 +133,7 @@ class Parser:
             if t is None or t.definition is None:
                 raise ValueError("expecting a register or a parameter", self.input.position())
             meaning = t.definition
-        if not isinstance(meaning, accessor.Accessor):
+        if getattr(meaning, "getTarget", None) is None:
             raise ValueError("expecting a register or a parameter", self.input.position())
         return meaning.getTarget(self)
 
@@ -198,19 +198,22 @@ class Parser:
             accessor.VALUE_TYPE.FONT: "fontValue",
             accessor.VALUE_TYPE.MEANING: "meaningValue",
         }.get(value_type)
-        bound = None
-        if isinstance(meaning, accessor.Accessor):
-            if meaning.key is not None or not meaning.needsKey():
-                bound = meaning
-        if bound is not None:
+        get_target = getattr(meaning, "getTarget", None)
+        can_bind = False
+        if get_target is not None:
+            if isinstance(meaning, accessor.Accessor):
+                can_bind = meaning.key is not None or not meaning.needsKey()
+            else:
+                can_bind = True
+        if can_bind:
             try:
-                value = self.cast(self.get(bound.getTarget(self)), value_type)
+                value = self.cast(self.get(get_target(self)), value_type)
             except (IndexError, KeyError, TypeError):
                 value = None
             if value is not None:
                 return value
             if getter_name is not None:
-                getter = getattr(bound, getter_name, None)
+                getter = getattr(meaning, getter_name, None)
                 if getter is not None:
                     return getter(self)
         if getter_name is not None:

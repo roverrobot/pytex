@@ -50,20 +50,27 @@ class KeyTarget:
     """
     A target backed by ``domain[key]``.
     """
-    __slots__ = ("domain", "key", "value_type", "supports_global")
+    __slots__ = ("domain", "key", "value_type", "supports_global", "readable", "writable")
 
-    def __init__(self, domain, key, value_type=VALUE_TYPE.UNKNOWN, supports_global=None):
+    def __init__(self, domain, key, value_type=VALUE_TYPE.UNKNOWN, supports_global=None,
+                 readable=True, writable=True):
         self.domain = domain
         self.key = key
         self.value_type = value_type
         if supports_global is None:
             supports_global = hasattr(domain, "setGlobal")
         self.supports_global = supports_global
+        self.readable = readable
+        self.writable = writable
 
     def get(self):
+        if not self.readable:
+            raise ValueError("target is not readable")
         return self.domain[self.key]
 
     def set(self, value, global_scope=False):
+        if not self.writable:
+            raise ValueError("target is not writable")
         if global_scope and self.supports_global:
             self.domain.setGlobal(self.key, value)
         else:
@@ -75,23 +82,29 @@ class AttrTarget:
     """
     A target backed by ``getattr(obj, attr)`` / ``setattr(obj, attr, value)``.
     """
-    __slots__ = ("domain", "key", "value_type")
+    __slots__ = ("domain", "key", "value_type", "readable", "writable")
 
-    def __init__(self, obj, attr, value_type=VALUE_TYPE.UNKNOWN):
+    def __init__(self, obj, attr, value_type=VALUE_TYPE.UNKNOWN, readable=True, writable=True):
         self.domain = obj
         self.key = attr
         self.value_type = value_type
+        self.readable = readable
+        self.writable = writable
 
     def get(self):
+        if not self.readable:
+            raise ValueError("target is not readable")
         return getattr(self.domain, self.key)
 
     def set(self, value, global_scope=False):
+        if not self.writable:
+            raise ValueError("target is not writable")
         setattr(self.domain, self.key, value)
         return value
 
 
-def makeTarget(domain, key, value_type=VALUE_TYPE.UNKNOWN):
-    return KeyTarget(domain, key, value_type)
+def makeTarget(domain, key, value_type=VALUE_TYPE.UNKNOWN, **kwargs):
+    return KeyTarget(domain, key, value_type, **kwargs)
 
 class Accessor(token.Command):
     """

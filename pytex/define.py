@@ -97,6 +97,11 @@ class CharDefValue(Command):
     def execute(self, parser):
         return parser.addChar(chr(self.value))
 
+    def getTarget(self, parser):
+        return accessor.AttrTarget(
+            self, "value", accessor.VALUE_TYPE.INT, readable=True, writable=False
+        )
+
     def intValue(self, parser):
         """
         get the integer value

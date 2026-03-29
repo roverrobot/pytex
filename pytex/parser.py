@@ -122,21 +122,21 @@ class Parser:
             for group in self.groups:
                 group.remove(domain, index)
 
-    def readTarget(self, meaning=None):
+    def readTarget(self):
         """
         read an assignment target and return a bound target
         @param meaning: optional accessor-like object; if omitted it is read from input
         @return: the resolved target
         """
-        if meaning is None:
-            t = self.token_expand()
-            if t is None:
-                return None
-            if t.definition is None or getattr(t.definition, "getTarget", None) is None:
-                self.input.unread(t)
-                return None
-            meaning = t.definition
+        t = self.token_expand()
+        if t is None:
+            return None
+        if t.definition is None or getattr(t.definition, "getTarget", None) is None:
+            self.input.unread(t)
+            return None
+        meaning = t.definition
         if getattr(meaning, "getTarget", None) is None:
+            self.input.unread(t)
             return None
         return meaning.getTarget(self)
 

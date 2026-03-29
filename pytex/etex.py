@@ -11,7 +11,7 @@ from pytex.module import Module
 from pytex.lists import ModeDependentCommand
 from pytex.integer import FixedInteger, IntegerArrayItemAccessor
 from pytex.dimen import Dimen
-from pytex.toks import The, ToksArrayItemAccessor
+from pytex.toks import The, ToksAccessor
 from pytex import token
 from pytex import expandable
 from pytex import lexer
@@ -37,17 +37,19 @@ class MarksValue(token.Command):
     def __init__(self, key):
         self.key = key
 
-    def toksValue(self, parser):
+    target_type = accessor.VALUE_TYPE.TOKS
+
+    def getTarget(self, parser):
         index = parser.readInteger()
         if index < 0:
             raise ValueError("mark class must be non-negative", parser.input.position())
         register = parser.globals[self.key]
         if index >= len(register):
-            return []
-        return register[index]
+            return accessor.ReadOnlyTarget([], self.target_type)
+        return accessor.ReadOnlyTarget(register[index], self.target_type)
 
     def expand(self, parser):
-        toks = self.toksValue(parser)
+        toks = self.getTarget(parser).get()
         if toks:
             parser.input.push(lexer.TokenListScanner(toks))
 
@@ -604,7 +606,7 @@ mod = Module("etex",
         "lastlinefit": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "layout"},
         "savingvdiscards": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
         "savinghyphcodes": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
-        "everyeof": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "everyeof": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
         "topmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
         "botmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},
         "firstmarks": {"value": newMarkRegister, "accessor": None, "domain": "globals"},

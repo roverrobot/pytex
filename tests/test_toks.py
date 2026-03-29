@@ -85,6 +85,19 @@ def test_page_mark_commands_expand(collector):
     assert collector.getString() == "ABCDEF"
 
 
+def test_toks_assignment_reads_page_mark_target(parser):
+    parser.parameters["topmark"] = toToks("AB")
+    parser.parse("\\toks0=\\topmark")
+    assert "".join(t.name for t in parser.toks[0]) == "AB"
+
+
+def test_read_internal_toks_without_expansion(parser):
+    parser.parameters["topmark"] = toToks("AB")
+    parser.readFrom("\\topmark")
+    toks_value = parser.readInternalValue(toks.accessor.VALUE_TYPE.TOKS, expand=False)
+    assert "".join(t.name for t in toks_value) == "AB"
+
+
 def test_page_break_updates_marks(parser):
     parser.parse("\\vsize=10pt\\topskip=0pt")
     main = parser.lists[0]

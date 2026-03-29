@@ -375,7 +375,7 @@ mod = Module("tracing",
         "tracingrestores": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         # pytex tracing facilities
         # the line number to start tracing, an integer
-        "tracinglinebegin": {"value": 0, "accessor": toks.ToksArrayItemAccessor, "domain": "tracing"},
+        "tracinglinebegin": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         # the line number to stop tracing, an integer
         "tracinglineend": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         # whether to stop tracing, an integer (0 is False, nonzero is True)

@@ -146,6 +146,12 @@ def test_marks_value_commands_expand(collector):
     assert collector.getString() == "BCDFGIJ"
 
 
+def test_toks_assignment_reads_marks_value_target(parser):
+    parser.globals["topmarks"] = [toToks("A"), toToks("BC")]
+    parser.parse("\\toks0=\\topmarks1")
+    assert toksToString(parser, parser.toks[0]) == "BC"
+
+
 def test_page_break_updates_marks_registers(parser):
     parser.parse("\\vsize=10pt\\topskip=0pt")
     main = parser.lists[0]

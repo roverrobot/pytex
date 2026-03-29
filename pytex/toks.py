@@ -233,20 +233,25 @@ def readGeneralText(parser, expand: bool = True):
 
 
 def readToks(parser):
-        """
-        read a toks value from the input stack
-        @param parser: the parser
-        """
-        parser.skipFiller()
-        t = parser.token()
-        toksValue = getattr(t.definition, "toksValue", None)
-        if toksValue:
-            return toksValue(parser)
+    """
+    read a toks value from the input stack
+    @param parser: the parser
+    """
+    while True:
+        t = parser.skipSpaces(expand=False)
+        if t is None:
+            break
+        if t.definition == relax:
+            continue
         parser.input.unread(t)
-        return readGeneralText(parser, expand=False)
+        break
+    value = parser.readInternalValue(accessor.VALUE_TYPE.TOKS, expand=False)
+    if value is not None:
+        return value
+    return readGeneralText(parser, expand=False)
     
 
-class ToksArrayItemAccessor(accessor.Accessor):
+class ToksAccessor(accessor.Accessor):
     """
     aaccessor for a toks parameter
     """
@@ -262,15 +267,6 @@ class ToksArrayItemAccessor(accessor.Accessor):
         @return: the toks value
         """
         return readToks(parser)
-
-    def toksValue(self, parser):
-        """
-        get the toks value
-        @param parser: the parser
-        @return: the toks value
-        """
-        return self.domain[self.currentKey(parser)]
-    
 
 class ToksArray(Array):
     """
@@ -389,8 +385,6 @@ class The(Command):
         t0 = t
         meaning = t.definition
 
-        if hasattr(meaning, "toksValue"):
-            return meaning.toksValue(parser)
         if hasattr(meaning, "fontValue"):
             f = meaning.fontValue(parser)
             t = CommandToken(f.name)
@@ -418,11 +412,13 @@ class PageMark(Command):
         self.key = key
         self.domain = domain
 
-    def toksValue(self, parser):
-        return getattr(parser, self.domain)[self.key]
+    target_type = accessor.VALUE_TYPE.TOKS
+
+    def getTarget(self, parser):
+        return accessor.ReadOnlyTarget(getattr(parser, self.domain)[self.key], self.target_type)
 
     def expand(self, parser):
-        toks = self.toksValue(parser)
+        toks = self.getTarget(parser).get()
         if toks:
             parser.input.push(TokenListScanner(toks))
 
@@ -447,22 +443,22 @@ mod = Module("toks",
         "botmark": PageMark("botmark"),
         "splitfirstmark": PageMark("splitfirstmark", "globals"),
         "splitbotmark": PageMark("splitbotmark", "globals"),
-        "toksdef": registerdef("toks", ToksArrayItemAccessor),
+        "toksdef": registerdef("toks", ToksAccessor),
     },
     domains = {
-        "toks": {"generator": ToksArray, "accessor": ToksArrayItemAccessor},
+        "toks": {"generator": ToksArray, "accessor": ToksAccessor},
     },
     parameters={
         "aftergroup": {"value": [], "accessor": None, "domain": "globals"},
-        "output": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
-        "everyhbox": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
-        "everyvbox": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
-        "everyjob": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
-        "everycr": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
-        "errhelp": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
-        "everypar": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
-        "everymath": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
-        "everydisplay": {"value": [], "accessor": ToksArrayItemAccessor, "domain": "parameters"},
+        "output": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everyhbox": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everyvbox": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everyjob": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everycr": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "errhelp": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everypar": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everymath": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
+        "everydisplay": {"value": [], "accessor": ToksAccessor, "domain": "parameters"},
         "topmark": {"value": [], "accessor": None, "domain": "parameters"},
         "botmark": {"value": [], "accessor": None, "domain": "parameters"},
         "firstmark": {"value": [], "accessor": None, "domain": "parameters"},

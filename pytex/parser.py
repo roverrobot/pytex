@@ -179,21 +179,29 @@ class Parser:
             if isinstance(value, glue.MuGlue):
                 return value
             return None
+        if value_type in {
+            accessor.VALUE_TYPE.TOKS,
+            accessor.VALUE_TYPE.FONT,
+            accessor.VALUE_TYPE.MEANING,
+        }:
+            return value
         return value if value_type == accessor.VALUE_TYPE.UNKNOWN else None
 
-    def readInternalValue(self, value_type):
+    def readInternalValue(self, value_type, expand: bool = True):
         """
-        Read an internal value of the requested type from the next expanded token.
+        Read an internal value of the requested type from the next token.
 
-        If the next expanded token does not denote an internal value of that shape,
-        it is unread and `None` is returned.
+        @param value_type: the expected VALUE_TYPE
+        @param expand: whether to expand the token before checking its meaning
+
+        If the next token does not denote an internal value of that shape, it is
+        unread and `None` is returned.
         """
-        t = self.token_expand()
+        t = self.token_expand() if expand else self.token()
         if t is None:
             return None
         meaning = t.definition
         getter_name = {
-            accessor.VALUE_TYPE.TOKS: "toksValue",
             accessor.VALUE_TYPE.FONT: "fontValue",
             accessor.VALUE_TYPE.MEANING: "meaningValue",
         }.get(value_type)

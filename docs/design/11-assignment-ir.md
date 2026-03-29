@@ -12,17 +12,17 @@ typed local values.
 
 Assignments should be expressed in terms of parser operations such as:
 
-- `readTarget() -> (target, target_type)`
-- `get(target) -> value`
-- `set(target, value, global_scope=False)`
+- `readTarget() -> target`
 - `readValue(value_type) -> value`
 - `cast(value, value_type) -> value | None`
 
 Under this model:
 
 - accessors parse target syntax
+- bound targets own target semantics
 - the parser owns typed value reading
-- the parser owns target reads and writes
+- the parser owns typed coercions
+- assignment commands/accessors own assignment policy such as `\globaldefs`
 - `afterAssignment()` remains a separate operation from `set()`
 
 This is a better fit for the execution-IR direction than letting accessors keep
@@ -34,7 +34,6 @@ The execution model is still easiest to describe using a few conceptual
 registers:
 
 - `target`
-- `target_type`
 - `current_value`
 - `scratch`
 - `scratch_type`
@@ -58,9 +57,8 @@ So the implementation direction should be:
 This gives the same conceptual model, but Python locals provide the necessary
 stack discipline for free.
 
-`target` is the active location being assigned to or read from.
-
-`target_type` is the type restriction for that location.
+`target` is the active location being assigned to or read from, together with
+the type restriction for that location.
 
 Examples:
 
@@ -86,8 +84,9 @@ Example:
 - target type is `DIMEN`
 - scratch type is `INT`
 
-So one type is not enough by itself, but the extra type only needs to live as a
-local variable inside the command that is using it.
+So one target-local type plus one temporary `scratch_type` is enough. The
+target's type should travel with the target itself, not as a separate parallel
+value.
 
 ## What A Target Is
 
@@ -107,34 +106,48 @@ also point to domain-like objects such as:
 - a font-character attribute array for `\hyphenchar` / `\skewchar`
 - other array/dict-like stores used by the engine
 
-So `target` is "where", while `target_type` is "what kind of value belongs
+So `target` is not just "where"; it is "where plus what kind of value belongs
 there."
+
+A simple representation would be:
+
+- `(domain, key, value_type)`
+
+But the more useful representation is a bound target object with fields and
+methods such as:
+
+- `domain`
+- `key`
+- `value_type`
+- `get()`
+- `set(value, global_scope=False)`
+
+This is better than a raw `(domain, key)` pair because some TeX targets are not
+just ordinary parser domains. Examples include:
+
+- `\wd`, `\ht`, `\dp`
+- `\fontdimen`
+- guarded or mode-sensitive targets such as `\spacefactor`
+
+Those are still assignment targets, but their semantics belong with the bound
+target rather than inside generic parser `get/set` methods.
+
+The important distinction is:
+
+- accessors need `parser` while binding a target
+- a bound target should not need `parser` anymore
+
+So target construction is parser-dependent, but target use is parser-free.
 
 ## Parser Operations
 
-### `readTarget() -> (target, target_type)`
+### `readTarget() -> target`
 
 This operation reads the next assignment target and returns:
 
 - `target`
-- `target_type`
 
 It should be implemented through accessors.
-
-### `get(target) -> value`
-
-This operation reads from `target`.
-
-The value returned by `get()` must conform to `target_type`.
-
-### `set(target, value, global_scope=False)`
-
-This operation writes `value` to `target`.
-
-The stored value must conform to `target_type`.
-
-This is a pure state-write operation. It should not implicitly run
-`\afterassignment`.
 
 ### `readValue(value_type) -> value`
 
@@ -167,6 +180,25 @@ For example, when a command wants a dimension-like internal quantity, it can:
 3. `value = cast(value, DIMEN)`
 4. treat `None` as "not a dimen"
 
+## Target Operations
+
+The bound target should provide:
+
+- `target.value_type`
+- `target.get() -> value`
+- `target.set(value, global_scope=False)`
+
+That means generic parser-side `get/set` helpers are optional convenience
+wrappers at most. The primary runtime API should live on the target itself.
+
+This keeps responsibilities clearer:
+
+- `Parser` handles token scanning, typed readers, coercion, and
+  `afterAssignment`
+- assignment commands/accessors handle prefix processing and `globaldefs`
+  resolution
+- `target` handles the semantics of one already-bound assignment location
+
 ## Accessor Role
 
 Under this model, accessors become mostly syntax adapters.
@@ -182,22 +214,29 @@ So the parser's `readTarget()` can be implemented as:
 
 1. read the accessor-like command occurrence
 2. ask it for `target = accessor.getTarget(parser)`
-3. return `target` plus `accessor.target_type`
+3. return that typed target
 
-This means the accessor parses target syntax, but the parser performs the
-execution-layer reads, writes, and casts.
+This means:
+
+1. the accessor uses `parser` to parse target syntax and construct a bound
+   target
+2. the parser performs typed reads, coercions, and assignment-completion
+   behavior
+3. the bound target performs the eventual `get/set` without needing `parser`
 
 ## Ordinary Assignment Shape
 
 The normal assignment flow becomes:
 
 1. read the accessor command
-2. `target, target_type = readTarget()`
+2. `target = readTarget()`
 3. `readEq()`
-4. `value = readValue(target_type)`
-5. apply prefixes to determine final `global_scope` and any value modification
-6. `set(target, value, global_scope=...)`
-7. `afterAssignment()`
+4. `value = readValue(target.value_type)`
+5. apply prefixes to determine requested `global_scope` and any value
+   modification
+6. apply `\globaldefs` to determine the effective `global_scope`
+7. `target.set(value, global_scope=...)`
+8. `afterAssignment()`
 
 This gives a clean separation:
 
@@ -214,25 +253,27 @@ Arithmetic commands become much cleaner under this model.
 
 ### `\advance`
 
-1. `target, target_type = readTarget()`
-2. `current_value = get(target)`
-3. `scratch_type = target_type`
+1. `target = readTarget()`
+2. `current_value = target.get()`
+3. `scratch_type = target.value_type`
 4. `readKeyword(["by"])`
 5. `scratch = readValue(scratch_type)`
 6. compute from `current_value` and `scratch`
-7. `set(target, result, global_scope=...)`
-8. `afterAssignment()`
+7. apply prefixes and `\globaldefs` to determine effective `global_scope`
+8. `target.set(result, global_scope=...)`
+9. `afterAssignment()`
 
 ### `\multiply` / `\divide`
 
-1. `target, target_type = readTarget()`
-2. `current_value = get(target)`
+1. `target = readTarget()`
+2. `current_value = target.get()`
 3. `scratch_type = INT`
 4. `readKeyword(["by"])`
 5. `scratch = readValue(scratch_type)`
 6. compute from `current_value` and `scratch`
-7. `set(target, result, global_scope=...)`
-8. `afterAssignment()`
+7. apply prefixes and `\globaldefs` to determine effective `global_scope`
+8. `target.set(result, global_scope=...)`
+9. `afterAssignment()`
 
 This is one of the main reasons `scratch_type` is needed.
 
@@ -247,8 +288,16 @@ This design shifts the important work into parser operations:
 - typed coercion
 - assignment completion
 
-That makes command implementations read more like short execution programs over
-a fixed parser-op vocabulary.
+More precisely:
+
+- parser operations cover scanning, target binding, typed reads, coercion, and
+  assignment support
+- assignment commands/accessors cover prefix handling and `\globaldefs`
+  resolution
+- bound targets cover reads and writes at one already-bound location
+
+That still makes command implementations read like short execution programs over
+a small fixed vocabulary.
 
 It also reduces the amount of behavior hidden inside individual accessor
 classes.
@@ -258,13 +307,13 @@ classes.
 A practical incremental migration is:
 
 1. add `Accessor.getTarget(parser)` and type metadata consistently
-2. make `Parser.readTarget()` return `(target, target_type)`
+2. make `Parser.readTarget()` return a typed target
 3. make `Parser.readValue(value_type)` dispatch from an explicit type
 4. add `Parser.cast(value, value_type)`
 5. move ordinary `Accessor.assign()` onto `readTarget()`, `readValue()`, and
-   `set()`
+   `target.set(...)`
 6. rework arithmetic commands to bind a target once, use locals for
-   `current_value` / `scratch`, and then `set()`
+   `current_value` / `scratch`, and then `target.set(...)`
 
 This keeps the change incremental while still moving toward the cleaner
 execution model.

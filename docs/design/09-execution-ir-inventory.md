@@ -46,9 +46,12 @@ stack-backed save/restore mechanism around parser-owned holders.
 
 So the better runtime model is:
 
+- let `target` carry its own type information
+- let bound targets carry their own `get/set` behavior
 - keep `current_value` / `scratch` as conceptual IR names
 - implement them as command-local variables
-- let parser methods return values instead of mutating parser-owned holders
+- let parser methods return values instead of mutating parser-owned holders,
+  except where parser-owned state is truly the point
 
 This preserves the compact IR model while letting ordinary language locals
 provide stack discipline essentially for free.

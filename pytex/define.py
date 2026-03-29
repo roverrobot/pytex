@@ -115,13 +115,7 @@ class CharDefValue(Command):
         return cls(**kargs)
 
     def execute(self, parser):
-        return parser.addChar(self.charValue(parser))
-    
-    def charValue(self, parser):
-        """
-        get the character value
-        """
-        return chr(self.value)
+        return parser.addChar(chr(self.value))
 
     def intValue(self, parser):
         """

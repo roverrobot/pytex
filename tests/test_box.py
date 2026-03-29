@@ -755,6 +755,19 @@ def test_accent(cmr10):
     assert char.char == "1"
 
 
+def test_accent_accepts_chardef_base(cmr10):
+    cmr10.parse("\\chardef\\a=`1\\noindent\\accent65 \\a\\relax")
+    top = cmr10.lists[-1]
+    assert top.type == lists.LISTTYPE.HORIZONTAL
+    assert len(top) == 1
+    assert top[0].node_type == NODE_TYPE.ACCENT
+    hbox = bx.HBox(cmr10, None, Dimen())
+    hbox.list = top
+    packed = hbox.typeset(cmr10).list
+    assert packed[3].node_type == NODE_TYPE.CHAR
+    assert packed[3].char == "1"
+
+
 def test_accent_italic_alignment_uses_slant(cmr10):
     # Reference from pdfTeX:
     # \hbox(9.58334+1.94444)x3.06665

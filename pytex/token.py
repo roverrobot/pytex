@@ -238,14 +238,6 @@ class CommandToken(Token):
         """
         return expand and isinstance(self.definition, Token) and self.definition.isSpace(True)
 
-    def charValue(self, parser):
-        """ 
-        A command tokens does not represent a character. So they do not have a char value.
-        @param parser: the parser
-        @return: None
-        """
-        return None
-    
     def meaning(self, parser):
         """
         Get the meaning of the command.
@@ -285,15 +277,6 @@ class ActiveToken(CommandToken):
         t.entry = parser.equitable.entry(name)
         return t
     
-    def charValue(self, parser):
-        """ 
-        An active token is a character token, so it has a char value.
-        @param parser: the parser
-        @return: the char value
-        """
-        return self.name
-
-
 class CellEndType(IntEnum):
     __slots__ = ()
     TAB = 0 # &

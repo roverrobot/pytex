@@ -11,6 +11,7 @@ from pytex.module import Module
 from pytex.token import Command, CATCODE, relax
 from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor
+from pytex.define import CharDefValue
 from pytex.ligature import ligature_step, run_ligature_program
 import types
 
@@ -526,12 +527,14 @@ class Accent(HorizontalCommand):
         if t is not None:
             if t.catcode == CATCODE.LETTER or t.catcode == CATCODE.OTHER:
                 c = t.name
+            elif isinstance(meaning, CharDefValue):
+                c = chr(meaning.value)
             else:
-                try:
-                    c = meaning.charValue(parser)
-                except AttributeError:
-                    parser.input.unread(t)
                 c = None
+                if hasattr(meaning, "charValue"):
+                    c = meaning.charValue(parser)
+                else:
+                    parser.input.unread(t)
             if c is not None:
                 # the font may have changed in the assignments
                 font = parser.parameters["currentfont"]

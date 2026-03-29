@@ -37,10 +37,11 @@ class Arithmatics(Command):
             p = t
         else:
             raise ValueError("expecting a register or a parameter", parser.input.position())
-        domain, key = p.readTarget(parser)
+        parser.readTarget(p)
+        domain, key = parser.target
         is_integer = False
         if domain is not None and key is not None:
-            x = parser.get(domain, key)
+            x = parser.get()
             is_integer = isinstance(x, int)
         else:
             if hasattr(p, "muglueValue"):
@@ -68,7 +69,7 @@ class Arithmatics(Command):
             e.args = (e.args[0], parser.input.position())
             raise e
         if domain is not None and key is not None:
-            parser.set(domain, key, global_scope=globally, value=value)
+            parser.set(global_scope=globally, value=value)
         else:
             parser.current_value = value
             if globally:

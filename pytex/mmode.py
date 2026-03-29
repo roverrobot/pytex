@@ -2687,10 +2687,12 @@ class VolatileParameterAccessor(Accessor, DimenCommand):
         return parser.readDimen()
     
     def set(self, parser, value):
-        parser.set("volatile", self.index, value=value)
+        parser.setTarget((parser.volatile, self.index), self.target_type)
+        parser.set(value=value)
     
     def setGlobal(self, parser, value):
-        parser.set("volatile", self.index, global_scope=True, value=value)
+        parser.setTarget((parser.volatile, self.index), self.target_type)
+        parser.set(global_scope=True, value=value)
     
     def dimenValue(self, parser):
         value = parser.volatile[self.index]

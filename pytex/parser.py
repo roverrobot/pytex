@@ -41,7 +41,6 @@ class Parser:
     The parser is the main class that processes the input and executes the commands.
     """
     _STATE_VALUE_MISSING = object()
-    _TARGET_MISSING = object()
 
     def __init__(self, project_dir: typing.Optional[str] = None):
         self.initState()
@@ -158,37 +157,19 @@ class Parser:
         target = meaning.getTarget(self)
         return self.setTarget(target, getattr(meaning, "target_type", accessor.VALUE_TYPE.UNKNOWN))
 
-    def _resolveTarget(self, domain, key):
-        if domain is self._TARGET_MISSING:
-            if self.target is None:
-                raise ValueError("no current target", self.input.position())
-            domain, key = self.target
-            from_target = True
-        else:
-            if key is self._TARGET_MISSING:
-                if isinstance(domain, tuple) and len(domain) == 2:
-                    domain, key = domain
-                else:
-                    raise TypeError("expected a (domain, key) target pair")
-            from_target = False
-        if isinstance(domain, str):
-            domain = getattr(self, domain)
-        return domain, key, from_target
-
-    def get(self, domain=_TARGET_MISSING, key=_TARGET_MISSING, *, use_scratch: bool = False):
+    def get(self, *, use_scratch: bool = False):
         """
-        get a value from a parser-state domain and store it in the active holder
-        @param domain: the parser attribute name of the domain, a domain object, or omitted to use parser.target
-        @param key: the item key within the domain
+        get a value from the current parser target and store it in the active holder
         @param use_scratch: whether to store in scratch instead of current_value
         @return: the retrieved value
         """
-        domain, key, from_target = self._resolveTarget(domain, key)
+        if self.target is None:
+            raise ValueError("no current target", self.input.position())
+        domain, key = self.target
         value = domain[key]
         if use_scratch:
             self.scratch = value
-            if from_target:
-                self.scratch_type = self.target_type
+            self.scratch_type = self.target_type
         else:
             self.current_value = value
         return value
@@ -206,18 +187,17 @@ class Parser:
             return False
         return global_scope
 
-    def set(self, domain=_TARGET_MISSING, key=_TARGET_MISSING, *, global_scope: bool = False,
-            value=_STATE_VALUE_MISSING, use_scratch: bool = False):
+    def set(self, *, global_scope: bool = False, value=_STATE_VALUE_MISSING, use_scratch: bool = False):
         """
-        set a parser-state domain entry from an active holder or an explicit value
-        @param domain: the parser attribute name of the domain, a domain object, or omitted to use parser.target
-        @param key: the item key within the domain
+        set the current parser target from an active holder or an explicit value
         @param global_scope: whether to write globally instead of locally
         @param value: optional explicit value; defaults to current_value or scratch
         @param use_scratch: whether to use scratch instead of current_value when no explicit value is provided
         @return: the written value
         """
-        domain, key, _ = self._resolveTarget(domain, key)
+        if self.target is None:
+            raise ValueError("no current target", self.input.position())
+        domain, key = self.target
         if value is self._STATE_VALUE_MISSING:
             value = self.scratch if use_scratch else self.current_value
         else:

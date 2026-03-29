@@ -172,51 +172,57 @@ def test_parser_group_mismatch(parser):
 
 
 def test_parser_get_and_set_explicit_value(parser):
-    parser.set("count", 0, value=123)
+    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
+    parser.set(value=123)
     assert parser.count[0] == 123
     assert parser.current_value == 123
-    assert parser.get("count", 0) == 123
+    assert parser.get() == 123
     assert parser.current_value == 123
 
 
 def test_parser_set_uses_current_value(parser):
+    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
     parser.current_value = 456
-    parser.set("count", 0)
+    parser.set()
     assert parser.count[0] == 456
     assert parser.current_value == 456
 
 
 def test_parser_set_global_scope(parser):
-    parser.set("count", 0, value=1)
+    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
+    parser.set(value=1)
     parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
-    parser.set("count", 0, value=2)
-    parser.set("count", 0, global_scope=True, value=3)
+    parser.set(value=2)
+    parser.set(global_scope=True, value=3)
     parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     assert parser.count[0] == 3
 
 
 def test_parser_set_globaldefs_positive_forces_global(parser):
-    parser.set("count", 0, value=1)
+    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
+    parser.set(value=1)
     parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     parser.parameters["globaldefs"] = 1
-    parser.set("count", 0, value=2)
+    parser.set(value=2)
     parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     assert parser.count[0] == 2
 
 
 def test_parser_set_globaldefs_negative_forces_local(parser):
-    parser.set("count", 0, value=1)
+    parser.setTarget((parser.count, 0), accessor.VALUE_TYPE.INT)
+    parser.set(value=1)
     parser.beginGroup(position=0, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     parser.parameters["globaldefs"] = -1
-    parser.set("count", 0, global_scope=True, value=2)
+    parser.set(global_scope=True, value=2)
     parser.endGroup(position=1, group_type=st.GROUP_TYPE.SEMI_SIMPLE)
     assert parser.count[0] == 1
 
 
 def test_parser_get_set_globals(parser):
-    parser.set("globals", "demo", value="x")
+    parser.setTarget((parser.globals, "demo"))
+    parser.set(value="x")
     assert parser.globals["demo"] == "x"
-    assert parser.get("globals", "demo") == "x"
+    assert parser.get() == "x"
     assert parser.current_value == "x"
 
 

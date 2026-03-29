@@ -128,11 +128,12 @@ class Parser:
     def get(self, domain, key):
         """
         get a value from a parser-state domain and store it in current_value
-        @param domain: the parser attribute name of the domain
+        @param domain: the parser attribute name of the domain or the domain object
         @param key: the item key within the domain
         @return: the retrieved value
         """
-        domain = getattr(self, domain)
+        if isinstance(domain, str):
+            domain = getattr(self, domain)
         value = domain[key]
         self.current_value = value
         return value
@@ -153,13 +154,14 @@ class Parser:
     def set(self, domain, key, *, global_scope: bool = False, value=_STATE_VALUE_MISSING):
         """
         set a parser-state domain entry from current_value or an explicit value
-        @param domain: the parser attribute name of the domain
+        @param domain: the parser attribute name of the domain or the domain object
         @param key: the item key within the domain
         @param global_scope: whether to write globally instead of locally
         @param value: optional explicit value; defaults to current_value
         @return: the written value
         """
-        domain = getattr(self, domain)
+        if isinstance(domain, str):
+            domain = getattr(self, domain)
         if value is self._STATE_VALUE_MISSING:
             value = self.current_value
         else:

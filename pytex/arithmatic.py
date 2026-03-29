@@ -9,7 +9,6 @@ this module implements the tex commands \advance, \multiple and \divide
 from pytex.accessor import Accessor
 from pytex.token import Command
 from pytex.module import Module
-from types import MethodType
 
 
 class Arithmatics(Command):
@@ -36,22 +35,25 @@ class Arithmatics(Command):
             p = t.getItemAccessor(parser)
         elif isinstance(t, Accessor):
             p = t
-            if p.key is None and p.needsKey():
-                p = p.bindKey(p.readKey(parser))
         else:
             raise ValueError("expecting a register or a parameter", parser.input.position())
+        domain, key = p.readTarget(parser)
         is_integer = False
-        if hasattr(p, "muglueValue"):
-            x = p.muglueValue(parser)
-        elif hasattr(p, "glueValue"):
-            x = p.glueValue(parser)
-        elif hasattr(p, "dimenValue"):
-            x = p.dimenValue(parser)
-        elif hasattr(p, "intValue"):
-            x = p.intValue(parser)
-            is_integer = True
+        if domain is not None and key is not None:
+            x = parser.get(domain, key)
+            is_integer = isinstance(x, int)
         else:
-            raise ValueError("expecting a register or a parameter of integer, dimension, or glue", parser.input.position())
+            if hasattr(p, "muglueValue"):
+                x = p.muglueValue(parser)
+            elif hasattr(p, "glueValue"):
+                x = p.glueValue(parser)
+            elif hasattr(p, "dimenValue"):
+                x = p.dimenValue(parser)
+            elif hasattr(p, "intValue"):
+                x = p.intValue(parser)
+                is_integer = True
+            else:
+                raise ValueError("expecting a register or a parameter of integer, dimension, or glue", parser.input.position())
         parser.readKeyword(["by"])
         y = self.readByValue(parser, p)
         value = self.op(x, y)
@@ -65,11 +67,14 @@ class Arithmatics(Command):
         except ValueError as e:
             e.args = (e.args[0], parser.input.position())
             raise e
-        parser.current_value = value
-        if globally:
-            p.setGlobal(parser, value)
+        if domain is not None and key is not None:
+            parser.set(domain, key, global_scope=globally, value=value)
         else:
-            p.set(parser, value)
+            parser.current_value = value
+            if globally:
+                p.setGlobal(parser, value)
+            else:
+                p.set(parser, value)
         parser.afterAssignment()
 
     def readByValue(self, parser, item_accessor):

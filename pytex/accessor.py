@@ -104,6 +104,13 @@ class Accessor(token.Command):
             return self.readKey(parser)
         return None
 
+    def readTarget(self, parser):
+        """
+        read and bind the target location for this accessor occurrence
+        @return: a (domain, key) pair
+        """
+        return self.domain, self.currentKey(parser)
+
     def readValue(self, parser):
         """
         read the value from the input stack
@@ -117,14 +124,11 @@ class Accessor(token.Command):
         @param parser: the parser
         @param value: the value
         """
-        key = self.currentKey(parser)
+        domain, key = self.readTarget(parser)
         try:
-            if hasattr(self.domain, "name"):
-                parser.set(self.domain.name, key, value=value)
-            else:
-                self.domain[key] = value
+            parser.set(domain, key, value=value)
         except IndexError:
-            name = getattr(self.domain, "name", self.domain)
+            name = getattr(domain, "name", domain)
             raise ValueError(f"index {key} out of range for domain {name}", parser.input.position())
     
     def setGlobal(self, parser, value):
@@ -133,11 +137,8 @@ class Accessor(token.Command):
         @param parser: the parser
         @param value: the value
         """
-        key = self.currentKey(parser)
-        if hasattr(self.domain, "name"):
-            parser.set(self.domain.name, key, global_scope=True, value=value)
-        else:
-            self.domain[key] = value
+        domain, key = self.readTarget(parser)
+        parser.set(domain, key, global_scope=True, value=value)
 
     def assign(self, parser, prefixes):
         """

@@ -8,9 +8,9 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import Accessor, ArrayAccessor, VALUE_TYPE, AttrTarget
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget
 from pytex.integer import IntegerArrayItemAccessor
-from pytex.dimen import Dimen, DimenCommand, DimenArrayItemAccessor
+from pytex.dimen import Dimen, DimenCommand
 from pytex.glue import Glue, Stretchness
 from pytex.node import CharNode
 from pytex.define import Define, EquitableAccessor
@@ -205,7 +205,26 @@ def fontarray(name):
     return lambda state: MathFontArray(name, state, default=nullfont)
 
 
-class FontCharAccessor(IntegerArrayItemAccessor):
+class FontCharAccessor(Accessor):
+    target_type = VALUE_TYPE.INT
+
+    def __init__(self, field, key=None, builtin=True):
+        super().__init__(None, key, builtin=builtin)
+        self.field = field
+
+    def readKey(self, parser):
+        return readFont(parser)
+
+    def readValue(self, parser):
+        return parser.readInteger()
+
+    def getTarget(self, parser):
+        font = self.currentKey(parser)
+        return KeyTarget(font.fontchar, self.field, self.target_type, supports_global=False)
+
+    def intValue(self, parser):
+        return self.currentKey(parser).fontchar[self.field]
+
     def setGlobal(self, parser, value):
         """
         set the value of the font character globally
@@ -213,23 +232,6 @@ class FontCharAccessor(IntegerArrayItemAccessor):
         @param value: the value to set
         """
         self.set(parser, value)
-
-
-class FontChar(ArrayAccessor):
-    """
-    A font character
-    """
-    def __init__(self, field):
-        super().__init__(None)
-        self.field = field
-
-    def getItemAccessor(self, parser):
-        font = readFont(parser)
-        return FontCharAccessor(font.fontchar, self.field)
-    
-    def intValue(self, parser):
-        font = readFont(parser)
-        return font.fontchar[self.field]
 
 
 class FontDefineAccessor(EquitableAccessor):
@@ -288,55 +290,29 @@ class FontCommand(Define):
         return parser.currentfont.value
 
 
-class FontDimenAccessor(DimenArrayItemAccessor):
+class FontDimenAccessor(Accessor, DimenCommand):
     """
     An accessor for the \\fontdimen command
     """
-    def __init__(self, font, index):
-        super().__init__(font.param, index)
-        self.font = font
+    target_type = VALUE_TYPE.DIMEN
+
+    def readKey(self, parser):
+        index = parser.readInteger() - 1
+        return readFont(parser), index
+
+    def readValue(self, parser):
+        return parser.readDimen()
 
     def dimenValue(self, parser):
-        if self.key < 0 or self.key >= len(self.domain):
-            raise ValueError(f"fontdimen index {self.key} out of range {len(self.domain)} for font {self.font.backend.name}  @{int(self.font.at)}", parser.input.position())
-        return self.domain[self.key]
+        font, index = self.currentKey(parser)
+        if index < 0 or index >= len(font.param):
+            raise ValueError(f"fontdimen index {index} out of range {len(font.param)} for font {font.backend.name}  @{int(font.at)}", parser.input.position())
+        return font.param[index]
 
     def getTarget(self, parser):
+        font, index = self.currentKey(parser)
         pos = parser.input.position()
-        return AttrTarget(FontDimenSlot(self.font, self.domain, self.key, pos), "value", self.target_type)
-    
-    def set(self, parser, value):
-        """
-        set the value of the fontdimen
-        @param parser: the parser
-        @param value: the value to set
-        """
-        if self.key >= len(self.domain): 
-            # append 0 values until the index is valid
-            self.domain.extend([Dimen() for i in range(self.key - len(self.domain) + 1)])
-        super().set(parser, value)
-
-    def setGlobal(self, parser, value):
-        self.set(parser, value)
-
-    
-class FontDimen(ArrayAccessor, DimenCommand):
-    """
-    the \\fontdimen command
-    """
-    def __init__(self):
-        super().__init__(None)
-   
-    def getItemAccessor(self, parser):
-        i = parser.readInteger() - 1
-        return FontDimenAccessor(readFont(parser), i)
-    
-    def dimenValue(self, parser):
-        i = parser.readInteger() - 1
-        f = readFont(parser)
-        if i < 0 or i >= len(f.param):
-            raise ValueError(f"fontdimen index {i+1} of out of range of {len(f.param)} for font {f.backend.name}  @{int(f.at)}", parser.input.position())
-        return f.param[i]
+        return AttrTarget(FontDimenSlot(font, font.param, index, pos), "value", self.target_type)
 
 
 class FontDimenSlot:
@@ -378,9 +354,9 @@ mod = Module("font",
         "scriptscriptfont": {"generator": fontarray("scriptscriptfont"), "accessor": FontArrayItemAccessor},
     },
     commands = {
-        "fontdimen": FontDimen(),
-        "hyphenchar": FontChar("hyphenchar"),
-        "skewchar": FontChar("skewchar"),
+        "fontdimen": FontDimenAccessor(),
+        "hyphenchar": FontCharAccessor("hyphenchar"),
+        "skewchar": FontCharAccessor("skewchar"),
         "font": FontCommand(),
         "fontname": FontName(),
         "nullfont": nullfont,

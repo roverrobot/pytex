@@ -7,7 +7,7 @@ from pytex import hmode
 from pytex import vmode
 from pytex.glue import Glue
 from pytex.module import Module
-from pytex.accessor import Accessor, ArrayAccessor, VALUE_TYPE, KeyTarget, AttrTarget
+from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget, AttrTarget
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen, DimenCommand
@@ -717,38 +717,21 @@ class VTopCommand(VBoxCommand):
 class BoxDimenAccessor(Accessor, DimenCommand):
     target_type = VALUE_TYPE.DIMEN
 
-    def __init__(self, domain, key, *, index=None, builtin=True):
-        super().__init__(domain, key, builtin=builtin)
-        self.index = index
+    def readKey(self, parser):
+        return parser.readInteger()
 
     def readValue(self, parser):
         return parser.readDimen()
 
     def getTarget(self, parser):
-        key = self.currentKey(parser)
-        return BoxDimensionTarget(parser.box, self.index, key, self.target_type)
+        index = self.currentKey(parser)
+        return BoxDimensionTarget(parser.box, index, self.domain, self.target_type)
 
     def dimenValue(self, parser):
-        box = self.domain
+        box = parser.box[self.currentKey(parser)]
         if box is None:
             return Dimen()
-        return box[self.key]
-
-
-class BoxDimenCommand(ArrayAccessor, DimenCommand):
-    """
-    a command that accesses a dimension for a box
-    @param domain the attribute of the box dimension
-    """
-    def __init__(self, domain):
-        super().__init__(domain)
-
-    def getItemAccessor(self, parser):
-        index = parser.readInteger()
-        return BoxDimenAccessor(parser.box[index], self.domain, index=index)
-    
-    def dimenValue(self, parser):
-        return self.getItemAccessor(parser).dimenValue(parser)
+        return box[self.domain]
 
 
 class BoxDimensionTarget(AttrTarget):
@@ -1083,9 +1066,9 @@ mod = Module("hbox",
         "hbox": HBoxCommand(),
         "vbox": VBoxCommand(),
         "vtop": VTopCommand(),
-        "wd": BoxDimenCommand("width"),
-        "ht": BoxDimenCommand("height"),
-        "dp": BoxDimenCommand("depth"),
+        "wd": BoxDimenAccessor("width"),
+        "ht": BoxDimenAccessor("height"),
+        "dp": BoxDimenAccessor("depth"),
         "unhbox": UnBox(False, True),
         "unvbox": UnBox(True, True),
         "unhcopy": UnBox(False, False),

@@ -31,9 +31,7 @@ class Arithmatics(Command):
         if t.definition is None:
             raise ValueError("expecting a register or a parameter", parser.input.position())
         t = t.definition
-        if hasattr(t, "getItemAccessor"):
-            p = t.getItemAccessor(parser)
-        elif isinstance(t, Accessor):
+        if isinstance(t, Accessor):
             p = t
         else:
             raise ValueError("expecting a register or a parameter", parser.input.position())

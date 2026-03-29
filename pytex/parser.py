@@ -133,9 +133,7 @@ class Parser:
             if t is None or t.definition is None:
                 raise ValueError("expecting a register or a parameter", self.input.position())
             meaning = t.definition
-        if hasattr(meaning, "getItemAccessor"):
-            meaning = meaning.getItemAccessor(self)
-        elif not isinstance(meaning, accessor.Accessor):
+        if not isinstance(meaning, accessor.Accessor):
             raise ValueError("expecting a register or a parameter", self.input.position())
         return meaning.getTarget(self)
 
@@ -201,9 +199,7 @@ class Parser:
             accessor.VALUE_TYPE.MEANING: "meaningValue",
         }.get(value_type)
         bound = None
-        if hasattr(meaning, "getItemAccessor"):
-            bound = meaning.getItemAccessor(self)
-        elif isinstance(meaning, accessor.Accessor):
+        if isinstance(meaning, accessor.Accessor):
             if meaning.key is not None or not meaning.needsKey():
                 bound = meaning
         if bound is not None:

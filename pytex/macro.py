@@ -221,6 +221,7 @@ def _compileCalls(pattern):
     @return: the compiled call list
     """
     calls = []
+    arg_count = 0
     p = None
     bracket = []
     patterns = iter(pattern)
@@ -258,30 +259,48 @@ def _compileCalls(pattern):
                     calls.append(ReadArgDelim1Caller(bracket[0], current_arg))
                 else:
                     calls.append(ReadArgDelim2Caller(bracket, current_arg))
+                arg_count += 1
                 bracket = []
                 if p is None:
                     break
             else:
                 bracket.append(p)
-    return calls
+    return calls, arg_count
+
+
+def _compileReplacementPieces(replacement, arg_count):
+    """
+    Compile replacement tokens into a leading literal followed by
+    ``(arg_index, trailing_literal)`` pairs.
+    """
+    literal = []
+    pieces = [literal]
+    for t in replacement:
+        if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
+            if t.parameter >= arg_count:
+                raise ValueError(f"invalid parameter number: #{t.parameter+1}")
+            literal = []
+            pieces.append((t.parameter, literal))
+        else:
+            literal.append(t)
+    return pieces
 
 
 class Macro(Command):
     """
     a macro is defined by brackets and the replacement text
     """
+    __slot__ = ("pattern", "calls", "replacement", "replacement_pieces", "long", "outer", "protected", "_has_argument")
+
     def __init__(self, pattern: list, replacement: list):
         self.pattern = pattern
-        self.calls = _compileCalls(pattern)
+        self.calls, arg_count = _compileCalls(pattern)
         self.replacement = replacement
+        self.replacement_pieces = _compileReplacementPieces(replacement, arg_count)
         self.long = False
         self.outer = False
         self.protected = False
-        self._has_argument = False
-        for t in replacement:
-            if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
-                self._has_argument = True
-                break
+        self._has_argument = arg_count > 0
 
     def className(self):
         return Serializable.className(self)
@@ -326,23 +345,13 @@ class Macro(Command):
             if not self._has_argument:
                 parser.input.push(TokenListScanner(self.replacement))
             else:
-                unread = parser.input.unread
-                push = parser.input.push
-                for t in reversed(self.replacement):
-                    if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
-                        try:
-                            arg = args[t.parameter]
-                        except IndexError:
-                            raise ValueError(f"invalid parameter number: #{t.parameter+1}", parser.input.position())
-                        n = len(arg)
-                        if n == 0:
-                            continue
-                        if n == 1:
-                            unread(arg[0])
-                            continue
-                        push(TokenListScanner(arg))
-                    else:
-                        unread(t)
+                replacement = list(self.replacement_pieces[0])
+                extend = replacement.extend
+                for arg, literal in self.replacement_pieces[1:]:
+                    extend(args[arg])
+                    extend(literal)
+                if replacement:
+                    parser.input.push(TokenListScanner(replacement))
     
     def __eq__(self, other):
         if self is other:

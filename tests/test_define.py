@@ -120,6 +120,11 @@ def test_macro_definition_errors(parser):
         assert False, "Expected ValueError"
     except ValueError as e:
         assert "consecutively" in str(e)
+    try:
+        parser.parse("\\def\\a#1{#2}")
+        assert False, "Expected ValueError"
+    except ValueError as e:
+        assert "invalid parameter number" in str(e)
 
 def test_macro_expansion(collector):
     collector.parse("\\def\\a{1}\\a")

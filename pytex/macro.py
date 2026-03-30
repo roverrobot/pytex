@@ -60,6 +60,60 @@ def comapreToks(x, y):
     return x.catcode == y.catcode and x.name == y.name
 
 
+def _parameterToken(parameter):
+    t = ParameterToken("#", CATCODE.PARAMETER)
+    t.parameter = parameter
+    return t
+
+
+def _readPatternParameter(tokens, i):
+    """
+    Parse macro parameter syntax in a definition pattern.
+
+    In patterns, an escaped ``#`` coming from an outer macro expansion should
+    become a current-layer parameter introducer.
+    """
+    t = tokens[i]
+    if t.parameter is not None and t.parameter >= 0:
+        return "arg", t.parameter, i + 1
+    if t.parameter not in (None, -1):
+        return "token", t, i + 1
+    i += 1
+    if i >= len(tokens):
+        return "invalid", None, i
+    t1 = tokens[i]
+    if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
+        return "arg", int(t1.name) - 1, i + 1
+    if t1.catcode == CATCODE.PARAMETER:
+        return "hash", _parameterToken(None), i + 1
+    return "invalid", t1, i + 1
+
+
+def _readReplacementParameter(tokens, i):
+    """
+    Parse macro parameter syntax in replacement text.
+
+    The stored replacement tokens preserve what was read. During compilation we
+    only assign special meaning to explicit parameter references; escaped hashes
+    from outer expansion and plain raw hashes both behave like ordinary ``#``
+    tokens at this layer.
+    """
+    t = tokens[i]
+    if t.parameter is not None and t.parameter >= 0:
+        return "arg", t.parameter, i + 1
+    if t.parameter not in (None, -1):
+        return "token", t, i + 1
+    i += 1
+    if i >= len(tokens):
+        return "invalid", None, i
+    t1 = tokens[i]
+    if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
+        return "arg", int(t1.name) - 1, i + 1
+    if t1.catcode == CATCODE.PARAMETER:
+        return "hash", _parameterToken(None), i + 1
+    return "invalid", t1, i + 1
+
+
 class MatchStartCaller(Serializable):
     """
     a caller is a function that reads the arguments of a macro from the input stack
@@ -222,50 +276,76 @@ def _compileCalls(pattern):
     """
     calls = []
     arg_count = 0
-    p = None
     bracket = []
-    patterns = iter(pattern)
-    while True:
-        p = next(patterns, None)
-        if p is None:
+    i = 0
+    n = len(pattern)
+    expected = None
+
+    while i < n:
+        p = pattern[i]
+        if p.catcode != CATCODE.PARAMETER:
+            bracket.append(p)
+            i += 1
+            continue
+        kind, value, i = _readPatternParameter(pattern, i)
+        if kind == "hash":
+            bracket.append(value)
+            continue
+        if kind == "token":
+            bracket.append(value)
+            continue
+        if kind == "invalid":
+            raise ValueError(
+                f"invalid parameter {value.name}" if value is not None else "macro argument expected"
+            )
+        if value == 0:
+            expected = 0
             break
-        if p.catcode == CATCODE.PARAMETER:
-            if p.parameter == 0:
-                break
-            raise ValueError("macro argument must be consecutively numbered from 1")
-        bracket.append(p)
+        raise ValueError("macro argument must be consecutively numbered from 1")
+
     if bracket:
         calls.append(MatchStartCaller(bracket))
         bracket = []
-    if p is not None:
-        arg = 1
-        while True:
-            current_arg = arg
-            p = next(patterns, None)
-            if p is None or p.catcode == CATCODE.PARAMETER:
-                if p is not None:
-                    n = p.parameter
-                    if n is None:
-                        raise ValueError("macro argument expected")
-                    if n >= 9:
-                        raise ValueError("too many parameters in macro definition")
-                    if n != arg:
-                        raise ValueError("macro argument must be consecutively numbered from 1")
-                    arg += 1
-                n = len(bracket)
-                if n == 0:
-                    calls.append(ReadArgUnDelimCaller(current_arg))
-                elif n == 1:
-                    calls.append(ReadArgDelim1Caller(bracket[0], current_arg))
-                else:
-                    calls.append(ReadArgDelim2Caller(bracket, current_arg))
-                arg_count += 1
-                bracket = []
-                if p is None:
-                    break
-            else:
+    if expected is None:
+        return calls, arg_count
+
+    while True:
+        has_next = False
+        while i < n:
+            p = pattern[i]
+            if p.catcode != CATCODE.PARAMETER:
                 bracket.append(p)
-    return calls, arg_count
+                i += 1
+                continue
+            kind, value, i = _readPatternParameter(pattern, i)
+            if kind == "hash":
+                bracket.append(value)
+                continue
+            if kind == "token":
+                bracket.append(value)
+                continue
+            if kind == "invalid":
+                raise ValueError(
+                    f"invalid parameter {value.name}" if value is not None else "macro argument expected"
+                )
+            if value >= 9:
+                raise ValueError("too many parameters in macro definition")
+            if value != expected + 1:
+                raise ValueError("macro argument must be consecutively numbered from 1")
+            has_next = True
+            break
+        width = len(bracket)
+        if width == 0:
+            calls.append(ReadArgUnDelimCaller(expected + 1))
+        elif width == 1:
+            calls.append(ReadArgDelim1Caller(bracket[0], expected + 1))
+        else:
+            calls.append(ReadArgDelim2Caller(bracket, expected + 1))
+        arg_count += 1
+        bracket = []
+        if not has_next:
+            return calls, arg_count
+        expected += 1
 
 
 def _compileReplacementPieces(replacement, arg_count):
@@ -275,14 +355,29 @@ def _compileReplacementPieces(replacement, arg_count):
     """
     literal = []
     pieces = [literal]
-    for t in replacement:
-        if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
-            if t.parameter >= arg_count:
-                raise ValueError(f"invalid parameter number: #{t.parameter+1}")
-            literal = []
-            pieces.append((t.parameter, literal))
-        else:
+    i = 0
+    n = len(replacement)
+    while i < n:
+        t = replacement[i]
+        if t.catcode != CATCODE.PARAMETER:
             literal.append(t)
+            i += 1
+            continue
+        kind, value, i = _readReplacementParameter(replacement, i)
+        if kind == "hash":
+            literal.append(value)
+            continue
+        if kind == "token":
+            literal.append(value)
+            continue
+        if kind == "invalid":
+            raise ValueError(
+                f"invalid parameter {value.name}" if value is not None else "invalid parameter"
+            )
+        if value >= arg_count:
+            raise ValueError(f"invalid parameter number: #{value+1}")
+        literal = []
+        pieces.append((value, literal))
     return pieces
 
 
@@ -343,7 +438,7 @@ class Macro(Command):
         # only if the replacement text is not empty
         if self.replacement:
             if not self._has_argument:
-                parser.input.push(TokenListScanner(self.replacement))
+                parser.input.push(TokenListScanner(self.replacement_pieces[0]))
             else:
                 replacement = list(self.replacement_pieces[0])
                 extend = replacement.extend
@@ -386,8 +481,8 @@ class MacroAccessor(EquitableAccessor):
         """
         # read the brackets
         tail = None
-        pattern, end = parser.readTo(CATCODE.BEGIN_GROUP, expand=False, macro_body=True)
-        if pattern and pattern[-1].catcode == CATCODE.PARAMETER and pattern[-1].parameter is None:
+        pattern, end = parser.readTo(CATCODE.BEGIN_GROUP, expand=False)
+        if pattern and pattern[-1].catcode == CATCODE.PARAMETER:
             pattern.pop()
             pattern.append(end)
             tail = end
@@ -395,7 +490,7 @@ class MacroAccessor(EquitableAccessor):
         replacement, _end = parser.readTo(
             CATCODE.END_GROUP,
             expand=self.expand_body,
-            macro_body=True,
+            escape_expanded_parameters=self.expand_body,
         )
         if tail:
             replacement.append(tail)

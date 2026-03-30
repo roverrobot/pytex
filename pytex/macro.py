@@ -9,6 +9,7 @@ from pytex.define import EquitableAccessor
 from pytex.module import Module
 from pytex.lexer import TokenListScanner
 from pytex.serialization import Serializable
+from pytex import toks
 
 
 def _matchDelimited(parser, macro, bracket, bracket_len):
@@ -74,9 +75,11 @@ def _readPatternParameter(tokens, i):
     become a current-layer parameter introducer.
     """
     t = tokens[i]
-    if t.parameter is not None and t.parameter >= 0:
-        return "arg", t.parameter, i + 1
-    if t.parameter not in (None, -1):
+    if t.parameter is not None:
+        if t.parameter >= 0:
+            return "arg", t.parameter, i + 1
+        if t.parameter == -1:
+            return "token", t, i + 1
         return "token", t, i + 1
     i += 1
     if i >= len(tokens):
@@ -99,9 +102,11 @@ def _readReplacementParameter(tokens, i):
     tokens at this layer.
     """
     t = tokens[i]
-    if t.parameter is not None and t.parameter >= 0:
-        return "arg", t.parameter, i + 1
-    if t.parameter not in (None, -1):
+    if t.parameter is not None:
+        if t.parameter >= 0:
+            return "arg", t.parameter, i + 1
+        if t.parameter == -1:
+            return "hash", _parameterToken(None), i + 1
         return "token", t, i + 1
     i += 1
     if i >= len(tokens):
@@ -481,8 +486,16 @@ class MacroAccessor(EquitableAccessor):
         """
         # read the brackets
         tail = None
-        pattern, end = parser.readTo(CATCODE.BEGIN_GROUP, expand=False)
-        if pattern and pattern[-1].catcode == CATCODE.PARAMETER:
+        pattern, end = parser.readTo(
+            CATCODE.BEGIN_GROUP,
+            expand=False,
+            builder=toks.MacroBodyBuilder(parser),
+        )
+        if (
+            pattern and
+            pattern[-1].catcode == CATCODE.PARAMETER and
+            getattr(pattern[-1], "parameter", None) is None
+        ):
             pattern.pop()
             pattern.append(end)
             tail = end
@@ -490,7 +503,7 @@ class MacroAccessor(EquitableAccessor):
         replacement, _end = parser.readTo(
             CATCODE.END_GROUP,
             expand=self.expand_body,
-            escape_expanded_parameters=self.expand_body,
+            builder=toks.MacroBodyBuilder(parser),
         )
         if tail:
             replacement.append(tail)

@@ -46,21 +46,18 @@ def test_macro_definition(parser):
     a = parser.lookup("\\a")
     assert a is not None
     assert a.calls == [macro.ReadArgUnDelimCaller(1)]
-    assert len(a.replacement) == 2
+    assert len(a.replacement) == 1
     assert a.replacement[0].catcode == CATCODE.PARAMETER
-    assert a.replacement[0].parameter is None
-    assert a.replacement[1].name == "1"
+    assert a.replacement[0].parameter == 0
     parser.parse("\\def\\a#1#2{#1#2}")
     a = parser.lookup("\\a")
     assert a is not None
     assert a.calls == [macro.ReadArgUnDelimCaller(1), macro.ReadArgUnDelimCaller(2)]
-    assert len(a.replacement) == 4
+    assert len(a.replacement) == 2
     assert a.replacement[0].catcode == CATCODE.PARAMETER
-    assert a.replacement[0].parameter is None
-    assert a.replacement[1].name == "1"
-    assert a.replacement[2].catcode == CATCODE.PARAMETER
-    assert a.replacement[2].parameter is None
-    assert a.replacement[3].name == "2"
+    assert a.replacement[0].parameter == 0
+    assert a.replacement[1].catcode == CATCODE.PARAMETER
+    assert a.replacement[1].parameter == 1
     assert a.meaning(parser) == "#1#2->#1#2"
     parser.parse("\\def\\a12 {1}")
     a = parser.lookup("\\a")
@@ -97,19 +94,16 @@ def test_macro_definition(parser):
     assert a.calls == [
         macro.ReadArgDelim1Caller(Token("{", CATCODE.BEGIN_GROUP), 1)
     ]
-    assert len(a.replacement) == 3
+    assert len(a.replacement) == 2
     assert a.replacement[0].catcode == CATCODE.PARAMETER
-    assert a.replacement[0].parameter is None
-    assert a.replacement[1].name == "1"
-    assert a.replacement[2].catcode == CATCODE.BEGIN_GROUP
+    assert a.replacement[0].parameter == 0
+    assert a.replacement[1].catcode == CATCODE.BEGIN_GROUP
     parser.parse("\\def\\a{##}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.replacement) == 2
+    assert len(a.replacement) == 1
     assert a.replacement[0].catcode == CATCODE.PARAMETER
-    assert a.replacement[0].parameter is None
-    assert a.replacement[1].catcode == CATCODE.PARAMETER
-    assert a.replacement[1].parameter is None
+    assert a.replacement[0].parameter == -1
     assert a.meaning(parser) == "->##"
 
 
@@ -203,6 +197,25 @@ def test_edef_expanded_hash_still_belongs_to_current_definition(parser):
         assert False, "Expected ValueError"
     except ValueError as e:
         assert "parameter" in str(e)
+
+
+def test_edef_expanded_hash_minimal_error(parser):
+    try:
+        parser.parse("\\def\\b{##1}\\edef\\a{\\b}")
+        assert False, "Expected ValueError"
+    except ValueError as e:
+        assert "parameter" in str(e)
+
+
+def test_edef_the_toks_preserves_escaped_parameter(parser):
+    parser.parse("\\def\\temp{##1}\\toks0=\\expandafter{\\temp}\\edef\\a{\\the\\toks0}")
+    a = parser.lookup("\\a")
+    assert a is not None
+    assert a.meaning(parser) == "->##1"
+    assert len(a.replacement) == 2
+    assert a.replacement[0].catcode == CATCODE.PARAMETER
+    assert a.replacement[0].parameter == -1
+    assert a.replacement[1].name == "1"
 
 def test_prefixes(parser):
     parser.parse("\\def\\a{1}\\long\\def\\b{2}{\\global\\def\\c{3}}\\outer\\def\\d{4}")

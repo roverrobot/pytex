@@ -11,6 +11,66 @@ from pytex.expandable import toToks
 from pytex.define import registerdef
 
 
+def _parameterToken(parameter):
+    t = Token.token("#", CATCODE.PARAMETER)
+    t.parameter = parameter
+    return t
+
+
+def _builderClose(builder, stop):
+    if isinstance(builder, list):
+        return builder
+    return builder.close(stop)
+
+
+class ExpandBuilder:
+    """
+    Wrapper that reproduces the old ``toks.token_expand`` semantics while
+    delegating concrete tokens to an inner builder.
+    """
+    def __init__(self, parser, inner=None):
+        self.parser = parser
+        self.inner = inner
+
+    def token(self):
+        """
+        Expand a token in an expanded token list.
+        @return: the expanded token, expanded token list of \\the or
+        \\unexpanded. This is like ``parser.token_expand()``, except that it
+        does not expand protected macros.
+        """
+        parser = self.parser
+        while True:
+            t = parser.token()
+            if t is None or t.entry is None:
+                return t, None
+            if t.noexpand:
+                t.noexpand = False
+                t.definition = relax
+                return t, None
+            definition = t.definition
+            if definition is None:
+                raise ValueError(f"undefined command {t.name}", parser.input.position())
+            if definition.protected or definition.expand is None:
+                return t, None
+            if parser.tracingcommands:
+                parser.trace(t, "expand")
+            if definition.expanded:
+                return t, definition.expanded(parser)
+            t = definition.expand(parser)
+            if t:
+                return t, None
+
+    def append(self, t):
+        self.inner.append(t)
+
+    def extend(self, toks):
+        self.inner.extend(toks)
+
+    def close(self, stop):
+        return _builderClose(self.inner, stop)
+
+
 def token_expand(parser):
     """
     expand a token in an expanded token list
@@ -19,29 +79,62 @@ def token_expand(parser):
     @return: the expanded token, expanded token list of \\the or \\unexpanded
     this is like parser.token_expand(), except that it does not expand protected macros.
     """
-    while True:
-        t = parser.token()
-        if t is None or t.entry is None:
-            return t, None
-        if t.noexpand:
-            t.noexpand = False
-            t.definition = relax
-            return t, None
-        definition = t.definition
-        if definition is None:
-            raise ValueError(f"undefined command {t.name}", parser.input.position())
-        if definition.protected or definition.expand is None:
-            return t, None
-        if parser.tracingcommands:
-            parser.trace(t, "expand")
-        if definition.expanded:
-            return t, definition.expanded(parser)
-        t = definition.expand(parser)
-        if t:
-            return t, None
+    return ExpandBuilder(parser).token()
 
 
-def readTo(parser, stop, toks=None, expand: bool = False, macro_body: bool = False):
+class MacroBodyBuilder:
+    """
+    Builder that normalizes direct-input ``#`` syntax while preserving hashes
+    that arrived via expanded token lists.
+    """
+    def __init__(self, parser, toks=None):
+        self.parser = parser
+        self.toks = [] if toks is None else toks
+        self.pending_parameter = False
+
+    def _invalid(self, t=None):
+        parser = self.parser
+        if t is None:
+            raise ValueError("invalid parameter", parser.input.position())
+        raise ValueError(f"invalid parameter {t.name}", parser.input.position())
+
+    def append(self, t):
+        if not self.pending_parameter:
+            if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
+                self.pending_parameter = True
+                return
+            self.toks.append(t)
+            return
+        if t.catcode == CATCODE.OTHER and ("1" <= t.name <= "9"):
+            self.toks.append(_parameterToken(int(t.name) - 1))
+            self.pending_parameter = False
+            return
+        if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
+            self.toks.append(_parameterToken(-1))
+            self.pending_parameter = False
+            return
+        self._invalid(t)
+
+    def extend(self, toks):
+        if self.pending_parameter and toks:
+            self._invalid(toks[0])
+        for t in toks:
+            if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
+                self.toks.append(_parameterToken(-1))
+            else:
+                self.toks.append(t)
+
+    def close(self, stop):
+        if self.pending_parameter:
+            if stop == CATCODE.BEGIN_GROUP:
+                self.toks.append(_parameterToken(None))
+            else:
+                self._invalid()
+            self.pending_parameter = False
+        return self.toks
+
+
+def readTo(parser, stop, toks=None, expand: bool = False, builder=None):
     """
     Read tokens until a stop catcode is found.
 
@@ -49,57 +142,40 @@ def readTo(parser, stop, toks=None, expand: bool = False, macro_body: bool = Fal
     @param stop: the catcode that terminates the read
     @param toks: the list to read into
     @param expand: whether to expand tokens while reading
-    @param macro_body: whether to parse #1..#9 / ## in the token stream
     @return: (tokens, end_token)
     """
-    if toks is None:
-        toks = []
-    append = toks.append
-    extend = toks.extend
-    token_factory = Token.token
+    if builder is None:
+        builder = [] if toks is None else toks
+    if expand:
+        builder = ExpandBuilder(parser, builder)
     level = 0
 
     while True:
         if expand:
-            t, expanded = token_expand(parser)
+            t, expanded = builder.token()
         else:
             t = parser.token()
             expanded = None
         if t is None:
             miss = "{" if stop == CATCODE.BEGIN_GROUP else "}"
             raise ValueError(f"expecting {miss}", parser.input.position())
+        if expanded is not None:
+            builder.extend(expanded)
+            continue
         catcode = t.catcode
         if catcode == stop and level == 0:
-            return toks, t
-        if expanded is not None:
-            extend(expanded)
-            continue
+            return _builderClose(builder, stop), t
         if catcode == CATCODE.BEGIN_GROUP:
             level += 1
-            append(t)
+            builder.append(t)
             continue
         if catcode == CATCODE.END_GROUP:
             level -= 1
             if level < 0:
                 raise ValueError("expecting }", parser.input.position())
-            append(t)
+            builder.append(t)
             continue
-        if macro_body and catcode == CATCODE.PARAMETER:
-            t = token_factory(t.name, CATCODE.PARAMETER)
-            if expand:
-                t1, _expanded = token_expand(parser)
-            else:
-                t1 = parser.token()
-            if t1 is None:
-                raise ValueError("invalid parameter", parser.input.position())
-            if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
-                t.parameter = int(t1.name) - 1
-            elif t1.catcode == CATCODE.BEGIN_GROUP:
-                append(t)
-                return toks, t1
-            elif t1.catcode != CATCODE.PARAMETER:
-                raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
-        append(t)
+        builder.append(t)
 
 
 def skipFiller(parser):

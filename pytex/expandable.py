@@ -212,9 +212,9 @@ def tokenToString(parser, token, expanded: bool = False):
     if token.catcode is None:
         return formatName(parser, token.name)
     if token.catcode == CATCODE.PARAMETER:
-        if expanded:
-            return "#" if token.parameter is None else "#" + str(token.parameter + 1)
-        return "##" if token.parameter is None else "#" + str(token.parameter+1)
+        if expanded and token.parameter == -1:
+            return "#"
+        return repr(token)
     return token.name
 
 

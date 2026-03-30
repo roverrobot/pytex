@@ -334,10 +334,12 @@ class ParameterToken(Token):
         """
         return f"macro parameter character {self.name}"
 
-    def toString(self, parser):
+    def __repr__(self):
         if self.parameter is None:
+            return "#"
+        if self.parameter < 0:
             return "##"
-        return "#" + str(self.parameter+1)
+        return "#" + str(self.parameter + 1)
 
 
 class SpaceToken(Token):

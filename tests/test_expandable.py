@@ -88,6 +88,11 @@ def test_string_parameter_token(collector):
 
 def test_toks_to_string_expanded_flag(parser):
     t = ParameterToken("#", CATCODE.PARAMETER)
+    assert parser.tokenToString(t) == "#"
+    assert parser.tokenToString(t, expanded=True) == "#"
+    assert parser.toksToString([t]) == "#"
+    assert parser.toksToString([t], expanded=True) == "#"
+    t.parameter = -1
     assert parser.tokenToString(t) == "##"
     assert parser.tokenToString(t, expanded=True) == "#"
     assert parser.toksToString([t]) == "##"

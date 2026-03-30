@@ -11,78 +11,6 @@ from pytex.lexer import TokenListScanner
 from pytex.serialization import Serializable
 
 
-class MacroScanner:
-    """
-    a scanner for expanding the macro replacement text
-    """
-    def __init__(self, replacement, args):
-        # stack of suspended macro-expansion frames
-        self.frames = []
-        # Read tokens from replacement text and temporarily switch to argument
-        # token lists when encountering #1..#9 placeholders.
-        self.active = None
-        self.pending = None
-        self.resume = None
-        self.args = []
-        self.pushExpansion(replacement, args)
-
-    position = None
-    def pushExpansion(self, replacement, args):
-        """
-        push a macro expansion frame
-        """
-        if self.active is not None:
-            # Tail-call optimization: if there is no continuation in this scanner,
-            # replace the active frame instead of saving it.
-            if self.resume is not None:
-                self.frames.append((self.active, self.pending, self.resume, self.args))
-            else:
-                if self.pending is None:
-                    self.pending = next(self.active, None)
-                if self.pending is not None:
-                    self.frames.append((self.active, self.pending, self.resume, self.args))
-        self.active = iter(replacement)
-        self.pending = None
-        self.resume = None
-        self.args = args
-
-    def read(self):
-        """
-        read the next token from the replacement text
-
-        handle arguments and ## in the replacement text
-        """
-        while True:
-            if self.pending is not None:
-                t = self.pending
-                self.pending = None
-            else:
-                t = next(self.active, None)
-                if t is None:
-                    if self.resume is not None:
-                        self.active = self.resume
-                        self.resume = None
-                        self.pending = None
-                        continue
-                    if self.frames:
-                        self.active, self.pending, self.resume, self.args = self.frames.pop()
-                        continue
-                    return None
-
-            # check if t represent a parameter
-            if t.catcode == CATCODE.PARAMETER and t.parameter is not None and self.resume is None:
-                try:
-                    args = self.args[t.parameter]
-                except IndexError:
-                    raise ValueError(f"invalid parameter number: #{t.parameter+1}", self.parser.input.position())
-                if args:
-                    self.resume = self.active
-                    self.active = iter(args)
-                # if the argument is empty, continue reading the replacement
-                continue
-            return t
-
-
 def _matchDelimited(parser, macro, bracket, bracket_len):
     """
     Match the next delimiter in a macro parameter list.
@@ -398,11 +326,23 @@ class Macro(Command):
             if not self._has_argument:
                 parser.input.push(TokenListScanner(self.replacement))
             else:
-                top = parser.input.top
-                if isinstance(top, MacroScanner) and not parser.input.saved:
-                    top.pushExpansion(self.replacement, args)
-                else:
-                    parser.input.push(MacroScanner(self.replacement, args))
+                unread = parser.input.unread
+                push = parser.input.push
+                for t in reversed(self.replacement):
+                    if t.catcode == CATCODE.PARAMETER and t.parameter is not None:
+                        try:
+                            arg = args[t.parameter]
+                        except IndexError:
+                            raise ValueError(f"invalid parameter number: #{t.parameter+1}", parser.input.position())
+                        n = len(arg)
+                        if n == 0:
+                            continue
+                        if n == 1:
+                            unread(arg[0])
+                            continue
+                        push(TokenListScanner(arg))
+                    else:
+                        unread(t)
     
     def __eq__(self, other):
         if self is other:

@@ -25,8 +25,7 @@ def _init_math_fonts(parser):
 def test_show_reports_meaning(parser):
     parser.parse("\\def\\foo{a}\\show\\foo")
     log = parser.logContent()
-    assert "> \\foo=" in log
-    assert "macro:" in log
+    assert "> \\foo=->a" in log
 
 
 def test_showthe_reports_expanded_value(parser):

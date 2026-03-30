@@ -114,7 +114,7 @@ def test_macro_definition_errors(parser):
         parser.parse("\\def\\a1#12#2{")
         assert False, "Expected ValueError"
     except ValueError as e:
-        assert "unbalanced" in str(e)
+        assert "expecting }" in str(e)
     try:
         parser.parse("\\def\\a1#2{}")
         assert False, "Expected ValueError"

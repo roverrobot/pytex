@@ -524,7 +524,7 @@ class ReadlineOp(file.ReadOp):
         if 0 <= endlinechar <= 255:
             line = line + chr(endlinechar)
         toks = expandable.toToks(line)
-        m = macro.Macro([[]], toks)
+        m = macro.Macro([], toks)
         m.name = self.key
         return m
 

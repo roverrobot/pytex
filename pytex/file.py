@@ -210,7 +210,7 @@ class ReadOp(Accessor):
         if not done:
             file.close()
             parser.globals["openin"][self.file_id] = None
-        m = macro.Macro([[]], tokens)
+        m = macro.Macro([], tokens)
         m.name = self.key
         return m
 

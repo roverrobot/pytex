@@ -66,7 +66,8 @@ def readTo(parser, stop, toks=None, expand: bool = False, macro_body: bool = Fal
             t = parser.token()
             expanded = None
         if t is None:
-            raise ValueError("unbalanced token list", parser.input.position())
+            miss = "{" if stop == CATCODE.BEGIN_GROUP else "}"
+            raise ValueError(f"expecting {miss}", parser.input.position())
         catcode = t.catcode
         if catcode == stop and level == 0:
             return toks, t
@@ -80,7 +81,7 @@ def readTo(parser, stop, toks=None, expand: bool = False, macro_body: bool = Fal
         if catcode == CATCODE.END_GROUP:
             level -= 1
             if level < 0:
-                raise ValueError("unbalanced token list", parser.input.position())
+                raise ValueError("expecting }", parser.input.position())
             append(t)
             continue
         if macro_body and catcode == CATCODE.PARAMETER:
@@ -93,6 +94,9 @@ def readTo(parser, stop, toks=None, expand: bool = False, macro_body: bool = Fal
                 raise ValueError("invalid parameter", parser.input.position())
             if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
                 t.parameter = int(t1.name) - 1
+            elif t1.catcode == CATCODE.BEGIN_GROUP:
+                append(t)
+                return toks, t1
             elif t1.catcode != CATCODE.PARAMETER:
                 raise ValueError(f"invalid parameter {t1.name}", parser.input.position())
         append(t)

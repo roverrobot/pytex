@@ -1,5 +1,5 @@
 import pytest
-from pytex.token import CATCODE
+from pytex.token import CATCODE, Token
 from pytex import macro
 from tests import checkValues
 
@@ -39,71 +39,70 @@ def test_macro_definition(parser):
     parser.parse("\\def\\a   {1}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.brackets) == 1
-    assert len(a.brackets[0]) == 0
+    assert len(a.calls) == 0
     assert len(a.replacement) == 1
     assert a.replacement[0].name == "1"
     parser.parse("\\def\\a#1{#1}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.brackets) == 2
-    assert len(a.brackets[0]) == 0
-    assert len(a.brackets[1]) == 0
+    assert a.calls == [macro.ReadArgUnDelimCaller(1)]
     assert len(a.replacement) == 1
     assert a.replacement[0].catcode == CATCODE.PARAMETER
     assert a.replacement[0].parameter == 0
     parser.parse("\\def\\a#1#2{#1#2}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.brackets) == 3
-    assert len(a.brackets[0]) == 0
-    assert len(a.brackets[1]) == 0
-    assert len(a.brackets[2]) == 0
+    assert a.calls == [macro.ReadArgUnDelimCaller(1), macro.ReadArgUnDelimCaller(2)]
     assert len(a.replacement) == 2
     assert a.replacement[0].catcode == CATCODE.PARAMETER
     assert a.replacement[0].parameter == 0
     assert a.replacement[1].catcode == CATCODE.PARAMETER
     assert a.replacement[1].parameter == 1
+    assert a.meaning(parser) == "#1#2->#1#2"
     parser.parse("\\def\\a12 {1}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.brackets) == 1
-    assert len(a.brackets[0]) == 3
-    assert a.brackets[0][0].name == "1"
-    assert a.brackets[0][1].name == "2"
-    assert a.brackets[0][2].name == " "
+    assert a.calls == [
+        macro.MatchStartCaller([
+            Token("1", CATCODE.OTHER), 
+            Token("2", CATCODE.OTHER), 
+            Token(" ", CATCODE.SPACE)
+        ])
+    ]
     assert len(a.replacement) == 1
     assert a.replacement[0].name == "1"
     parser.parse("\\def\\a1#12{}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.brackets) == 2
-    assert len(a.brackets[0]) == 1
-    assert a.brackets[0][0].name == "1"
-    assert len(a.brackets[1]) == 1
-    assert a.brackets[1][0].name == "2"
+    assert a.calls == [
+        macro.MatchStartCaller([Token("1", CATCODE.OTHER)]),
+        macro.ReadArgDelim1Caller(Token("2", CATCODE.OTHER), 1),
+    ]
     assert len(a.replacement) == 0
     parser.parse("\\def\\a1#12#2{}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.brackets) == 3
-    assert len(a.brackets[0]) == 1
-    assert a.brackets[0][0].name == "1"
-    assert len(a.brackets[1]) == 1
-    assert a.brackets[1][0].name == "2"
-    assert len(a.brackets[2]) == 0
+    assert a.calls == [
+        macro.MatchStartCaller([Token("1", CATCODE.OTHER)]),
+        macro.ReadArgDelim1Caller(Token("2", CATCODE.OTHER), 1),
+        macro.ReadArgUnDelimCaller(2)
+    ]
     assert len(a.replacement) == 0
     parser.parse("\\def\\a#1#{#1}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert len(a.brackets) == 2
-    assert len(a.brackets[0]) == 0
-    assert len(a.brackets[1]) == 1
-    assert a.brackets[1][0].catcode == CATCODE.BEGIN_GROUP
+    assert a.calls == [
+        macro.ReadArgDelim1Caller(Token("{", CATCODE.BEGIN_GROUP), 1)
+    ]
     assert len(a.replacement) == 2
     assert a.replacement[0].catcode == CATCODE.PARAMETER
     assert a.replacement[0].parameter == 0
     assert a.replacement[1].catcode == CATCODE.BEGIN_GROUP
+
+
+def test_macro_equality(parser):
+    parser.parse("\\def\\a#1{#1}\\def\\b#1{#1}")
+    assert parser.lookup("\\a") == parser.lookup("\\b")
 
 def test_macro_definition_errors(parser):
     try:

@@ -67,56 +67,76 @@ def _parameterToken(parameter):
     return t
 
 
+class MacroBodyBuilder:
+    """
+    Builder that normalizes direct-input ``#`` syntax while leaving token-list
+    inserts untouched.
+    """
+    def __init__(self, parser, toks=None):
+        self.parser = parser
+        self.toks = [] if toks is None else toks
+        self.pending_parameter = False
+
+    def _invalid(self, t=None):
+        parser = self.parser
+        if t is None:
+            raise ValueError("invalid parameter", parser.input.position())
+        raise ValueError(f"invalid parameter {t.name}", parser.input.position())
+
+    def append(self, t):
+        if not self.pending_parameter:
+            if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
+                self.pending_parameter = True
+                return
+            self.toks.append(t)
+            return
+        if t.catcode == CATCODE.OTHER and ("1" <= t.name <= "9"):
+            self.toks.append(_parameterToken(int(t.name) - 1))
+            self.pending_parameter = False
+            return
+        if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
+            self.toks.append(_parameterToken(-1))
+            self.pending_parameter = False
+            return
+        self._invalid(t)
+
+    def extend(self, toks):
+        if self.pending_parameter and toks:
+            self._invalid(toks[0])
+        self.toks.extend(toks)
+
+    def close(self, stop):
+        if self.pending_parameter:
+            if stop == CATCODE.BEGIN_GROUP:
+                self.toks.append(_parameterToken(None))
+            else:
+                self._invalid()
+            self.pending_parameter = False
+        return self.toks
+
+
 def _readPatternParameter(tokens, i):
     """
-    Parse macro parameter syntax in a definition pattern.
-
-    In patterns, an escaped ``#`` coming from an outer macro expansion should
-    become a current-layer parameter introducer.
+    Read a normalized parameter marker in a definition pattern.
     """
     t = tokens[i]
-    if t.parameter is not None:
-        if t.parameter >= 0:
-            return "arg", t.parameter, i + 1
-        if t.parameter == -1:
-            return "token", t, i + 1
+    if t.parameter is None:
         return "token", t, i + 1
-    i += 1
-    if i >= len(tokens):
-        return "invalid", None, i
-    t1 = tokens[i]
-    if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
-        return "arg", int(t1.name) - 1, i + 1
-    if t1.catcode == CATCODE.PARAMETER:
-        return "hash", _parameterToken(None), i + 1
-    return "invalid", t1, i + 1
+    if t.parameter >= 0:
+        return "arg", t.parameter, i + 1
+    return "token", t, i + 1
 
 
 def _readReplacementParameter(tokens, i):
     """
-    Parse macro parameter syntax in replacement text.
-
-    The stored replacement tokens preserve what was read. During compilation we
-    only assign special meaning to explicit parameter references; escaped hashes
-    from outer expansion and plain raw hashes both behave like ordinary ``#``
-    tokens at this layer.
+    Read a normalized parameter marker in replacement text.
     """
     t = tokens[i]
-    if t.parameter is not None:
-        if t.parameter >= 0:
-            return "arg", t.parameter, i + 1
-        if t.parameter == -1:
-            return "hash", _parameterToken(None), i + 1
+    if t.parameter is None:
         return "token", t, i + 1
-    i += 1
-    if i >= len(tokens):
-        return "invalid", None, i
-    t1 = tokens[i]
-    if t1.catcode == CATCODE.OTHER and ("1" <= t1.name <= "9"):
-        return "arg", int(t1.name) - 1, i + 1
-    if t1.catcode == CATCODE.PARAMETER:
-        return "hash", _parameterToken(None), i + 1
-    return "invalid", t1, i + 1
+    if t.parameter >= 0:
+        return "arg", t.parameter, i + 1
+    return "hash", _parameterToken(None), i + 1
 
 
 class MatchStartCaller(Serializable):
@@ -422,12 +442,25 @@ class Macro(Command):
         """
         return cls(**kwargs)
 
+    def _toksToString(self, parser, tokens):
+        parts = []
+        for token in tokens:
+            if token.catcode == CATCODE.PARAMETER:
+                parameter = getattr(token, "parameter", None)
+                s = f"#{parameter + 1}" if parameter is not None and parameter >= 0 else "##"
+            else:
+                s = parser.tokenToString(token)
+            if token.catcode is None:
+                s += " "
+            parts.append(s)
+        return "".join(parts)
+
     def meaning(self, parser):
         long = "\\long " if self.long else ""
         outer = "\\outer " if self.outer else ""
         protected = "\\protected " if self.protected else ""
-        args = parser.toksToString(self.pattern)
-        s = f"{long}{outer}{protected}{args}->{parser.toksToString(self.replacement)}"
+        args = self._toksToString(parser, self.pattern)
+        s = f"{long}{outer}{protected}{args}->{self._toksToString(parser, self.replacement)}"
         return s
     
     def expand(self, parser):
@@ -489,7 +522,7 @@ class MacroAccessor(EquitableAccessor):
         pattern, end = parser.readTo(
             CATCODE.BEGIN_GROUP,
             expand=False,
-            builder=toks.MacroBodyBuilder(parser),
+            builder=MacroBodyBuilder(parser),
         )
         if (
             pattern and
@@ -503,7 +536,7 @@ class MacroAccessor(EquitableAccessor):
         replacement, _end = parser.readTo(
             CATCODE.END_GROUP,
             expand=self.expand_body,
-            builder=toks.MacroBodyBuilder(parser),
+            builder=MacroBodyBuilder(parser),
         )
         if tail:
             replacement.append(tail)

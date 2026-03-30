@@ -10,27 +10,12 @@ from pytex import accessor
 from pytex.expandable import toToks
 from pytex.define import registerdef
 
-
-def _parameterToken(parameter):
-    t = Token.token("#", CATCODE.PARAMETER)
-    t.parameter = parameter
-    return t
-
-
-def _builderClose(builder, stop):
-    if isinstance(builder, list):
-        return builder
-    return builder.close(stop)
-
-
 class ExpandBuilder:
     """
-    Wrapper that reproduces the old ``toks.token_expand`` semantics while
-    delegating concrete tokens to an inner builder.
+    Wrapper that reproduces the old token-list expansion semantics.
     """
-    def __init__(self, parser, inner=None):
+    def __init__(self, parser):
         self.parser = parser
-        self.inner = inner
 
     def token(self):
         """
@@ -61,66 +46,6 @@ class ExpandBuilder:
             if t:
                 return t, None
 
-    def append(self, t):
-        self.inner.append(t)
-
-    def extend(self, toks):
-        self.inner.extend(toks)
-
-    def close(self, stop):
-        return _builderClose(self.inner, stop)
-
-class MacroBodyBuilder:
-    """
-    Builder that normalizes direct-input ``#`` syntax while preserving hashes
-    that arrived via expanded token lists.
-    """
-    def __init__(self, parser, toks=None):
-        self.parser = parser
-        self.toks = [] if toks is None else toks
-        self.pending_parameter = False
-
-    def _invalid(self, t=None):
-        parser = self.parser
-        if t is None:
-            raise ValueError("invalid parameter", parser.input.position())
-        raise ValueError(f"invalid parameter {t.name}", parser.input.position())
-
-    def append(self, t):
-        if not self.pending_parameter:
-            if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
-                self.pending_parameter = True
-                return
-            self.toks.append(t)
-            return
-        if t.catcode == CATCODE.OTHER and ("1" <= t.name <= "9"):
-            self.toks.append(_parameterToken(int(t.name) - 1))
-            self.pending_parameter = False
-            return
-        if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
-            self.toks.append(_parameterToken(-1))
-            self.pending_parameter = False
-            return
-        self._invalid(t)
-
-    def extend(self, toks):
-        if self.pending_parameter and toks:
-            self._invalid(toks[0])
-        for t in toks:
-            if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
-                self.toks.append(_parameterToken(-1))
-            else:
-                self.toks.append(t)
-
-    def close(self, stop):
-        if self.pending_parameter:
-            if stop == CATCODE.BEGIN_GROUP:
-                self.toks.append(_parameterToken(None))
-            else:
-                self._invalid()
-            self.pending_parameter = False
-        return self.toks
-
 
 def readTo(parser, stop, toks=None, expand: bool = False, builder=None):
     """
@@ -134,15 +59,18 @@ def readTo(parser, stop, toks=None, expand: bool = False, builder=None):
     """
     if builder is None:
         builder = [] if toks is None else toks
+    expander = ExpandBuilder(parser) if expand else None
     if expand:
-        builder = ExpandBuilder(parser, builder)
+        token = expander.token
+    else:
+        token = parser.token
     level = 0
 
     while True:
         if expand:
-            t, expanded = builder.token()
+            t, expanded = token()
         else:
-            t = parser.token()
+            t = token()
             expanded = None
         if t is None:
             miss = "{" if stop == CATCODE.BEGIN_GROUP else "}"
@@ -152,7 +80,9 @@ def readTo(parser, stop, toks=None, expand: bool = False, builder=None):
             continue
         catcode = t.catcode
         if catcode == stop and level == 0:
-            return _builderClose(builder, stop), t
+            if hasattr(builder, "close"):
+                builder = builder.close(stop)
+            return builder, t
         if catcode == CATCODE.BEGIN_GROUP:
             level += 1
             builder.append(t)

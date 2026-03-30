@@ -214,7 +214,7 @@ def test_edef_the_toks_preserves_escaped_parameter(parser):
     assert a.meaning(parser) == "->##1"
     assert len(a.replacement) == 2
     assert a.replacement[0].catcode == CATCODE.PARAMETER
-    assert a.replacement[0].parameter == -1
+    assert a.replacement[0].parameter is None
     assert a.replacement[1].name == "1"
 
 def test_prefixes(parser):
@@ -266,7 +266,7 @@ def test_xdef_errors(parser):
         assert "defined" in str(e)
 
 def test_protected(collector):
-    collector.parse("\\toks0={\\a}\edef\\b{\\the\\toks0}\\def\\a{1}\\b")
+    collector.parse(r"\toks0={\a}\edef\b{\the\toks0}\def\a{1}\b")
     assert collector.getString() == "1"
     b = collector.lookup("\\b")
     assert b is not None
@@ -280,6 +280,6 @@ def test_ignore(collector):
     assert collector.getString() == "1 "
 
 def test_macro_balanced(parser):
-    parser.parse("\\catcode`\^^@=2 \\catcode`:=11 \\catcode`_=11 \\catcode32=9\\def\\a{ \\exp:w \\if_false: { \\fi: `^^@ \\exp_stop_f: }")
+    parser.parse(r"\catcode`\^^@=2 \catcode`:=11 \catcode`_=11 \catcode32=9\def\a{ \exp:w \if_false: { \fi: `^^@ \exp_stop_f: }")
     a = parser.lookup("\\a")
     assert len(a.replacement) == 7

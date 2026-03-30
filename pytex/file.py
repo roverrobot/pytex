@@ -138,8 +138,9 @@ class WriteOp(FileOp):
         pushFileScan(parser, TokenListScanner(self.tokens))
         file = self.file(parser)
         tokens = []
+        expander = toks.ExpandBuilder(parser)
         while True:
-            t, expanded = toks.token_expand(parser)
+            t, expanded = expander.token()
             if isinstance(t, EndFileScanToken):
                 popFileScan(parser)
                 break

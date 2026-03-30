@@ -70,18 +70,6 @@ class ExpandBuilder:
     def close(self, stop):
         return _builderClose(self.inner, stop)
 
-
-def token_expand(parser):
-    """
-    expand a token in an expanded token list
-    @param parser: the parser
-    @param token: the token to expand
-    @return: the expanded token, expanded token list of \\the or \\unexpanded
-    this is like parser.token_expand(), except that it does not expand protected macros.
-    """
-    return ExpandBuilder(parser).token()
-
-
 class MacroBodyBuilder:
     """
     Builder that normalizes direct-input ``#`` syntax while preserving hashes

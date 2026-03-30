@@ -77,7 +77,7 @@ def test_parpar(parser):
     assert toks0[0].catcode == CATCODE.PARAMETER
 
 
-def test_toks_token_expand_keeps_token_alias(parser):
+def test_expand_builder_token_keeps_token_alias(parser):
     t0 = CommandToken("\\bgroup")
     t0.definition = Token("{", CATCODE.BEGIN_GROUP)
 
@@ -88,7 +88,7 @@ def test_toks_token_expand_keeps_token_alias(parser):
         return t0
 
     parser.token = next_token
-    t, expanded = toks.token_expand(parser)
+    t, expanded = toks.ExpandBuilder(parser).token()
     assert expanded is None
     assert t is t0
 

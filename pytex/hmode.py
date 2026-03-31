@@ -150,9 +150,10 @@ class HList(lists.List):
             packed.append(n)
         state["lig_base"] = working[-1]
 
-    def __init__(self, parser, list, inner=True, raw=None):
+    def __init__(self, parser, list, inner=True, raw=None, paragraph=None):
         super().__init__(parser, list, inner)
         self.raw = [] if raw is None else raw
+        self.paragraph = paragraph
         self.sfcode = parser.sfcode
         self.type = lists.LISTTYPE.HORIZONTAL
         self._ligature_state = {"lig_base": None, "in_word": False}

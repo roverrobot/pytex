@@ -642,7 +642,7 @@ class Parser:
             parskip_node = node.Glue(self.parameters["parskip"], "\\parskip")
             parskip_node.source = para
             top.append(parskip_node)
-        self.lists.append(paragraph.ParagraphList(self, para))
+        self.lists.append(hmode.HList(self, para.list, inner=False, raw=para.raw, paragraph=para))
         if parskip:
             everypar = self.everypar.value
             if everypar:

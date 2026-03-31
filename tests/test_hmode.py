@@ -40,7 +40,10 @@ def test_new_paragraph(cmr10):
     cmr10.parse(s)
     assert len(cmr10.lists) == 2
     hlist = cmr10.lists[-1]
+    assert type(hlist) is hmode.HList
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
+    assert not hlist.inner
+    assert hlist.paragraph is not None
     # Raw nodes keep the source input, while the live list includes immediate
     # ligatures/kerns.
     raw = _raw_nodes(hlist)

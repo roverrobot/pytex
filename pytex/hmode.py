@@ -208,12 +208,13 @@ class HList(lists.List):
                 self._ligature_state["in_word"] = False
             self._ligature_state["lig_base"] = None
             self.parser.globals["spacefactor"] = 1000
-            if getattr(node, "pretypeset_in_hlist", False):
-                node.pretypeset(self.parser)
             if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
                 self.list.append(node)
                 return
-            typeset = node.typeset
+            math_typesetter = getattr(self.parser, "math_typesetter", None)
+            if math_typesetter is not None and math_typesetter.appendToHList(node, self.list):
+                return
+            typeset = getattr(node, "typeset", None)
             if typeset is None:
                 self.list.append(node)
                 return

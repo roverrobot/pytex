@@ -73,6 +73,10 @@ class VList(lists.List):
             add_interline = self.add_interline
         if node.source is None:
             self.raw.append(node)
+        math_typesetter = getattr(self.parser, "math_typesetter", None)
+        if math_typesetter is not None and math_typesetter.appendToVList(node, self):
+            self._notePageBuilder(node)
+            return
         if getattr(node, "typeset_to_vlist", False):
             node.typeset(self.parser, self)
             self._notePageBuilder(node)

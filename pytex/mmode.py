@@ -241,24 +241,37 @@ class MList(lists.List):
         super().append(node)
 
 
-class MathListHolder:
+class _MathListData:
     def __init__(self, list=None, paragraph_math=False):
         self.list = [] if list is None else list
         self.paragraph_math = paragraph_math
     
-    node_type = None # not a standard node. Needs to be expanded into boxes
+    node_type = None
 
     def saveInfo(self):
         return {}, {"list": self.list}
 
-    def _pass1Collect(self, parser, context, style):
-        """
-        Pass 1 of math typesetting.
 
-        This pass follows Appendix G Rules 1-4 and builds a normalized temporary
-        stream. Atom wrappers are emitted with an effective node_type field that
-        can be adjusted without mutating original parse nodes.
-        """
+class MathTypesetter:
+    """
+    Parser-owned math translation pipeline.
+    """
+    def __init__(self, parser):
+        self.parser = parser
+
+    def _extendExpanded(self, source, collected, expanded):
+        if not expanded:
+            collected.append(source)
+            return
+        for n in expanded:
+            if n is source:
+                continue
+            if getattr(n, "source", None) is None:
+                n.source = source
+        collected.extend(expanded)
+
+    def _pass1Collect(self, holder, context, style):
+        parser = self.parser
         if not isinstance(style, Style):
             style = Style(style)
         pass_through = {
@@ -271,7 +284,7 @@ class MathListHolder:
             nd.NODE_TYPE.INS,
         }
         collected = []
-        current = iter(self.list)
+        current = iter(holder.list)
         stack = []
         while current is not None:
             node = next(current, None)
@@ -281,28 +294,21 @@ class MathListHolder:
                 current, style = stack.pop()
                 continue
             if node.node_type in pass_through:
-                # Rule 1 pass-through nodes.
                 collected.append(node)
                 continue
             if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                # Rule 2.
                 if getattr(node, "nonscript", False):
-                    # \nonscript marker itself disappears after processing.
                     if style.style <= MATH_STYLE.S:
                         nxt = next(current, None)
                         while nxt is None and stack:
                             current, style = stack.pop()
                             nxt = next(current, None)
                         if nxt is None:
-                            # we are at the end of the list
                             break
                         if nxt.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-                            # skip the next glue or kern
                             continue
-                        # no, the next node is not a glue or kern, handle that node next
                         node = nxt
                     else:
-                        # if we are in text or display mode, do nothing
                         continue
                 elif getattr(node, "mu", False):
                     expanded = []
@@ -317,11 +323,9 @@ class MathListHolder:
                 else:
                     collected.append(node)
                     continue
-            # Rule 3: style changes update C and disappear.
             if isinstance(node, StyleNode):
                 style = node.style
                 continue
-            # Rule 4: choose branch, then continue from first node of that branch.
             if isinstance(node, ChoiceNode):
                 branch = node.branch(style)
                 if branch is not None:
@@ -332,34 +336,22 @@ class MathListHolder:
                 s = Style(style.style, style.cramped)
                 collected.append(_AtomWrapper(node, node.atom_type, s))
                 continue
-            typeset = node.typeset
+            if isinstance(node, (MathListHolder, Subformula)):
+                expanded = []
+                self.typesetHolder(node, expanded, context, style)
+                self._extendExpanded(node, collected, expanded)
+                continue
+            typeset = getattr(node, "typeset", None)
             if typeset is None:
                 collected.append(node)
                 continue
             expanded = []
             typeset(parser, expanded, context, style)
-            if not expanded:
-                collected.append(node)
-                continue
-            for n in expanded:
-                if n is node:
-                    continue
-                if getattr(n, "source", None) is None:
-                    n.source = node
-            collected.extend(expanded)
+            self._extendExpanded(node, collected, expanded)
         return collected
 
-    def _pass1AdjustAtoms(self, parser, context, collected):
-        """
-        Pass 1 atom adjustments.
-
-        This applies Rule 5/6 and Rule 14 in a single forward scan:
-        - Rule 5 may convert current Bin to Ord, then current continues to Rule 14
-        - Rule 6 may retroactively convert previous Bin to Ord, but that previous
-          item is not revisited for Rule 14
-        - Rule 14 then handles kern/ligature for the current item when applicable
-        Finally, trailing Bin becomes Ord.
-        """
+    def _pass1AdjustAtoms(self, context, collected):
+        parser = self.parser
         prev_types_for_rule5 = (ATOM_TYPE.BIN, ATOM_TYPE.OP, ATOM_TYPE.REL, ATOM_TYPE.OPEN, ATOM_TYPE.PUNCT)
         rule6_types = (ATOM_TYPE.REL, ATOM_TYPE.CLOSE, ATOM_TYPE.PUNCT)
 
@@ -379,18 +371,15 @@ class MathListHolder:
             if not isinstance(cur, _AtomWrapper):
                 i += 1
                 continue
-            # Appendix G rules 8-13 classes are emitted as Ord for spacing.
             if cur.node_type in (ATOM_TYPE.VCENT, ATOM_TYPE.OVER, ATOM_TYPE.UNDER, ATOM_TYPE.ACC, ATOM_TYPE.RAD):
                 cur.node_type = ATOM_TYPE.ORD
             try_rule14 = False
             if cur.node_type == ATOM_TYPE.BIN:
                 if prev is None or prev.node_type in prev_types_for_rule5:
-                    # Rule 5.
                     cur.node_type = ATOM_TYPE.ORD
                     try_rule14 = True
             else:
                 if cur.node_type in rule6_types and prev is not None and prev.node_type == ATOM_TYPE.BIN:
-                    # Rule 6.
                     prev.node_type = ATOM_TYPE.ORD
                 try_rule14 = cur.node_type == ATOM_TYPE.ORD
             if try_rule14 and i < len(collected) - 1:
@@ -408,7 +397,6 @@ class MathListHolder:
                         n1 = getattr(cur, "nucleus", None)
                         n2 = getattr(nxt, "nucleus", None)
                         if isinstance(n1, MathSymbol) and isinstance(n2, MathSymbol) and n1.fam == n2.fam:
-                            # Rule 14: current symbol is marked as a text symbol.
                             cur.text_symbol = True
                             font = mathfont(parser, cur.style, n1.fam)
                             c1 = font[n1.char]
@@ -434,7 +422,6 @@ class MathListHolder:
                                         text_symbol=True,
                                     )
                                 ]
-                                # Reconsider with preceding symbol for recursive ligatures.
                                 i = max(i - 1, 0)
                                 prev = previous_atom(i)
                                 continue
@@ -447,19 +434,11 @@ class MathListHolder:
                                 continue
             prev = cur
             i += 1
-        # Appendix G: trailing Bin becomes Ord.
         if prev is not None and prev.node_type == ATOM_TYPE.BIN:
             prev.node_type = ATOM_TYPE.ORD
 
-    def _rule21Penalty(self, parser, paragraph_math, current_item, next_item):
-        """
-        Appendix G Rule 21 inter-atom penalties.
-        """
-        if not paragraph_math:
-            return None
-        if next_item is None:
-            return None
-        if not isinstance(current_item, _AtomWrapper):
+    def _rule21Penalty(self, paragraph_math, current_item, next_item):
+        if not paragraph_math or next_item is None or not isinstance(current_item, _AtomWrapper):
             return None
         atom_type = current_item.node_type
         if atom_type not in (ATOM_TYPE.BIN, ATOM_TYPE.REL):
@@ -468,7 +447,7 @@ class MathListHolder:
             return None
         if atom_type == ATOM_TYPE.REL and isinstance(next_item, _AtomWrapper) and next_item.node_type == ATOM_TYPE.REL:
             return None
-        layout = parser.layout
+        layout = self.parser.layout
         penalty = layout["binoppenalty"] if atom_type == ATOM_TYPE.BIN else layout["relpenalty"]
         if penalty >= 10000:
             return None
@@ -476,13 +455,7 @@ class MathListHolder:
         p.source = current_item.atom
         return p
 
-    def _pass2Emit(self, parser, packed, context, collected):
-        """
-        Pass 2 of math typesetting.
-
-        Emit normalized wrappers/nodes into packed output. Spacing decisions use
-        wrapper.node_type, i.e., the effective class computed in pass 1.
-        """
+    def _pass2Emit(self, holder, packed, context, collected):
         if packed is None:
             packed = []
         previous = {}
@@ -501,11 +474,11 @@ class MathListHolder:
                     context.prev_atom_type = prev_atom_type
                     context.atom_type = item.node_type
                     context.text_symbol = item.text_symbol
-                    item.typeset(parser, packed, context, item.style)
+                    item.typeset(self.parser, packed, context, item.style)
                     prev_atom_type = context.prev_atom_type
                 else:
                     packed.append(item)
-                p = self._rule21Penalty(parser, self.paragraph_math, item, nxt)
+                p = self._rule21Penalty(holder.paragraph_math, item, nxt)
                 if p is not None:
                     packed.append(p)
                 item = nxt
@@ -517,126 +490,84 @@ class MathListHolder:
                     delattr(context, name)
         return packed
 
-    def typesetNodes(self, parser, packed, context, style):
-        collected = self._pass1Collect(parser, context, style)
-        self._pass1AdjustAtoms(parser, context, collected)
-        atom_state = _coerceAtomState(parser, context)
-        return self._pass2Emit(parser, packed, atom_state, collected)
+    def typesetNodes(self, holder, packed, context, style):
+        collected = self._pass1Collect(holder, context, style)
+        self._pass1AdjustAtoms(context, collected)
+        atom_state = _coerceAtomState(self.parser, context)
+        return self._pass2Emit(holder, packed, atom_state, collected)
 
-    def typeset(self, parser, packed, context, style):
-        # Typeset into an hbox first; if it only wraps one box-like node,
-        # drop that outer wrapper (TeX optimization for translated sub-mlists).
-        hbox = box.HBox(parser, None, None)
-        self.typesetNodes(parser, hbox.list, context, style)
-        packed.append(_drop_redundant_wrapper(hbox.typeset(parser), allow_char=True))
+    def typesetField(self, field, packed, context, style):
+        if field is None:
+            return packed
+        if isinstance(field, (MathListHolder, Subformula)):
+            self.typesetHolder(field, packed, context, style)
+            return packed
+        typeset = getattr(field, "typeset", None)
+        if typeset is None:
+            packed.append(field)
+            return packed
+        typeset(self.parser, packed, context, style)
+        return packed
 
+    def typesetHolder(self, holder, packed, context, style):
+        hbox = box.HBox(self.parser, None, None)
+        self.typesetNodes(holder, hbox.list, context, style)
+        packed.append(_drop_redundant_wrapper(hbox.typeset(self.parser), allow_char=True))
 
-class Subformula(MathListHolder):
-    def __init__(self):
-        super().__init__(list=[], paragraph_math=False)
-        self.left_delim = None
-        self.right_delim = None
+    def typesetSubformula(self, holder, packed, context, style):
+        self.typesetHolder(holder, packed, context, style)
 
-    def saveInfo(self):
-        return {}, {
-            "list": self.list,
-            "left_delim": self.left_delim,
-            "right_delim": self.right_delim,
-        }
-
-    def typeset(self, parser, packed, context, style):
-        temp = []
-        super().typeset(parser, temp, context, style)
-        if len(temp) == 1:
-            packed.append(temp[0])
-        else:
-            hbox = box.HBox(parser, None, 0)
-            hbox.list = temp
-            hbox.typeset(parser, packed)
-
-
-class InlineMathNode(MathListHolder):
-    pretypeset_in_hlist = True
-
-    def __init__(self, parser=None, nodes=None):
-        super().__init__(list=nodes, paragraph_math=True)
-        self.parser = parser
-        self.inner = True
-        self._typeset_cache = None
-
-    node_type = nd.NODE_TYPE.MATH
-
-    def pretypeset(self, parser):
-        self.parser = parser
-        if self._typeset_cache is not None:
+    def pretypesetInlineMath(self, holder):
+        if holder._typeset_cache is not None:
             return
         cache = []
-        # Appendix G Rule 22: inline math translation is enclosed by
-        # math-on/math-off nodes, each carrying the current \mathsurround.
         math_shift = nd.MathShift(True)
-        math_shift.source = self
-        math_shift.kern = Dimen(parser.layout["mathsurround"])
+        math_shift.source = holder
+        math_shift.kern = Dimen(self.parser.layout["mathsurround"])
         cache.append(math_shift)
-        self.typesetNodes(parser, cache, self, Style(MATH_STYLE.T))
+        self.typesetNodes(holder, cache, holder, Style(MATH_STYLE.T))
         math_shift = nd.MathShift(False)
-        math_shift.kern = Dimen(parser.layout["mathsurround"])
+        math_shift.kern = Dimen(self.parser.layout["mathsurround"])
         cache.append(math_shift)
-        self._typeset_cache = cache
+        for node in cache:
+            if getattr(node, "source", None) is None:
+                node.source = holder
+        holder._typeset_cache = cache
 
-    def typeset(self, parser, packed):
-        self.pretypeset(parser)
-        packed.extend(self._typeset_cache)
+    def typesetInlineMath(self, holder, packed):
+        self.pretypesetInlineMath(holder)
+        packed.extend(holder._typeset_cache)
 
+    def appendToHList(self, node, packed):
+        if not isinstance(node, InlineMathNode):
+            return False
+        start = len(packed)
+        self.typesetInlineMath(node, packed)
+        for concrete in packed[start:]:
+            if getattr(concrete, "source", None) is None:
+                concrete.source = node
+        return True
 
-class DisplayMathNode(nd.Node, MathListHolder):
-    typeset_to_vlist = True
-    
-    node_type = nd.NODE_TYPE.MATH
-
-    def __init__(self):
-        super().__init__(list=[], paragraph_math=True)
-        self.inner = False
-        # the equation number. If there is one, this holds a tuple (MList, bool)
-        # where the MList points to the equation number material, and the bool indicates
-        # whether the equation number is on the left
-        self.eqno = None
-
-    def saveInfo(self):
-        init, extra = super().saveInfo()
-        return init, extra | {"eqno": self.eqno}
-
-    def typeset(self, parser, packed):
+    def typesetDisplayMath(self, holder, packed):
+        parser = self.parser
         cache = []
         volatile = parser.volatile
         displaywidth = volatile["displaywidth"]
         displayindent = volatile["displayindent"]
         predisplaysize = volatile["predisplaysize"]
-        # After a display has been read, TEX converts it from a math list to a horizontal
-        # list h in display style, as explained in Appendix G. An equation number, if
-        # present, is processed in text style and put into an hbox a with its natural width. Now
-        # the fussy processing begins: Let z, s, and p be the current values of \displaywidth,
-        # \displayindent, and \predisplaysize. Let q and e be zero if there is no equation
-        # number; otherwise let e be the width of the equation number, and let q be equal to
-        # eplus one quad in the symbols font (i.e., in \textfont2). Let w0 be the natural width
-        # of the displayed formula h. If w0 + q ≤z, list h is packaged in an hbox b having its
-        # natural width w0. But if w0 + q>z (i.e., if the display is too wide to fit at its natural
-        # width), TEX performs the following “squeeze routine”: If e!= 0 and if there is enough
-        # shrinkability in the displayed formula h to reduce its width to z−q, then list h is
-        # packaged in an hbox b of width z−q. Otherwise e is set to zero, and list h is packaged
-        # in a (possibly overfull) hbox b of width min(w0,z).
-        if self.eqno is not None:
-            eqno, left = self.eqno
+        if holder.eqno is not None:
+            eqno, left = holder.eqno
             a = box.HBox(parser, None, 0)
-            eqno.typesetNodes(parser, a.list, self, Style(MATH_STYLE.T))
+            self.typesetNodes(eqno, a.list, holder, Style(MATH_STYLE.T))
             a = a.typeset(parser)
             e = a.width
-            q = e + mathfont(parser, Style(MATH_STYLE.T), 2).param[5] # quad (fontdimen6)
+            q = e + mathfont(parser, Style(MATH_STYLE.T), 2).param[5]
         else:
             q = Dimen()
             e = Dimen()
             eqno = None
             left = None
-        h = self.typesetNodes(parser, None, self, Style(MATH_STYLE.D))
+        h = self.typesetNodes(holder, None, holder, Style(MATH_STYLE.D))
         b = box.HBox(parser, None, 0)
         b.list[:] = h
         b = b.typeset(parser)
@@ -645,7 +576,6 @@ class DisplayMathNode(nd.Node, MathListHolder):
         s = displayindent
         p = predisplaysize
         if w0 + q > z:
-            # look at all the stretchness of a
             if e != 0:
                 b = box.HBox(parser, to=z-q, spread=None)
                 b.list[:] = h
@@ -669,34 +599,11 @@ class DisplayMathNode(nd.Node, MathListHolder):
                 b = box.HBox(parser, to=min(w0, z), spread=None)
                 b.list[:] = h
                 b = b.typeset(parser)
-        # TEX tries now to center the display without regard to the
-        # equation number. But if such centering would make it too close to that number
-        # (where “too close” means that the space between them is less than the width e), the
-        # equation is either centered in the remaining space or placed as far from the equation
-        # number as possible. The latter alternative is chosen only if the first item on list h is
-        # glue, since T EX assumes that such glue was placed there in order to control the spacing
-        # precisely. But let’s state the rules more formally: Let w be the width of box b. TEX
-        # computes a displacement d, to be used later when positioning box b, by first setting
-        # d=1/2 (z−w). If e>0 and if d<2e, then d is reset to 1/2 (z−w−e) or to zero, where
-        # zero is chosen if list h begins with a glue item
         w = b.width
         d = (z - w) / 2
-        if e > 0 and d < 2*e:
+        if e > 0 and d < 2 * e:
             begins_with_glue = len(h) > 0 and h[0].node_type == nd.NODE_TYPE.GLUE
             d = Dimen() if begins_with_glue else (z - w - e) / 2
-        # TEX is now ready to put things onto the current vertical list,
-        # just after the material previously constructed for the paragraph-so-far. First
-        # comes a penalty item, whose cost is an integer parameter called \predisplaypenalty.
-        # Then comes glue. If d+ s ≤ p, or if there was a left equation number (\leqno),
-        # TEX sets ga and gb to glue items specified by the parameters \abovedisplayskip and
-        # \belowdisplayskip, respectively; otherwise ga and gb become glue items correspond-
-        # ing to \abovedisplayshortskip and \belowdisplayshortskip. [Translation: If the
-        # predisplaysize is short enough so that it doesn’t overlap the displayed formula, the glue
-        # above and below the display will be “short” by comparison with the glue that is used
-        # when there is an overlap.] If e= 0 and if there is an \leqno, the equation number is
-        # appended as an hbox by itself, shifted right s and preceded by interline glue as usual;
-        # an infinite penalty is also appended, to prevent a page break between this number and
-        # the display. Otherwise a glue item ga is placed on the vertical list.
         cache.append(nd.Penalty(parser.layout["predisplaypenalty"]))
         if d + s <= p or left is True:
             ga = nd.Glue(parser.layout["abovedisplayskip"], "\\abovedisplayskip")
@@ -711,35 +618,21 @@ class DisplayMathNode(nd.Node, MathListHolder):
         else:
             cache.append(ga)
         if e != 0:
-            # Now comes the displayed equation itself. If e!= 0, the
-            # equation number box a is combined with the formula box b as follows: Let k
-            # be a kern of width z−w−e−d. In the \eqno case, box b is replaced by an hbox
-            # containing (b,k,a); in the \leqno case, box b is replaced by an hbox containing (a,k,b),
-            # and d is set to zero. In all cases, box b is then appended to the vertical list, shifted
-            # right by s+ d.
             line = box.HBox(parser, None, None)
-            if e != 0:
-                k = nd.Kern(z-w-e-d)
-                if left:
-                    line.list.append(a)
-                    line.list.append(k)
-                    line.list.append(b)
-                    d = 0
-                else:
-                    line.list.append(b)
-                    line.list.append(k)
-                    line.list.append(a)
-            b = line
-            b = b.typeset(parser)
-        b.shifted = Dimen(s+d)
+            k = nd.Kern(z - w - e - d)
+            if left:
+                line.list.append(a)
+                line.list.append(k)
+                line.list.append(b)
+                d = 0
+            else:
+                line.list.append(b)
+                line.list.append(k)
+                line.list.append(a)
+            b = line.typeset(parser)
+        b.shifted = Dimen(s + d)
         b.display = True
         cache.append(b)
-        # The final task is to append the glue or the equation number
-        # that follows the display. If there was an \eqno and if e = 0, an infinite
-        # penalty is placed on the vertical list, followed by the equation number box a shifted
-        # right by s+ z minus its width, followed by a penalty item whose cost is the value
-        # of \postdisplaypenalty. Otherwise a penalty item for the \postdisplaypenalty is
-        # appended first, followed by a glue item for gb as specified above.
         if e == 0 and left is False:
             cache.append(nd.Penalty(10000))
             a.shifted = Dimen(s + z) - a.width
@@ -750,8 +643,70 @@ class DisplayMathNode(nd.Node, MathListHolder):
             cache.append(nd.Penalty(parser.layout["postdisplaypenalty"]))
             cache.append(gb)
         for n in cache:
-            n.source = self
+            n.source = holder
         packed.extend(cache)
+
+    def appendToVList(self, node, packed):
+        if not isinstance(node, DisplayMathNode):
+            return False
+        self.typesetDisplayMath(node, packed)
+        return True
+
+
+class MathListHolder(_MathListData):
+    node_type = None # not a standard node. Needs to be expanded into boxes
+
+    def _pass1Collect(self, parser, context, style):
+        return parser.math_typesetter._pass1Collect(self, context, style)
+
+    def _pass1AdjustAtoms(self, parser, context, collected):
+        return parser.math_typesetter._pass1AdjustAtoms(context, collected)
+
+    def _pass2Emit(self, parser, packed, context, collected):
+        return parser.math_typesetter._pass2Emit(self, packed, context, collected)
+
+    def typesetNodes(self, parser, packed, context, style):
+        return parser.math_typesetter.typesetNodes(self, packed, context, style)
+
+    def typeset(self, parser, packed, context, style):
+        return parser.math_typesetter.typesetHolder(self, packed, context, style)
+
+
+class Subformula(_MathListData):
+    def __init__(self):
+        super().__init__(list=[], paragraph_math=False)
+        self.left_delim = None
+        self.right_delim = None
+
+    def saveInfo(self):
+        return {}, {
+            "list": self.list,
+            "left_delim": self.left_delim,
+            "right_delim": self.right_delim,
+        }
+
+class InlineMathNode(_MathListData):
+    def __init__(self, parser=None, nodes=None):
+        super().__init__(list=nodes, paragraph_math=True)
+        self.inner = True
+        self._typeset_cache = None
+
+    node_type = nd.NODE_TYPE.MATH
+
+class DisplayMathNode(nd.Node, _MathListData):
+    node_type = nd.NODE_TYPE.MATH
+
+    def __init__(self):
+        super().__init__(list=[], paragraph_math=True)
+        self.inner = False
+        # the equation number. If there is one, this holds a tuple (MList, bool)
+        # where the MList points to the equation number material, and the bool indicates
+        # whether the equation number is on the left
+        self.eqno = None
+
+    def saveInfo(self):
+        init, extra = super().saveInfo()
+        return init, extra | {"eqno": self.eqno}
 
 
 class StyleNode(nd.Node):
@@ -838,7 +793,7 @@ class Atom(nd.Node):
         body_holder = MathListHolder(body_items, paragraph_math=False)
         body_nodes = []
         body_context = AtomState(parser)
-        body_holder.typesetNodes(parser, body_nodes, body_context, style)
+        parser.math_typesetter.typesetNodes(body_holder, body_nodes, body_context, style)
         body = box.HBox(parser, None, None)
         body.list[:] = body_nodes
         body = body.typeset(parser)
@@ -984,7 +939,7 @@ class Atom(nd.Node):
                 packed.append(nd.Kern(delta, automatic=True))
                 delta = Dimen()
         else:
-            self.nucleus.typeset(parser, packed, context, style)
+            parser.math_typesetter.typesetField(self.nucleus, packed, context, style)
         return delta
 
     def _rule18aIsCharTranslation(self, translated):
@@ -1046,11 +1001,7 @@ class Atom(nd.Node):
             return x
         x = box.HBox(parser, None, 0)
         if field is not None:
-            typeset = field.typeset
-            if typeset is None:
-                x.list.append(field)
-            else:
-                typeset(parser, x.list, local, style)
+            parser.math_typesetter.typesetField(field, x.list, local, style)
         x = _drop_redundant_wrapper(x.typeset(parser), allow_char=False)
         x.width += mathlayout(parser, "scriptspace")
         if hasattr(x, "to"):
@@ -1251,12 +1202,7 @@ class Op(Atom):
                 out = field.assemble(parser, local, style)
             else:
                 out = box.HBox(parser, None, 0)
-                if field is not None:
-                    typeset = getattr(field, "typeset", None)
-                    if typeset is None:
-                        out.list.append(field)
-                    else:
-                        typeset(parser, out.list, local, style)
+                parser.math_typesetter.typesetField(field, out.list, local, style)
                 out = out.typeset(parser)
         if field is not None:
             out.width += mathlayout(parser, "scriptspace")
@@ -1268,12 +1214,7 @@ class Op(Atom):
         delta = Dimen()
         symbol = self.nucleus if isinstance(self.nucleus, MathSymbol) else None
         if symbol is None:
-            typeset = getattr(self.nucleus, "typeset", None)
-            if typeset is None:
-                if self.nucleus is not None:
-                    y.list.append(self.nucleus)
-            else:
-                typeset(parser, y.list, context, style)
+            parser.math_typesetter.typesetField(self.nucleus, y.list, context, style)
             return y.typeset(parser), delta
         # C > T means display style in this implementation.
         font = mathfont(parser, style, symbol.fam)
@@ -1472,7 +1413,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if mlist.type != lists.LISTTYPE.MATH:
             return
         if mlist.inner:
-            self.node.pretypeset(parser)
+            parser.math_typesetter.pretypesetInlineMath(self.node)
             return
         if not mlist.isalign:
             return
@@ -2082,12 +2023,7 @@ class Rad(Atom):
 
     def _typesetField(self, parser, field, context, style):
         out = box.HBox(parser, None, 0)
-        if field is not None:
-            typeset = getattr(field, "typeset", None)
-            if typeset is None:
-                out.list.append(field)
-            else:
-                typeset(parser, out.list, context, style)
+        parser.math_typesetter.typesetField(field, out.list, context, style)
         return _drop_redundant_wrapper(out.typeset(parser), allow_char=False)
 
     def typesetNucleus(self, parser, packed, context, style: Style):
@@ -2293,8 +2229,8 @@ class Over(Atom):
         num, den, theta = self.rule15(parser, style)
         x = box.HBox(parser, None, 0)
         z = box.HBox(parser, None, 0)
-        num.typesetNodes(parser, x.list, context, style.numerator())
-        den.typesetNodes(parser, z.list, context, style.denominator())
+        parser.math_typesetter.typesetNodes(num, x.list, context, style.numerator())
+        parser.math_typesetter.typesetNodes(den, z.list, context, style.denominator())
         x = x.typeset(parser)
         z = z.typeset(parser)
         target = x.width if x.width >= z.width else z.width
@@ -2407,12 +2343,7 @@ class Accent(Atom):
 
     def _typesetField(self, parser, field, context, style):
         out = box.HBox(parser, None, 0)
-        if field is not None:
-            typeset = getattr(field, "typeset", None)
-            if typeset is None:
-                out.list.append(field)
-            else:
-                typeset(parser, out.list, context, style)
+        parser.math_typesetter.typesetField(field, out.list, context, style)
         return _drop_redundant_wrapper(out.typeset(parser), allow_char=False)
 
     def _fontCharIfExists(self, font, char):
@@ -2653,7 +2584,7 @@ class Line(Atom):
         # the box. (This puts a rule under the nucleus, with 3θ clearance, and with θ units of
         # extra white space assumed to be present below the rule.)
         x = box.HBox(parser, None, 0)
-        self.nucleus.typeset(parser, x.list, context, Style(style.style, cramped=True))
+        parser.math_typesetter.typesetField(self.nucleus, x.list, context, Style(style.style, cramped=True))
         if len(x.list) == 1:
             x = x.list[0]
         else:
@@ -2719,8 +2650,13 @@ class VolatileParameterSlot:
     def value(self, new_value):
         self.parser.volatile[self.index] = new_value
 
-    
+
+def init(parser):
+    parser.math_typesetter = MathTypesetter(parser)
+
+
 mod = Module("mmode",
+    init=init,
     attributes= {
         "mathShift": mathShift,
         "subscript": subscript,

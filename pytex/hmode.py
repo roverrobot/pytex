@@ -249,8 +249,6 @@ class HList(lists.List, HListHolder):
         self._ligature_state["in_word"] = self._nodeEndsWord(base)
 
     def append(self, node):
-        if getattr(node, "pretypeset_in_hlist", False):
-            node.pretypeset(self.parser)
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         if node.node_type != nd.NODE_TYPE.CHAR:
@@ -259,7 +257,9 @@ class HList(lists.List, HListHolder):
                 self._ligature_state["in_word"] = False
             self._ligature_state["lig_base"] = None
             self.parser.globals["spacefactor"] = 1000
-            self.list.append(node)
+            if getattr(node, "pretypeset_in_hlist", False):
+                node.pretypeset(self.parser)
+            self.typesetNode(self.parser, node, self.list)
             return
         sf = self.sfcode[ord(node.char)]
         if sf != 0:

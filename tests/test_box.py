@@ -743,8 +743,9 @@ def test_accent_nochar(cmr10):
     cmr10.parse("\\accent65 \\uppercase{1}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
+    raw = _raw_nodes(top)
     assert len(top) == 4
-    accent = top[1]
+    accent = raw[1]
     assert accent.node_type == NODE_TYPE.ACCENT
     assert accent.base is None
     assert accent.accent.char == "A"
@@ -755,11 +756,10 @@ def test_accent(cmr10):
     cmr10.parse("\\noindent\\accent65 1\\relax")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 1
-    assert top[0].node_type == NODE_TYPE.ACCENT
-    hbox = bx.HBox(cmr10, None, Dimen())
-    hbox.list = top
-    packed = hbox.typeset(cmr10).list
+    raw = _raw_nodes(top)
+    assert len(raw) == 1
+    assert raw[0].node_type == NODE_TYPE.ACCENT
+    packed = list(top)
     kern = packed[0]
     assert kern.node_type == NODE_TYPE.KERN
     assert kern.kern == -1.25000
@@ -779,11 +779,10 @@ def test_accent_accepts_chardef_base(cmr10):
     cmr10.parse("\\chardef\\a=`1\\noindent\\accent65 \\a\\relax")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 1
-    assert top[0].node_type == NODE_TYPE.ACCENT
-    hbox = bx.HBox(cmr10, None, Dimen())
-    hbox.list = top
-    packed = hbox.typeset(cmr10).list
+    raw = _raw_nodes(top)
+    assert len(raw) == 1
+    assert raw[0].node_type == NODE_TYPE.ACCENT
+    packed = list(top)
     assert packed[3].node_type == NODE_TYPE.CHAR
     assert packed[3].char == "1"
 
@@ -799,11 +798,10 @@ def test_accent_italic_alignment_uses_slant(cmr10):
     cmr10.parse("\\font\\tenit=cmti10 \\tenit\\noindent\\accent19 f\\relax")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 1
-    assert top[0].node_type == NODE_TYPE.ACCENT
-    hbox = bx.HBox(cmr10, None, Dimen())
-    hbox.list = top
-    packed = hbox.typeset(cmr10).list
+    raw = _raw_nodes(top)
+    assert len(raw) == 1
+    assert raw[0].node_type == NODE_TYPE.ACCENT
+    packed = list(top)
     assert packed[0].node_type == NODE_TYPE.KERN
     assert float(packed[0].kern) == pytest.approx(-0.36249, abs=1e-4)
     assert packed[1].node_type == NODE_TYPE.HLIST

@@ -34,6 +34,10 @@ def _source_nodes(vlist, cls):
     return out
 
 
+def _inline_math_node(hlist):
+    return next(node for node in reversed(_raw_nodes(hlist)) if isinstance(node, mmode.InlineMathNode))
+
+
 def isSymbol(node, fam, char):
     return isinstance(node, mmode.MathSymbol) and node.fam == fam and node.char == char
 
@@ -98,9 +102,10 @@ def test_mlist(math, inner):
     top = math.lists[-1]
     if inner:
         assert top.type == lists.LISTTYPE.HORIZONTAL
-        assert len(top) == 3
-        node = top[1]
-        assert isinstance(node, mmode.InlineMathNode)
+        raw = _raw_nodes(top)
+        assert isinstance(raw[1], mmode.InlineMathNode)
+        nodes = _concrete_nodes(top)
+        assert len([n for n in nodes if n.node_type == nd.NODE_TYPE.MATH]) == 2
         return
     assert top.type == lists.LISTTYPE.HORIZONTAL
     vtop = math.lists[0]
@@ -137,7 +142,7 @@ def test_display_halign_followed_by_text_does_not_reinsert_parskip(cmr10):
 
 def test_mlist_typeset_inline(math):
     math.parse("$a$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     assert len(packed) == 3
@@ -151,7 +156,7 @@ def test_mlist_typeset_inline(math):
 
 def test_leading_superscript_uses_empty_subformula_nucleus(math):
     math.parse("$^a$")
-    node = math.lists[-1][1].list[0]
+    node = _inline_math_node(math.lists[-1]).list[0]
     assert isinstance(node, mmode.Atom)
     assert isinstance(node.nucleus, mmode.Subformula)
     assert node.nucleus.list == []
@@ -232,7 +237,7 @@ def test_display_halign_ignores_post_halign_baselineskip_assignment(math):
 
 def test_subformula_single_char_drops_outer_hbox(math):
     math.parse("${a}$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     assert len(packed) == 3
@@ -244,7 +249,7 @@ def test_subformula_single_char_drops_outer_hbox(math):
 def test_mlist_typeset_single_box_drops_outer_hbox(math):
     # Build a sub-mlist that translates to exactly one box node.
     math.parse("$a$")
-    context = math.lists[-1][1]
+    context = _inline_math_node(math.lists[-1])
     vb = box.VBox(math, None, 0)
     vb.list.append(nd.Rule(1, 1, 0))
     vb.typeset(math, [])
@@ -487,7 +492,7 @@ def test_mkern(math):
 
 def test_mkern_typeset_uses_style_sigma6(math):
     math.parse("$\\scriptstyle\\mkern18mu$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
@@ -498,7 +503,7 @@ def test_mkern_typeset_uses_style_sigma6(math):
 
 def test_nonscript_removes_immediately_following_glue_or_kern(math):
     math.parse("$\\nonscript\\mkern18mu\\mkern36mu$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
@@ -509,7 +514,7 @@ def test_nonscript_removes_immediately_following_glue_or_kern(math):
 
 def test_nonscript_keeps_following_glue_or_kern_when_style_is_scriptscript(math):
     math.parse("$\\scriptscriptstyle\\nonscript\\mkern18mu\\mkern36mu$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
@@ -521,7 +526,7 @@ def test_nonscript_keeps_following_glue_or_kern_when_style_is_scriptscript(math)
 
 def test_mathchoice_uses_current_text_style(math):
     math.parse("$\\mathchoice{\\mkern18mu}{\\mkern36mu}{\\mkern54mu}{\\mkern72mu}$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
@@ -532,7 +537,7 @@ def test_mathchoice_uses_current_text_style(math):
 
 def test_mathchoice_uses_current_script_style(math):
     math.parse("$\\scriptstyle\\mathchoice{\\mkern18mu}{\\mkern36mu}{\\mkern54mu}{\\mkern72mu}$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
@@ -543,7 +548,7 @@ def test_mathchoice_uses_current_script_style(math):
 
 def test_nested_mathchoice_expands_without_mutating_list(math):
     math.parse("$\\mathchoice{\\mkern18mu}{\\mathchoice{\\mkern18mu}{\\mkern36mu}{\\mkern54mu}{\\mkern72mu}}{\\mkern90mu}{\\mkern108mu}$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN]
@@ -857,7 +862,7 @@ def test_rule20_spacing_cases(math):
     ]
     for expr, expected_count, predicate, label in cases:
         math.parse(expr)
-        mlist = next(n for n in reversed(math.lists[-1]) if isinstance(n, mmode.InlineMathNode))
+        mlist = next(n for n in reversed(_raw_nodes(math.lists[-1])) if isinstance(n, mmode.InlineMathNode))
         packed = []
         mlist.typeset(math, packed)
         glues = [n for n in packed if n.node_type == nd.NODE_TYPE.GLUE]
@@ -1340,7 +1345,7 @@ def test_style_fraction_numerator_denominator(src, num_style, num_cramped, den_s
 
 def test_style_node_is_consumed_by_typeset(math):
     math.parse("$\\scriptstyle a$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     assert len(packed) == 3
@@ -1554,8 +1559,9 @@ def test_inline_math_freezes_local_nulldelimiterspace_before_group_restore(math)
     math.parse("\\noindent$\\nulldelimiterspace=0pt\\left(a\\right.$\\relax")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 1
-    node = top[0]
+    raw = _raw_nodes(top)
+    assert len(raw) == 1
+    node = raw[0]
     assert isinstance(node, mmode.InlineMathNode)
     packed = []
     node.typeset(math, packed)
@@ -1670,10 +1676,11 @@ def test_fractions(math, cmd, bar, thickness, left, right):
     math.parse(f"\\noindent$a{cmd} b$\\relax")
     top = math.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
-    assert len(top) == 1
-    assert isinstance(top[0], mmode.InlineMathNode)
-    assert len(top[0].list) == 1
-    frac = top[0].list[0]
+    raw = _raw_nodes(top)
+    assert len(raw) == 1
+    assert isinstance(raw[0], mmode.InlineMathNode)
+    assert len(raw[0].list) == 1
+    frac = raw[0].list[0]
     assert isinstance(frac, mmode.Over)
     if left is None:
         assert frac.delims is None
@@ -1714,7 +1721,7 @@ def test_fractions(math, cmd, bar, thickness, left, right):
 
 def test_left_right_outer_spacing_uses_inner_class(math):
     math.parse("\\noindent$a\\left[b\\right]$\\relax")
-    node = math.lists[-1][0]
+    node = _inline_math_node(math.lists[-1])
     packed = []
     node.typeset(math, packed)
     assert len(packed) == 5
@@ -1729,7 +1736,7 @@ def test_left_right_outer_spacing_uses_inner_class(math):
 ])
 def test_fraction_rule15_theta(math, cmd, expected_theta):
     math.parse(f"\\noindent$a{cmd} b$\\relax")
-    frac = math.lists[-1][0].list[0]
+    frac = _inline_math_node(math.lists[-1]).list[0]
     assert isinstance(frac, mmode.Over)
     ctx = display_context(math)
     style = mmode.Style(mmode.MATH_STYLE.T)
@@ -1742,7 +1749,7 @@ def test_fraction_rule15_theta(math, cmd, expected_theta):
 
 def test_fraction_rule15_delimiters(math):
     math.parse("\\noindent$a\\overwithdelims() b$\\relax")
-    frac = math.lists[-1][0].list[0]
+    frac = _inline_math_node(math.lists[-1]).list[0]
     assert isinstance(frac, mmode.Over)
     assert frac.delims is not None
     left, right = frac.delims
@@ -1756,14 +1763,14 @@ def test_fraction_rule15b_uv_text_over_vs_atop(math):
     sigma = mmode.mathsigma(math, style)
 
     math.parse("\\noindent$a\\over b$\\relax")
-    over = math.lists[-1][-1].list[0]
+    over = _inline_math_node(math.lists[-1]).list[0]
     _, _, theta_over = over.rule15(math, style)
     u_over, v_over = over.rule15b(math, style, theta_over)
     assert float(u_over) == pytest.approx(sigma[8], abs=1e-4)   # sigma9
     assert float(v_over) == pytest.approx(sigma[11], abs=1e-4)  # sigma12
 
     math.parse("\\noindent$a\\atop b$\\relax")
-    atop = math.lists[-1][-1].list[0]
+    atop = _inline_math_node(math.lists[-1]).list[0]
     _, _, theta_atop = atop.rule15(math, style)
     u_atop, v_atop = atop.rule15b(math, style, theta_atop)
     assert float(theta_atop) == pytest.approx(0, abs=1e-8)
@@ -1776,7 +1783,7 @@ def test_fraction_rule15b_uv_script(math):
     ctx = display_context(math)
     sigma = mmode.mathsigma(math, style)
     math.parse("\\noindent$a\\over b$\\relax")
-    frac = math.lists[-1][-1].list[0]
+    frac = _inline_math_node(math.lists[-1]).list[0]
     _, _, theta = frac.rule15(math, style)
     u, v = frac.rule15b(math, style, theta)
     assert float(u) == pytest.approx(sigma[8], abs=1e-4)   # sigma9
@@ -1787,7 +1794,7 @@ def test_fraction_rule15c_atop_construction(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
     ctx = display_context(math)
     math.parse("\\noindent$a\\atop b$\\relax")
-    frac = math.lists[-1][-1].list[0]
+    frac = _inline_math_node(math.lists[-1]).list[0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
     assert len(packed) == 1
@@ -1820,7 +1827,7 @@ def test_fraction_rule15d_over_construction(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
     ctx = display_context(math)
     math.parse("\\noindent$a\\over b$\\relax")
-    frac = math.lists[-1][-1].list[0]
+    frac = _inline_math_node(math.lists[-1]).list[0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
     assert len(packed) == 1
@@ -1857,7 +1864,7 @@ def test_fraction_rule15d_over_min_clearance_script(math):
     style = mmode.Style(mmode.MATH_STYLE.S)
     ctx = display_context(math)
     math.parse("\\noindent$a\\over b$\\relax")
-    frac = math.lists[-1][-1].list[0]
+    frac = _inline_math_node(math.lists[-1]).list[0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
     assert len(packed) == 1
@@ -1875,7 +1882,7 @@ def test_fraction_rule15e_with_delims_builds_three_boxes(math):
     style = mmode.Style(mmode.MATH_STYLE.T)
     ctx = display_context(math)
     math.parse("\\noindent$a\\overwithdelims() b$\\relax")
-    frac = math.lists[-1][-1].list[0]
+    frac = _inline_math_node(math.lists[-1]).list[0]
     packed = []
     frac.typesetNucleus(math, packed, ctx, style)
     assert len(packed) == 1
@@ -1895,7 +1902,7 @@ def test_fraction_rule15e_with_delims_builds_three_boxes(math):
 
 def test_fraction_rule15e_delims_integrated_in_inner_atom_nucleus(math):
     math.parse("\\noindent$a\\overwithdelims() b$\\relax")
-    mlist = math.lists[-1][0]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     # math_on + wrapper hbox + math_off
@@ -1912,7 +1919,7 @@ def test_fraction_rule15e_delims_integrated_in_inner_atom_nucleus(math):
 
 def test_fraction_rule15e_null_delims_integrated_in_inner_atom_nucleus(math):
     math.parse("\\noindent$a\\over b$\\relax")
-    mlist = math.lists[-1][0]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     # math_on + wrapper hbox + math_off
@@ -2051,7 +2058,7 @@ def test_vcenter(math):
 
 def test_vcenter_typesets_without_none_dimensions(math):
     math.parse("$\\vcenter{\\vskip 10pt}$")
-    mlist = math.lists[-1][1]
+    mlist = _inline_math_node(math.lists[-1])
     packed = []
     mlist.typeset(math, packed)
     assert len(packed) == 3

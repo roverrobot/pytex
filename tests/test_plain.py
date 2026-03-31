@@ -5,6 +5,7 @@ from pytex import font
 from pytex import lists
 from pytex import node as nd
 from pytex import paragraph
+from pytex import mmode
 import io
 
 
@@ -56,8 +57,9 @@ def test_plain(plain):
     hlist = _source_nodes(top, paragraph.Paragraph)[0]
     # Paragraphs now keep raw input separately from the live concrete list.
     assert len(hlist.raw) == 18
-    assert len(hlist.list) == 19
-    assert hlist.list[-3].node_type == nd.NODE_TYPE.MATH
+    assert any(node.node_type == nd.NODE_TYPE.MATH for node in hlist.list)
+    assert not any(isinstance(node, mmode.InlineMathNode) for node in hlist.list)
+    assert isinstance(hlist.raw[-3], mmode.InlineMathNode)
 
 
 def test_plain_preserves_fontchar(plain):

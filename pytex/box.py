@@ -251,7 +251,7 @@ class BadnessAccessor(Accessor):
         return KeyTarget(self.domain, key, self.target_type)
 
 
-class HBox(Box, hmode.HListHolder):
+class HBox(Box):
     """
     A horizontal box.
     @param to: the target width
@@ -259,7 +259,6 @@ class HBox(Box, hmode.HListHolder):
     """
     def __init__(self, parser, to, spread):
         super().__init__(parser, to, spread)
-        hmode.HListHolder.__init__(self, self.list)
         self.migratory = []
 
     init_needs_parser = True
@@ -270,16 +269,7 @@ class HBox(Box, hmode.HListHolder):
         if self._packed is not None:
             # it has been typeset. do nothing
             return
-        if self.raw is None:
-            self.raw = self.list
-        content = []
-        typeset_nodes = getattr(self.list, "typesetNodes", None)
-        if self.raw is not self.list:
-            self.expandNodes(parser, content)
-        elif typeset_nodes is None:
-            self.typesetNodes(parser, content)
-        else:
-            typeset_nodes(parser, content)
+        content = list(self.list)
         glues = []
         natural = Glue()
         self.width = Dimen()

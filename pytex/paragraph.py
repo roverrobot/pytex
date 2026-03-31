@@ -31,14 +31,14 @@ class ParagraphList(hmode.HList):
         self.paragraph = paragraph
 
 
-class Paragraph(nd.Node, hmode.HListHolder):
+class Paragraph(nd.Node):
     """
     A paragraph.
     @param parser: the parser
     @param indent: whether to indent the paragraph
     """
     def __init__(self, parser, indent: bool):
-        hmode.HListHolder.__init__(self, [])
+        self.list = []
         self.raw = []
         self.indent = indent
         # \prevgraf for this paragraph (set by display-math machinery when needed).
@@ -305,9 +305,15 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     def _typesetFragment(self, parser, chars):
         packed = []
-        state = {"lig_base": None, "in_word": True}
-        for node in chars:
-            self.processLigature(parser, node, packed, state)
+        helper = hmode.HList(parser, packed, raw=[])
+        helper.open()
+        helper._ligature_state["in_word"] = True
+        helper._ligature_state["lig_base"] = None
+        try:
+            for node in chars:
+                helper.append(node)
+        finally:
+            helper.close()
         return packed
 
     def _virtualDisc(self, parser, pre, post):

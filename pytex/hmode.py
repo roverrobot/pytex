@@ -35,18 +35,18 @@ class Ligature(nd.CharNode):
         s = "".join([c.char for c in self.source])
         return f"Ligature({s})"
 
+from pytex.box import AccentNode, IndentBox
 
-class HListHolder:
+
+class HList(lists.List):
     """
-    Common holder for horizontal node lists.
+    Horizontal list wrapper.
 
-    This helper stays in hmode because it provides horizontal ligature
-    handling behavior.
+    This is what lives on parser.lists while horizontal material is scanned.
+    It serves a concrete horizontal list node and updates \\spacefactor.
     """
-    def __init__(self, nodes=None):
-        self.list = [] if nodes is None else nodes
-
-    def _leftBoundaryNode(self, font):
+    @staticmethod
+    def _leftBoundaryNode(font):
         program = font.leftBoundaryProgram()
         if program is None:
             return None
@@ -58,7 +58,8 @@ class HListHolder:
             char_info=types.SimpleNamespace(program=program),
         )
 
-    def _rightBoundaryNode(self, font):
+    @staticmethod
+    def _rightBoundaryNode(font):
         boundary_char = font.rightBoundaryChar()
         if boundary_char is None:
             return None
@@ -70,7 +71,8 @@ class HListHolder:
             char_info=types.SimpleNamespace(program=None),
         )
 
-    def _runBoundaryProgram(self, working):
+    @staticmethod
+    def _runBoundaryProgram(working):
         working = run_ligature_program(
             working,
             make_ligature=lambda insert_char, replaced, step, current, nxt: Ligature(insert_char, replaced),
@@ -79,7 +81,8 @@ class HListHolder:
         )
         return [n for n in working if not getattr(n, "_boundary", False)]
 
-    def _lastLigBase(self, packed):
+    @staticmethod
+    def _lastLigBase(packed):
         for n in reversed(packed):
             if n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 return n
@@ -87,27 +90,30 @@ class HListHolder:
                 break
         return None
 
-    def _applyLeftBoundary(self, node, packed, state):
-        boundary = self._leftBoundaryNode(node.font)
+    @classmethod
+    def _applyLeftBoundary(cls, node, packed, state):
+        boundary = cls._leftBoundaryNode(node.font)
         if boundary is None:
             return False
-        working = self._runBoundaryProgram([boundary, node])
+        working = cls._runBoundaryProgram([boundary, node])
         packed.extend(working)
-        state["lig_base"] = self._lastLigBase(working)
+        state["lig_base"] = cls._lastLigBase(working)
         return True
 
-    def _applyRightBoundary(self, packed, state):
+    @classmethod
+    def _applyRightBoundary(cls, packed, state):
         base = state["lig_base"]
         if base is None:
             return
-        boundary = self._rightBoundaryNode(base.font)
+        boundary = cls._rightBoundaryNode(base.font)
         if boundary is None:
             return
         assert packed[-1] is base, "the ligature base should be the last emitted character"
         packed.pop()
-        packed.extend(self._runBoundaryProgram([base, boundary]))
+        packed.extend(cls._runBoundaryProgram([base, boundary]))
 
-    def processLigature(self, parser, node, packed, state):
+    @classmethod
+    def processLigature(cls, parser, node, packed, state):
         """
         Append one character node, forming ligatures from adjacent characters.
         """
@@ -117,10 +123,10 @@ class HListHolder:
             if not state["in_word"]:
                 state["in_word"] = True
                 state["lig_base"] = None
-                if self._applyLeftBoundary(node, packed, state):
+                if cls._applyLeftBoundary(node, packed, state):
                     return
         elif state["in_word"]:
-            self._applyRightBoundary(packed, state)
+            cls._applyRightBoundary(packed, state)
             state["in_word"] = False
             state["lig_base"] = None
         base = state["lig_base"]
@@ -144,19 +150,8 @@ class HListHolder:
             packed.append(n)
         state["lig_base"] = working[-1]
 
-from pytex.box import AccentNode, IndentBox
-
-
-class HList(lists.List, HListHolder):
-    """
-    Horizontal list wrapper.
-
-    This is what lives on parser.lists while horizontal material is scanned.
-    It serves a concrete horizontal list node and updates \\spacefactor.
-    """
     def __init__(self, parser, list, inner=True, raw=None):
         super().__init__(parser, list, inner)
-        HListHolder.__init__(self, self.list)
         self.raw = [] if raw is None else raw
         self.sfcode = parser.sfcode
         self.type = lists.LISTTYPE.HORIZONTAL
@@ -170,7 +165,7 @@ class HList(lists.List, HListHolder):
 
     def close(self):
         if self._ligature_state["in_word"]:
-            HListHolder._applyRightBoundary(self, self.list, self._ligature_state)
+            self._applyRightBoundary(self.list, self._ligature_state)
             self._ligature_state["in_word"] = False
             self._ligature_state["lig_base"] = None
         self.parser.globals["spacefactor"] = self.saved_spacefactor
@@ -199,7 +194,7 @@ class HList(lists.List, HListHolder):
         return False
 
     def _syncLigatureState(self):
-        base = HListHolder._lastLigBase(self, self.list)
+        base = self._lastLigBase(self.list)
         self._ligature_state["lig_base"] = base
         self._ligature_state["in_word"] = self._nodeEndsWord(base)
 
@@ -208,7 +203,7 @@ class HList(lists.List, HListHolder):
             self.raw.append(node)
         if node.node_type != nd.NODE_TYPE.CHAR:
             if self._ligature_state["in_word"]:
-                HListHolder._applyRightBoundary(self, self.list, self._ligature_state)
+                self._applyRightBoundary(self.list, self._ligature_state)
                 self._ligature_state["in_word"] = False
             self._ligature_state["lig_base"] = None
             self.parser.globals["spacefactor"] = 1000
@@ -238,8 +233,7 @@ class HList(lists.List, HListHolder):
             if spacefactor < 1000 < sf:
                 sf = 1000
             self.parser.globals["spacefactor"] = sf
-        HListHolder.processLigature(
-            self,
+        self.processLigature(
             self.parser,
             node,
             self.list,

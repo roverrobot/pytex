@@ -68,14 +68,6 @@ class HListHolder:
             if getattr(n, "source", None) is None:
                 n.source = node
 
-    def expandNodes(self, parser, packed):
-        """
-        Expand/typeset nodes that need it, without applying ligature logic.
-        """
-        for node in self.list:
-            self.typesetNode(parser, node, packed)
-        return packed
-
     def _leftBoundaryNode(self, font):
         program = font.leftBoundaryProgram()
         if program is None:

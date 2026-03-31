@@ -198,18 +198,11 @@ class Paragraph(nd.Node, hmode.HListHolder):
 
     def _typesetNodesWithBreaks(self, parser, nodes):
         """
-        Expand raw horizontal nodes and mark legal breakpoints in one pass.
+        Scan an already-typeset horizontal node list and mark legal breakpoints.
         """
         scan = _BreakCandidateScan(parser)
-        if nodes is self.list and self.raw is not self.list:
-            self.expandNodes(parser, scan)
-            scan.finish()
-            return scan
-        ligature_state = {"lig_base": None, "in_word": False}
         for node in nodes:
-            self.typesetNodeWithLigatures(parser, node, scan, ligature_state)
-        if ligature_state["in_word"]:
-            self._applyRightBoundary(scan, ligature_state)
+            scan.append(node)
         scan.finish()
         return scan
 

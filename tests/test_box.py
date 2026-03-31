@@ -834,7 +834,7 @@ def test_lastbox_vmode(cmr10):
     cmr10.parse("\\vbox{\\setbox0=\\lastbox}")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
-    nodes = list(getattr(top, "contrib", [])) + list(top.list)
+    nodes = _concrete_nodes(top)
     assert len(nodes) == 1
     vbox = nodes[0]
     assert len(vbox.list) == 0

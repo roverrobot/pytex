@@ -737,33 +737,40 @@ class PageBreaker(VerticalBreaker):
         return end, next_start, best_context, best_penalty, triggered
 
 
-class MainVList(vmode.VList):
+class PageBuilder:
     """
-    The document's main vertical list.
+    Page-building state for the parser's outer vertical list.
     """
-
-    list_type_name = "MainVList"
 
     def __init__(self, parser):
-        super().__init__(parser, [], inner=False)
+        self.parser = parser
         self.contrib = []
+        self._processing_pages = False
+
+    def reset(self):
+        self.contrib[:] = []
         self._processing_pages = False
 
     @staticmethod
     def _delaysPageStart(node):
         return node.node_type in (nd.NODE_TYPE.WHATSIT, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS)
 
-    def concreteNodes(self):
-        return list(self.contrib) + list(self.list)
+    def concreteNodes(self, pending):
+        return list(self.contrib) + list(pending.list)
 
-    def rawNodes(self):
-        return [node for node in self.concreteNodes() if getattr(node, "source", None) is None]
+    def rawNodes(self, pending):
+        return [node for node in self.concreteNodes(pending) if getattr(node, "source", None) is None]
+
+    @staticmethod
+    def _syncLastItem(pending, contrib):
+        pending.lastitem = contrib[-1] if contrib else None
 
     def _currentPageContext(self):
         return PageBuilderContext(self.parser.layout)
 
-    def _pruneContribTop(self):
+    def _pruneContribTop(self, pending):
         if not self.contrib:
+            self._syncLastItem(pending, self.contrib)
             return
         kept = []
         index = 0
@@ -781,14 +788,16 @@ class MainVList(vmode.VList):
             break
         if found_content and index > 0:
             self.contrib[:] = kept + self.contrib[index:]
+        self._syncLastItem(pending, self.contrib)
 
-    def _contributePending(self):
-        if not self.list:
+    def contributePending(self, pending):
+        if not pending.list:
+            self._syncLastItem(pending, self.contrib)
             return
-        self.contrib.extend(self.list)
-        self.list[:] = []
-        self.raw[:] = []
-        self._pruneContribTop()
+        self.contrib.extend(pending.list)
+        pending.list[:] = []
+        pending.raw[:] = []
+        self._pruneContribTop(pending)
 
     def _triggersPageBuilder(self, node):
         # we do not trigger page building if a box is deposited by paragraph, display math or alignment.
@@ -797,30 +806,38 @@ class MainVList(vmode.VList):
             return False
         if node.node_type == nd.NODE_TYPE.PENALTY:
             return True
-        elif isinstance(node, Paragraph) or isinstance(node, DisplayMathNode) or isinstance(node, HAlignment):
+        if isinstance(node, Paragraph) or isinstance(node, DisplayMathNode) or isinstance(node, HAlignment):
             return True
-        else:
-            return node.node_type in (
-                nd.NODE_TYPE.HLIST,
-                nd.NODE_TYPE.VLIST,
-                nd.NODE_TYPE.RULE,
-                nd.NODE_TYPE.INS,
-            )
+        return node.node_type in (
+            nd.NODE_TYPE.HLIST,
+            nd.NODE_TYPE.VLIST,
+            nd.NODE_TYPE.RULE,
+            nd.NODE_TYPE.INS,
+        )
 
-    def _consumePagePrefix(self, count):
+    def noteAppend(self, pending, node):
+        if not self._triggersPageBuilder(node):
+            return
+        self.contributePending(pending)
+        if float(self.parser.layout["vsize"]) > 0:
+            self.processPendingPages(pending)
+
+    def _consumePagePrefix(self, pending, count):
         if count > 0:
             del self.contrib[:count]
-            self._pruneContribTop()
+            self._pruneContribTop(pending)
+        else:
+            self._syncLastItem(pending, self.contrib)
 
-    def _prependCarryNodes(self, nodes):
+    def _prependCarryNodes(self, pending, nodes):
         if not nodes:
             return
         for node in nodes:
             node.source = node
         self.contrib[:0] = list(nodes)
-        self._pruneContribTop()
+        self._pruneContribTop(pending)
 
-    def _processPendingPages(self, force=False):
+    def processPendingPages(self, pending, force=False):
         if self._processing_pages:
             return
         if float(self.parser.layout["vsize"]) <= 0:
@@ -828,8 +845,8 @@ class MainVList(vmode.VList):
         self._processing_pages = True
         try:
             while True:
-                if self.list:
-                    self._contributePending()
+                if pending.list:
+                    self.contributePending(pending)
                 if not self.contrib:
                     return
                 current_context = self._currentPageContext()
@@ -864,7 +881,7 @@ class MainVList(vmode.VList):
                 self._clearInsertScratch(self.parser)
                 page.list[:], insert_carry = self._extractPageInserts(self.parser, page_nodes, breaker)
                 self.parser.globals["insertpenalties"] = breaker.last_insert_penalties
-                pending = list(insert_carry)
+                carry = list(insert_carry)
                 if not has_content:
                     self._flushPageWhatsits(self.parser, page.list)
                 else:
@@ -873,22 +890,12 @@ class MainVList(vmode.VList):
                         page.typeset(self.parser, maxdepth=break_context.maxdepth),
                     )
                     if out_carry:
-                        pending.extend(out_carry)
-                self._consumePagePrefix(next_start)
-                if pending:
-                    self._prependCarryNodes(pending)
+                        carry.extend(out_carry)
+                self._consumePagePrefix(pending, next_start)
+                if carry:
+                    self._prependCarryNodes(pending, carry)
         finally:
             self._processing_pages = False
-
-    def append(self, node, add_interline=True):
-        super().append(node, add_interline)
-        if self._triggersPageBuilder(node):
-            self._contributePending()
-            if float(self.parser.layout["vsize"]) > 0:
-                self._processPendingPages()
-
-    def pop(self):
-        return super().pop()
 
     @staticmethod
     def _pageMarks(nodes, start, end, topmark):
@@ -1088,13 +1095,14 @@ class MainVList(vmode.VList):
         carry.extend(outlist.list)
         return carry
 
-    def finish(self, parser):
+    def finish(self, pending):
+        parser = self.parser
         if float(parser.layout["vsize"]) <= 0:
             self._flushPageWhatsits(parser, self.contrib)
-            self._flushPageWhatsits(parser, self.list)
+            self._flushPageWhatsits(parser, pending.list)
             return
-        self._contributePending()
-        self._processPendingPages(force=True)
+        self.contributePending(pending)
+        self.processPendingPages(pending, force=True)
 
 
 class VSplitContext:
@@ -1123,6 +1131,7 @@ def init(parser):
     Runtime scratch storage for insertion classes during page building.
     """
     parser.globals["insert"] = [[] for _ in range(256)]
+    parser.page_builder = PageBuilder(parser)
     parser.shipout = Shipout(parser)
 
 

@@ -14,13 +14,11 @@ from pytex.expandable import toksToString
 
 
 def _raw_nodes(vlist):
-    return getattr(vlist, "raw", vlist)
+    return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
 
 
 def _vertical_nodes(vlist):
-    contrib = list(getattr(vlist, "contrib", []))
-    pending = list(getattr(vlist, "list", vlist))
-    return contrib + pending
+    return vlist.concreteNodes() if hasattr(vlist, "concreteNodes") else list(vlist)
 
 
 @contextmanager
@@ -247,14 +245,16 @@ def _break_pages(parser):
     if parser.lists[-1].type == lists.LISTTYPE.HORIZONTAL:
         parser.endParagraph()
     main = parser.lists[0]
-    assert isinstance(main, page.MainVList)
+    assert isinstance(main, vmode.VList)
+    assert not main.inner
+    page_builder = parser.page_builder
     pages = list(parser.shipout.pages)
-    main._contributePending()
-    material = list(main.contrib)
+    page_builder.contributePending(main)
+    material = list(page_builder.contrib)
     context = page.PageBuilderContext(parser.layout)
     breaker = page.PageBreaker(parser, material, context)
     topmark = list(parser.parameters["botmark"])
-    page.MainVList._clearInsertScratch(parser)
+    page.PageBuilder._clearInsertScratch(parser)
     start = 0
     while True:
         start, context = breaker.pruneTop(start, context)
@@ -267,11 +267,11 @@ def _break_pages(parser):
             break_context = breaker.advanceContext(start, end, context)
             break_penalty = 0
         box = bx.VBox(parser, break_context.vsize, None)
-        firstmark, botmark = main._pageMarks(material, start, end, topmark)
-        main._updatePageMarksByClass(parser, material, start, end, topmark)
+        firstmark, botmark = page_builder._pageMarks(material, start, end, topmark)
+        page_builder._updatePageMarksByClass(parser, material, start, end, topmark)
         page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
-        page.MainVList._clearInsertScratch(parser)
-        box.list[:], carry = main._extractPageInserts(parser, page_nodes, breaker)
+        page.PageBuilder._clearInsertScratch(parser)
+        box.list[:], carry = page.PageBuilder._extractPageInserts(parser, page_nodes, breaker)
         pages.append(box.typeset(parser))
         parser.layout["outputpenalty"] = break_penalty
         parser.globals["insertpenalties"] = breaker.last_insert_penalties
@@ -287,10 +287,8 @@ def _break_pages(parser):
 
 
 def _concrete_vlist(parser, nodes):
-    if isinstance(nodes, page.MainVList):
-        return _vertical_nodes(nodes)
     if isinstance(nodes, vmode.VList):
-        return list(nodes.list)
+        return _vertical_nodes(nodes)
     with _opened_vlist(parser) as vlist:
         for node in nodes:
             vlist.append(node)
@@ -436,7 +434,8 @@ def test_prevdepth_assignment_is_allowed_in_horizontal_mode(cmr10):
 def test_page_break_inserts_topskip_and_splits_pages(parser):
     parser.parse("\\vsize=10pt\\topskip=0pt")
     main = parser.lists[0]
-    assert isinstance(main, page.MainVList)
+    assert isinstance(main, vmode.VList)
+    assert not main.inner
     first = _test_hbox(parser, height=6, depth=0)
     second = _test_hbox(parser, height=6, depth=0)
     main.append(first)
@@ -457,7 +456,8 @@ def test_page_break_inserts_topskip_and_splits_pages(parser):
 def test_page_break_uses_topskip_before_first_box(parser):
     parser.parse("\\vsize=20pt\\topskip=10pt")
     main = parser.lists[0]
-    assert isinstance(main, page.MainVList)
+    assert isinstance(main, vmode.VList)
+    assert not main.inner
     main.append(_test_hbox(parser, height=6, depth=0))
     pages = _break_pages(parser)
     assert len(pages) == 1
@@ -543,8 +543,8 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     )
     main = parser.lists[0]
     main.append(_test_hbox(parser, height=1, depth=0))
-    main._contributePending()
-    material = list(main.contrib)
+    parser.page_builder.contributePending(main)
+    material = list(parser.page_builder.contrib)
     context = page.PageBuilderContext(parser.layout)
     breaker = page.PageBreaker(parser, material, context)
     start, context = breaker.pruneTop(0, context)
@@ -559,8 +559,8 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     assert second["kind"] == "defer"
     assert breaker.last_insert_penalties == 123
     page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
-    page.MainVList._clearInsertScratch(parser)
-    kept, carry = page.MainVList._extractPageInserts(parser, page_nodes, breaker)
+    page.PageBuilder._clearInsertScratch(parser)
+    kept, carry = page.PageBuilder._extractPageInserts(parser, page_nodes, breaker)
     assert all(node.node_type != nd.NODE_TYPE.INS for node in kept)
     assert len(carry) == 2
     assert carry[0].node_type == nd.NODE_TYPE.INS
@@ -609,8 +609,9 @@ def test_main_vlist_moves_triggered_nodes_into_contrib(parser):
     box = _test_hbox(parser, height=6, depth=0)
     main.append(box)
     assert len(main.list) == 0
-    assert len(main.contrib) == 1
-    assert main.contrib[0] is box
+    assert len(parser.page_builder.contrib) == 1
+    assert parser.page_builder.contrib[0] is box
+    assert main.lastitem is box
 
 
 def test_lastpenalty_sees_contributed_tail_penalty(parser):
@@ -626,7 +627,8 @@ def test_main_vlist_prunes_top_discardables_when_contributing(parser):
     main.append(nd.Penalty(50))
     box = _test_hbox(parser, height=6, depth=0)
     main.append(box)
-    assert main.contrib == [box]
+    assert parser.page_builder.contrib == [box]
+    assert main.lastitem is box
 
 
 def test_main_vlist_keeps_leading_whatsits_while_pruning_top_discardables(parser):
@@ -639,7 +641,8 @@ def test_main_vlist_keeps_leading_whatsits_while_pruning_top_discardables(parser
     main.append(nd.Penalty(50))
     box = _test_hbox(parser, height=6, depth=0)
     main.append(box)
-    assert main.contrib == [special, box]
+    assert parser.page_builder.contrib == [special, box]
+    assert main.lastitem is box
 
 
 def test_page_break_uses_current_layout_at_break_time(parser):

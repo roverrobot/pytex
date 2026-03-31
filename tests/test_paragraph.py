@@ -311,7 +311,8 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
 def _reset_outer_vlist(parser):
     if parser.lists is not None:
         parser.lists.clear()
-    parser.lists = lists.ListStack([page.MainVList(parser)])
+    parser.page_builder.reset()
+    parser.lists = lists.ListStack([vmode.VList(parser, [], inner=False)])
 
 
 def test_linebreak_plain_paragraph_cases(parser):

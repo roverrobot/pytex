@@ -27,6 +27,7 @@ class VList(lists.List):
     def __init__(self, parser, nodes, inner=True, add_interline=True):
         super().__init__(parser, nodes, inner)
         self.raw = []
+        self.lastitem = None
         self.add_interline = add_interline
 
     list_type_name = "VList"
@@ -45,6 +46,28 @@ class VList(lists.List):
         for node in nodes:
             self.append(node, add_interline)
 
+    def _pageBuilder(self):
+        if self.inner:
+            return None
+        return getattr(self.parser, "page_builder", None)
+
+    def concreteNodes(self):
+        page_builder = self._pageBuilder()
+        if page_builder is not None:
+            return page_builder.concreteNodes(self)
+        return list(self.list)
+
+    def rawNodes(self):
+        page_builder = self._pageBuilder()
+        if page_builder is not None:
+            return page_builder.rawNodes(self)
+        return list(self.raw)
+
+    def _notePageBuilder(self, node):
+        page_builder = self._pageBuilder()
+        if page_builder is not None:
+            page_builder.noteAppend(self, node)
+
     def append(self, node, add_interline=None):
         if add_interline is None:
             add_interline = self.add_interline
@@ -52,14 +75,17 @@ class VList(lists.List):
             self.raw.append(node)
         if getattr(node, "typeset_to_vlist", False):
             node.typeset(self.parser, self)
+            self._notePageBuilder(node)
             return
         # appending a built node
         if node.node_type == nd.NODE_TYPE.RULE:
             self.parser.globals["prevdepth"] = init_prevdepth
             self.list.append(node)
+            self._notePageBuilder(node)
             return
         if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
             self.list.append(node)
+            self._notePageBuilder(node)
             return
         prevdepth = self.parser.globals["prevdepth"]
         interline_penalty = getattr(node, "interline_penalty", None)
@@ -85,6 +111,7 @@ class VList(lists.List):
         if node.node_type == nd.NODE_TYPE.HLIST:
             for n in getattr(node, "migratory", []):
                 self.append(n, add_interline=False)
+        self._notePageBuilder(node)
     
     @staticmethod
     def isOwner(node, owner):

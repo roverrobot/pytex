@@ -329,9 +329,7 @@ def _last_list_node(top):
     if len(top) > 0:
         return top[-1]
     if top.type == LISTTYPE.VERTICAL and not top.inner:
-        contrib = getattr(top, "contrib", None)
-        if contrib:
-            return contrib[-1]
+        return getattr(top, "lastitem", None)
     return None
 
 

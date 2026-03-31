@@ -391,7 +391,8 @@ class Parser:
         """
         # we first set up today etc.
         if self.lists is None:
-            self.lists = lists.ListStack([page.MainVList(self)])
+            self.page_builder.reset()
+            self.lists = lists.ListStack([vmode.VList(self, [], inner=False)])
         date = datetime.datetime.now()
         self.volatile["year"] = date.year
         self.volatile["month"] = date.month
@@ -749,7 +750,7 @@ class Parser:
         top = self.lists[-1]
         if top.type != lists.LISTTYPE.VERTICAL or top.inner:
             raise ValueError("did not end in the main vertical list")
-        top.finish(self)
+        self.page_builder.finish(top)
         self.shipout.close()
 
         

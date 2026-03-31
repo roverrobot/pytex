@@ -50,11 +50,10 @@ different scanners are created, not from the scanner protocol itself.
 
 ## Scanner Kinds
 
-The current design still needs these scanner forms:
+The current design needs these concrete scanner forms:
 
 - plain scanner over string/file input
 - `TokenListScanner`
-- `MacroScanner`
 
 ### Plain Scanner
 
@@ -72,26 +71,179 @@ This is the basic reusable scanner for:
 
 - stored token lists
 - unread tokens
-- macro replacement chunks after parameter substitution has been lowered
+- compiled macro replacement results
 
-### `MacroScanner`
+There is no longer a dedicated `MacroScanner`.
 
-`MacroScanner` is conceptually reducible to `TokenListScanner` pieces plus
-argument pushes.
+Macro expansion is lowered into:
 
-Instead of treating macro expansion as one opaque scanner kind, it is cleaner
-to think of a macro body as alternating between:
+- argument reading against the current input stream
+- assembly of a replacement token list from compiled pieces
+- one `TokenListScanner` push for the assembled result
 
-- literal replacement-token chunks
-- parameter references such as `#1`, `#2`, and so on
+That means macro expansion is expressed using the ordinary scanner/input-stack
+machinery rather than by introducing a separate scanner kind.
 
-The lowered execution then becomes:
+## `readTo`
 
-- push a scanner for a literal token chunk
-- push a scanner for the corresponding argument token list
+The main structural scanner helper is `readTo(stop_catcode, ..., expand=False)`.
 
-So `#i` placeholders are not special tokens that later layers need to see.
-They are lowered into input-stack operations.
+Its job is:
+
+- read tokens until a matching raw stop token is found
+- track raw `{` / `}` nesting
+- return `(tokens, end_token)`
+
+The important design point is that `readTo` itself is structural:
+
+- raw begin-group and end-group tokens control nesting
+- the returned token list excludes the stopping token
+- the stopping token is returned separately so callers can decide whether it is
+  syntax or payload
+
+This helper replaces the older family of balanced-token readers.
+
+### Why The Stop Token Is Separate
+
+Returning the stop token separately is important for macro definitions.
+
+For the parameter text of `\def`, the terminating `{` is not part of the
+pattern itself, but it still matters:
+
+- it ends the pattern scan
+- if the pattern ended with a pending `#`, the `{` becomes the delimiter token
+
+So the macro reader needs access to that token without having it mixed into the
+ordinary collected token list by default.
+
+## Expanded Reads
+
+When `readTo(..., expand=True)` is used, token acquisition still happens one
+token at a time, but the destination list is wrapped in `ExpandBuilder`.
+
+`ExpandBuilder` is responsible for the token-list-specific expansion policy:
+
+- undefined commands still error
+- protected commands are left as tokens
+- non-expandable commands are left as tokens
+- commands with `expanded(parser)` contribute an entire token list via
+  `extend(...)`
+- commands with only `expand(parser)` contribute a single token via `append(...)`
+
+So expansion policy lives in the builder, while `readTo` remains the structural
+balanced-token reader.
+
+This is also the same expander shape used by file-writing paths that need token
+list expansion without invoking the normal parser execution loop.
+
+## Macro Definition Reading
+
+Macro definitions add one more builder layer: `MacroBodyBuilder`.
+
+`MacroBodyBuilder` is the normalization boundary for macro `#` syntax.
+
+Direct input tokens appended through `append(...)` are interpreted as current
+definition syntax:
+
+- `#1` .. `#9` become parameter tokens with `parameter >= 0`
+- `##` becomes an escaped parameter token with `parameter == -1`
+- bad trailing or malformed `#` syntax raises an error
+
+Token lists inserted through `extend(...)` are not reinterpreted as fresh input
+syntax. They are copied through as provided by the expander.
+
+This boundary is important because only the scanner phase knows whether a token
+came from:
+
+- direct source input
+- an expanded token list such as `\the`
+
+Later compilation cannot reconstruct that provenance reliably.
+
+### Pattern And Replacement Reads
+
+Macro reading is now:
+
+1. read the pattern with `readTo(BEGIN_GROUP, expand=False, toks=MacroBodyBuilder(..., pattern=True))`
+2. close the builder, which also resolves the special `#{` tail case
+3. read the replacement with `readTo(END_GROUP, expand=expand_body, toks=MacroBodyBuilder(..., pattern=False))`
+4. close the replacement builder
+5. construct `Macro(pattern, replacement)`
+
+So `Macro.pattern` and `Macro.replacement` are already normalized macro-body
+token streams, not raw source text.
+
+## Macro Compilation
+
+`Macro` keeps two representations:
+
+- canonical stored form:
+  - `pattern`
+  - `replacement`
+- compiled execution form:
+  - `calls`
+  - `replacement_pieces`
+
+The stored form is used for:
+
+- serialization
+- equality
+- `meaning()`
+
+The compiled form is used for:
+
+- argument reading
+- runtime expansion
+
+### Compiled Calls
+
+`_compileCalls(pattern)` turns the normalized parameter text into executable
+call objects:
+
+- `MatchStartCaller`
+- `ReadArgUnDelimCaller`
+- `ReadArgDelim1Caller`
+- `ReadArgDelim2Caller`
+
+These objects are the runtime argument-reading program for the macro.
+
+So the old "read brackets every time the macro expands" model is gone. The
+parameter text is compiled once when the macro is defined.
+
+### Compiled Replacement Pieces
+
+`_compileReplacementPieces(replacement, arg_count)` lowers the replacement text
+into:
+
+- one leading literal token list
+- followed by `(arg_index, trailing_literal)` pairs
+
+This means runtime expansion does not rescan the replacement token-by-token for
+`#1`, `#2`, and so on.
+
+Instead, expansion becomes:
+
+1. read arguments using `calls`
+2. start from the leading literal piece
+3. splice each captured argument list
+4. append the following literal piece
+5. push one `TokenListScanner` for the assembled result
+
+Escaped `#` in replacement compilation is lowered back to an ordinary literal
+parameter token, so the emitted token stream matches the next-layer TeX input
+that would have been seen from the original source.
+
+## Why Shared-Token Mutation Is Forbidden
+
+One subtle but important invariant is that macro-body normalization must not
+mutate tokens that may later be reused by compiled macro replacements.
+
+If a helper macro containing `##1` is expanded multiple times, mutating the
+shared `#` token in place would corrupt later expansions, turning the second use
+into `#11` instead of `#1`.
+
+So `MacroBodyBuilder` normalizes by appending fresh parameter tokens rather than
+editing the original input token object in place.
 
 ## Input-Stack IR
 
@@ -287,7 +439,9 @@ The token-flow layer has a very small core:
 Useful derived structure:
 
 - `unread(token)` as `push(TokenListScanner([token]))`
-- `MacroScanner` as a lowering into token-list pushes plus argument pushes
+- `readTo(...)` as a structural balanced-token reader
+- `ExpandBuilder` as the token-list expander used by `readTo(..., expand=True)`
+- macro compilation into argument-reading calls plus replacement pieces
 - token-control lowering for primitives such as `\expandafter` and `\futurelet`
 
 And the main boundary is:

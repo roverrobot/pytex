@@ -10,44 +10,43 @@ from pytex import accessor
 from pytex.expandable import toToks
 from pytex.define import registerdef
 
+
+def _parameterToken(parameter):
+    t = Token.token("#", CATCODE.PARAMETER)
+    t.parameter = parameter
+    return t
+
+
 class ExpandBuilder:
     """
     Wrapper that reproduces the old token-list expansion semantics.
     """
-    def __init__(self, parser):
+    def __init__(self, parser, toks=None):
         self.parser = parser
+        if toks is None:
+            toks = []
+        object.__setattr__(self, "toks", toks)
 
-    def token(self):
-        """
-        Expand a token in an expanded token list.
-        @return: the expanded token, expanded token list of \\the or
-        \\unexpanded. This is like ``parser.token_expand()``, except that it
-        does not expand protected macros.
-        """
-        parser = self.parser
-        while True:
-            t = parser.token()
-            if t is None or t.entry is None:
-                return t, None
-            if t.noexpand:
-                t.noexpand = False
-                t.definition = relax
-                return t, None
-            definition = t.definition
-            if definition is None:
-                raise ValueError(f"undefined command {t.name}", parser.input.position())
-            if definition.protected or definition.expand is None:
-                return t, None
-            if parser.tracingcommands:
-                parser.trace(t, "expand")
-            if definition.expanded:
-                return t, definition.expanded(parser)
-            t = definition.expand(parser)
-            if t:
-                return t, None
+    def __getattr__(self, name):
+        return getattr(self.toks, name)
+    
+    def append(self, item):
+        # not a command
+        if item.entry is None:
+            return self.toks.append(item)
+        definition = item.definition
+        if definition is None:
+            raise ValueError(f"command {item.name} is not defined", self.parser.input.position())
+        if definition.protected or definition.expand is None:
+            return self.toks.append(item)
+        if definition.expanded is not None:
+            return self.toks.extend(definition.expanded(self.parser))
+        t = definition.expand(self.parser)
+        if t is not None:
+            self.toks.append(t)
 
 
-def readTo(parser, stop, toks=None, expand: bool = False, builder=None):
+def readTo(parser, stop, toks=None, expand: bool = False):
     """
     Read tokens until a stop catcode is found.
 
@@ -57,32 +56,18 @@ def readTo(parser, stop, toks=None, expand: bool = False, builder=None):
     @param expand: whether to expand tokens while reading
     @return: (tokens, end_token)
     """
-    if builder is None:
-        builder = [] if toks is None else toks
-    expander = ExpandBuilder(parser) if expand else None
-    if expand:
-        token = expander.token
-    else:
-        token = parser.token
+    if toks is None:
+        toks = []
+    builder = ExpandBuilder(parser, toks) if expand else toks
     level = 0
-
     while True:
-        if expand:
-            t, expanded = token()
-        else:
-            t = token()
-            expanded = None
+        t = parser.token()
         if t is None:
             miss = "{" if stop == CATCODE.BEGIN_GROUP else "}"
             raise ValueError(f"expecting {miss}", parser.input.position())
-        if expanded is not None:
-            builder.extend(expanded)
-            continue
         catcode = t.catcode
         if catcode == stop and level == 0:
-            if hasattr(builder, "close"):
-                builder = builder.close(stop)
-            return builder, t
+            return toks, t
         if catcode == CATCODE.BEGIN_GROUP:
             level += 1
             builder.append(t)

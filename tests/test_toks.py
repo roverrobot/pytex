@@ -87,10 +87,11 @@ def test_expand_builder_token_keeps_token_alias(parser):
         next_token.seen = True
         return t0
 
-    parser.token = next_token
-    t, expanded = toks.ExpandBuilder(parser).token()
-    assert expanded is None
-    assert t is t0
+    t = next_token()
+    expanded = toks.ExpandBuilder(parser)
+    expanded.append(t)
+    assert expanded.toks
+    assert expanded.toks[0] is t0
 
 
 def test_token_catcode_predicates_check_current_meaning():

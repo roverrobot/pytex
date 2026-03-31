@@ -11,6 +11,8 @@ from pytex import macro
 from pytex.module import Module
 from pytex import conditional
 from pytex import toks
+
+
 class EndFileScanToken(token.Token):
     """
     Internal token that terminates a temporary file-token scan.
@@ -137,20 +139,14 @@ class WriteOp(FileOp):
     def execute(self, parser):
         pushFileScan(parser, TokenListScanner(self.tokens))
         file = self.file(parser)
-        tokens = []
         expander = toks.ExpandBuilder(parser)
         while True:
-            t, expanded = expander.token()
+            t = parser.token()
             if isinstance(t, EndFileScanToken):
                 popFileScan(parser)
                 break
-            if t is None:
-                break
-            if expanded is not None:
-                tokens.extend(expanded)
-                continue
-            tokens.append(t)
-        s = parser.expandedToksToString(tokens)
+            expander.append(t)
+        s = parser.expandedToksToString(expander.toks)
         if file is None:
             print(s, file=parser.log)
             if self.file_id >= 0:

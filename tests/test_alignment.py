@@ -35,7 +35,7 @@ def _typeset_halign(parser, node):
     packed = vmode.VList(parser, [], inner=True)
     packed.open()
     try:
-        node.typeset(parser, packed)
+        parser.alignment_typesetter.typesetHAlignment(node, packed)
         return list(packed.list)
     finally:
         packed.close()

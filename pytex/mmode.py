@@ -179,6 +179,7 @@ class MList(lists.List):
     def __init__(self, parser, list=None, inner=True):
         super().__init__(parser, [] if list is None else list, inner=inner)
         self.building_atom = None
+        self.pending_alignment = None
         self.type = lists.LISTTYPE.MATH
         self.isalign = False
     
@@ -189,6 +190,7 @@ class MList(lists.List):
     def clear(self):
         super().clear()
         self.building_atom = None
+        self.pending_alignment = None
 
     def buildAtom(self, field, atom=None):
         if atom is None:
@@ -1417,7 +1419,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
             return
         if not mlist.isalign:
             return
-        self.node = mlist[0]
+        self.node = parser.alignment_typesetter.materializeMAlignment(mlist.pending_alignment)
 
     def finalize(self, parser, top, mlist):
         # here top points to the enclosing horizontal list
@@ -1429,7 +1431,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
             top.append(self.node)
             return
         if mlist.isalign:
-            self.node = mlist[0]
+            self.node = self.node or parser.alignment_typesetter.materializeMAlignment(mlist.pending_alignment)
         top.append(self.node)
         parser.globals["prevgraf"] += 3
         # TeX is back in horizontal mode after a display, but the follow-on

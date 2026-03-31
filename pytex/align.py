@@ -321,6 +321,121 @@ class Alignment(nd.Node):
         raise NotImplementedError
 
 
+class AlignmentTypesetter:
+    def __init__(self, parser):
+        self.parser = parser
+
+    def _appendNoAlign(self, alignment, noalign, vlist):
+        for n in noalign:
+            n.source = alignment
+            vlist.append(n, add_interline=False)
+
+    def typesetHAlignment(self, alignment, vlist):
+        parser = self.parser
+        if not isinstance(vlist, vmode.VList):
+            raise TypeError("HAlignment typesetting expects a VList")
+        rows, w, t = alignment._collectEntries(parser)
+        prepared = []
+        for row, entries in rows:
+            rowbox = bx.HBox(parser, alignment.to, alignment.spread)
+            row_total = glue.Glue()
+            row_width = Dimen()
+            row_entries = []
+            row_height = Dimen()
+            row_depth = Dimen()
+            if t:
+                rowbox.list.append(nd.Glue(t[0], "\\tabskip"))
+                row_total += t[0]
+                row_width += t[0].dimen
+            for entry in entries:
+                i = entry["start"]
+                j = i + entry["span"] - 1
+                if entry["span"] == 1:
+                    box = alignment.reboxEntry(parser, entry["cell"], w[i])
+                    row_entries.append(box)
+                    if box.height > row_height:
+                        row_height = box.height
+                    if box.depth > row_depth:
+                        row_depth = box.depth
+                    rowbox.list.append(box)
+                    row_width += box.width
+                else:
+                    box = alignment.reboxEntry(parser, entry["cell"], w[i])
+                    row_entries.append(box)
+                    if box.height > row_height:
+                        row_height = box.height
+                    if box.depth > row_depth:
+                        row_depth = box.depth
+                    rowbox.list.append(box)
+                    row_width += box.width
+                    for k in range(i + 1, j + 1):
+                        rowbox.list.append(nd.Glue(t[k], "\\tabskip"))
+                        row_total += t[k]
+                        row_width += t[k].dimen
+                        empty = alignment._emptyEntry(parser, w[k])
+                        rowbox.list.append(empty)
+                        row_width += empty.width
+                if j + 1 < len(t):
+                    rowbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
+                    row_total += t[j + 1]
+                    row_width += t[j + 1].dimen
+            for box in row_entries:
+                box.height = row_height
+                box.depth = row_depth
+            prepared.append((row, rowbox, row_total, row_width))
+        if alignment.noalign is not None:
+            self._appendNoAlign(alignment, alignment.noalign, vlist)
+        for row, rowbox, row_total, row_width in prepared:
+            rowbox.source = alignment
+            vlist.append(rowbox.typeset(parser))
+            if row.noalign is not None:
+                self._appendNoAlign(alignment, row.noalign, vlist)
+
+    def typesetMAlignment(self, alignment, vlist):
+        if not isinstance(vlist, vmode.VList):
+            raise TypeError("MAlignment typesetting expects a VList")
+        penalty = nd.Penalty(alignment.predisplaypenalty)
+        penalty.source = alignment
+        vlist.append(penalty)
+        above = nd.Glue(alignment.abovedisplayskip, "\\abovedisplayskip")
+        above.source = alignment
+        vlist.append(above)
+        vlist.extend(alignment.list, add_interline=False)
+        penalty = nd.Penalty(alignment.postdisplaypenalty)
+        penalty.source = alignment
+        vlist.append(penalty)
+        below = nd.Glue(alignment.belowdisplayskip, "\\belowdisplayskip")
+        below.source = alignment
+        vlist.append(below)
+
+    def materializeMAlignment(self, source):
+        parser = self.parser
+        body = vmode.VList(parser, [], inner=True)
+        self.typesetHAlignment(source, body)
+        indent = Dimen(parser.volatile["displayindent"])
+        for n in body:
+            if n.node_type == nd.NODE_TYPE.HLIST:
+                n.shifted = indent
+                n.display = True
+        return MAlignment(
+            source,
+            list=list(body.list),
+            predisplaypenalty=parser.layout["predisplaypenalty"],
+            abovedisplayskip=parser.layout["abovedisplayskip"],
+            postdisplaypenalty=parser.layout["postdisplaypenalty"],
+            belowdisplayskip=parser.layout["belowdisplayskip"],
+        )
+
+    def appendToVList(self, node, vlist):
+        if isinstance(node, MAlignment):
+            self.typesetMAlignment(node, vlist)
+            return True
+        if isinstance(node, HAlignment):
+            self.typesetHAlignment(node, vlist)
+            return True
+        return False
+
+
 class HAlignment(Alignment):
     """
     A \\halign node. It expands immediately into explicit vertical material.
@@ -330,8 +445,6 @@ class HAlignment(Alignment):
 
     def __init__(self, to=None, spread=Dimen()):
         super().__init__(to, spread)
-
-    typeset_to_vlist = True
 
     def newBox(self, parser):
         return bx.HBox(parser, None, 0)
@@ -355,73 +468,6 @@ class HAlignment(Alignment):
     def _emptyEntry(self, parser, width):
         box = bx.HBox(parser, width, None)
         return box.typeset(parser)
-
-    def typeset(self, parser, vlist):
-        if not isinstance(vlist, vmode.VList):
-            raise TypeError("HAlignment.typeset expects a VList")
-        rows, w, t = self._collectEntries(parser)
-        prepared = []
-        W = Dimen()
-        for row, entries in rows:
-            rowbox = bx.HBox(parser, self.to, self.spread)
-            row_total = glue.Glue()
-            row_width = Dimen()
-            row_entries = []
-            row_height = Dimen()
-            row_depth = Dimen()
-            if t:
-                rowbox.list.append(nd.Glue(t[0], "\\tabskip"))
-                row_total += t[0]
-                row_width += t[0].dimen
-            for entry in entries:
-                i = entry["start"]
-                j = i + entry["span"] - 1
-                if entry["span"] == 1:
-                    box = self.reboxEntry(parser, entry["cell"], w[i])
-                    row_entries.append(box)
-                    if box.height > row_height:
-                        row_height = box.height
-                    if box.depth > row_depth:
-                        row_depth = box.depth
-                    rowbox.list.append(box)
-                    row_width += box.width
-                else:
-                    box = self.reboxEntry(parser, entry["cell"], w[i])
-                    row_entries.append(box)
-                    if box.height > row_height:
-                        row_height = box.height
-                    if box.depth > row_depth:
-                        row_depth = box.depth
-                    rowbox.list.append(box)
-                    row_width += box.width
-                    for k in range(i + 1, j + 1):
-                        rowbox.list.append(nd.Glue(t[k], "\\tabskip"))
-                        row_total += t[k]
-                        row_width += t[k].dimen
-                        empty = self._emptyEntry(parser, w[k])
-                        rowbox.list.append(empty)
-                        row_width += empty.width
-                if j + 1 < len(t):
-                    rowbox.list.append(nd.Glue(t[j + 1], "\\tabskip"))
-                    row_total += t[j + 1]
-                    row_width += t[j + 1].dimen
-            for box in row_entries:
-                box.height = row_height
-                box.depth = row_depth
-            prepared.append((row, rowbox, row_total, row_width))
-        if self.noalign is not None:
-            self.appendNoAlign(self.noalign, vlist)
-        for row, rowbox, row_total, row_width in prepared:
-            rowbox.source = self
-            # no interline penalty
-            vlist.append(rowbox.typeset(parser))
-            if row.noalign is not None:
-                self.appendNoAlign(row.noalign, vlist)
-
-    def appendNoAlign(self, noalign, vlist):
-        for n in noalign:
-            n.source = self
-            vlist.append(n, add_interline=False)
             
 
 class VAlignment(Alignment):
@@ -604,18 +650,11 @@ class AlignmentEndCallback:
             raise ValueError("expecting \\cr", parser.input.position())
         top = parser.lists[-1]
         alignment = self.builder.alignment
-        self.target.append(alignment)
         if top.type == lists.LISTTYPE.MATH:
-            initial_prevdepth = parser.globals["prevdepth"]
-            alignment._typeset_cache = vmode.VList(parser, [], inner=True)
-            HAlignment.typeset(alignment, parser, alignment._typeset_cache)
-            parser.globals["prevdepth"] = initial_prevdepth
-            indent = parser.volatile["displayindent"]
-            for n in alignment._typeset_cache:
-                if n.node_type == nd.NODE_TYPE.HLIST:
-                    n.shifted = indent
-                    n.display = True
+            top.pending_alignment = alignment
             top.isalign = True
+        else:
+            self.target.append(alignment)
         if parser.alignments and parser.alignments[-1] is self.builder:
             parser.alignments.pop()
 
@@ -727,28 +766,34 @@ class AlignmentBuilder:
         self.readPreamble(parser)
 
 
-class MAlignment(HAlignment):
-    def __init__(self, to=None, spread=Dimen()):
-        super().__init__(to, spread)
-        self._typeset_cache = None
+class MAlignment(nd.Node):
+    node_type = nd.NODE_TYPE.ALIGNMENT
 
-    def typeset(self, parser, packed):
-        if not isinstance(packed, vmode.VList):
-            raise TypeError("MAlignment.typeset expects a VList")
-        layout = parser.layout
-        penalty = nd.Penalty(layout["predisplaypenalty"])
-        penalty.source = self
-        packed.append(penalty)
-        above = nd.Glue(layout["abovedisplayskip"], "\\abovedisplayskip")
-        above.source = self
-        packed.append(above)
-        packed.extend(self._typeset_cache, add_interline=False)
-        penalty = nd.Penalty(layout["postdisplaypenalty"])
-        penalty.source = self
-        packed.append(penalty)
-        below = nd.Glue(layout["belowdisplayskip"], "\\belowdisplayskip")
-        below.source = self
-        packed.append(below)
+    def __init__(
+        self,
+        source,
+        list=None,
+        predisplaypenalty=0,
+        abovedisplayskip=None,
+        postdisplaypenalty=0,
+        belowdisplayskip=None,
+    ):
+        self.source = source
+        self.list = [] if list is None else list
+        self.predisplaypenalty = predisplaypenalty
+        self.abovedisplayskip = glue.Glue() if abovedisplayskip is None else abovedisplayskip
+        self.postdisplaypenalty = postdisplaypenalty
+        self.belowdisplayskip = glue.Glue() if belowdisplayskip is None else belowdisplayskip
+
+    def saveInfo(self):
+        return {
+            "source": self.source,
+            "list": self.list,
+            "predisplaypenalty": self.predisplaypenalty,
+            "abovedisplayskip": self.abovedisplayskip,
+            "postdisplaypenalty": self.postdisplaypenalty,
+            "belowdisplayskip": self.belowdisplayskip,
+        }, None
             
 
 class Align(lists.ModeDependentCommand):
@@ -768,7 +813,7 @@ class HAlign(Align):
     def math(self, parser, mlist):
         if mlist.inner or len(mlist) > 0:
             raise ValueError("improper \\halign inside math mode", parser.input.position())
-        self.newAlignment(parser, mlist, MAlignment)
+        self.newAlignment(parser, mlist, HAlignment)
 
 
 class VAlign(Align):
@@ -781,6 +826,7 @@ class VAlign(Align):
 
 def init(parser):
     parser.alignments = AlignmentBuildStack()
+    parser.alignment_typesetter = AlignmentTypesetter(parser)
 
 
 mod = Module("align",

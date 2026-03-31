@@ -18,7 +18,7 @@ from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.token import Command, Token
 from pytex.paragraph import Paragraph
-from pytex.align import HAlignment
+from pytex.align import HAlignment, MAlignment
 from pytex.mmode import DisplayMathNode
 
 
@@ -802,6 +802,8 @@ class PageBuilder:
     def _triggersPageBuilder(self, node):
         # we do not trigger page building if a box is deposited by paragraph, display math or alignment.
         # instead, we check the raw node
+        if isinstance(node, MAlignment):
+            return True
         if node.source is not None:
             return False
         if node.node_type == nd.NODE_TYPE.PENALTY:

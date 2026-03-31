@@ -73,6 +73,10 @@ def _typeset_inline_math(parser, node, packed):
     return parser.math_typesetter.typesetInlineMath(node, packed)
 
 
+def _typeset_atom(parser, atom, packed, context, style):
+    return parser.math_typesetter.typesetAtom(atom, packed, context, style)
+
+
 @pytest.fixture()
 def math(cmr10):
     fonts="""
@@ -585,11 +589,12 @@ def test_rule5_bin_conversion_uses_effective_previous_atom_type(math):
             self.observed_type = None
             self.nucleus = None
 
-        def typeset(self, parser, packed, context, style):
+        def assemble(self, parser, context, style):
             self.observed_prev = context.prev_atom_type
-            super().typeset(parser, [], context, style)
             self.observed_type = context.atom_type
-            packed.append(nd.Kern(0))
+            b = box.HBox(parser, None, 0)
+            b.list.append(nd.Kern(0))
+            return b.typeset(parser)
 
     first = ProbeAtom(mmode.ATOM_TYPE.BIN)
     second = ProbeAtom(mmode.ATOM_TYPE.BIN)
@@ -617,10 +622,11 @@ def test_rule5_bin_after_rel_becomes_ord(math):
             self.observed_type = None
             self.nucleus = None
 
-        def typeset(self, parser, packed, context, style):
-            super().typeset(parser, [], context, style)
+        def assemble(self, parser, context, style):
             self.observed_type = context.atom_type
-            packed.append(nd.Kern(0))
+            b = box.HBox(parser, None, 0)
+            b.list.append(nd.Kern(0))
+            return b.typeset(parser)
 
     rel = ProbeAtom(mmode.ATOM_TYPE.REL)
     bin_atom = ProbeAtom(mmode.ATOM_TYPE.BIN)
@@ -649,7 +655,7 @@ def test_atom_wrapper_shadows_wrapped_atom_fields_and_methods(math):
     wrapped.nucleus = None
     assert wrapped.nucleus is None
     assert atom.nucleus is original
-    assert callable(wrapped.typeset)
+    assert callable(wrapped.assemble)
 
 
 def test_rule14_ord_op_ligature_collapses_pair(math):
@@ -837,7 +843,7 @@ def test_rule17_cases(math):
     plain_ctx.atom_type = mmode.ATOM_TYPE.ORD
     plain_ctx.text_symbol = False
     plain = []
-    atom.typeset(math, plain, plain_ctx, style)
+    _typeset_atom(math, atom, plain, plain_ctx, style)
     plain_kerns = [n for n in plain if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
     assert len(plain_kerns) == 1, "rule17 plain symbol should get italic kern"
 
@@ -846,7 +852,7 @@ def test_rule17_cases(math):
     text_ctx.atom_type = mmode.ATOM_TYPE.ORD
     text_ctx.text_symbol = True
     text = []
-    atom.typeset(math, text, text_ctx, style)
+    _typeset_atom(math, atom, text, text_ctx, style)
     text_kerns = [n for n in text if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
     assert len(text_kerns) == 0, "rule17 text symbol should suppress italic kern"
 
@@ -858,7 +864,7 @@ def test_rule17_cases(math):
     ctx.atom_type = mmode.ATOM_TYPE.ORD
     ctx.text_symbol = False
     packed = []
-    atom.typeset(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    _typeset_atom(math, atom, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     kerns = [n for n in packed if n.node_type == nd.NODE_TYPE.KERN and n.automatic]
     assert len(kerns) == 0, "rule17 symbol with subscript should suppress italic kern"
 
@@ -1661,7 +1667,7 @@ def test_rule19_uses_live_delimiter_parameters(math):
     atom_ctx = ctx
     atom_ctx.prev_atom_type = None
     atom_ctx.atom_type = atom.atom_type
-    atom.typeset(math, packed, atom_ctx, mmode.Style(mmode.MATH_STYLE.T))
+    _typeset_atom(math, atom, packed, atom_ctx, mmode.Style(mmode.MATH_STYLE.T))
     assert left.total == 0
     assert right.total == 0
 
@@ -1676,7 +1682,7 @@ def test_left_right_keeps_inner_translation_box(math):
     ctx = display_context(math)
     ctx.prev_atom_type = None
     ctx.atom_type = node.atom_type
-    node.typeset(math, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
+    _typeset_atom(math, node, packed, ctx, mmode.Style(mmode.MATH_STYLE.T))
     boxes = [n for n in packed if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)]
     assert len(boxes) == 1
     assert boxes[0].node_type == nd.NODE_TYPE.HLIST

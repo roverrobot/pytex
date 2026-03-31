@@ -476,7 +476,14 @@ class MathTypesetter:
                     context.prev_atom_type = prev_atom_type
                     context.atom_type = item.node_type
                     context.text_symbol = item.text_symbol
-                    item.typeset(self.parser, packed, context, item.style)
+                    self.typesetAtom(
+                        item.atom,
+                        packed,
+                        context,
+                        item.style,
+                        atom_type=item.node_type,
+                        text_symbol=item.text_symbol,
+                    )
                     prev_atom_type = context.prev_atom_type
                 else:
                     packed.append(item)
@@ -497,6 +504,60 @@ class MathTypesetter:
         self._pass1AdjustAtoms(context, collected)
         atom_state = _coerceAtomState(self.parser, context)
         return self._pass2Emit(holder, packed, atom_state, collected)
+
+    def typesetAtom(self, atom, packed, context=None, style=None, atom_type=None, text_symbol=None):
+        if packed is None:
+            packed = []
+        if context is None:
+            packed.append(atom)
+            return packed
+        if atom_type is None:
+            atom_type = getattr(context, "atom_type", atom.atom_type)
+        if text_symbol is not None:
+            context.text_symbol = text_symbol
+        context.atom_type = atom_type
+        boundary_info = atom._boundaryInfo()
+        if boundary_info is not None:
+            atom.typsetSpace(self.parser, packed, context, style, atom_type)
+            left_delim, right_delim, body_items = boundary_info
+            packed.append(atom._typesetBoundaryInner(self.parser, context, style, left_delim, right_delim, body_items))
+            context.prev_atom_type = atom_type
+            return packed
+        b = atom.assemble(self.parser, context, style)
+        sigma = mathsigma(self.parser, style)
+        axis = Dimen(sigma[21])
+        total = b.height + b.depth
+        if atom.left is not None and atom.right is not None:
+            delta_up = b.height - axis
+            delta_down = b.depth + axis
+            delta = delta_up if delta_up >= delta_down else delta_down
+            f = mathlayout(self.parser, "delimiterfactor")
+            l = mathlayout(self.parser, "delimitershortfall")
+            rule19 = Dimen(integer=(int(delta) // 500) * f)
+            short = 2 * delta - l
+            total = rule19 if rule19 >= short else short
+        if atom.left:
+            left = atom.left.typeset(self.parser, total, context, style, axis)
+            atom.typsetSpace(self.parser, packed, context, style, ATOM_TYPE.OPEN)
+            packed.append(left)
+            context.prev_atom_type = ATOM_TYPE.OPEN
+            atom.typsetSpace(self.parser, packed, context, style, atom_type)
+        else:
+            atom.typsetSpace(self.parser, packed, context, style, atom_type)
+        if atom.left is not None or atom.right is not None:
+            if getattr(b, "source", None) is None:
+                b.source = atom
+            packed.append(b)
+        else:
+            for n in b.list:
+                packed.append(n)
+        context.prev_atom_type = atom_type
+        if atom.right:
+            right = atom.right.typeset(self.parser, total, context, style, axis)
+            atom.typsetSpace(self.parser, packed, context, style, ATOM_TYPE.CLOSE)
+            packed.append(right)
+            context.prev_atom_type = ATOM_TYPE.CLOSE
+        return packed
 
     def typesetField(self, field, packed, context, style):
         if field is None:
@@ -817,60 +878,6 @@ class Atom(nd.Node):
         out.source = self
         return out
     
-    def typeset(self, parser, packed, context=None, style=None):
-        atom_type = self.atom_type if context is None else getattr(context, "atom_type", self.atom_type)
-        if context is None:
-            # Fallback for generic list/box expansion paths.
-            packed.append(self)
-            return
-        # Rule 5/6/14 class normalization is handled in MList.typesetNodes pass 1.
-        # At this stage we only emit with the supplied effective atom_type.
-        context.atom_type = atom_type
-        boundary_info = self._boundaryInfo()
-        if boundary_info is not None:
-            self.typsetSpace(parser, packed, context, style, atom_type)
-            left_delim, right_delim, body_items = boundary_info
-            packed.append(self._typesetBoundaryInner(parser, context, style, left_delim, right_delim, body_items))
-            context.prev_atom_type = atom_type
-            return
-        b = self.assemble(parser, context, style)
-        sigma = mathsigma(parser, style)
-        axis = Dimen(sigma[21])
-        total = b.height + b.depth
-        if self.left is not None and self.right is not None:
-            # TeXbook Appendix G, Rule 19: size boundary delimiters from
-            # formula extent around the axis, not simply h+d.
-            delta_up = b.height - axis
-            delta_down = b.depth + axis
-            delta = delta_up if delta_up >= delta_down else delta_down
-            f = mathlayout(parser, "delimiterfactor")
-            l = mathlayout(parser, "delimitershortfall")
-            rule19 = Dimen(integer=(int(delta) // 500) * f)
-            short = 2 * delta - l
-            total = rule19 if rule19 >= short else short
-        if self.left:
-            left = self.left.typeset(parser, total, context, style, axis)
-            self.typsetSpace(parser, packed, context, style, ATOM_TYPE.OPEN)
-            packed.append(left)
-            context.prev_atom_type = ATOM_TYPE.OPEN
-            self.typsetSpace(parser, packed, context, style, atom_type)
-        else:
-            self.typsetSpace(parser, packed, context, style, atom_type)
-        if self.left is not None or self.right is not None:
-            if getattr(b, "source", None) is None:
-                b.source = self
-            packed.append(b)
-        else:
-            for n in b.list:
-                # packed needs to handle ligatures automatically. So we cannot use extend, but to add them invididually
-                packed.append(n)
-        context.prev_atom_type = atom_type
-        if self.right:
-            right = self.right.typeset(parser, total, context, style, axis)
-            self.typsetSpace(parser, packed, context, style, ATOM_TYPE.CLOSE)
-            packed.append(right)
-            context.prev_atom_type = ATOM_TYPE.CLOSE
-
     """
     An array holding the spaces between the previous atom (rows) and the current item (columns)
     0 means no space, 1 or -1 means a thinmuskip, 2 or -2 means a medmuskip, and 3 or -3 means 

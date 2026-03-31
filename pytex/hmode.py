@@ -68,6 +68,14 @@ class HListHolder:
             if getattr(n, "source", None) is None:
                 n.source = node
 
+    def expandNodes(self, parser, packed):
+        """
+        Expand/typeset nodes that need it, without applying ligature logic.
+        """
+        for node in self.list:
+            self.typesetNode(parser, node, packed)
+        return packed
+
     def _leftBoundaryNode(self, font):
         program = font.leftBoundaryProgram()
         if program is None:
@@ -184,24 +192,32 @@ class HListHolder:
 from pytex.box import AccentNode, IndentBox
 
 
-class HList(lists.List):
+class HList(lists.List, HListHolder):
     """
     Horizontal list wrapper.
 
     This is what lives on parser.lists while horizontal material is scanned.
     It serves a concrete horizontal list node and updates \\spacefactor.
     """
-    def __init__(self, parser, list, inner=True):
+    def __init__(self, parser, list, inner=True, raw=None):
         super().__init__(parser, list, inner)
+        HListHolder.__init__(self, self.list)
+        self.raw = [] if raw is None else raw
         self.sfcode = parser.sfcode
         self.type = lists.LISTTYPE.HORIZONTAL
+        self._ligature_state = {"lig_base": None, "in_word": False}
 
     def open(self):
         super().open()
         self.saved_spacefactor = self.parser.globals["spacefactor"]
         self.parser.globals["spacefactor"] = 1000
+        self._syncLigatureState()
 
     def close(self):
+        if self._ligature_state["in_word"]:
+            HListHolder._applyRightBoundary(self, self.list, self._ligature_state)
+            self._ligature_state["in_word"] = False
+            self._ligature_state["lig_base"] = None
         self.parser.globals["spacefactor"] = self.saved_spacefactor
         super().close()
 
@@ -209,10 +225,39 @@ class HList(lists.List):
     def list_type_name(self):
         return "HList" if self.inner else "Paragraph"
 
+    def concreteNodes(self):
+        return list(self.list)
+
+    def rawNodes(self):
+        return list(self.raw)
+
+    def _nodeEndsWord(self, node):
+        if node is None:
+            return False
+        if node.node_type == nd.NODE_TYPE.CHAR:
+            return self.parser.lccode[ord(node.char)] != 0
+        if node.node_type == nd.NODE_TYPE.LIGATURE:
+            source = getattr(node, "source", None) or []
+            tail = source[-1] if source else None
+            if tail is not None and tail.node_type == nd.NODE_TYPE.CHAR:
+                return self.parser.lccode[ord(tail.char)] != 0
+        return False
+
+    def _syncLigatureState(self):
+        base = HListHolder._lastLigBase(self, self.list)
+        self._ligature_state["lig_base"] = base
+        self._ligature_state["in_word"] = self._nodeEndsWord(base)
+
     def append(self, node):
         if getattr(node, "pretypeset_in_hlist", False):
             node.pretypeset(self.parser)
+        if getattr(node, "source", None) is None:
+            self.raw.append(node)
         if node.node_type != nd.NODE_TYPE.CHAR:
+            if self._ligature_state["in_word"]:
+                HListHolder._applyRightBoundary(self, self.list, self._ligature_state)
+                self._ligature_state["in_word"] = False
+            self._ligature_state["lig_base"] = None
             self.parser.globals["spacefactor"] = 1000
             self.list.append(node)
             return
@@ -222,7 +267,18 @@ class HList(lists.List):
             if spacefactor < 1000 < sf:
                 sf = 1000
             self.parser.globals["spacefactor"] = sf
-        self.list.append(node)
+        HListHolder.typesetNodeWithLigatures(
+            self,
+            self.parser,
+            node,
+            self.list,
+            self._ligature_state,
+        )
+
+    def pop(self, *args):
+        node = self.list.pop(*args)
+        self._syncLigatureState()
+        return node
 
 
 def typesetHorizontalNodes(parser, nodes, packed):

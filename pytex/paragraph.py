@@ -27,7 +27,7 @@ class ParagraphList(hmode.HList):
     Live unrestricted horizontal list for a paragraph under construction.
     """
     def __init__(self, parser, paragraph):
-        super().__init__(parser, paragraph.list, inner=False)
+        super().__init__(parser, paragraph.list, inner=False, raw=paragraph.raw)
         self.paragraph = paragraph
 
 
@@ -39,6 +39,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
     """
     def __init__(self, parser, indent: bool):
         hmode.HListHolder.__init__(self, [])
+        self.raw = []
         self.indent = indent
         # \prevgraf for this paragraph (set by display-math machinery when needed).
         self.prevgraf = 0
@@ -46,7 +47,9 @@ class Paragraph(nd.Node, hmode.HListHolder):
         self.actual_looseness = 0
         # Display math opens a synthetic following paragraph that may remain empty.
         if indent:
-            self.list.append(bx.IndentBox(parser))
+            indent_box = bx.IndentBox(parser)
+            self.raw.append(indent_box)
+            self.list.append(indent_box)
         self._line_boxes = None
 
     # not a proper node
@@ -198,6 +201,10 @@ class Paragraph(nd.Node, hmode.HListHolder):
         Expand raw horizontal nodes and mark legal breakpoints in one pass.
         """
         scan = _BreakCandidateScan(parser)
+        if nodes is self.list and self.raw is not self.list:
+            self.expandNodes(parser, scan)
+            scan.finish()
+            return scan
         ligature_state = {"lig_base": None, "in_word": False}
         for node in nodes:
             self.typesetNodeWithLigatures(parser, node, scan, ligature_state)

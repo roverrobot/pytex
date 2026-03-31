@@ -54,8 +54,9 @@ def test_plain(plain):
     top = plain.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     hlist = _source_nodes(top, paragraph.Paragraph)[0]
-    # The stored paragraph keeps raw characters; ligatures/kerns are formed later.
-    assert len(hlist.list) == 18
+    # Paragraphs now keep raw input separately from the live concrete list.
+    assert len(hlist.raw) == 18
+    assert len(hlist.list) == 19
     assert hlist.list[-3].node_type == nd.NODE_TYPE.MATH
 
 

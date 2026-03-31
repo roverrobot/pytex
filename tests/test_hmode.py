@@ -41,15 +41,18 @@ def test_new_paragraph(cmr10):
     assert len(cmr10.lists) == 2
     hlist = cmr10.lists[-1]
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
-    # The stored list keeps raw characters; ligatures are formed when typeset.
-    assert len(hlist) == len(s) + 2
-    node = hlist[0]
+    # Raw nodes keep the source input, while the live list includes immediate
+    # ligatures/kerns.
+    raw = _raw_nodes(hlist)
+    assert len(raw) == len(s) + 2
+    node = raw[0]
     assert isinstance(node, hmode.IndentBox)
-    node = hlist[1]
+    node = raw[1]
     assert node.node_type == nd.NODE_TYPE.CHAR
     assert node.char  == "H"
     node = hlist[7]
     assert node.node_type == nd.NODE_TYPE.GLUE
+    assert any(node.node_type == nd.NODE_TYPE.KERN and node.automatic for node in _concrete_nodes(hlist))
 
 
 def test_everypar_runs_before_first_character(cmr10):
@@ -310,6 +313,7 @@ def test_unkern(cmr10, cmd):
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 2
+    assert len(_raw_nodes(top)) == 3
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.CHAR
 

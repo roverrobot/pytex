@@ -51,6 +51,7 @@ class Box(nd.Box):
         self.parser = parser
         self.to = None if to is None else Dimen(to)
         self.spread = None if spread is None else Dimen(spread)
+        self.raw = []
         self.list = []
         self.shifted = 0
         self.natural = None
@@ -269,10 +270,13 @@ class HBox(Box, hmode.HListHolder):
         if self._packed is not None:
             # it has been typeset. do nothing
             return
-        self.raw = self.list
+        if self.raw is None:
+            self.raw = self.list
         content = []
         typeset_nodes = getattr(self.list, "typesetNodes", None)
-        if typeset_nodes is None:
+        if self.raw is not self.list:
+            self.expandNodes(parser, content)
+        elif typeset_nodes is None:
             self.typesetNodes(parser, content)
         else:
             typeset_nodes(parser, content)
@@ -486,7 +490,7 @@ class BuildBox(Command):
         if self.vertical:
             state = vmode.VList(parser, box.list, inner=True)
         else:
-            state = hmode.HList(parser, box.list, inner=True)
+            state = hmode.HList(parser, box.list, inner=True, raw=box.raw)
         parser.lists.append(state)
         state.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value

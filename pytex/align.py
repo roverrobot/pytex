@@ -109,7 +109,7 @@ class RowBuildState:
         else:
             self.current_cell = CellBuildState(cell, column_no, templates)
             if cell.node_type == nd.NODE_TYPE.HLIST:
-                state = hmode.HList(parser, cell.list, inner=True)
+                state = hmode.HList(parser, cell.list, inner=True, raw=cell.raw)
             else:
                 state = vmode.VList(parser, cell.list, inner=True)
             parser.lists.append(state)

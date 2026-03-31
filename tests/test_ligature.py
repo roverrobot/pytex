@@ -7,6 +7,14 @@ from pytex import tfm
 from pytex import dimen
 
 
+def _raw_nodes(hlist):
+    return hlist.rawNodes() if hasattr(hlist, "rawNodes") else getattr(hlist, "raw", hlist)
+
+
+def _concrete_nodes(hlist):
+    return hlist.concreteNodes() if hasattr(hlist, "concreteNodes") else list(hlist)
+
+
 @pytest.mark.parametrize("input,char", [
     ["ff", 11],
     ["fi", 12],
@@ -21,9 +29,8 @@ from pytex import dimen
 def test_ligatures(cmr10, input, char):
     cmr10.parse(input)
     top = cmr10.lists[-1]
-    assert len(top) == len(input) + 2
-    packed = []
-    hmode.typesetHorizontalNodes(cmr10, top, packed)
+    assert len(_raw_nodes(top)) == len(input) + 2
+    packed = _concrete_nodes(top)
     assert len(packed) == 3
     assert packed[2].node_type == nd.NODE_TYPE.GLUE
     lig = packed[1]
@@ -41,9 +48,8 @@ def test_kern(cmr10, input):
     cmr10.parse(input)
     at = cmr10.parameters["currentfont"].at
     top = cmr10.lists[-1]
-    assert len(top) == len(input) + 2
-    packed = []
-    hmode.typesetHorizontalNodes(cmr10, top, packed)
+    assert len(_raw_nodes(top)) == len(input) + 2
+    packed = _concrete_nodes(top)
     assert len(packed) == 5
     assert packed[4].node_type == nd.NODE_TYPE.GLUE
     knode = packed[2]
@@ -119,8 +125,7 @@ def test_left_boundary_ligature_is_applied(parser):
         hlist.append(a)
     finally:
         hlist.close()
-    packed = []
-    hmode.typesetHorizontalNodes(parser, hlist.list, packed)
+    packed = _concrete_nodes(hlist)
     assert len(packed) == 1
     lig = packed[0]
     assert isinstance(lig, hmode.Ligature)
@@ -139,8 +144,7 @@ def test_right_boundary_kern_is_applied(parser):
         hlist.append(a)
     finally:
         hlist.close()
-    packed = []
-    hmode.typesetHorizontalNodes(parser, hlist.list, packed)
+    packed = _concrete_nodes(hlist)
     assert len(packed) == 2
     assert packed[0] is a
     kern = packed[1]

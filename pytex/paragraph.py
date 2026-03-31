@@ -191,8 +191,7 @@ class Paragraph(nd.Node):
     @staticmethod
     def _lineDisc(parser, disc, broken):
         rendered = disc.pre if broken else disc.replace
-        out = hmode.Disc(disc.pre, disc.post, rendered).typeset(parser)
-        out.list = list(rendered)
+        out = hmode.Disc(disc.pre, disc.post, list(rendered))
         out.source = getattr(disc, "source", None)
         return out
 
@@ -312,9 +311,7 @@ class Paragraph(nd.Node):
         return packed
 
     def _virtualDisc(self, parser, pre, post):
-        out = hmode.Disc(pre, post, []).typeset(parser)
-        out.list = []
-        return out
+        return hmode.Disc(pre, post, [])
 
     @staticmethod
     def _hyphenItemLetters(node):

@@ -397,26 +397,11 @@ class ControlledSpace(HorizontalCommand):
         self.horizontal(parser, mlist)
 
 
-class TypesetDisc(nd.Node):
-    """
-    a typeset discretionary node
-    """
-    def __init__(self, pre, post, replace):
-        def sum(nodes):
-            width = Dimen()
-            for node in nodes:
-                width += node.kern if node.node_type == nd.NODE_TYPE.KERN else node.width
-            return width
-
-        self.pre = pre
-        self.pre_width = sum(pre)
-        self.post = post
-        self.post_width = sum(post)
-        self.replace = replace
-        self.replace_width = sum(replace)
-        self.list = self.replace
-
-    node_type = nd.NODE_TYPE.DISC
+def _sumHorizontalNodes(nodes):
+    width = Dimen()
+    for node in nodes:
+        width += node.kern if node.node_type == nd.NODE_TYPE.KERN else node.width
+    return width
 
 
 class Disc(nd.Node):
@@ -427,18 +412,10 @@ class Disc(nd.Node):
         self.pre = pre
         self.post = post
         self.replace = replace
-        self.rendered = None
-    
-    def typeset(self, parser, packed=None):
-        if self.rendered is None:
-            self.rendered = TypesetDisc(
-                list(self.pre),
-                list(self.post),
-                list(self.replace),
-            )
-        if packed is None:
-            return self.rendered
-        packed.append(self.rendered)
+        self.pre_width = _sumHorizontalNodes(pre)
+        self.post_width = _sumHorizontalNodes(post)
+        self.replace_width = _sumHorizontalNodes(replace)
+        self.list = self.replace
         
     def saveInfo(self):
         return {"pre": self.pre, "post": self.post, "replace": self.replace}, None

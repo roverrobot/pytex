@@ -40,8 +40,8 @@ class HListHolder:
     """
     Common holder for horizontal node lists.
 
-    This helper stays in hmode because it provides horizontal list
-    typesetting behavior.
+    This helper stays in hmode because it provides horizontal ligature
+    handling behavior.
     """
     def __init__(self, nodes=None):
         self.list = [] if nodes is None else nodes
@@ -107,7 +107,7 @@ class HListHolder:
         packed.pop()
         packed.extend(self._runBoundaryProgram([base, boundary]))
 
-    def typesetNodeWithLigatures(self, parser, node, packed, state):
+    def processLigature(self, parser, node, packed, state):
         """
         Append one character node, forming ligatures from adjacent characters.
         """
@@ -238,7 +238,7 @@ class HList(lists.List, HListHolder):
             if spacefactor < 1000 < sf:
                 sf = 1000
             self.parser.globals["spacefactor"] = sf
-        HListHolder.typesetNodeWithLigatures(
+        HListHolder.processLigature(
             self,
             self.parser,
             node,

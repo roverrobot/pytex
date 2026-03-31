@@ -307,7 +307,7 @@ class Paragraph(nd.Node, hmode.HListHolder):
         packed = []
         state = {"lig_base": None, "in_word": True}
         for node in chars:
-            self.typesetNodeWithLigatures(parser, node, packed, state)
+            self.processLigature(parser, node, packed, state)
         return packed
 
     def _virtualDisc(self, parser, pre, post):

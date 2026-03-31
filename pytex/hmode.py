@@ -46,28 +46,6 @@ class HListHolder:
     def __init__(self, nodes=None):
         self.list = [] if nodes is None else nodes
 
-    def typesetNode(self, parser, node, packed):
-        """
-        Typeset/expand one node into packed output with source propagation.
-        """
-        if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
-            packed.append(node)
-            return
-        typeset = node.typeset
-        if typeset is None:
-            packed.append(node)
-            return
-        start = len(packed)
-        typeset(parser, packed)
-        if len(packed) == start:
-            packed.append(node)
-            return
-        for n in packed[start:]:
-            if n is node:
-                continue
-            if getattr(n, "source", None) is None:
-                n.source = node
-
     def _leftBoundaryNode(self, font):
         program = font.leftBoundaryProgram()
         if program is None:
@@ -131,15 +109,9 @@ class HListHolder:
 
     def typesetNodeWithLigatures(self, parser, node, packed, state):
         """
-        Typeset one source node, forming ligatures from adjacent raw characters.
+        Append one character node, forming ligatures from adjacent characters.
         """
-        if node.node_type != nd.NODE_TYPE.CHAR:
-            if state["in_word"]:
-                self._applyRightBoundary(packed, state)
-                state["in_word"] = False
-            state["lig_base"] = None
-            self.typesetNode(parser, node, packed)
-            return
+        assert node.node_type == nd.NODE_TYPE.CHAR
         is_word = parser.lccode[ord(node.char)] != 0
         if is_word:
             if not state["in_word"]:
@@ -171,15 +143,6 @@ class HListHolder:
         for n in working:
             packed.append(n)
         state["lig_base"] = working[-1]
-
-    def typesetNodes(self, parser, packed):
-        state = {"lig_base": None, "in_word": False}
-        for node in self.list:
-            self.typesetNodeWithLigatures(parser, node, packed, state)
-        if state["in_word"]:
-            self._applyRightBoundary(packed, state)
-        return packed
-
 
 from pytex.box import AccentNode, IndentBox
 
@@ -251,7 +214,23 @@ class HList(lists.List, HListHolder):
             self.parser.globals["spacefactor"] = 1000
             if getattr(node, "pretypeset_in_hlist", False):
                 node.pretypeset(self.parser)
-            self.typesetNode(self.parser, node, self.list)
+            if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
+                self.list.append(node)
+                return
+            typeset = node.typeset
+            if typeset is None:
+                self.list.append(node)
+                return
+            start = len(self.list)
+            typeset(self.parser, self.list)
+            if len(self.list) == start:
+                self.list.append(node)
+                return
+            for n in self.list[start:]:
+                if n is node:
+                    continue
+                if getattr(n, "source", None) is None:
+                    n.source = node
             return
         sf = self.sfcode[ord(node.char)]
         if sf != 0:
@@ -273,12 +252,6 @@ class HList(lists.List, HListHolder):
         return node
 
 
-def typesetHorizontalNodes(parser, nodes, packed):
-    """
-    Typeset a raw horizontal node list into packed output.
-    """
-    return HListHolder(nodes).typesetNodes(parser, packed)
-    
 class HorizontalCommand(lists.ModeDependentCommand):
     """
     A command that behaves differently in different modes.
@@ -464,13 +437,11 @@ class Disc(nd.Node):
     
     def typeset(self, parser, packed=None):
         if self.rendered is None:
-            pre = []
-            HListHolder(self.pre).typesetNodes(parser, pre)
-            post = []
-            HListHolder(self.post).typesetNodes(parser, post)
-            replace = []
-            HListHolder(self.replace).typesetNodes(parser, replace)
-            self.rendered = TypesetDisc(pre, post, replace)
+            self.rendered = TypesetDisc(
+                list(self.pre),
+                list(self.post),
+                list(self.replace),
+            )
         if packed is None:
             return self.rendered
         packed.append(self.rendered)
@@ -492,9 +463,12 @@ class Disc(nd.Node):
    
 class DiscHList(HList):
     def append(self, node):
-        if not isinstance(node, nd.Box) and node.node_type != nd.NODE_TYPE.KERN:
+        if not isinstance(node, nd.Box) and node.node_type not in (
+            nd.NODE_TYPE.CHAR,
+            nd.NODE_TYPE.KERN,
+        ):
             raise ValueError(f"not valid in \\discretionary lists: {node}", self.parser.input.position())
-        self.list.append(node)
+        super().append(node)
 
 
 class Discretionary(HorizontalCommand):
@@ -510,7 +484,6 @@ class Discretionary(HorizontalCommand):
         replace_state = DiscHList(parser, replace)
         
         def finish(_parser):
-            # we need to handle ligatures and boxes so their width are fixed.
             node = Disc(pre, post, replace)
             if math and len(node.replace) > 0:
                 raise ValueError("replace part of discretionary must be empty in math mode")

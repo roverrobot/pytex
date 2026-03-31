@@ -481,10 +481,10 @@ class Parser:
             # TeX to append a character to the current horizontal list, using the
             # current font. If two or more commands of this type occur in succession,
             # TeX processes them all as a unit, converting to ligatures and/or
-            # inserting kerns as directed by the font information. In this lazy
-            # model we keep the raw character nodes here, and defer that ligature/
-            # kern processing until the horizontal list is typeset. Each character
-            # command adjusts
+            # inserting kerns as directed by the font information. The live HList
+            # keeps the raw characters for source tracking while immediately
+            # materializing ligatures and automatic kerns into its concrete list.
+            # Each character command adjusts
             # \spacefactor, using the \sfcode table as described in Chapter 12. 
             # In unrestricted horizontal mode, a ‘\discretionary{}{}{}’ item is 
             # appended after a character whose code is the \hyphenchar of its font, 

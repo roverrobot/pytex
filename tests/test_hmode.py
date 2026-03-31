@@ -206,6 +206,19 @@ def test_discretionary(cmr10):
     assert node.replace[0].char == "c"
 
 
+def test_discretionary_parts_are_immediately_typeset(cmr10):
+    cmr10.parse("\\discretionary{fi}{}{x}")
+    top = cmr10.lists[-1]
+    node = top[1]
+    assert node.node_type == nd.NODE_TYPE.DISC
+    assert len(node.pre) == 1
+    assert node.pre[0].node_type == nd.NODE_TYPE.LIGATURE
+    assert "".join(char.char for char in node.pre[0].source) == "fi"
+    assert len(node.replace) == 1
+    assert node.replace[0].node_type == nd.NODE_TYPE.CHAR
+    assert node.replace[0].char == "x"
+
+
 def test_discretionary_inside_hbox_typesets(cmr10):
     cmr10.parse("\\setbox0=\\hbox{a\\discretionary{\\hbox{-}}{}{}}")
     box0 = cmr10.box[0].typeset(cmr10)

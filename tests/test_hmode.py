@@ -236,6 +236,11 @@ def test_discretionary_invalid_node(cmr10):
         assert "valid" in str(e)
 
 
+def test_manual_discretionary_invalid_node():
+    with pytest.raises(ValueError, match="valid"):
+        hmode.Disc([], [nd.Glue(glue.Glue(1), None)], [])
+
+
 def test_insert(cmr10):
     cmr10.parse("1\\insert 2{\\vskip 1in}")
     top = cmr10.lists[-1]

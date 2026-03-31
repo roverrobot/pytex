@@ -400,7 +400,16 @@ class ControlledSpace(HorizontalCommand):
 def _sumHorizontalNodes(nodes):
     width = Dimen()
     for node in nodes:
-        width += node.kern if node.node_type == nd.NODE_TYPE.KERN else node.width
+        if isinstance(node, nd.Box):
+            width += node.width
+            continue
+        if node.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            width += node.width
+            continue
+        if node.node_type == nd.NODE_TYPE.KERN:
+            width += node.kern
+            continue
+        raise ValueError(f"not valid in \\discretionary lists: {node}")
     return width
 
 
@@ -430,31 +439,32 @@ class Disc(nd.Node):
         return f"\\discretionary{pre}{post}{replace}"
 
     node_type = nd.NODE_TYPE.DISC
-   
-   
-class DiscHList(HList):
-    def append(self, node):
-        if not isinstance(node, nd.Box) and node.node_type not in (
-            nd.NODE_TYPE.CHAR,
-            nd.NODE_TYPE.KERN,
-        ):
-            raise ValueError(f"not valid in \\discretionary lists: {node}", self.parser.input.position())
-        super().append(node)
 
 
 class Discretionary(HorizontalCommand):
     """
     The \\discretionary command.
     """
+    @staticmethod
+    def _validatePart(parser, nodes):
+        for node in nodes:
+            try:
+                _sumHorizontalNodes([node])
+            except ValueError as err:
+                raise ValueError(str(err), parser.input.position()) from None
+
     def _readParts(self, parser, out, math):
         pre = []
         post = []
         replace = []
-        pre_state = DiscHList(parser, pre)
-        post_state = DiscHList(parser, post)
-        replace_state = DiscHList(parser, replace)
+        pre_state = HList(parser, pre)
+        post_state = HList(parser, post)
+        replace_state = HList(parser, replace)
         
         def finish(_parser):
+            self._validatePart(parser, pre)
+            self._validatePart(parser, post)
+            self._validatePart(parser, replace)
             node = Disc(pre, post, replace)
             if math and len(node.replace) > 0:
                 raise ValueError("replace part of discretionary must be empty in math mode")

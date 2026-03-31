@@ -244,9 +244,9 @@ def test_insert(cmr10):
     node = top[2]
     assert node.node_type == nd.NODE_TYPE.INS
     assert node.index == 2
-    assert len(node.vlist) == 1
-    assert node.vlist[0].node_type == nd.NODE_TYPE.GLUE
-    assert node.vlist[0].glue == glue.Glue(72.26999)
+    assert len(node.list) == 1
+    assert node.list[0].node_type == nd.NODE_TYPE.GLUE
+    assert node.list[0].glue == glue.Glue(72.26999)
 
 
 def test_insert_invalid(cmr10):

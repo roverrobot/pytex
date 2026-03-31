@@ -581,16 +581,19 @@ class IfBox(conditional.Conditional):
         return 0 if isinstance(box, self.type) else 1
 
 
-class VBox(Box, vmode.VListHolder):
+class VBox(Box):
     """
     A vertical box.
+
+    Its node list is already concrete when the box is constructed; typesetting
+    only packs the list and computes glue setting.
+
     @param to: the target height
     @param spread: the spread
     @param vtop: whether the box is a vtop
     """
     def __init__(self, parser, to, spread):
         super().__init__(parser, to, spread)
-        vmode.VListHolder.__init__(self, self.list)
         self.expanded = []
         self.boxmaxdepth = parser.layout["boxmaxdepth"]
 

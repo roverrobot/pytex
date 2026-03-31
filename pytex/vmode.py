@@ -16,50 +16,12 @@ from pytex.state import GROUP_TYPE
 init_prevdepth = Dimen(-1000.0)
 
 
-class VListHolder:
-    """
-    Common holder for vertical node lists.
-
-    This helper stays in vmode because it provides vertical list
-    typesetting behavior.
-    """
-    def __init__(self, nodes=None):
-        self.list = [] if nodes is None else nodes
-
-    def __len__(self):
-        return len(self.list)
-
-    def __iter__(self):
-        return iter(self.list)
-
-    def __getitem__(self, index):
-        return self.list[index]
-
-    def __setitem__(self, index, value):
-        self.list[index] = value
-
-    def __delitem__(self, key):
-        del self.list[key]
-
-    def append(self, node):
-        self.list.append(node)
-
-    def extend(self, nodes):
-        self.list.extend(nodes)
-
-    def pop(self, *args):
-        return self.list.pop(*args)
-
-    def clear(self):
-        self.list.clear()
-
-
 class VList(lists.List):
     """
     Vertical list build-state wrapper.
 
     This is what lives on parser.lists while vertical material is scanned.
-    It serves a concrete vertical list node and tracks \\prevdepth/\\lastbox
+    It builds a concrete vertical list node and tracks \\prevdepth/\\lastbox
     build-time state.
     """
     def __init__(self, parser, nodes, inner=True, add_interline=True):
@@ -151,18 +113,18 @@ class VList(lists.List):
                 break
         self.parser.globals["prevdepth"] = prevdepth
 
-class VAdjust(nd.Node, VListHolder):
+class VAdjust(nd.Node):
     """
-    A \\vadjust node.
+    A \\vadjust node carrying already-built vertical material.
     """
 
-    def __init__(self, vlist):
-        VListHolder.__init__(self, vlist)
-        for n in vlist:
-            n.source = vlist
+    def __init__(self, list):
+        self.list = list
+        for n in list:
+            n.source = list
 
     def saveInfo(self):
-        return {"vlist": self.list}, None
+        return {"list": self.list}, None
 
     node_type = nd.NODE_TYPE.ADJUST
     typeset_to_vlist = True
@@ -185,25 +147,17 @@ class Mark(nd.Node):
     node_type = nd.NODE_TYPE.MARK
 
 
-class Insert(nd.Node, VListHolder):
+class Insert(nd.Node):
     """
-    An insert node.
+    An insert node carrying already-built vertical material.
     """
 
-    def __init__(self, index, vlist):
+    def __init__(self, index, list):
         self.index = index
-        VListHolder.__init__(self, vlist)
-
-    @property
-    def vlist(self):
-        return self.list
-
-    @vlist.setter
-    def vlist(self, value):
-        self.list = value
+        self.list = list
 
     def saveInfo(self):
-        return {"index": self.index, "vlist": self.vlist}, None
+        return {"index": self.index, "list": self.list}, None
 
     node_type = nd.NODE_TYPE.INS
 

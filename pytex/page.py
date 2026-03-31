@@ -463,7 +463,7 @@ class PageBreaker(VerticalBreaker):
         if box is not None:
             return box
         box = bx.VBox(self.parser, None, Dimen())
-        box.list[:] = list(node.vlist)
+        box.list[:] = list(node.list)
         box = box.typeset(self.parser)
         self._insert_boxes[cache_key] = box
         return box
@@ -1012,7 +1012,7 @@ class MainVList(vmode.VList):
                 }
             index = action["index"]
             if action["kind"] == "defer":
-                carry.append(vmode.Insert(index, list(node.vlist)))
+                carry.append(vmode.Insert(index, list(node.list)))
                 continue
             head = action.get("head")
             used = action.get("used", Dimen())

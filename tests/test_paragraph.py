@@ -190,8 +190,8 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
 def test_hyphenate_uses_snapshot_words(cmr10):
     cmr10.parse("\\hyphenation{tech-nical}a technical\\par")
     para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
-    scan = paragraph._BreakCandidateScan(cmr10, para)
-    assert len(scan.candidates)==3 # begin, space, end
+    scan = para._scanBreaks(cmr10, para.list)
+    assert len(scan) == 3 # begin, space, end
     _, hyphenate_scan = para._hyphenate(cmr10)
     assert len(hyphenate_scan) == 4
     assert hyphenate_scan[2].disc is not None

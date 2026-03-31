@@ -69,13 +69,13 @@ def _parameterToken(parameter):
 
 class MacroBodyBuilder:
     """
-    Builder that normalizes direct-input ``#`` syntax while leaving token-list
-    inserts untouched.
+    Builder that normalizes macro-body ``#`` syntax.
     """
-    def __init__(self, parser, toks=None):
+    def __init__(self, parser, toks, pattern: bool = False):
         self.parser = parser
-        self.toks = [] if toks is None else toks
-        self.pending_parameter = False
+        self.toks = toks
+        self.pending_parameter = None
+        self.pattern = pattern
 
     def _invalid(self, t=None):
         parser = self.parser
@@ -84,35 +84,39 @@ class MacroBodyBuilder:
         raise ValueError(f"invalid parameter {t.name}", parser.input.position())
 
     def append(self, t):
-        if not self.pending_parameter:
-            if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
-                self.pending_parameter = True
-                return
-            self.toks.append(t)
+        if self.pending_parameter is None:
+            if t.catcode == CATCODE.PARAMETER and t.parameter is None:
+                self.pending_parameter = t
+            else:
+                self.toks.append(t)
             return
         if t.catcode == CATCODE.OTHER and ("1" <= t.name <= "9"):
             self.toks.append(_parameterToken(int(t.name) - 1))
-            self.pending_parameter = False
+            self.pending_parameter = None
             return
         if t.catcode == CATCODE.PARAMETER and getattr(t, "parameter", None) is None:
             self.toks.append(_parameterToken(-1))
-            self.pending_parameter = False
+            self.pending_parameter = None
             return
         self._invalid(t)
 
     def extend(self, toks):
-        if self.pending_parameter and toks:
+        if self.pending_parameter is not None and toks:
             self._invalid(toks[0])
         self.toks.extend(toks)
 
     def close(self, stop):
-        if self.pending_parameter:
-            if stop == CATCODE.BEGIN_GROUP:
-                self.toks.append(_parameterToken(None))
-            else:
-                self._invalid()
-            self.pending_parameter = False
-        return self.toks
+        """
+        Close the builder, checking for any pending parameter.
+        @param stop: the token that stopped the builder, used for error reporting and pattern matching
+        @return: the token list and the tail token if the builder is closed successfully, or raise ValueError if there is a pending parameter
+        """
+        if self.pending_parameter is None:
+            return self.toks, None
+        if self.pattern and stop.catcode == CATCODE.BEGIN_GROUP:
+            self.toks.append(stop)
+            return self.toks, stop
+        self._invalid()
 
 
 def _readPatternParameter(tokens, i):
@@ -519,25 +523,21 @@ class MacroAccessor(EquitableAccessor):
         """
         # read the brackets
         tail = None
-        pattern, end = parser.readTo(
+        pattern = MacroBodyBuilder(parser, [], pattern=True)
+        _, end = parser.readTo(
             CATCODE.BEGIN_GROUP,
+            toks = pattern,
             expand=False,
-            builder=MacroBodyBuilder(parser),
         )
-        if (
-            pattern and
-            pattern[-1].catcode == CATCODE.PARAMETER and
-            getattr(pattern[-1], "parameter", None) is None
-        ):
-            pattern.pop()
-            pattern.append(end)
-            tail = end
+        pattern, tail = pattern.close(end)
         # read the replacement text
-        replacement, _end = parser.readTo(
+        replacement = MacroBodyBuilder(parser, [], pattern=False)
+        _, _end = parser.readTo(
             CATCODE.END_GROUP,
+            toks = replacement,
             expand=self.expand_body,
-            builder=MacroBodyBuilder(parser),
         )
+        replacement, _ = replacement.close(_end)
         if tail:
             replacement.append(tail)
         try:

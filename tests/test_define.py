@@ -191,6 +191,16 @@ def test_macro_replacement_hash_becomes_next_layer_parameter(collector):
     assert collector.getString().strip() == "A"
 
 
+def test_macro_helper_can_be_reused_without_mutating_replacement(parser):
+    parser.parse("\\def\\maker#1#2{\\def#1##1{#2##1}}\\def\\base#1{OK}\\maker\\gen\\base\\maker\\hen\\base")
+    gen = parser.lookup("\\gen")
+    hen = parser.lookup("\\hen")
+    assert gen is not None
+    assert hen is not None
+    assert gen.meaning(parser) == "#1->\\base #1"
+    assert hen.meaning(parser) == "#1->\\base #1"
+
+
 def test_edef_expanded_hash_still_belongs_to_current_definition(parser):
     try:
         parser.parse("\\def\\b{##1}\\edef\\a{\\def\\noexpand\\x{\\b}}")

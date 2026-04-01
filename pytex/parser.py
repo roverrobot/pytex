@@ -654,7 +654,7 @@ class Parser:
             self.globals["prevgraf"] = 0
         return para
 
-    def endParagraph(self):
+    def endParagraph(self, update_display_state: bool = False):
         """
         End the current paragraph using TeX's primitive paragraph builder.
         """
@@ -662,43 +662,32 @@ class Parser:
         if hlist.type != lists.LISTTYPE.HORIZONTAL or hlist.inner:
             raise ValueError("cannot end the paragraph here", self.input.position())
         para = hlist.paragraph
-        if para is None:
-            raise ValueError("missing paragraph node", self.input.position())
-        # \unskip
         self.lists.pop()
         if len(hlist) > 0 and hlist[-1].node_type == node.NODE_TYPE.GLUE:
             hlist.pop()
         top = self.lists[-1]
         # A truly empty paragraph contributes nothing (e.g., \noindent\par).
         # TeX does not emit a synthetic empty line in this case.
-        updates_display_state = True
         if len(hlist) == 0:
             para = None
         else:
+            # \unskip
+            if hlist[-1].node_type == node.NODE_TYPE.GLUE:
+                hlist.pop()
             # \penalty10000
             hlist.append(node.Penalty(10000))
             # \hskip\parfillskip
             hlist.append(node.Glue(self.parameters["parfillskip"], "\\parfillskip"))
-            top.append(para)
-        if para is not None:
-            if updates_display_state:
-                self.updateDisplayState(para)
+            para.update_display_state = update_display_state
+            top.appendParagraph(para)
         # TeX clears \\looseness etc after each paragraph.
         self.clearParagraphSettings()
         return para
 
-    def updateDisplayState(self, para):
-        line_count = len(para._line_boxes or [])
+    def updateDisplayState(self, line_count, displayindent, displaywidth, predisplaysize):
         self.globals["prevgraf"] = line_count
-        displayindent, displaywidth = para.lineShape(self, line_count + 1)
-        para.line_count = line_count
         self.volatile["displayindent"] = displayindent
         self.volatile["displaywidth"] = displaywidth
-        hbox = para._line_boxes[-1] if para._line_boxes else None
-        if hbox is None:
-            predisplaysize = dimen.Dimen(-16383.99999)
-        else:
-            predisplaysize = hbox.rightmost() + 2 * self.parameters["currentfont"].param[5]
         self.volatile["predisplaysize"] = predisplaysize
 
     def clearParagraphSettings(self):

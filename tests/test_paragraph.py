@@ -114,7 +114,6 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
     para.typeset(parser, out)
     assert len(out) == 1
     assert out[0].node_type == nd.NODE_TYPE.HLIST
-    assert para.line_count == 1
 
 
 def test_implicit_paragraph_adds_parskip(parser):

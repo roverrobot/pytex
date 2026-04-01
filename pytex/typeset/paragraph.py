@@ -3,6 +3,7 @@
 from pytex import box as bx
 from pytex import hmode
 from pytex import node as nd
+from pytex import dimen
 from pytex.dimen import Dimen
 from pytex.glue import Glue, Stretchness
 from pytex.paragraph import Language
@@ -69,14 +70,19 @@ class ParagraphTypesetter:
         hlist = para.list
         breaks = self.scanBreaks(para, hlist)
         hlist, lines = self.lineBreak(para, hlist, breaks)
-        para.line_count = len(lines)
-        para._line_boxes = []
+        line_count = len(lines)
         for line in lines:
             node = self._packLine(para, hlist, line)
-            para._line_boxes.append(node)
             vlist.append(node)
             for extra in getattr(node, "migratory", ()):
                 vlist.append(extra)
+        if para.update_display_state:
+            displayindent, displaywidth = para.lineShape(self.parser, line_count + 1)
+            if line_count == 0:
+                predisplaysize = dimen.Dimen(-16383.99999)
+            else:
+                predisplaysize = node.rightmost() + 2 * self.parser.parameters["currentfont"].param[5]
+            self.parser.updateDisplayState(line_count, displayindent, displaywidth, predisplaysize)
 
     def scanBreaks(self, para, nodes):
         return _scanBreaks(self.parser, nodes)

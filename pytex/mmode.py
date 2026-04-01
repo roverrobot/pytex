@@ -1001,7 +1001,7 @@ def mathShift(parser):
     if not inner:
         volatile = parser.volatile
         if not started_in_vmode:
-            prev_par = parser.endParagraph()
+            prev_par = parser.endParagraph(update_display_state=True)
             if prev_par is None:
                 volatile["displaywidth"] = parser.layout["hsize"]
                 volatile["displayindent"] = Dimen()

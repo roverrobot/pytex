@@ -68,6 +68,11 @@ class VList(lists.List):
         if page_builder is not None:
             page_builder.noteAppend(self, node)
 
+    def appendParagraph(self, para):
+        self.raw.append(para)
+        para.typeset(self.parser, self)
+        self._notePageBuilder(para)
+    
     def append(self, node, add_interline=None):
         if add_interline is None:
             add_interline = self.add_interline

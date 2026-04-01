@@ -70,8 +70,13 @@ class VList(lists.List):
 
     def appendParagraph(self, para):
         self.raw.append(para)
-        para.typeset(self.parser, self)
+        self.parser.typeset.paragraph.typeset(para, self)
         self._notePageBuilder(para)
+
+    def appendDisplayMath(self, node):
+        self.raw.append(node)
+        self.parser.typeset.math.typesetDisplayMath(node, self)
+        self._notePageBuilder(node)
     
     def append(self, node, add_interline=None):
         if add_interline is None:
@@ -80,10 +85,6 @@ class VList(lists.List):
             self.raw.append(node)
         align_typesetter = getattr(getattr(self.parser, "typeset", None), "align", None)
         if align_typesetter is not None and align_typesetter.appendToVList(node, self):
-            self._notePageBuilder(node)
-            return
-        math_typesetter = getattr(self.parser, "math_typesetter", None)
-        if math_typesetter is not None and math_typesetter.appendToVList(node, self):
             self._notePageBuilder(node)
             return
         if getattr(node, "typeset_to_vlist", False):

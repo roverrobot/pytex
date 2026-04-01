@@ -938,7 +938,9 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
             return
         if mlist.isalign:
             self.node = self.node or parser.typeset.align.materializeMAlignment(mlist.pending_alignment)
-        top.append(self.node)
+            top.append(self.node)
+        else:
+            top.appendDisplayMath(self.node)
         parser.globals["prevgraf"] += 3
         # TeX is back in horizontal mode after a display, but the follow-on
         # paragraph is only added if it later receives content.

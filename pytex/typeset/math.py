@@ -5,7 +5,7 @@ from pytex import mmode as mm
 from pytex import node as nd
 from pytex.dimen import Dimen
 from pytex.hmode import Ligature
-from pytex.mmode import InlineMathNode, DisplayMathNode
+from pytex.mmode import InlineMathNode
 from pytex.ligature import run_ligature_program
 
 Style = mm.Style
@@ -730,11 +730,4 @@ class MathTypesetter:
         for n in cache:
             n.source = holder
         packed.extend(cache)
-
-    def appendToVList(self, node, packed):
-        if not isinstance(node, DisplayMathNode):
-            return False
-        self.typesetDisplayMath(node, packed)
-        return True
-
 

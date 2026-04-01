@@ -110,3 +110,12 @@ def test_dvi_shipout_rejects_opentype_font_without_dvi_name(parser, tmp_path):
     if parser.shipout.file is not None:
         parser.shipout.file.close()
         parser.shipout.file = None
+
+
+def test_dvi_special_is_emitted(cmr10, tmp_path):
+    out = tmp_path / "special"
+    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.parse(r"\shipout\vbox{\special{color push rgb 1 0 0}\hbox{a}}", jobname="special")
+    cmr10.end()
+    data = Path(str(out) + ".dvi").read_bytes()
+    assert b"color push rgb 1 0 0" in data

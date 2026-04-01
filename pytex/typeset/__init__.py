@@ -1,10 +1,10 @@
 """Parser-owned typesetting services and module installer."""
 
 from pytex.module import Module
-from pytex.typeset.paragraph import ParagraphTypesetter
-from pytex.typeset.math import MathTypesetter
 from pytex.typeset.align import AlignmentTypesetter
+from pytex.typeset.math import MathTypesetter
 from pytex.typeset.page import PageBuilder
+from pytex.typeset.paragraph import ParagraphTypesetter
 from pytex.typeset.shipout import Shipout
 
 

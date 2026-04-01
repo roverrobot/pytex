@@ -1,57 +1,48 @@
-# Special IR
+# DVIPDFm Special IR
 
-This note defines a backend-neutral intermediate representation for
-driver-oriented `\special` commands, with `dvipdfm`/`xdvipdfmx` specials as the
-first target.
+This note defines the current design for `dvipdfm`-style `\special` handling.
 
-The main design goal is to parse specials once and then translate the result
-into multiple shipout backends, including:
+We only intend to support the `dvipdfm` `pdf:` family here. This is not meant
+to be a generic note for all historical `\special` dialects.
 
-- page-aware HTML
-- direct PDF output
-- future faithful HTML/CSS rendering
+## Main Point
 
-The DVI backend remains free to emit raw specials unchanged. It does not need to
-round-trip through this command IR.
+`dvipdfm` specials should be treated as a small driver language that is compiled
+at shipout time into backend-facing IR operations.
 
-## Goals
+The boundary is:
 
-- Treat `dvipdfm` specials as a first-class input language.
-- Separate parsing from backend rendering.
-- Define an IR that captures page/document semantics rather than raw driver
-  strings.
-- Keep room for both page-local operations and document-level objects such as
-  destinations and outlines.
-- Support incremental implementation: colors and transforms first, more
-  elaborate PDF object commands later.
+1. raw `Special` node in the layout tree
+2. `dvipdfm` compiler at shipout time
+3. small backend IR methods
+4. backend-specific lowering
 
-## Non-Goals
+This means:
 
-- Full raw PostScript compatibility.
-- Full `dvips` special support.
-- A literal reproduction of PDF syntax as the public backend API.
-- Mandatory support for every historical `dvipdfm` command in the first pass.
+- ordinary layout still uses the existing node/list/box IR
+- `CharNode` already is the text IR and should not be wrapped in another
+  character IR
+- `Special` stays raw until shipout
+- only recognized `pdf:` commands are lowered into typed backend operations
 
-## Input Model
+## Why This Boundary
 
-At the TeX level, `\special{...}` already becomes a whatsit-like node carrying a
-raw string.
+By shipout time, most of the page is already concrete:
 
-For backend-neutral processing, specials should move through three phases:
+- characters are `CharNode`
+- rules are rule nodes
+- glue, kerns, lists, and boxes are already layout IR
 
-1. raw special text
-2. typed special command object
-3. backend-specific lowering
+The only thing that still needs interpretation is the payload of `\special`.
 
-This separation matters because the `dvipdfm` syntax uses PDF-like literals,
-dimensions, transformations, and driver variables, but HTML and future PDF
-backends should not be forced to consume raw `pdf:` command strings directly.
+So the extra abstraction belongs exactly there: at the point where a raw special
+string is emitted during shipout.
 
-## Parsing Boundary
+## Scope
 
-Only specials beginning with `pdf:` belong to the first parser.
+This note covers only specials beginning with `pdf:`.
 
-Other legacy special families such as:
+Everything else remains out of scope for now, including:
 
 - `color ...`
 - `psfile=...`
@@ -59,366 +50,303 @@ Other legacy special families such as:
 - TPIC
 - raw `ps:`
 
-should be handled by separate compatibility parsers or adapters later.
-
-This note only covers the `pdf:` command family.
+Unknown or unsupported specials should remain opaque and flow through as raw
+special strings.
 
 ## Pipeline
 
-The pipeline should look like this:
+The intended execution path is:
 
 ```text
-raw Special text
-  -> dvipdfm special parser
-  -> typed command object
-  -> HTML renderer / PDF renderer / other backend
+Special node text
+  -> Shipout.special(text)
+  -> dvipdfm compiler
+  -> backend IR method calls
+  -> backend-specific output
 ```
 
-More concretely:
+The base `Shipout` walker owns:
 
-- the parser recognizes `pdf:` and tokenizes the remainder
-- a command dispatcher selects a command subclass
-- that command parses and validates its own arguments
-- nested PDF-style payloads are parsed by a separate `PdfValue` parser
-- the resulting command object is already the IR consumed by backends
+- traversal order
+- page position
+- glue and kern movement
+- shifted box traversal
+- whatsit dispatch
+
+The `dvipdfm` compiler owns:
+
+- recognizing `pdf:` specials
+- normalizing command aliases
+- parsing the small command envelope
+- lowering recognized commands into backend IR calls
+
+The backend owns:
+
+- how those IR methods are realized in DVI, PDF, HTML, or future backends
+
+## Why `Special` Stays Raw
+
+The `Special` node is tied to TeX input syntax. It records that a
+`\special{...}` occurred at a given point in the shipped page.
+
+It should not be converted earlier into a backend-neutral node object because:
+
+- specials do not participate in paragraph or box building the way characters do
+- only some specials need structured interpretation
+- different backends may support different subsets
+- shipout is the first place with the right output-facing context
+
+So the neutral IR belongs at the shipout boundary, not in the layout node.
+
+## Compiler, Not Just Parser
+
+The `dvipdfm` layer is best understood as a small compiler, not just a passive
+parser.
+
+That is acceptable because the base shipout walker already performs similar
+lowering work for ordinary layout:
+
+- tracking current position
+- resolving glue movement
+- traversing nested boxes
+
+So if the `dvipdfm` layer later needs limited local state, that is consistent
+with the rest of shipout.
 
 ## Syntax Front-End
 
-The `dvipdfm` parser needs two front-end pieces:
+The current compiler only needs a small syntax front-end.
 
-### 1. Command Name Parsing
+### Command Name Parsing
 
 The first token after `pdf:` selects the command.
 
-Aliases such as:
+Aliases should normalize immediately, for example:
 
 - `ann` / `annot` / `annotate`
 - `bc` / `bcolor` / `begincolor`
 - `bt` / `btrans` / `begintransform`
 
-should normalize to one canonical command name in the AST.
-
-After the command name is known, a factory or dispatcher should instantiate a
-specific command subclass. Each command class then parses the rest of the
-special according to its own syntax.
-
-So the high-level shape is:
-
-- parse command name
-- dispatch to command subclass
-- let that class parse its own named arguments and trailing payload
-
-This closely matches the existing TeX command architecture and keeps validation
-local to each command type.
-
-### 2. PDF-Like Value Parsing
-
-Many commands use a small PDF-like value language as their payload or as part of
-their named arguments. This part should have its own tiny recursive parser.
-
-Suggested value nodes:
-
-- `NameValue`
-- `StringValue`
-- `NumberValue`
-- `ArrayValue`
-- `DictValue`
-- `BooleanValue`
-- `NullValue`
-- `VariableRef`
-
-`VariableRef` covers `@name`-style references such as:
-
-- user-defined names like `@mydict`
-- driver names like `@thispage`, `@xpos`, `@ypos`
-
-The special parser should not resolve these names immediately. Resolution belongs
-to backend lowering.
-
-This value grammar is intentionally small. For the first pass, the important
-cases are:
-
-- numbers
-- strings like `(text)`
-- arrays like `[ value ... ]`
-- dictionaries like `<< /Name value ... >>`
-- names like `/Type`
-- references like `@thispage`
-
-Possible later extensions include booleans, null, and hex strings.
+The backend should not have to care about historical alias spellings.
 
 ### Named Argument Parsing
 
-Many `dvipdfm` commands are best understood as:
+Many commands are naturally:
 
 - a command name
 - zero or more named arguments
-- an optional trailing payload value
+- an optional trailing payload
 
 For example:
 
 ```text
-pdf: epdf yscale 0.50 width 4.0in rotate 45 (circuit.pdf)
+pdf: image @fig width 4.0in rotate 45 (figure.png)
 ```
 
 should parse conceptually as:
 
-- command: `epdf`
-- named args:
-  - `yscale = 0.50`
-  - `width = 4.0in`
-  - `rotate = 45`
-- payload:
-  - `(circuit.pdf)`
+- command: `image`
+- optional name: `@fig`
+- options:
+  - `width 4.0in`
+  - `rotate 45`
+- source:
+  - `(figure.png)`
 
-The command parser should therefore support small typed named arguments such as:
+The important named argument families are:
 
-- dimensions: `width 4in`, `height 12pt`, `depth 3pt`
-- transforms: `scale 0.5`, `xscale 2`, `yscale 0.5`, `rotate 45`
+- dimensions: `width`, `height`, `depth`
+- transforms: `scale`, `xscale`, `yscale`, `rotate`
 - image boxes: `bbox llx lly urx ury`
 
-These do not need a generic argument AST. Each command class can parse and
-store them in typed fields.
+The current code keeps payloads such as annotation dictionaries and file strings
+mostly raw rather than building a full PDF-value AST.
 
-## Command Objects As IR
+That is deliberate. The first goal is to standardize the command envelope and
+the backend operation boundary, not to build a full PDF object parser up front.
 
-The typed command objects should themselves be the IR.
+## Current Minimal Backend IR
 
-There is no need for a second generic operation layer between parsing and
-backend lowering if the command classes are already normalized and validated.
+The first concrete backend IR for `dvipdfm` specials is intentionally small:
 
-So the model is:
+- `rawSpecial(text)`
+- `setColor(mode, space=None, values=None)`
+- `annotate(kind, name=None, dimensions=None, payload=None)`
+- `xObject(kind, name=None, options=None, source=None)`
 
-- each command is represented by a specific Python class
-- each class owns its parsing logic
-- each instance is a backend-facing IR node
-- nested PDF-like payloads remain represented by `PdfValue` objects
+This is enough for the current first subset:
 
-This keeps the architecture small and matches the way TeX commands are already
-structured in the engine.
+- color stack commands
+- fixed and breakable annotations
+- XObject-like resource/image commands
 
-For example, instead of a generic command record:
+## Raw Fallback
 
-```python
-SpecialCommand(
-    name="epdf",
-    args={"yscale": NumberValue(0.5), "width": DimensionValue(4.0, "in")},
-    payload=StringValue("circuit.pdf"),
-)
+Unrecognized specials should stay opaque:
+
+- non-`pdf:` specials
+- unsupported `pdf:` commands
+- malformed `pdf:` commands
+
+Those should fall through to `rawSpecial(text)` unchanged.
+
+This keeps the compiler incremental and low-risk.
+
+## DVI As A Full Pipeline Consumer
+
+The DVI backend should not bypass the IR for recognized `dvipdfm` commands.
+
+Instead, DVI should:
+
+- receive the backend IR calls
+- reassemble them into `pdf:` special strings
+- write them out as DVI specials
+
+That is useful even though it looks a little indirect, because it tests the
+whole path:
+
+```text
+raw special text
+  -> dvipdfm compiler
+  -> backend IR
+  -> DVI reserialization
 ```
 
-the preferred shape after parsing is a typed command object such as:
+Unknown specials still pass through unchanged via `rawSpecial`.
 
-```python
-EpdfCommand(
-    name_ref=None,
-    width=DimensionValue(4.0, "in"),
-    height=None,
-    depth=None,
-    scale=None,
-    xscale=None,
-    yscale=NumberValue(0.5),
-    rotate=NumberValue(45),
-    bbox=None,
-    source=StringValue("circuit.pdf"),
-)
-```
+## Color
 
-This object is already good IR for HTML and future PDF backends.
+Color is the simplest graphics-state family.
 
-## Command Family Inventory
-
-The command classes should still be grouped conceptually so backends know what
-they are consuming.
-
-### Graphics State Commands
-
-- `SetColorCommand`
-- `BeginColorCommand`
-- `EndColorCommand`
-- `BackgroundColorCommand`
-- `BeginTransformCommand`
-- `EndTransformCommand`
-
-### Page Content Commands
-
-- `BeginPageContentCommand` for `bop`
-- `CurrentPageContentCommand` for `content`
-- `EndPageContentCommand` for `eop`
-
-These should keep their marking stream as raw text initially.
-
-### Resource Commands
-
-- `BeginXObjectCommand`
-- `EndXObjectCommand`
-- `UseXObjectCommand`
-- `ImageCommand`
-- `EpdfCommand`
-
-### Annotation And Navigation Commands
-
-- `AnnotateCommand`
-- `BeginAnnotationCommand`
-- `EndAnnotationCommand`
-- `LinkCommand`
-- `NoLinkCommand`
-- `DestinationCommand`
-- `OutlineCommand`
-- `ThreadCommand`
-
-### Document Commands
-
-- `PageSizeCommand`
-- `DocInfoCommand`
-- `DocViewCommand`
-
-### Object Graph Commands
-
-- `ObjectCommand`
-- `PutCommand`
-- `CloseCommand`
-
-These remain a low-level escape hatch and may not have meaningful lowering in
-all backends.
-
-## Command Family Priority
-
-Implementation should proceed in layers.
-
-### Phase 1
+For `dvipdfm`, the input language distinguishes:
 
 - `setcolor`
 - `begincolor`
 - `endcolor`
 - `bgcolor`
+
+The backend IR should keep these as semantic color operations rather than
+pretending they are full graphics-state save/restore:
+
+- `setColor("set", ...)`
+- `setColor("push", ...)`
+- `setColor("pop")`
+- `setColor("background", ...)`
+
+That keeps color stack meaning explicit.
+
+## Transforms
+
+Transforms are different from color.
+
+`dvipdfm` transform commands are explicitly scoped and nested:
+
 - `begintransform`
 - `endtransform`
-- `bop`
-- `content`
-- `eop`
 
-These are the most useful commands for both HTML and future PDF.
+Because transform composition is cumulative, the future transform IR should not
+collapse immediately into a single absolute "set transform" operation.
 
-### Phase 2
+The preferred future transform IR is:
 
-- `beginxobj`
-- `endxobj`
-- `usexobj`
-- `image`
-- `epdf`
+- `pushTransform()`
+- `popTransform()`
+- `concatTransform(matrix)`
 
-These give us reusable graphics/image resources and are important for faithful
-output.
+This is better than a broad `saveState()` / `restoreState()` naming scheme,
+because those names suggest a full graphics-state stack including color, line
+width, clipping, and more. The current design only means transform scope.
 
-### Phase 3
+This transform-specific naming lets:
 
-- `annotate`
-- `beginann`
-- `endann`
-- `link`
-- `nolink`
-- `dest`
-- `out`
-- `thread`
+- PDF map directly to `q`, `Q`, and `cm`
+- HTML/CSS maintain its own transform stack and emit absolute transforms on
+  nested wrappers
 
-These add navigation and annotations.
+Color should remain a separate IR family from transforms.
 
-### Phase 4
+## Command Families
 
-- `pagesize`
-- `docinfo`
-- `docview`
-- `object`
-- `put`
-- `close`
+The command families naturally split into two waves.
 
-These are valuable but less urgent for first visible output.
+### First wave
+
+These are practical and local enough to standardize first:
+
+- color
+- transform
+- annotation
+- XObject/image placement
+
+### Second wave
+
+These are useful, but less obviously part of the minimal page-graphics IR:
+
+- destinations
+- outline entries
+- page content stream injection
+- document info and catalog updates
+- arbitrary PDF object creation and mutation
+- article/thread support
+
+These should wait until another backend actually wants them as structured
+operations.
 
 ## Backend Lowering
 
-The same command IR should lower differently in each backend.
+The backend IR should describe what a backend must honor, not how the input
+syntax spelled it.
 
-### HTML
+Examples:
 
-For HTML, likely translations are:
+- `pdf: bc ...` lowers to `setColor("push", ...)`
+- `pdf: ann ...` lowers to `annotate(...)`
+- `pdf: image ...` lowers to `xObject(...)`
+- future `pdf: bt ...` should lower to `pushTransform()` plus
+  `concatTransform(...)`
+- future `pdf: et` should lower to `popTransform()`
 
-- colors -> CSS color / currentColor / scoped style state
-- transforms -> CSS transforms on wrapper spans/divs
-- page background -> page block background styles
-- `content`/`bop`/`eop` -> faithful overlay/underlay DOM fragments
-- images -> `<img>` or embedded object wrappers
-- annotations/destinations/outlines -> anchors, links, metadata, navigation UI
-
-Low-level object graph commands may be ignored, recorded as metadata, or rejected
-in HTML mode.
-
-### PDF
-
-For direct PDF output, the same command IR can lower much more directly:
-
-- colors -> graphics state operators
-- transforms -> graphics state transforms
-- page content streams -> page content streams
-- forms -> PDF XObjects
-- images -> image XObjects or included PDF objects
-- annotations/outlines/destinations -> native PDF objects
-- document/object graph updates -> native PDF catalog/page/resource updates
+Backends then implement those operations in their own natural way.
 
 ### DVI
 
-The DVI backend does not need to consume the command IR. It can continue to emit raw
-special strings.
+- recognized `dvipdfm` IR operations are serialized back into `pdf:` specials
+- unknown specials are emitted unchanged
 
-If desired later, the DVI backend may still parse for validation, but that is not
-required by this design.
+### Direct PDF
+
+- colors become native PDF graphics-state color operators
+- transforms become native scoped transforms
+- annotations and XObjects become native PDF objects
+
+### Faithful HTML
+
+- colors become scoped style state
+- transforms become wrapper-local transform state
+- annotations and object placement become DOM/CSS structures or metadata
 
 ## Error Policy
 
-The special parser should distinguish:
+The compiler should distinguish:
 
 - unrecognized command
 - recognized command with invalid syntax
-- recognized command with valid syntax but unsupported lowering in the current
-  backend
+- recognized command with valid syntax but unsupported backend lowering
 
-These three cases should not collapse into one generic error.
+Those should not collapse into one generic failure.
 
-Suggested behavior:
+For the first pass, the practical behavior is:
 
-- parsing failure: clear error with original special text
-- unsupported command lowering: backend-specific error or warning
-- ignorable command in a backend that does not care: explicit no-op, not silent
-  parse failure
+- malformed or unsupported recognized commands fall back to raw passthrough
+- backends may later choose to warn or error more explicitly
 
-## State Model
+## Short Version
 
-Some specials are stateful and require backend-side stacks.
-
-The IR consumer should maintain at least:
-
-- current color stack
-- current transform stack
-- currently open breakable annotation stack
-- currently open form definition stack
-- page-scope background/content declarations
-
-The parser itself should stay mostly stateless except for lexical parsing.
-
-## Relationship To Existing Notes
-
-- [04-html-output.md](04-html-output.md) depends on this note for graphics,
-  color, image, and annotation handling.
-- A future PDF backend should also depend on this note rather than inventing a
-  separate special model.
-
-## Open Questions
-
-- How much of raw PDF marking stream syntax should be parsed beyond simple
-  storage?
-- Should `object` / `put` / `close` remain a shared command family, or live in a
-  PDF-only extension layer?
-- Should legacy compatibility specials be normalized into this same IR, or pass
-  through adapter-specific shims first?
-- Should page-level `bop`/`eop` content be represented as literal streams or as
-  a later graphics AST?
+- only `dvipdfm` `pdf:` specials are in scope
+- `Special` nodes stay raw until shipout
+- `dvipdfm` specials are compiled at shipout time
+- the first backend IR is small: raw special, color, annotation, XObject
+- DVI should consume that IR and reserialize it back into `pdf:` specials
+- transforms should later use `pushTransform`, `popTransform`, and
+  `concatTransform`
+- color and transform should remain separate IR families

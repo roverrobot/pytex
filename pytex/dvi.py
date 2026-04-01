@@ -7,6 +7,7 @@ import os
 
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.module import Module
+from pytex.typeset.dvipdfm import serialize_annotate, serialize_setColor, serialize_xObject
 from pytex.typeset.shipout import Shipout
 
 
@@ -209,7 +210,7 @@ class DVIShipout(Shipout):
         if box.node_type.name == "HLIST" and move:
             self.dvi_h += w
 
-    def special(self, text):
+    def rawSpecial(self, text):
         data = text.encode()
         if len(data) < 256:
             self._write_byte(239)  # xxx1
@@ -218,6 +219,15 @@ class DVIShipout(Shipout):
             self._write_byte(242)  # xxx4
             self._write_unsigned(len(data), 4)
         self._write(data)
+
+    def setColor(self, mode, space=None, values=None):
+        self.rawSpecial(serialize_setColor(mode, space, values))
+
+    def annotate(self, kind, name=None, dimensions=None, payload=None):
+        self.rawSpecial(serialize_annotate(kind, name=name, dimensions=dimensions, payload=payload))
+
+    def xObject(self, kind, name=None, options=None, source=None):
+        self.rawSpecial(serialize_xObject(kind, name=name, options=options, source=source))
 
     def close(self):
         if not self.file:

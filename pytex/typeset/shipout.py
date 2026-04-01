@@ -2,6 +2,7 @@
 
 from pytex import node as nd
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
+from pytex.typeset.dvipdfm import DVIPDFmSpecialParser
 
 
 class Shipout:
@@ -22,6 +23,7 @@ class Shipout:
         self.v = 0
         self._position_stack = []
         self._defined_fonts = set()
+        self._dvipdfm = DVIPDFmSpecialParser(self)
 
     def shipout(self, box):
         self.open()
@@ -240,6 +242,19 @@ class Shipout:
         pass
 
     def special(self, text):
+        if not self._dvipdfm.emit(text):
+            self.rawSpecial(text)
+
+    def rawSpecial(self, text):
+        pass
+
+    def setColor(self, mode, space=None, values=None):
+        pass
+
+    def annotate(self, kind, name=None, dimensions=None, payload=None):
+        pass
+
+    def xObject(self, kind, name=None, options=None, source=None):
         pass
 
     def __enter__(self):

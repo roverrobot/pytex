@@ -119,3 +119,36 @@ def test_dvi_special_is_emitted(cmr10, tmp_path):
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
     assert b"color push rgb 1 0 0" in data
+
+
+def test_dvi_dvipdfm_color_special_is_emitted(cmr10, tmp_path):
+    out = tmp_path / "pdf-color"
+    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.parse(r"\shipout\vbox{\special{pdf: bc [ 1 0 0 ]}\hbox{a}}", jobname="pdf-color")
+    cmr10.end()
+    data = Path(str(out) + ".dvi").read_bytes()
+    assert b"pdf: bc [ 1 0 0 ]" in data
+
+
+def test_dvi_dvipdfm_annotate_special_is_emitted(cmr10, tmp_path):
+    out = tmp_path / "pdf-annot"
+    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.parse(
+        r"\shipout\vbox{\special{pdf: ann @note width 3in height 36pt << /Type /Annot /Subtype /Text >>}\hbox{a}}",
+        jobname="pdf-annot",
+    )
+    cmr10.end()
+    data = Path(str(out) + ".dvi").read_bytes()
+    assert b"pdf: ann @note width 3in height 36pt << /Type /Annot /Subtype /Text >>" in data
+
+
+def test_dvi_dvipdfm_xobject_special_is_emitted(cmr10, tmp_path):
+    out = tmp_path / "pdf-xobj"
+    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.parse(
+        r"\shipout\vbox{\special{pdf: image @fig width 4in rotate 45 (figure.png)}\hbox{a}}",
+        jobname="pdf-xobj",
+    )
+    cmr10.end()
+    data = Path(str(out) + ".dvi").read_bytes()
+    assert b"pdf: image @fig width 4in rotate 45 (figure.png)" in data

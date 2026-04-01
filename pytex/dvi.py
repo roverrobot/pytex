@@ -1,6 +1,4 @@
-"""
-Minimal DVI shipout support.
-"""
+"""Minimal DVI backend support."""
 
 
 import os
@@ -11,9 +9,9 @@ from pytex.typeset.dvipdfm import serialize_annotate, serialize_setColor, serial
 from pytex.typeset.shipout import Shipout
 
 
-class DVIShipout(Shipout):
+class DVIBackend(Shipout):
     """
-    Minimal DVI backend that writes shipped pages to a .dvi file.
+    Minimal DVI backend that implements the shipout IR and writes a .dvi file.
     """
 
     NUM = 25400000
@@ -256,7 +254,12 @@ class DVIShipout(Shipout):
 
 
 def init(parser):
-    parser.shipout = DVIShipout(parser)
+    parser.shipout = DVIBackend(parser)
+
+
+# Legacy aliases kept while callers move to the backend-oriented name.
+DVI = DVIBackend
+DVIShipout = DVIBackend
 
 
 mod = Module(

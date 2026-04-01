@@ -180,6 +180,32 @@ This is enough for the current first subset:
 - fixed and breakable annotations
 - XObject-like resource/image commands
 
+This special IR sits on top of the shared shipout-core IR from
+`docs/shipout-ir.md`. So the full current backend surface is:
+
+- core shipout IR:
+  - `begin_page(box)`
+  - `end_page(box)`
+  - `define_font(font)`
+  - `select_font(font)`
+  - `move_to(h, v)`
+  - `set_char(node)`
+  - `set_rule(node, parent_box, move)`
+- current `dvipdfm`-special IR:
+  - `rawSpecial(text)`
+  - `setColor(mode, space=None, values=None)`
+  - `annotate(kind, name=None, dimensions=None, payload=None)`
+  - `xObject(kind, name=None, options=None, source=None)`
+
+The next planned transform extension is:
+
+- `pushTransform()`
+- `popTransform()`
+- `concatTransform(matrix)`
+
+These transform methods are intentionally not in the current minimal set yet,
+but this note treats them as the next extension point.
+
 ## Raw Fallback
 
 Unrecognized specials should stay opaque:
@@ -312,18 +338,84 @@ Backends then implement those operations in their own natural way.
 
 - recognized `dvipdfm` IR operations are serialized back into `pdf:` specials
 - unknown specials are emitted unchanged
+- current methods DVI should implement:
+  - core shipout IR
+  - `rawSpecial`
+  - `setColor`
+  - `annotate`
+  - `xObject`
+- planned later methods DVI should also implement by reserialization:
+  - `pushTransform`
+  - `popTransform`
+  - `concatTransform`
 
 ### Direct PDF
 
 - colors become native PDF graphics-state color operators
 - transforms become native scoped transforms
 - annotations and XObjects become native PDF objects
+- current methods a direct PDF backend should implement:
+  - core shipout IR
+  - `rawSpecial`
+  - `setColor`
+  - `annotate`
+  - `xObject`
+- planned later methods a direct PDF backend should implement natively:
+  - `pushTransform`
+  - `popTransform`
+  - `concatTransform`
 
 ### Faithful HTML
 
 - colors become scoped style state
 - transforms become wrapper-local transform state
 - annotations and object placement become DOM/CSS structures or metadata
+- current methods a faithful HTML backend should implement:
+  - core shipout IR
+  - `rawSpecial`
+  - `setColor`
+  - `annotate`
+  - `xObject`
+- planned later methods a faithful HTML backend should implement, possibly via
+  backend-managed stacks:
+  - `pushTransform`
+  - `popTransform`
+  - `concatTransform`
+
+## Backend Obligations
+
+To make the contract explicit:
+
+- every backend should implement the shared shipout-core IR
+- every backend that wants to participate in `dvipdfm` special lowering should
+  implement the current `dvipdfm`-special IR
+- every backend should still implement `rawSpecial`, even if its behavior is
+  only passthrough, warning, or explicit ignore
+- transform support is the next planned common extension and should be added as
+  `pushTransform`, `popTransform`, and `concatTransform`, not as a broad
+  `saveState` / `restoreState` pair
+
+So the practical backend milestones are:
+
+### Current required surface for a `dvipdfm`-aware backend
+
+- `begin_page`
+- `end_page`
+- `define_font`
+- `select_font`
+- `move_to`
+- `set_char`
+- `set_rule`
+- `rawSpecial`
+- `setColor`
+- `annotate`
+- `xObject`
+
+### Next planned common surface
+
+- `pushTransform`
+- `popTransform`
+- `concatTransform`
 
 ## Error Policy
 

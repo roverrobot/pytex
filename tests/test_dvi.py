@@ -13,28 +13,28 @@ def _find_subsequence(data: bytes, needle: bytes) -> int:
 
 
 def test_output_pages_uses_dvi_shipout(parser, tmp_path):
-    parser.shipout = dvi.DVIShipout(parser)
+    parser.shipout = dvi.DVIBackend(parser)
     parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="out")
     parser.jobname = str(tmp_path / "out")
     parser.end()
     shipout = parser.shipout
-    assert isinstance(shipout, dvi.DVIShipout)
+    assert isinstance(shipout, dvi.DVIBackend)
     assert Path(str(tmp_path / "out.dvi")).exists()
 
 
 def test_output_pages_uses_explicit_output_name(parser, tmp_path):
     out = tmp_path / "named-output"
-    parser.shipout = dvi.DVIShipout(parser, str(out))
+    parser.shipout = dvi.DVIBackend(parser, str(out))
     parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="ignored")
     parser.end()
     shipout = parser.shipout
-    assert isinstance(shipout, dvi.DVIShipout)
+    assert isinstance(shipout, dvi.DVIBackend)
     assert Path(str(out) + ".dvi").exists()
 
 
 def test_dvi_shipout_writes_minimal_page(cmr10, tmp_path):
     out = tmp_path / "page"
-    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
     cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="page")
     cmr10.end()
     shipout = cmr10.shipout
@@ -51,7 +51,7 @@ def test_dvi_shipout_writes_minimal_page(cmr10, tmp_path):
 
 def test_dvi_postamble_includes_font_definitions(cmr10, tmp_path):
     out = tmp_path / "postamble-fonts"
-    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
     cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="postamble-fonts")
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
@@ -64,7 +64,7 @@ def test_dvi_postamble_includes_font_definitions(cmr10, tmp_path):
 
 def test_dvi_adjacent_chars_do_not_emit_explicit_move(cmr10, tmp_path):
     out = tmp_path / "pair"
-    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
     cmr10.parse("\\shipout\\vbox{\\hbox{ab}}", jobname="pair")
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
@@ -73,7 +73,7 @@ def test_dvi_adjacent_chars_do_not_emit_explicit_move(cmr10, tmp_path):
 
 def test_dvi_hlist_rule_emits_depth_offset(cmr10, tmp_path):
     out = tmp_path / "vrule"
-    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
     cmr10.parse("\\shipout\\vbox{\\hbox{\\vrule height 10pt depth 2pt width 0.4pt a}}", jobname="vrule")
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
@@ -88,7 +88,7 @@ def test_dvi_hlist_rule_emits_depth_offset(cmr10, tmp_path):
 
 def test_dvi_shipout_accepts_binary_file_handle(parser):
     handle = parser.resolver.openOut("memory", "shipout/dvi")
-    parser.shipout = dvi.DVIShipout(parser, handle)
+    parser.shipout = dvi.DVIBackend(parser, handle)
     parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="memory")
     parser.end()
     stored = parser.resolver.in_memory_files["memory.dvi"]
@@ -104,7 +104,7 @@ def test_dvi_shipout_rejects_opentype_font_without_dvi_name(parser, tmp_path):
     except FileNotFoundError:
         pytest.skip("lmroman10-regular.otf not found")
     out = tmp_path / "opentype"
-    parser.shipout = dvi.DVIShipout(parser, str(out))
+    parser.shipout = dvi.DVIBackend(parser, str(out))
     with pytest.raises(ValueError, match="DVI shipout does not support backend opentype"):
         parser.parse("\\font\\f=lmroman10-regular.otf at 10pt \\shipout\\vbox{\\hbox{\\f A}}", jobname="opentype")
     if parser.shipout.file is not None:
@@ -114,7 +114,7 @@ def test_dvi_shipout_rejects_opentype_font_without_dvi_name(parser, tmp_path):
 
 def test_dvi_special_is_emitted(cmr10, tmp_path):
     out = tmp_path / "special"
-    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
     cmr10.parse(r"\shipout\vbox{\special{color push rgb 1 0 0}\hbox{a}}", jobname="special")
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
@@ -123,7 +123,7 @@ def test_dvi_special_is_emitted(cmr10, tmp_path):
 
 def test_dvi_dvipdfm_color_special_is_emitted(cmr10, tmp_path):
     out = tmp_path / "pdf-color"
-    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
     cmr10.parse(r"\shipout\vbox{\special{pdf: bc [ 1 0 0 ]}\hbox{a}}", jobname="pdf-color")
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
@@ -132,7 +132,7 @@ def test_dvi_dvipdfm_color_special_is_emitted(cmr10, tmp_path):
 
 def test_dvi_dvipdfm_annotate_special_is_emitted(cmr10, tmp_path):
     out = tmp_path / "pdf-annot"
-    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
     cmr10.parse(
         r"\shipout\vbox{\special{pdf: ann @note width 3in height 36pt << /Type /Annot /Subtype /Text >>}\hbox{a}}",
         jobname="pdf-annot",
@@ -144,7 +144,7 @@ def test_dvi_dvipdfm_annotate_special_is_emitted(cmr10, tmp_path):
 
 def test_dvi_dvipdfm_xobject_special_is_emitted(cmr10, tmp_path):
     out = tmp_path / "pdf-xobj"
-    cmr10.shipout = dvi.DVIShipout(cmr10, str(out))
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
     cmr10.parse(
         r"\shipout\vbox{\special{pdf: image @fig width 4in rotate 45 (figure.png)}\hbox{a}}",
         jobname="pdf-xobj",
@@ -152,3 +152,8 @@ def test_dvi_dvipdfm_xobject_special_is_emitted(cmr10, tmp_path):
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
     assert b"pdf: image @fig width 4in rotate 45 (figure.png)" in data
+
+
+def test_dvi_shipout_name_remains_as_compat_alias(parser):
+    backend = dvi.DVIShipout(parser)
+    assert isinstance(backend, dvi.DVIBackend)

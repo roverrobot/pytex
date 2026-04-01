@@ -12,7 +12,7 @@ solve every future backend requirement up front.
 
 ## Current problem
 
-`pytex.dvi.DVIShipout` currently mixes two responsibilities:
+`pytex.dvi.DVIBackend` originally mixed two responsibilities:
 
 1. walking shipped `hlist` / `vlist` structures, including glue, kern, shifted
    boxes, and whatsits; and
@@ -118,6 +118,7 @@ That should be done only when there is concrete duplication to remove.
 
 This patch performs only the structural split:
 
-- move box traversal from `DVIShipout` into `typeset.shipout.Shipout`;
-- keep `DVIShipout` as a concrete implementation of the backend IR;
+- move box traversal from the old `DVIShipout` backend into
+  `typeset.shipout.Shipout`;
+- keep `DVIBackend` as a concrete implementation of the backend IR;
 - preserve current DVI behavior as closely as possible.

@@ -144,12 +144,3 @@ class AlignmentTypesetter:
             postdisplaypenalty=parser.layout["postdisplaypenalty"],
             belowdisplayskip=parser.layout["belowdisplayskip"],
         )
-
-    def appendToVList(self, node, vlist):
-        if isinstance(node, MAlignment):
-            self.typesetMAlignment(node, vlist)
-            return True
-        if isinstance(node, HAlignment):
-            self.typesetHAlignment(node, vlist)
-            return True
-        return False

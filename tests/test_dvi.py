@@ -152,8 +152,3 @@ def test_dvi_dvipdfm_xobject_special_is_emitted(cmr10, tmp_path):
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
     assert b"pdf: image @fig width 4in rotate 45 (figure.png)" in data
-
-
-def test_dvi_shipout_name_remains_as_compat_alias(parser):
-    backend = dvi.DVIShipout(parser)
-    assert isinstance(backend, dvi.DVIBackend)

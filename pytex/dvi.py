@@ -257,11 +257,6 @@ def init(parser):
     parser.shipout = DVIBackend(parser)
 
 
-# Legacy aliases kept while callers move to the backend-oriented name.
-DVI = DVIBackend
-DVIShipout = DVIBackend
-
-
 mod = Module(
     "dvi",
     init=init,

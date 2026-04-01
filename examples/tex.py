@@ -100,7 +100,7 @@ if args.profile:
     exit(0)
 else:
     if args.format != "initex":
-        parser.shipout = dvi.DVIShipout(parser, args.output)
+        parser.shipout = dvi.DVIBackend(parser, args.output)
     parser.parse(input, jobname=file)
 input.close()
 

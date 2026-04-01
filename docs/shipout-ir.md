@@ -118,7 +118,6 @@ That should be done only when there is concrete duplication to remove.
 
 This patch performs only the structural split:
 
-- move box traversal from the old `DVIShipout` backend into
-  `typeset.shipout.Shipout`;
+- move box traversal from the old DVI writer into `typeset.shipout.Shipout`;
 - keep `DVIBackend` as a concrete implementation of the backend IR;
 - preserve current DVI behavior as closely as possible.

@@ -601,9 +601,7 @@ class MathTypesetter:
     def typesetSubformula(self, holder, packed, context, style):
         self.typesetHolder(holder, packed, context, style)
 
-    def pretypesetInlineMath(self, holder):
-        if holder._typeset_cache is not None:
-            return
+    def typesetInlineMath(self, holder, packed):
         cache = []
         math_shift = nd.MathShift(True)
         math_shift.source = holder
@@ -616,11 +614,7 @@ class MathTypesetter:
         for node in cache:
             if getattr(node, "source", None) is None:
                 node.source = holder
-        holder._typeset_cache = cache
-
-    def typesetInlineMath(self, holder, packed):
-        self.pretypesetInlineMath(holder)
-        packed.extend(holder._typeset_cache)
+        packed.extend(cache)
 
     def typesetDisplayMath(self, holder, packed):
         parser = self.parser

@@ -255,7 +255,6 @@ class InlineMathNode(_MathListData):
     def __init__(self, parser=None, nodes=None):
         super().__init__(list=nodes, paragraph_math=True)
         self.inner = True
-        self._typeset_cache = None
 
     node_type = nd.NODE_TYPE.MATH
 
@@ -921,11 +920,15 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if mlist.type != lists.LISTTYPE.MATH:
             return
         if mlist.inner:
-            parser.math_typesetter.pretypesetInlineMath(self.node)
+            for top in reversed(parser.lists[:-1]):
+                if top.type != lists.LISTTYPE.MATH:
+                    break
+            else:
+                raise ValueError("missing enclosing horizontal list", parser.input.position())
+            top.appendInlineMath(self.node)
             return
-        if not mlist.isalign:
-            return
-        self.node = parser.typeset.align.materializeMAlignment(mlist.pending_alignment)
+        if mlist.isalign:
+            self.node = parser.typeset.align.materializeMAlignment(mlist.pending_alignment)
 
     def finalize(self, parser, top, mlist):
         # here top points to the enclosing horizontal list
@@ -934,7 +937,6 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if eqno is not None:
             self.node.eqno = eqno
         if mlist.inner:
-            top.appendInlineMath(self.node)
             return
         if mlist.isalign:
             self.node = self.node or parser.typeset.align.materializeMAlignment(mlist.pending_alignment)

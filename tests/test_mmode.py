@@ -1589,8 +1589,7 @@ def test_inline_math_freezes_local_nulldelimiterspace_before_group_restore(math)
     assert len(raw) == 1
     node = raw[0]
     assert isinstance(node, mmode.InlineMathNode)
-    packed = []
-    _typeset_inline_math(math, node, packed)
+    packed = _concrete_nodes(top)
     assert len(packed) == 3
     inner = packed[1]
     assert inner.node_type == nd.NODE_TYPE.HLIST

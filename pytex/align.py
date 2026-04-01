@@ -391,6 +391,34 @@ class AlignmentTypesetter:
             if row.noalign is not None:
                 self._appendNoAlign(alignment, row.noalign, vlist)
 
+    def typesetVAlignment(self, alignment, packed):
+        parser = self.parser
+        rows, w, t = alignment._collectEntries(parser)
+        out = bx.HBox(parser, alignment.to, alignment.spread)
+        for row, entries in rows:
+            colbox = bx.VBox(parser, None, 0)
+            entry_boxes = []
+            col_width = Dimen()
+            if t:
+                colbox.list.append(nd.Glue(t[0], "\tabskip"))
+            for entry in entries:
+                box = entry["cell"]
+                i = entry["start"]
+                j = i + entry["span"] - 1
+                target = alignment._spanTarget(w, t, i, j)
+                box = alignment.reboxEntry(parser, box, target)
+                entry_boxes.append(box)
+                if box.width > col_width:
+                    col_width = box.width
+                colbox.list.append(box)
+                if j + 1 < len(t):
+                    colbox.list.append(nd.Glue(t[j + 1], "\tabskip"))
+            for box in entry_boxes:
+                box.width = col_width
+            out.list.append(colbox.typeset(parser))
+        packed.extend(out.typeset(parser).list)
+        return packed
+
     def typesetMAlignment(self, alignment, vlist):
         if not isinstance(vlist, vmode.VList):
             raise TypeError("MAlignment typesetting expects a VList")

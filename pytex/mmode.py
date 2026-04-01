@@ -925,7 +925,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
             return
         if not mlist.isalign:
             return
-        self.node = parser.alignment_typesetter.materializeMAlignment(mlist.pending_alignment)
+        self.node = parser.typeset.align.materializeMAlignment(mlist.pending_alignment)
 
     def finalize(self, parser, top, mlist):
         # here top points to the enclosing horizontal list
@@ -937,7 +937,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
             top.append(self.node)
             return
         if mlist.isalign:
-            self.node = self.node or parser.alignment_typesetter.materializeMAlignment(mlist.pending_alignment)
+            self.node = self.node or parser.typeset.align.materializeMAlignment(mlist.pending_alignment)
         top.append(self.node)
         parser.globals["prevgraf"] += 3
         # TeX is back in horizontal mode after a display, but the follow-on

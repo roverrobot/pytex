@@ -9,6 +9,7 @@ from pytex import mmode
 from pytex import page
 from pytex import glue
 from pytex.dimen import Dimen
+from pytex.typeset.paragraph import _LineBreaker
 
 
 def _raw_nodes(vlist):
@@ -419,7 +420,7 @@ def test_linebreaker_select_final_positive_looseness():
         types.SimpleNamespace(line_no=6, demerits=30),
         types.SimpleNamespace(line_no=6, demerits=20),
     ]
-    baseline, chosen = paragraph._LineBreaker._selectFinal(finals, 2)
+    baseline, chosen = _LineBreaker._selectFinal(finals, 2)
     assert baseline.line_no == 4
     assert chosen.line_no == 6
     assert chosen.demerits == 20
@@ -431,7 +432,7 @@ def test_linebreaker_select_final_negative_looseness():
         types.SimpleNamespace(line_no=3, demerits=30),
         types.SimpleNamespace(line_no=2, demerits=100),
     ]
-    baseline, chosen = paragraph._LineBreaker._selectFinal(finals, -2)
+    baseline, chosen = _LineBreaker._selectFinal(finals, -2)
     assert baseline.line_no == 4
     assert chosen.line_no == 2
 

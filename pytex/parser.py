@@ -33,6 +33,7 @@ from pytex import hyphen
 from pytex import misc
 from pytex import tracing
 from pytex import page
+from pytex import typeset
 import os
 
 

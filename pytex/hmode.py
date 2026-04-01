@@ -199,35 +199,54 @@ class HList(lists.List):
         self._ligature_state["lig_base"] = base
         self._ligature_state["in_word"] = self._nodeEndsWord(base)
 
+    def _resetNonCharState(self):
+        if self._ligature_state["in_word"]:
+            self._applyRightBoundary(self.list, self._ligature_state)
+            self._ligature_state["in_word"] = False
+        self._ligature_state["lig_base"] = None
+        self.parser.globals["spacefactor"] = 1000
+
+    def appendInlineMath(self, node):
+        if getattr(node, "source", None) is None:
+            self.raw.append(node)
+        self._resetNonCharState()
+        start = len(self.list)
+        self.parser.typeset.math.typesetInlineMath(node, self.list)
+        for concrete in self.list[start:]:
+            if getattr(concrete, "source", None) is None:
+                concrete.source = node
+
+    def appendAccent(self, node):
+        if getattr(node, "source", None) is None:
+            self.raw.append(node)
+        self._resetNonCharState()
+        start = len(self.list)
+        node.typeset(self.parser, self.list)
+        for concrete in self.list[start:]:
+            if getattr(concrete, "source", None) is None:
+                concrete.source = node
+
+    def appendVAlignment(self, node):
+        if getattr(node, "source", None) is None:
+            self.raw.append(node)
+        self._resetNonCharState()
+        start = len(self.list)
+        self.parser.typeset.align.typesetVAlignment(node, self.list)
+        for concrete in self.list[start:]:
+            if getattr(concrete, "source", None) is None:
+                concrete.source = node
+
     def append(self, node):
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         if node.node_type != nd.NODE_TYPE.CHAR:
-            if self._ligature_state["in_word"]:
-                self._applyRightBoundary(self.list, self._ligature_state)
-                self._ligature_state["in_word"] = False
-            self._ligature_state["lig_base"] = None
-            self.parser.globals["spacefactor"] = 1000
+            self._resetNonCharState()
             if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
                 self.list.append(node)
                 return
-            math_typesetter = getattr(self.parser, "math_typesetter", None)
-            if math_typesetter is not None and math_typesetter.appendToHList(node, self.list):
-                return
-            typeset = getattr(node, "typeset", None)
-            if typeset is None:
-                self.list.append(node)
-                return
-            start = len(self.list)
-            typeset(self.parser, self.list)
-            if len(self.list) == start:
-                self.list.append(node)
-                return
-            for n in self.list[start:]:
-                if n is node:
-                    continue
-                if getattr(n, "source", None) is None:
-                    n.source = node
+            if node.node_type in (nd.NODE_TYPE.ACCENT, nd.NODE_TYPE.MATH, nd.NODE_TYPE.ALIGNMENT):
+                raise ValueError("non-standard horizontal nodes require dedicated append handling")
+            self.list.append(node)
             return
         sf = self.sfcode[ord(node.char)]
         if sf != 0:
@@ -548,7 +567,7 @@ class Accent(HorizontalCommand):
 
     def horizontal(self, parser, hlist):
         char, accent = self.readArgs(parser)
-        hlist.append(AccentNode(accent, char))
+        hlist.appendAccent(AccentNode(accent, char))
 
     def math(self, parser, mlist):
         raise ValueError("please use \\mathaccent in math mode")

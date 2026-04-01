@@ -515,6 +515,10 @@ class AlignmentEndCallback:
         if top.type == lists.LISTTYPE.MATH:
             top.pending_alignment = alignment
             top.isalign = True
+        elif isinstance(self.target, vmode.VList) and isinstance(alignment, HAlignment):
+            self.target.appendHAlignment(alignment)
+        elif isinstance(self.target, hmode.HList) and isinstance(alignment, VAlignment):
+            self.target.appendVAlignment(alignment)
         else:
             self.target.append(alignment)
         if parser.alignments and parser.alignments[-1] is self.builder:

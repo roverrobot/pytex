@@ -934,11 +934,11 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if eqno is not None:
             self.node.eqno = eqno
         if mlist.inner:
-            top.append(self.node)
+            top.appendInlineMath(self.node)
             return
         if mlist.isalign:
             self.node = self.node or parser.typeset.align.materializeMAlignment(mlist.pending_alignment)
-            top.append(self.node)
+            top.appendMAlignment(self.node)
         else:
             top.appendDisplayMath(self.node)
         parser.globals["prevgraf"] += 3

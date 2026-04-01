@@ -77,20 +77,29 @@ class VList(lists.List):
         self.raw.append(node)
         self.parser.typeset.math.typesetDisplayMath(node, self)
         self._notePageBuilder(node)
+
+    def appendHAlignment(self, node):
+        self.raw.append(node)
+        self.parser.typeset.align.typesetHAlignment(node, self)
+        self._notePageBuilder(node)
+
+    def appendMAlignment(self, node):
+        self.raw.append(node)
+        self.parser.typeset.align.typesetMAlignment(node, self)
+        self._notePageBuilder(node)
+
+    def appendVAdjust(self, node):
+        self.raw.append(node)
+        self.extend(node.list, add_interline=False)
     
     def append(self, node, add_interline=None):
         if add_interline is None:
             add_interline = self.add_interline
+        if isinstance(node, VAdjust):
+            self.appendVAdjust(node)
+            return
         if node.source is None:
             self.raw.append(node)
-        align_typesetter = getattr(getattr(self.parser, "typeset", None), "align", None)
-        if align_typesetter is not None and align_typesetter.appendToVList(node, self):
-            self._notePageBuilder(node)
-            return
-        if getattr(node, "typeset_to_vlist", False):
-            node.typeset(self.parser, self)
-            self._notePageBuilder(node)
-            return
         # appending a built node
         if node.node_type == nd.NODE_TYPE.RULE:
             self.parser.globals["prevdepth"] = init_prevdepth
@@ -168,10 +177,6 @@ class VAdjust(nd.Node):
         return {"list": self.list}, None
 
     node_type = nd.NODE_TYPE.ADJUST
-    typeset_to_vlist = True
-
-    def typeset(self, parser, packed):
-        packed.extend(self.list, add_interline=False)
 
 
 class Mark(nd.Node):

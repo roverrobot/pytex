@@ -9,8 +9,8 @@ from pytex import mmode
 from pytex import page
 from pytex import glue
 from pytex.dimen import Dimen
+from pytex import typeset
 from pytex.typeset.paragraph import _LineBreaker
-
 
 def _raw_nodes(vlist):
     return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
@@ -36,9 +36,15 @@ def _source_nodes(vlist, cls):
 
 
 def simple_context(parshape, hsize, hangindent, hangafter):
-    ctx = types.SimpleNamespace(parshape=parshape, hsize=hsize, hangindent=hangindent, hangafter=hangafter)
-    ctx.lineShape = lambda line_no: paragraph.Paragraph._lineShape(
-        ctx.parshape, ctx.hsize, ctx.hangindent, ctx.hangafter, line_no
+    ctx = types.SimpleNamespace(
+        volatile={
+            "parshape": parshape, 
+            "hangindent": hangindent, 
+            "hangafter": hangafter
+        },
+        layout = {"hsize": hsize},
+    )
+    ctx.lineShape = lambda line_no: paragraph.Paragraph.lineShape(None, ctx, line_no
     )
     return ctx
 
@@ -398,7 +404,7 @@ def test_interline_penalty_uses_brokenpenalty_from_previous_line(parser):
     para.line_count = 5
     first = types.SimpleNamespace(line_no=1, hyphenated=True, prev=None)
     second = types.SimpleNamespace(line_no=2, hyphenated=False, prev=first)
-    assert para._interlinePenalty(parser, second) == 4007
+    assert parser.typeset.paragraph.interlinePenalty(para, second) == 4007
 
 
 def test_interline_penalty_applies_widowpenalty_before_last_line(parser):
@@ -410,7 +416,7 @@ def test_interline_penalty_applies_widowpenalty_before_last_line(parser):
     para.line_count = 5
     prev = types.SimpleNamespace(line_no=4, hyphenated=False, prev=None)
     last = types.SimpleNamespace(line_no=5, hyphenated=False, prev=prev)
-    assert para._interlinePenalty(parser, last) == 2007
+    assert parser.typeset.paragraph.interlinePenalty(para, last) == 2007
 
 
 def test_linebreaker_select_final_positive_looseness():

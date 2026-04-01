@@ -65,8 +65,11 @@ class Paragraph(nd.Node):
     def meaning(self, parser):
         return "HList"
 
-    @staticmethod
-    def _lineShape(parshape, hsize, hangindent, hangafter, line_no):
+    def lineShape(self, parser, line_no):
+        parshape = parser.volatile["parshape"]
+        hsize = parser.layout["hsize"]
+        hangindent = parser.volatile["hangindent"]
+        hangafter = parser.volatile["hangafter"]
         if parshape:
             i = line_no - 1
             if i >= len(parshape):
@@ -85,21 +88,6 @@ class Paragraph(nd.Node):
         if hang > 0:
             return hang, hsize - abs(hang)
         return Dimen(), hsize - abs(hang)
-
-    def lineShape(self, parser, line_no):
-        return self._lineShape(
-            parser.volatile["parshape"],
-            parser.layout["hsize"],
-            parser.volatile["hangindent"],
-            parser.volatile["hangafter"],
-            line_no,
-        )
-
-    def _interlinePenalty(self, parser, line):
-        return parser.typeset.paragraph.interlinePenalty(self, line)
-
-    def updateDisplayState(self, parser):
-        parser.typeset.paragraph.updateDisplayState(self)
 
     def typeset(self, parser, vlist):
         parser.typeset.paragraph.typeset(self, vlist)

@@ -682,10 +682,24 @@ class Parser:
             top.append(para)
         if para is not None:
             if updates_display_state:
-                para.updateDisplayState(self)
+                self.updateDisplayState(para)
         # TeX clears \\looseness etc after each paragraph.
         self.clearParagraphSettings()
         return para
+
+    def updateDisplayState(self, para):
+        line_count = len(para._line_boxes or [])
+        self.globals["prevgraf"] = line_count
+        displayindent, displaywidth = para.lineShape(self, line_count + 1)
+        para.line_count = line_count
+        self.volatile["displayindent"] = displayindent
+        self.volatile["displaywidth"] = displaywidth
+        hbox = para._line_boxes[-1] if para._line_boxes else None
+        if hbox is None:
+            predisplaysize = dimen.Dimen(-16383.99999)
+        else:
+            predisplaysize = hbox.rightmost() + 2 * self.parameters["currentfont"].param[5]
+        self.volatile["predisplaysize"] = predisplaysize
 
     def clearParagraphSettings(self):
         volatile = self.volatile

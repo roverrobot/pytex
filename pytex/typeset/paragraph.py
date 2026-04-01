@@ -61,21 +61,6 @@ class ParagraphTypesetter:
             penalty += parser.layout["brokenpenalty"]
         return penalty
 
-    def updateDisplayState(self, para):
-        parser = self.parser
-        line_count = len(para._line_boxes or [])
-        parser.globals["prevgraf"] = line_count
-        displayindent, displaywidth = para.lineShape(parser, line_count + 1)
-        para.line_count = line_count
-        parser.volatile["displayindent"] = displayindent
-        parser.volatile["displaywidth"] = displaywidth
-        hbox = para._line_boxes[-1] if para._line_boxes else None
-        if hbox is None:
-            predisplaysize = Dimen(-16383.99999)
-        else:
-            predisplaysize = hbox.rightmost() + 2 * parser.parameters["currentfont"].param[5]
-        parser.volatile["predisplaysize"] = predisplaysize
-
     def typeset(self, para, vlist):
         if len(para.list) == 0:
             para.line_count = 0

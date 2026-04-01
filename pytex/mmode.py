@@ -1924,7 +1924,7 @@ class VolatileParameterSlot:
             return value
         para = self.parser.paragraph_before_last_display_math
         assert para is not None
-        para.typeset(self.parser, [])
+        self.parser.typeset.paragraph.typeset(para, [])
         value = self.parser.volatile[self.index]
         if value is None:
             raise ValueError(f"volatile parameter {self.index} is undefined", self.pos)

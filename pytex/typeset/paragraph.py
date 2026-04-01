@@ -66,11 +66,14 @@ class ParagraphTypesetter:
         if len(para.list) == 0:
             para.line_count = 0
             para._line_boxes = []
+            self.parser.globals["prevgraf"] = 0
             return
         hlist = para.list
         breaks = self.scanBreaks(para, hlist)
         hlist, lines = self.lineBreak(para, hlist, breaks)
         line_count = len(lines)
+        para.line_count = line_count
+        self.parser.globals["prevgraf"] = line_count
         for line in lines:
             node = self._packLine(para, hlist, line)
             vlist.append(node)
@@ -843,4 +846,3 @@ class _LineBreaker:
             line = line.prev
         plan.reverse()
         return plan
-

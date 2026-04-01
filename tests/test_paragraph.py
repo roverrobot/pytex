@@ -90,7 +90,7 @@ def test_paragraph_typeset_uses_stored_parfillskip_not_live_state(parser):
     para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[0]
     parser.parameters["parfillskip"] = glue.Glue(0, glue.Stretchness(1, 1))
     out = []
-    para.typeset(parser, out)
+    parser.typeset.paragraph.typeset(para, out)
     assert len(out) == 1
     assert out[0].node_type == nd.NODE_TYPE.HLIST
 
@@ -111,7 +111,7 @@ def test_linebreak_uses_explicit_paragraph_argument(parser):
     para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[0]
     parser.parse("b")
     out = []
-    para.typeset(parser, out)
+    parser.typeset.paragraph.typeset(para, out)
     assert len(out) == 1
     assert out[0].node_type == nd.NODE_TYPE.HLIST
 
@@ -171,7 +171,7 @@ def test_linebreak_discards_leading_discardables(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent\\hskip1pt a\\par")
     para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     out = []
-    para.typeset(cmr10, out)
+    cmr10.typeset.paragraph.typeset(para, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
     assert len(line.list) >= 1
@@ -183,7 +183,7 @@ def test_linebreak_typesets_mlist_before_breaking(cmr10):
     cmr10.parse("\\hsize=100pt\\noindent$a$\\par")
     para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[0]
     out = []
-    para.typeset(cmr10, out)
+    cmr10.typeset.paragraph.typeset(para, out)
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
     assert not any(isinstance(n, mmode.MList) for n in line.list)
@@ -307,7 +307,7 @@ def test_linebreak_matches_tex_reference_paragraph(cmr10):
     cmr10.parse(text + "\\par")
     para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     out = []
-    para.typeset(cmr10, out)
+    cmr10.typeset.paragraph.typeset(para, out)
     lines = _lineBoxes(out)
     assert len(lines) == 4
     endings = [_lineEndingWord(line) for line in lines]
@@ -352,7 +352,7 @@ def test_linebreak_plain_paragraph_cases(parser):
     )
     para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[-1]
     out = []
-    para.typeset(parser, out)
+    parser.typeset.paragraph.typeset(para, out)
     lines = _lineBoxes(out)
     assert len(lines) == 3
     endings = [_lineEndingWord(line) for line in lines]
@@ -365,7 +365,7 @@ def test_linebreak_plain_paragraph_cases(parser):
     )
     para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[-1]
     out = []
-    para.typeset(parser, out)
+    parser.typeset.paragraph.typeset(para, out)
     lines = _lineBoxes(out)
     assert len(lines) == 2
     assert _lineText(lines[0]).endswith("=")
@@ -378,7 +378,7 @@ def test_paragraph_typeset_inserts_interline_glue(cmr10):
     cmr10.parse("a a a a a\\par")
     para = _source_nodes(cmr10.lists[-1], paragraph.Paragraph)[-1]
     out = []
-    para.typeset(cmr10, out)
+    cmr10.typeset.paragraph.typeset(para, out)
     vlist = vmode.VList(cmr10, [])
     vlist.open()
     try:
@@ -500,7 +500,7 @@ def test_noindent_with_hanging_label_does_not_add_first_line_indent(parser):
     parser.parse("\\input plain \\hsize=200pt \\hangindent=20pt \\noindent\\hbox{1\\quad}Introduction\\par")
     para = _source_nodes(parser.lists[-1], paragraph.Paragraph)[-1]
     out = []
-    para.typeset(parser, out)
+    parser.typeset.paragraph.typeset(para, out)
     lines = _lineBoxes(out)
     assert len(lines) == 1
     assert lines[0].list[0].node_type == nd.NODE_TYPE.HLIST

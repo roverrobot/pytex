@@ -5,8 +5,6 @@ This module implement paragraph handling (unrestricted hlist).
 from pytex import hmode
 from pytex import node as nd
 from pytex import box as bx
-from pytex import vmode
-from pytex import lists
 from pytex.module import Module
 from pytex.accessor import Accessor, VALUE_TYPE
 from pytex.dimen import Dimen
@@ -45,8 +43,6 @@ class Paragraph(nd.Node):
 
     # not a proper node
     node_type = None
-    # This node will be typeset when appending to a vlist.
-    typeset_to_vlist = True
     _migratory_node_types = (nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS, nd.NODE_TYPE.ADJUST)
 
     def saveInfo(self):
@@ -89,9 +85,6 @@ class Paragraph(nd.Node):
             return hang, hsize - abs(hang)
         return Dimen(), hsize - abs(hang)
 
-    def typeset(self, parser, vlist):
-        parser.typeset.paragraph.typeset(self, vlist)
-
     @staticmethod
     def _lineDisc(parser, disc, broken):
         rendered = disc.pre if broken else disc.replace
@@ -120,26 +113,6 @@ class SetLanguage(HorizontalCommand):
 class PrevGraf(Accessor):
     target_type = VALUE_TYPE.INT
     value_type = VALUE_TYPE.INT
-
-    def getTarget(self, parser):
-        value = parser.globals["prevgraf"]
-        if value is None:
-            # when this is accessed here, we are in building a list. So we use
-            # parser.paragraph_before_last_display_math if available by forcing the
-            # last built paragraph to realize prevgraf.
-            for vlist in reversed(parser.lists):
-                if vlist.type == lists.LISTTYPE.VERTICAL:
-                    break
-            else:
-                vlist = None
-            if vlist is not None:
-                for para in reversed(vlist):
-                    if isinstance(para, Paragraph):
-                        para.typeset(parser, [])
-                        break
-            if parser.globals["prevgraf"] is None:
-                parser.globals["prevgraf"] = 0
-        return super().getTarget(parser)
 
 
 mod = Module("paragraph",

@@ -206,15 +206,11 @@ class HList(lists.List):
         self._ligature_state["lig_base"] = None
         self.parser.globals["spacefactor"] = 1000
 
-    def appendInlineMath(self, node):
+    def appendInlineMath(self, node, cache):
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         self._resetNonCharState()
-        start = len(self.list)
-        self.parser.typeset.math.typesetInlineMath(node, self.list)
-        for concrete in self.list[start:]:
-            if getattr(concrete, "source", None) is None:
-                concrete.source = node
+        self.list.extend(cache)
 
     def appendAccent(self, node):
         if getattr(node, "source", None) is None:

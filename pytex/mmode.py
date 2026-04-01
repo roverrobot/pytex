@@ -925,7 +925,9 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
                     break
             else:
                 raise ValueError("missing enclosing horizontal list", parser.input.position())
-            top.appendInlineMath(self.node)
+            cache = []
+            parser.typeset.math.typesetInlineMath(self.node, cache)
+            top.appendInlineMath(self.node, cache)
             return
         if mlist.isalign:
             self.node = parser.newMAlignment(mlist.pending_alignment)

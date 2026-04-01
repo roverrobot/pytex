@@ -439,6 +439,221 @@ class MathTypesetter:
         if prev is not None and prev.node_type == ATOM_TYPE.BIN:
             prev.node_type = ATOM_TYPE.ORD
 
+    def emitMathSymbol(self, symbol, packed, context, style, include_italic=True):
+        font = mathfont(self.parser, style, symbol.fam)
+        node = font[symbol.char]
+        packed.append(node)
+        if include_italic and int(node.italic) != 0:
+            packed.append(nd.Kern(node.italic, automatic=True))
+        return packed
+
+    def _delimiterFontSearchOrder(self, style, family):
+        level = style.style if isinstance(style, Style) else style
+        fonts = []
+        seen = set()
+
+        def add(f):
+            if f is None:
+                return
+            key = id(f)
+            if key in seen:
+                return
+            seen.add(key)
+            fonts.append(f)
+
+        if family < 0 or family >= 16:
+            return fonts
+        parser = self.parser
+        if level >= MATH_STYLE.SS:
+            add(parser.scriptscriptfont[family])
+        if level >= MATH_STYLE.S:
+            add(parser.scriptfont[family])
+        add(parser.textfont[family])
+        return fonts
+
+    def _lookupDelimiterChar(self, font, code):
+        if font is None:
+            return None, None
+        try:
+            char = chr(code)
+        except ValueError:
+            return None, None
+        info = font.glyphInfo(char)
+        if info is None:
+            return None, None
+        return info, font[char]
+
+    def _scanDelimiterSymbol(self, symbol, style, minimum, best):
+        if Delim._symbolIsNull(symbol):
+            return None, best
+        code0 = ord(symbol.char)
+        for font in self._delimiterFontSearchOrder(style, symbol.fam):
+            code = code0
+            visited = set()
+            while code not in visited:
+                visited.add(code)
+                info, node = self._lookupDelimiterChar(font, code)
+                if info is None:
+                    break
+                total = node.height + node.depth
+                if best is None or total > best["total"]:
+                    best = {
+                        "node": node,
+                        "info": info,
+                        "font": font,
+                        "total": total,
+                        "extensible": info.assembly is not None,
+                    }
+                if total >= minimum or info.assembly is not None:
+                    return {
+                        "node": node,
+                        "info": info,
+                        "font": font,
+                        "total": total,
+                        "extensible": info.assembly is not None,
+                    }, best
+                if info.next_larger is None:
+                    break
+                code = ord(info.next_larger)
+        return None, best
+
+    def _delimiterBoxWithItalic(self, node):
+        b = box.HBox(self.parser, None, 0)
+        b.list.append(node)
+        italic = getattr(node, "italic", None)
+        if italic is not None and int(italic) != 0:
+            b.list.append(nd.Kern(italic, automatic=True))
+        return b.typeset(self.parser)
+
+    def _buildExtensibleDelimiter(self, chosen, minimum):
+        info = chosen["info"]
+        ext = info.assembly
+        if ext is None:
+            return self._delimiterBoxWithItalic(chosen["node"])
+
+        def piece(code):
+            if code == 0:
+                return None
+            _, n = self._lookupDelimiterChar(chosen["font"], code)
+            b = box.HBox(self.parser, None, 0)
+            b.list.append(n)
+            return b.typeset(self.parser)
+
+        top = piece(ext.top)
+        mid = piece(ext.middle)
+        bot = piece(ext.bottom)
+        rep = piece(ext.repeat)
+        if rep is None:
+            return self._delimiterBoxWithItalic(chosen["node"])
+
+        def total(n):
+            return n.height + n.depth if n is not None else Dimen()
+
+        top_total = total(top)
+        mid_total = total(mid)
+        bot_total = total(bot)
+        rep_total = total(rep)
+        if int(rep_total) <= 0:
+            return self._delimiterBoxWithItalic(chosen["node"])
+
+        base = top_total + mid_total + bot_total
+        need = minimum - base
+        if mid is not None:
+            unit = 2 * rep_total
+            repeat = 0 if need <= 0 else max(0, (int(need) + int(unit) - 1) // int(unit))
+        else:
+            unit = rep_total
+            repeat = 0 if need <= 0 else max(0, (int(need) + int(unit) - 1) // int(unit))
+        repeat = max(repeat, 1)
+
+        parts = []
+        if top is not None:
+            parts.append(top)
+        if mid is not None:
+            for _ in range(repeat):
+                parts.append(rep)
+            parts.append(mid)
+            for _ in range(repeat):
+                parts.append(rep)
+        else:
+            for _ in range(repeat):
+                parts.append(rep)
+        if bot is not None:
+            parts.append(bot)
+        if not parts:
+            parts.append(rep)
+
+        v = box.VTop(self.parser, None, 0)
+        v.list.extend(parts)
+        v.expanded = list(parts)
+        v = v.typeset(self.parser)
+        v.width = rep.width
+        return v
+
+    def typesetDelimiter(self, delim, total, context, style, axis=None):
+        if axis is None:
+            axis = Dimen(mathsigma(self.parser, style)[21])
+        if delim._isNull():
+            b = box.HBox(self.parser, mathlayout(self.parser, "nulldelimiterspace"), None)
+            b = b.typeset(self.parser)
+            b.shifted = (b.height - b.depth) / 2 - axis
+            return b
+        minimum = Dimen(total)
+        best = None
+        chosen, best = self._scanDelimiterSymbol(delim.small, style, minimum, best)
+        if chosen is None:
+            chosen, best = self._scanDelimiterSymbol(delim.large, style, minimum, best)
+        if chosen is None:
+            chosen = best
+        if chosen is None:
+            b = box.HBox(self.parser, mathlayout(self.parser, "nulldelimiterspace"), None)
+            return b.typeset(self.parser)
+        if chosen["extensible"]:
+            out = self._buildExtensibleDelimiter(chosen, minimum)
+        else:
+            out = self._delimiterBoxWithItalic(chosen["node"])
+        out.shifted = (out.height - out.depth) / 2 - axis
+        return out
+
+    def typesetAccentNucleus(self, accent, packed, context, style):
+        accent._attach_scripts = True
+        base_symbol = accent._rule12SingleBaseSymbol(accent.nucleus)
+        x = accent._typesetField(self.parser, accent.nucleus, context, Style(style.style, cramped=True))
+        u = x.width
+        y_char, accent_font = accent._rule12AccentNode(self.parser, context, style, u)
+        if y_char is None:
+            return super(Accent, accent).typesetNucleus(self.parser, packed, context, style)
+        s = accent._rule12Skew(self.parser, base_symbol, context, style) if base_symbol is not None else Dimen()
+        delta = x.height
+        xh = Dimen(accent_font.param[4])
+        if delta > xh:
+            delta = xh
+        if base_symbol is not None:
+            old_h = x.height
+            base_atom = Atom(ATOM_TYPE.ORD)
+            base_atom.nucleus = base_symbol
+            base_atom.sub = accent.sub
+            base_atom.sup = accent.sup
+            x = base_atom.assemble(self.parser, context, style)
+            delta += x.height - old_h
+            accent._attach_scripts = False
+        y = box.HBox(self.parser, None, 0)
+        y.list.append(y_char)
+        if int(y_char.italic) != 0:
+            y.list.append(nd.Kern(y_char.italic, automatic=True))
+        y = y.typeset(self.parser)
+        y.shifted = s + (u - y.width) / 2
+        z = box.VBox(self.parser, None, 0)
+        z.list[:] = [y, nd.Kern(-delta), x]
+        z = z.typeset(self.parser)
+        if z.height < x.height:
+            k = x.height - z.height
+            z.list.insert(0, nd.Kern(k))
+            z.natural.dimen += k
+        z.width = x.width
+        packed.append(z)
+        return Dimen()
+
     def _rule21Penalty(self, paragraph_math, current_item, next_item):
         if not paragraph_math or next_item is None or not isinstance(current_item, _AtomWrapper):
             return None
@@ -1365,11 +1580,7 @@ class MathSymbol(serialization.Serializable):
         return ATOM_TYPE(type), family, chr(char)
 
     def typeset(self, parser, packed, context, style, include_italic=True):
-        font = mathfont(parser, style, self.fam)
-        node = font[self.char]
-        packed.append(node)
-        if include_italic and int(node.italic) != 0:
-            packed.append(nd.Kern(node.italic, automatic=True))
+        return parser.math_typesetter.emitMathSymbol(self, packed, context, style, include_italic)
 
 
 class Box(Atom):
@@ -1827,193 +2038,8 @@ class Delim(serialization.Serializable):
     def _symbolIsNull(symbol):
         return symbol.encode() == 0 and symbol.fam == 0
 
-    @staticmethod
-    def _styleLevel(style):
-        return style.style if isinstance(style, Style) else style
-
-    def _fontSearchOrder(self, parser, style, family):
-        """
-        Build delimiter search order for one family:
-        - scriptscriptfont if C is scriptscript
-        - scriptfont if C is script/scriptscript
-        - textfont always
-        """
-        level = self._styleLevel(style)
-        fonts = []
-        seen = set()
-
-        def add(f):
-            if f is None:
-                return
-            key = id(f)
-            if key in seen:
-                return
-            seen.add(key)
-            fonts.append(f)
-
-        if family < 0 or family >= 16:
-            return fonts
-        textfont = parser.textfont
-        scriptfont = parser.scriptfont
-        scriptscriptfont = parser.scriptscriptfont
-        if level >= MATH_STYLE.SS:
-            add(scriptscriptfont[family])
-        if level >= MATH_STYLE.S:
-            add(scriptfont[family])
-        add(textfont[family])
-        return fonts
-
-    def _lookupChar(self, font, code):
-        if font is None:
-            return None, None
-        try:
-            char = chr(code)
-        except ValueError:
-            return None, None
-        info = font.glyphInfo(char)
-        if info is None:
-            return None, None
-        return info, font[char]
-
-    def _scanSymbol(self, parser, symbol, style, minimum, best):
-        if self._symbolIsNull(symbol):
-            return None, best
-        code0 = ord(symbol.char)
-        for font in self._fontSearchOrder(parser, style, symbol.fam):
-            code = code0
-            visited = set()
-            while code not in visited:
-                visited.add(code)
-                info, node = self._lookupChar(font, code)
-                if info is None:
-                    break
-                total = node.height + node.depth
-                if best is None or total > best["total"]:
-                    best = {
-                        "node": node,
-                        "info": info,
-                        "font": font,
-                        "total": total,
-                        "extensible": info.assembly is not None,
-                    }
-                if total >= minimum or info.assembly is not None:
-                    return {
-                        "node": node,
-                        "info": info,
-                        "font": font,
-                        "total": total,
-                        "extensible": info.assembly is not None,
-                    }, best
-                if info.next_larger is None:
-                    break
-                code = ord(info.next_larger)
-        return None, best
-
-    def _boxWithItalic(self, parser, node):
-        b = box.HBox(parser, None, 0)
-        b.list.append(node)
-        italic = getattr(node, "italic", None)
-        if italic is not None and int(italic) != 0:
-            b.list.append(nd.Kern(italic, automatic=True))
-        return b.typeset(parser)
-
-    def _buildExtensible(self, parser, chosen, minimum):
-        info = chosen["info"]
-        ext = info.assembly
-        if ext is None:
-            return self._boxWithItalic(parser, chosen["node"])
-
-        def piece(code):
-            if code == 0:
-                return None
-            _, n = self._lookupChar(chosen["font"], code)
-            b = box.HBox(parser, None, 0)
-            b.list.append(n)
-            return b.typeset(parser)
-
-        top = piece(ext.top)
-        mid = piece(ext.middle)
-        bot = piece(ext.bottom)
-        rep = piece(ext.repeat)
-        if rep is None:
-            return self._boxWithItalic(parser, chosen["node"])
-
-        def total(n):
-            return n.height + n.depth if n is not None else Dimen()
-
-        top_total = total(top)
-        mid_total = total(mid)
-        bot_total = total(bot)
-        rep_total = total(rep)
-        if int(rep_total) <= 0:
-            return self._boxWithItalic(parser, chosen["node"])
-
-        base = top_total + mid_total + bot_total
-        need = minimum - base
-        if mid is not None:
-            unit = 2 * rep_total
-            repeat = 0 if need <= 0 else max(0, (int(need) + int(unit) - 1) // int(unit))
-        else:
-            unit = rep_total
-            repeat = 0 if need <= 0 else max(0, (int(need) + int(unit) - 1) // int(unit))
-        # Ensure at least one repeatable piece is present in the stack.
-        repeat = max(repeat, 1)
-
-        parts = []
-        if top is not None:
-            parts.append(top)
-        if mid is not None:
-            for _ in range(repeat):
-                parts.append(rep)
-            parts.append(mid)
-            for _ in range(repeat):
-                parts.append(rep)
-        else:
-            for _ in range(repeat):
-                parts.append(rep)
-        if bot is not None:
-            parts.append(bot)
-        if not parts:
-            parts.append(rep)
-
-        v = box.VTop(parser, None, 0)
-        v.list.extend(parts)
-        v.expanded = list(parts)
-        v = v.typeset(parser)
-        # TeX uses the repeatable piece width for extensible delimiters.
-        v.width = rep.width
-        return v
-
     def typeset(self, parser, total, context, style, axis=None):
-        """
-        return a box containing the delimiter that fits a requested total
-        height+depth.
-        """
-        if axis is None:
-            axis = Dimen(mathsigma(parser, style)[21])
-        if self._isNull():
-            b = box.HBox(parser, mathlayout(parser, "nulldelimiterspace"), None)
-            b = b.typeset(parser)
-            # Rule 15e/19 centering applies to null delimiters as well.
-            b.shifted = (b.height - b.depth) / 2 - axis
-            return b
-        minimum = Dimen(total)
-        best = None
-        chosen, best = self._scanSymbol(parser, self.small, style, minimum, best)
-        if chosen is None:
-            chosen, best = self._scanSymbol(parser, self.large, style, minimum, best)
-        if chosen is None:
-            chosen = best
-        if chosen is None:
-            b = box.HBox(parser, mathlayout(parser, "nulldelimiterspace"), None)
-            return b.typeset(parser)
-        if chosen["extensible"]:
-            out = self._buildExtensible(parser, chosen, minimum)
-        else:
-            out = self._boxWithItalic(parser, chosen["node"])
-        # Center delimiter around the math axis.
-        out.shifted = (out.height - out.depth) / 2 - axis
-        return out
+        return parser.math_typesetter.typesetDelimiter(self, total, context, style, axis)
 
 
 class Rad(Atom):
@@ -2418,48 +2444,7 @@ class Accent(Atom):
         return node, font
 
     def typesetNucleus(self, parser, packed, context, style: Style):
-        # Rule 12 starts from nucleus in style C'.
-        self._attach_scripts = True
-        base_symbol = self._rule12SingleBaseSymbol(self.nucleus)
-        x = self._typesetField(parser, self.nucleus, context, Style(style.style, cramped=True))
-        u = x.width
-        y_char, accent_font = self._rule12AccentNode(parser, context, style, u)
-        # If accent doesn't exist in current size, continue at Rule 16.
-        if y_char is None:
-            return super().typesetNucleus(parser, packed, context, style)
-        s = self._rule12Skew(parser, base_symbol, context, style) if base_symbol is not None else Dimen()
-        delta = x.height
-        xh = Dimen(accent_font.param[4])  # fontdimen5 (x-height)
-        if delta > xh:
-            delta = xh
-        if base_symbol is not None:
-            old_h = x.height
-            base_atom = Atom(ATOM_TYPE.ORD)
-            base_atom.nucleus = base_symbol
-            base_atom.sub = self.sub
-            base_atom.sup = self.sup
-            x = base_atom.assemble(parser, context, style)
-            delta += x.height - old_h
-            # Rule 12 single-character branch absorbs scripts into x.
-            self._attach_scripts = False
-        # y is accent character including italic correction.
-        y = box.HBox(parser, None, 0)
-        y.list.append(y_char)
-        if int(y_char.italic) != 0:
-            y.list.append(nd.Kern(y_char.italic, automatic=True))
-        y = y.typeset(parser)
-        y.shifted = s + (u - y.width) / 2
-        # z stacks y, kern(-delta), x.
-        z = box.VBox(parser, None, 0)
-        z.list[:] = [y, nd.Kern(-delta), x]
-        z = z.typeset(parser)
-        if z.height < x.height:
-            k = x.height - z.height
-            z.list.insert(0, nd.Kern(k))
-            z.natural.dimen += k
-        z.width = x.width
-        packed.append(z)
-        return Dimen()
+        return parser.math_typesetter.typesetAccentNucleus(self, packed, context, style)
     
     node_type = nd.NODE_TYPE.MATHNODE
 

@@ -9,6 +9,7 @@ from pytex import texlive
 from pytex import hmode
 from pytex import box
 from pytex.dimen import Dimen
+from pytex.typeset.math import _AtomWrapper
 
 
 def _raw_nodes(vlist):
@@ -649,7 +650,7 @@ def _mk_atom(atom_type, fam, ch):
 
 def test_atom_wrapper_shadows_wrapped_atom_fields_and_methods(math):
     atom = _mk_atom(mmode.ATOM_TYPE.ORD, 0, "a")
-    wrapped = mmode._AtomWrapper(atom, mmode.ATOM_TYPE.BIN, mmode.Style(mmode.MATH_STYLE.T))
+    wrapped = _AtomWrapper(atom, mmode.ATOM_TYPE.BIN, mmode.Style(mmode.MATH_STYLE.T))
     assert wrapped.nucleus is atom.nucleus
     original = atom.nucleus
     wrapped.nucleus = None
@@ -670,7 +671,7 @@ def test_rule14_ord_op_ligature_collapses_pair(math):
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
     _adjust_math_atoms(math, ctx, collected)
-    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    wrappers = [x for x in collected if isinstance(x, _AtomWrapper)]
     assert len(wrappers) == 1
     w = wrappers[0]
     assert w.node_type == mmode.ATOM_TYPE.ORD
@@ -690,7 +691,7 @@ def test_rule14_ord_op_kern_inserts_kern_and_keeps_op(math):
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
     _adjust_math_atoms(math, ctx, collected)
-    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    wrappers = [x for x in collected if isinstance(x, _AtomWrapper)]
     kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
     assert len(wrappers) == 2
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
@@ -710,7 +711,7 @@ def test_rule14_not_applied_across_explicit_kern(math):
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
     _adjust_math_atoms(math, ctx, collected)
-    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    wrappers = [x for x in collected if isinstance(x, _AtomWrapper)]
     auto_kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
     assert len(wrappers) == 2
     assert wrappers[0].atom.nucleus.char == "f"
@@ -731,7 +732,7 @@ def test_rule14_applies_across_removed_style_node(math):
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
     _adjust_math_atoms(math, ctx, collected)
-    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    wrappers = [x for x in collected if isinstance(x, _AtomWrapper)]
     assert len(wrappers) == 1
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
 
@@ -750,7 +751,7 @@ def test_rule14_applies_across_removed_choice_node(math):
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
     _adjust_math_atoms(math, ctx, collected)
-    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    wrappers = [x for x in collected if isinstance(x, _AtomWrapper)]
     assert len(wrappers) == 1
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
 
@@ -768,7 +769,7 @@ def test_rule14_applies_when_nonscript_removes_following_kern(math):
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
     _adjust_math_atoms(math, ctx, collected)
-    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    wrappers = [x for x in collected if isinstance(x, _AtomWrapper)]
     assert len(wrappers) == 1
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD
 
@@ -784,7 +785,7 @@ def test_rule14_marks_text_symbol_for_rule17(math):
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
     _adjust_math_atoms(math, ctx, collected)
-    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    wrappers = [x for x in collected if isinstance(x, _AtomWrapper)]
     assert len(wrappers) == 2
     assert wrappers[0].text_symbol
     assert not wrappers[1].text_symbol
@@ -801,7 +802,7 @@ def test_pass1_collect_passes_through_vadjust(math):
     ])
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
-    assert isinstance(collected[0], mmode._AtomWrapper)
+    assert isinstance(collected[0], _AtomWrapper)
     assert collected[1] is adjust
 
 
@@ -989,7 +990,7 @@ def test_rule6_bin_to_ord_does_not_trigger_rule14_on_previous_atom(math):
     ctx = display_context(math)
     collected = _collect_math_nodes(math, subformula, ctx, mmode.Style(mmode.MATH_STYLE.T))
     _adjust_math_atoms(math, ctx, collected)
-    wrappers = [x for x in collected if isinstance(x, mmode._AtomWrapper)]
+    wrappers = [x for x in collected if isinstance(x, _AtomWrapper)]
     auto_kerns = [x for x in collected if x.node_type == nd.NODE_TYPE.KERN and x.automatic]
     assert len(wrappers) == 3
     assert wrappers[0].node_type == mmode.ATOM_TYPE.ORD

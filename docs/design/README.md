@@ -13,3 +13,4 @@ Read in this order:
 9. [09-execution-ir-inventory.md](09-execution-ir-inventory.md)
 10. [10-parser-kernel.md](10-parser-kernel.md)
 11. [11-assignment-ir.md](11-assignment-ir.md)
+12. [12-list-construction-summary.md](12-list-construction-summary.md)

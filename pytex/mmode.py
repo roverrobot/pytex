@@ -928,7 +928,8 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
             top.appendInlineMath(self.node)
             return
         if mlist.isalign:
-            self.node = parser.typeset.align.materializeMAlignment(mlist.pending_alignment)
+            self.node = parser.newMAlignment(mlist.pending_alignment)
+            mlist.pending_alignment = self.node
 
     def finalize(self, parser, top, mlist):
         # here top points to the enclosing horizontal list
@@ -939,7 +940,7 @@ class MathShiftEndGroupCallback(MathEndGroupCallback):
         if mlist.inner:
             return
         if mlist.isalign:
-            self.node = self.node or parser.typeset.align.materializeMAlignment(mlist.pending_alignment)
+            self.node = self.node or mlist.pending_alignment
             top.appendMAlignment(self.node)
         else:
             top.appendDisplayMath(self.node)

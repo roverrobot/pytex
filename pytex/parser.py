@@ -627,6 +627,23 @@ class Parser:
         """
         return hmode.IndentBox(self)
 
+    def newMAlignment(self, source):
+        body = vmode.VList(self, [], inner=True)
+        self.typeset.align.typesetHAlignment(source, body)
+        indent = dimen.Dimen(self.volatile["displayindent"])
+        for n in body:
+            if n.node_type == node.NODE_TYPE.HLIST:
+                n.shifted = indent
+                n.display = True
+        return align.MAlignment(
+            source,
+            list=list(body.list),
+            predisplaypenalty=self.layout["predisplaypenalty"],
+            abovedisplayskip=self.layout["abovedisplayskip"],
+            postdisplaypenalty=self.layout["postdisplaypenalty"],
+            belowdisplayskip=self.layout["belowdisplayskip"],
+        )
+
     def newParagraph(
         self,
         indent: bool = True,

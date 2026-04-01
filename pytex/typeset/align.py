@@ -126,21 +126,3 @@ class AlignmentTypesetter:
         below = nd.Glue(alignment.belowdisplayskip, "\\belowdisplayskip")
         below.source = alignment
         vlist.append(below)
-
-    def materializeMAlignment(self, source):
-        parser = self.parser
-        body = vmode.VList(parser, [], inner=True)
-        self.typesetHAlignment(source, body)
-        indent = Dimen(parser.volatile["displayindent"])
-        for n in body:
-            if n.node_type == nd.NODE_TYPE.HLIST:
-                n.shifted = indent
-                n.display = True
-        return MAlignment(
-            source,
-            list=list(body.list),
-            predisplaypenalty=parser.layout["predisplaypenalty"],
-            abovedisplayskip=parser.layout["abovedisplayskip"],
-            postdisplaypenalty=parser.layout["postdisplaypenalty"],
-            belowdisplayskip=parser.layout["belowdisplayskip"],
-        )

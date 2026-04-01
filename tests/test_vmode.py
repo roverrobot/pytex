@@ -11,7 +11,7 @@ from pytex import box as bx
 from pytex.dimen import Dimen
 from pytex.box import LEADERS_TYPE
 from pytex.expandable import toksToString
-
+from pytex import typeset
 
 def _raw_nodes(vlist):
     return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
@@ -251,10 +251,10 @@ def _break_pages(parser):
     pages = list(parser.shipout.pages)
     page_builder.contributePending(main)
     material = list(page_builder.contrib)
-    context = page.PageBuilderContext(parser.layout)
-    breaker = page.PageBreaker(parser, material, context)
+    context = typeset.page.PageBuilderContext(parser.layout)
+    breaker = typeset.page.PageBreaker(parser, material, context)
     topmark = list(parser.parameters["botmark"])
-    page.PageBuilder._clearInsertScratch(parser)
+    typeset.page.PageBuilder._clearInsertScratch(parser)
     start = 0
     while True:
         start, context = breaker.pruneTop(start, context)
@@ -270,8 +270,8 @@ def _break_pages(parser):
         firstmark, botmark = page_builder._pageMarks(material, start, end, topmark)
         page_builder._updatePageMarksByClass(parser, material, start, end, topmark)
         page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
-        page.PageBuilder._clearInsertScratch(parser)
-        box.list[:], carry = page.PageBuilder._extractPageInserts(parser, page_nodes, breaker)
+        typeset.page.PageBuilder._clearInsertScratch(parser)
+        box.list[:], carry = typeset.page.PageBuilder._extractPageInserts(parser, page_nodes, breaker)
         pages.append(box.typeset(parser))
         parser.layout["outputpenalty"] = break_penalty
         parser.globals["insertpenalties"] = breaker.last_insert_penalties
@@ -545,8 +545,8 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     main.append(_test_hbox(parser, height=1, depth=0))
     parser.page_builder.contributePending(main)
     material = list(parser.page_builder.contrib)
-    context = page.PageBuilderContext(parser.layout)
-    breaker = page.PageBreaker(parser, material, context)
+    context = typeset.page.PageBuilderContext(parser.layout)
+    breaker = typeset.page.PageBreaker(parser, material, context)
     start, context = breaker.pruneTop(0, context)
     end, _, _, _, _ = breaker.bestBreak(start, context)
     assert end > start
@@ -559,8 +559,8 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
     assert second["kind"] == "defer"
     assert breaker.last_insert_penalties == 123
     page_nodes = breaker.buildSlice(start, end, context, "\\topskip")
-    page.PageBuilder._clearInsertScratch(parser)
-    kept, carry = page.PageBuilder._extractPageInserts(parser, page_nodes, breaker)
+    typeset.page.PageBuilder._clearInsertScratch(parser)
+    kept, carry = typeset.page.PageBuilder._extractPageInserts(parser, page_nodes, breaker)
     assert all(node.node_type != nd.NODE_TYPE.INS for node in kept)
     assert len(carry) == 2
     assert carry[0].node_type == nd.NODE_TYPE.INS
@@ -576,7 +576,7 @@ def test_insert_split_sets_floatingpenalty_and_carries_remainder(parser):
 
 def test_page_cost_matches_tex_formula(parser):
     parser.parse("")
-    breaker = page.PageBreaker(parser, [], page.PageBuilderContext(parser.layout))
+    breaker = typeset.page.PageBreaker(parser, [], typeset.page.PageBuilderContext(parser.layout))
     total = glue.Glue(0, glue.Stretchness(1))
     assert breaker.cost(total, Dimen(5), 0) == 100000
     assert breaker.cost(total, Dimen(5), 10000) == float("inf")

@@ -8,10 +8,10 @@ import os
 from pytex import node as nd
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.module import Module
-from pytex import page
+from pytex.typeset.shipout import Shipout
 
 
-class DVIShipout(page.Shipout):
+class DVIShipout(Shipout):
     """
     Minimal DVI backend that writes shipped pages to a .dvi file.
     """

@@ -1,8 +1,10 @@
 """Parser-owned typesetting services and module installer."""
 
 from pytex.module import Module
-from pytex.typeset.math import MathTypesetter
 from pytex.typeset.paragraph import ParagraphTypesetter
+from pytex.typeset.math import MathTypesetter
+from pytex.typeset.page import PageBuilder
+from pytex.typeset.shipout import Shipout
 
 
 class TypesetOps:
@@ -12,12 +14,16 @@ class TypesetOps:
         self.parser = parser
         self.paragraph = ParagraphTypesetter(parser)
         self.math = MathTypesetter(parser)
+        self.page = PageBuilder(parser)
+        self.shipout = Shipout(parser)
 
 
 def init(parser):
     parser.typeset = TypesetOps(parser)
     parser.line_breaker = parser.typeset.paragraph
     parser.math_typesetter = parser.typeset.math
+    parser.page_builder = parser.typeset.page
+    parser.shipout = parser.typeset.shipout
 
 
 mod = Module("typeset", init=init)

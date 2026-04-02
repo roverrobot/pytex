@@ -101,7 +101,7 @@ class PDFMDfiveSum(token.Command):
 
     def _push_hash(self, parser, data):
         digest = hashlib.md5(data).hexdigest().upper()
-        parser.input.push(lexer.TokenListScanner(expandable.toToks(digest)))
+        parser.input.pushTokenList(expandable.toToks(digest))
 
     def expand(self, parser):
         if parser.readKeyword({"file"}):
@@ -129,7 +129,7 @@ class PDFFileSize(token.Command):
         if path is None:
             return
         size = os.path.getsize(path)
-        parser.input.push(lexer.TokenListScanner(expandable.toToks(str(size))))
+        parser.input.pushTokenList(expandable.toToks(str(size)))
 
 
 class PDFFileModDate(token.Command):
@@ -143,7 +143,7 @@ class PDFFileModDate(token.Command):
         if path is None:
             return
         mod = _pdf_date_string(os.path.getmtime(path))
-        parser.input.push(lexer.TokenListScanner(expandable.toToks(mod)))
+        parser.input.pushTokenList(expandable.toToks(mod))
 
 
 class PDFFileDump(token.Command):
@@ -168,7 +168,7 @@ class PDFFileDump(token.Command):
             handle.seek(offset)
             data = handle.read(length)
         if data:
-            parser.input.push(lexer.TokenListScanner(expandable.toToks(data.hex().upper())))
+            parser.input.pushTokenList(expandable.toToks(data.hex().upper()))
 
 
 class Expanded(token.Command):
@@ -177,7 +177,7 @@ class Expanded(token.Command):
     """
     def expand(self, parser):
         toks = parser.readGeneralText(expand=True)
-        parser.input.push(lexer.TokenListScanner(toks))
+        parser.input.pushTokenList(toks)
 
 
 class PDFStrcmp(token.Command):
@@ -195,7 +195,7 @@ class PDFStrcmp(token.Command):
             s = "-1"
         else:
             s = "1"
-        parser.input.push(lexer.TokenListScanner(expandable.toToks(s)))
+        parser.input.pushTokenList(expandable.toToks(s))
 
 
 class IfInCSName(conditional.Conditional):

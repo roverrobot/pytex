@@ -14,7 +14,6 @@ from pytex.dimen import Dimen
 from pytex import conditional
 from pytex.state import GROUP_TYPE
 from pytex.lists import LISTTYPE, ModeDependentCommand, GlueCommand
-from pytex.lexer import TokenListScanner
 import enum
 import types
 
@@ -485,7 +484,7 @@ class BuildBox(Command):
         state.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value
         if every:
-            parser.input.push(TokenListScanner(every))
+            parser.input.pushTokenList(every)
             if parser.tracingcommands > 0 and parser.checkRange():
                 parser.message(f"every{'v' if self.vertical else 'h'}box: {parser.toksToString(every)}")
         if not setbox:

@@ -617,7 +617,7 @@ class Parser:
         if ended:
             ended(self)
         if aftergroup:
-            self.input.push(lexer.TokenListScanner(aftergroup))
+            self.input.pushTokenList(aftergroup)
             if self.tracingcommands > 0 and self.checkRange():
                 self.message(f"aftergroup: {self.toksToString(aftergroup)}")
 
@@ -665,7 +665,7 @@ class Parser:
         if parskip:
             everypar = self.everypar.value
             if everypar:
-                self.input.push(lexer.TokenListScanner(everypar))
+                self.input.pushTokenList(everypar)
                 if self.tracingcommands > 0 and self.checkRange():
                     self.message(f"everypar: {self.toksToString(everypar)}")
             self.globals["prevgraf"] = 0

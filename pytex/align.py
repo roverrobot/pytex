@@ -67,7 +67,7 @@ class CellBuildState:
         if self.templates:
             template = self.templates.pop()
             if template:
-                parser.input.push(lexer.TokenListScanner(template))
+                parser.input.pushTokenList(template)
 
     def close(self, parser):
         self.node.typeset(parser)
@@ -401,7 +401,7 @@ class EndCellToken(Token):
         else:
             everycr = parser.everycr.value
             if everycr:
-                parser.input.push(lexer.TokenListScanner(list(everycr)))
+                parser.input.pushTokenList(list(everycr))
             row.finishRow(parser)
 
 
@@ -409,7 +409,7 @@ def endCell(parser, type: CellEndType):
     cell = parser.alignments.currentCell()
     if cell is None:
         raise ValueError(f"unexpected {parser.current_token.name}", parser.input.position())
-    parser.input.push(lexer.TokenListScanner([EndCellToken(type)]))
+    parser.input.pushTokenList([EndCellToken(type)])
     cell.pushTemplate(parser)
 
 
@@ -434,7 +434,7 @@ class CrCr(Command):
             builder.row_state = RowBuildState(builder.alignment, builder)
             everycr = parser.everycr.value
             if everycr:
-                parser.input.push(lexer.TokenListScanner(list(everycr)))
+                parser.input.pushTokenList(list(everycr))
             builder.row_state.finishRow(parser)
         
 

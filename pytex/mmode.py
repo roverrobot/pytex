@@ -15,7 +15,6 @@ from pytex.module import Module
 from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget
 from pytex.define import EquitableAccessor
-from pytex.lexer import TokenListScanner
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex import box
@@ -1032,7 +1031,7 @@ def mathShift(parser):
     )
     every = parser.everymath.value if inner else parser.everydisplay.value
     if every:
-        parser.input.push(TokenListScanner(every))
+        parser.input.pushTokenList(every)
         if parser.tracingcommands > 0 and parser.checkRange():
             parser.message(f"everymath: {parser.toksToString(every)}")
 

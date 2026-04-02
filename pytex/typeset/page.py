@@ -695,8 +695,8 @@ class PageBuilder:
             GROUP_TYPE.OUTPUT,
             ended=OutputRoutineEndCallback(outlist),
         )
-        parser.input.push(lexer.TokenListScanner([EndOutputRoutineToken()]))
-        parser.input.push(lexer.TokenListScanner(output))
+        parser.input.pushTokenList([EndOutputRoutineToken()])
+        parser.input.pushTokenList(output)
         self._runNestedLoop(parser)
         top = parser.lists[-1]
         if top.type == LISTTYPE.HORIZONTAL:
@@ -724,4 +724,3 @@ class PageBuilder:
             return
         self.contributePending(pending)
         self.processPendingPages(pending, force=True)
-

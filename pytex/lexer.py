@@ -337,6 +337,14 @@ class InputStack:
         """
         self.saved.append(token)
 
+    def pushTokenList(self, toks):
+        """
+        Push a plain token list in front of the current input without creating
+        a separate scanner frame.
+        """
+        if toks:
+            self.saved.extend(reversed(toks))
+
     def push(self, lexer):
         """
         push a new scanner on the stack

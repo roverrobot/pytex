@@ -1,6 +1,7 @@
 import pytest
 from pytex.token import CATCODE
 from pytex import lexer
+from pytex import token as tk
 from pytex import state as st
 
 
@@ -131,6 +132,33 @@ def test_input_stack(parser):
     assert token is not None
     assert token.name == " "
     assert token.catcode == CATCODE.SPACE
+    token = stack.read()
+    assert token is None
+
+
+def test_push_token_list_splices_tokens_without_new_scanner_frame(parser):
+    stack = parser.input
+    scanner = lexer.StringScanner(parser, "A")
+    stack.push(scanner)
+    token = stack.read()
+    assert token is not None
+    assert token.name == "A"
+    B = tk.Token.token("B", CATCODE.LETTER)
+    C = tk.Token.token("C", CATCODE.LETTER)
+    top = stack.top
+    depth = len(stack.stack)
+    stack.pushTokenList([B, C])
+    assert stack.top is top
+    assert len(stack.stack) == depth
+    token = stack.read()
+    assert token is not None
+    assert token.name == "B"
+    token = stack.read()
+    assert token is not None
+    assert token.name == "C"
+    token = stack.read()
+    assert token is not None
+    assert token.isSpace(False)
     token = stack.read()
     assert token is None
 

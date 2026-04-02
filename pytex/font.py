@@ -16,7 +16,6 @@ from pytex.node import CharNode
 from pytex.define import EquitableAccessor
 from pytex.state import Array
 from pytex.expandable import toToks
-from pytex.lexer import TokenListScanner
 from pytex.serialization import Builtin, Serializable
 
 
@@ -311,7 +310,7 @@ class FontName(Command):
     """
     def expand(self, parser):
         f = readFont(parser)
-        parser.input.push(TokenListScanner(toToks(f.backend.name)))
+        parser.input.pushTokenList(toToks(f.backend.name))
 
         
 mod = Module("font",

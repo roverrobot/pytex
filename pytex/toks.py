@@ -2,7 +2,7 @@
 This module defines the token list facilities.
 """
 
-from pytex.lexer import CATCODE, TokenListScanner
+from pytex.lexer import CATCODE
 from pytex.token import Command, Token, relax, CommandToken
 from pytex.module import Module
 from pytex.state import Array
@@ -213,7 +213,7 @@ class Case(Command):
                     # if the token is a command, we need to set the entry
                     t1.entry = parser.equitable.entry(t1.name)
                 toks.append(t1)
-        parser.input.push(TokenListScanner(toks))
+        parser.input.pushTokenList(toks)
 
 
 class IgnoreSpaces(Command):
@@ -268,7 +268,7 @@ class The(Command):
         The actual expansion depends on the type of the token. Please see TeXBook pp. 214.
         """
         toks = self.expanded(parser)
-        parser.input.push(TokenListScanner(toks))
+        parser.input.pushTokenList(toks)
 
 
 class PageMark(Command):
@@ -288,7 +288,7 @@ class PageMark(Command):
     def expand(self, parser):
         toks = self.getTarget(parser).get()
         if toks:
-            parser.input.push(TokenListScanner(toks))
+            parser.input.pushTokenList(toks)
 
 
 mod = Module("toks",

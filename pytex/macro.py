@@ -7,7 +7,6 @@ from pytex.token import CATCODE, Command, ParameterToken
 from pytex.accessor import Prefix, GlobalPrefix
 from pytex.define import EquitableAccessor
 from pytex.module import Module
-from pytex.lexer import TokenListScanner
 from pytex.serialization import Serializable
 from pytex import toks
 
@@ -506,7 +505,7 @@ class Macro(Command):
         # only if the replacement text is not empty
         if self.replacement:
             if not self._has_argument:
-                parser.input.push(TokenListScanner(self.replacement_pieces[0]))
+                parser.input.pushTokenList(self.replacement_pieces[0])
             else:
                 replacement = list(self.replacement_pieces[0])
                 extend = replacement.extend
@@ -514,7 +513,7 @@ class Macro(Command):
                     extend(args[arg])
                     extend(literal)
                 if replacement:
-                    parser.input.push(TokenListScanner(replacement))
+                    parser.input.pushTokenList(replacement)
     
     def __eq__(self, other):
         if self is other:

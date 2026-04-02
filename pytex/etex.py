@@ -51,7 +51,7 @@ class MarksValue(token.Command):
     def expand(self, parser):
         toks = self.getTarget(parser).get()
         if toks:
-            parser.input.push(lexer.TokenListScanner(toks))
+            parser.input.pushTokenList(toks)
 
 
 class Expr(ModeDependentCommand):
@@ -234,7 +234,7 @@ class StringCommand(token.Command):
         self.toks = expandable.toToks(s)
 
     def expand(self, parser):
-        parser.input.push(lexer.TokenListScanner(self.toks))
+        parser.input.pushTokenList(self.toks)
 
 
 class LastNodeType(tk.Command):
@@ -482,7 +482,7 @@ class Detokenize(token.Command):
     def expand(self, parser):
         toks = parser.readGeneralText(expand=False)
         s = expandable.toksToString(parser, toks)
-        parser.input.push(lexer.TokenListScanner(expandable.toToks(s)))
+        parser.input.pushTokenList(expandable.toToks(s))
 
 
 class _ScanTokensSource:

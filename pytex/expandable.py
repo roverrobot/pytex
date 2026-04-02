@@ -5,7 +5,7 @@ This module implements various expandable commands.
 
 from pytex.token import Command, CATCODE, CommandToken, ActiveToken, relax, SpaceToken, CharToken
 from pytex.module import Module
-from pytex.lexer import TokenListScanner, Scanner
+from pytex.lexer import Scanner
 from pytex.state import NamedEntry
 import pathlib
 
@@ -165,7 +165,7 @@ class Number(Command):
         n = parser.readInteger()
         s = self.str(n)
         if s:
-            parser.input.push(TokenListScanner(toToks(s)))
+            parser.input.pushTokenList(toToks(s))
 
 
 class RomanNumeral(Number):
@@ -263,7 +263,7 @@ class String(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token", parser.input.position())
-        parser.input.push(TokenListScanner(toToks(parser.expandedTokenToString(t))))
+        parser.input.pushTokenList(toToks(parser.expandedTokenToString(t)))
 
 
 class Input(Command):
@@ -297,7 +297,7 @@ class EndInput(Command):
 
 class JobName(Command):
     def expand(self, parser):
-        parser.input.push(TokenListScanner(toToks(parser.jobname)))
+        parser.input.pushTokenList(toToks(parser.jobname))
 
 
 class Meaning(Command):
@@ -305,7 +305,7 @@ class Meaning(Command):
         t = parser.token()
         if t is None:
             raise ValueError("expecting a token", parser.input.position())
-        parser.input.push(TokenListScanner(toToks(t.meaning(parser))))
+        parser.input.pushTokenList(toToks(t.meaning(parser)))
 
 
 mod = Module("expandable",

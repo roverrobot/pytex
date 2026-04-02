@@ -62,8 +62,10 @@ def readTo(parser, stop, toks=None, expand: bool = False):
         toks = []
     builder = ExpandBuilder(parser, toks) if expand else toks
     level = 0
+    tok = parser.token
+    append = builder.append
     while True:
-        t = parser.token()
+        t = tok()
         if t is None:
             miss = "{" if stop == 1 else "}"
             raise ValueError(f"expecting {miss}", parser.input.position())
@@ -72,15 +74,15 @@ def readTo(parser, stop, toks=None, expand: bool = False):
             return toks, t
         if catcode == 1:
             level += 1
-            builder.append(t)
+            append(t)
             continue
         if catcode == 2:
             level -= 1
             if level < 0:
                 raise ValueError("expecting }", parser.input.position())
-            builder.append(t)
+            append(t)
             continue
-        builder.append(t)
+        append(t)
 
 
 def skipFiller(parser):

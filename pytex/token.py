@@ -120,6 +120,8 @@ class Token(Command):
     def __eq__(self, other):
         return isinstance(other, Token) and self.name == other.name and self.catcode == other.catcode
 
+    def __repr__(self):
+        return f"{self.name}({self.catcode})"
     def execute(self, parser):
         """
         execute the token. The default behavior is to raise an error.
@@ -258,6 +260,9 @@ class CommandToken(Token):
         @return: True if the commands are equal, False otherwise
         """
         return isinstance(other, CommandToken) and self.entry == other.entry
+    
+    def __repr__(self):
+        return f"{self.name}"
 
 
 class ActiveToken(CommandToken):
@@ -283,6 +288,9 @@ class ActiveToken(CommandToken):
     
     def isTokenExpand(self, catcode):
         return self.catcode == catcode or (self.definition is not None and self.definition.catcode == catcode)
+
+    def __repr__(self):
+        return f"{self.name}({self.catcode})"
 
 
 class CellEndType(IntEnum):

@@ -173,7 +173,7 @@ class PDFStrcmp(token.Command):
         parser.input.push(lexer.TokenListScanner(expandable.toToks(s)))
 
 
-class IfIncCSName(conditional.Conditional):
+class IfInCSName(conditional.Conditional):
     r"""
     \ifincsname is true while scanning a \csname ... \endcsname name.
     """
@@ -217,7 +217,7 @@ class PDFPrimitive(token.Command):
 
 mod = Module("pdftex.expandable",
     commands={
-        "ifincsname": IfIncCSName(),
+        "ifincsname": IfInCSName(),
         "ifpdfprimitive": IfPDFPrimitive(),
         "pdfprimitive": PDFPrimitive(),
         "pdffiledump": PDFFileDump(),

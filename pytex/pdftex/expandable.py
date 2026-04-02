@@ -2,12 +2,45 @@
 Macro expansions in PDFTeX.
 """
 
+import hashlib
 import os
 from pytex import expandable
 from pytex import token
 from pytex import lexer
 from pytex.module import Module
-import os
+
+
+def _string_to_bytes(value: str) -> bytes:
+    try:
+        return value.encode("latin1")
+    except UnicodeEncodeError:
+        return value.encode("utf-8")
+
+
+class PDFMDfiveSum(token.Command):
+    r"""
+    \pdfmdfivesum <general text> or \pdfmdfivesum file <file name>.
+    """
+
+    def _push_hash(self, parser, data):
+        digest = hashlib.md5(data).hexdigest().upper()
+        parser.input.push(lexer.TokenListScanner(expandable.toToks(digest)))
+
+    def expand(self, parser):
+        if parser.readKeyword({"file"}):
+            toks = parser.readGeneralText(expand=True)
+            name = parser.toksToString(toks)
+            file = parser.resolver.openIn(name)
+            if file is None:
+                return
+            data = file.read()
+            file.close()
+            if isinstance(data, str):
+                data = _string_to_bytes(data)
+            self._push_hash(parser, data)
+            return
+        toks = parser.readGeneralText(expand=True)
+        self._push_hash(parser, _string_to_bytes(parser.toksToString(toks)))
 
 class PDFFileSize(token.Command):
     """
@@ -63,6 +96,8 @@ class PDFStrcmp(token.Command):
 mod = Module("pdftex.expandable",
     commands={
         "pdffilesize": PDFFileSize(),
+        "pdfmdfivesum": PDFMDfiveSum(),
+        "mdfivesum": PDFMDfiveSum(),
         "expanded": Expanded(),
         "pdfstrcmp": PDFStrcmp(),
     },

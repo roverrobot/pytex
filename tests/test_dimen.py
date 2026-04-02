@@ -22,6 +22,11 @@ def test_read_dimen(parser):
     assert d0 == 10
 
 
+def test_read_dimen_accepts_charcode_integer_factor(parser):
+    parser.parse("\\dimen0=`a pt")
+    assert parser.dimen[0] == 97
+
+
 def test_read_true_dimen(parser):
     # magnify by a factor of 2.0
     parser.parameters["mag"] = 2000

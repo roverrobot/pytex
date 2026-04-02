@@ -5,7 +5,7 @@ This module implements dimension parsing and handling.
 from pytex import serialization
 from pytex.token import CATCODE
 from pytex.module import Module
-from pytex.integer import readDigits, readSigns
+from pytex.integer import readDigits, readSigns, readUnsigned
 from pytex.state import Array
 from pytex.accessor import VALUE_TYPE, typedAccessor
 from pytex.define import registerdef
@@ -195,7 +195,10 @@ def readUnsignedNumberRatio(parser):
         raise ValueError("expecting a number", parser.input.position())
     if t.catcode != CATCODE.OTHER or t.name != ".":
         parser.input.unread(t)
-        int_part = int(readDigits(parser, 10), 10)
+        try:
+            int_part = readUnsigned(parser)
+        except ValueError as e:
+            raise ValueError("expecting a number", e.args[1] if len(e.args) > 1 else parser.input.position())
         t = parser.token_expand()
         # a decimal point
         if t is None:

@@ -229,6 +229,11 @@ class Parser:
         can_bind = False
         if get_target is not None:
             if isinstance(meaning, accessor.Accessor):
+                # Binding an accessor target may consume trailing syntax such as
+                # a register index. So we must reject incompatible internal-value
+                # shapes before calling getTarget(); once the target is safely
+                # bound, the readable value may still be cast to the requested
+                # type below.
                 compatible_targets = {
                     accessor.VALUE_TYPE.INT: {accessor.VALUE_TYPE.INT},
                     accessor.VALUE_TYPE.DIMEN: {accessor.VALUE_TYPE.INT, accessor.VALUE_TYPE.DIMEN},

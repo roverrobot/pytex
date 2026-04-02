@@ -1,5 +1,6 @@
 import pytest
 
+from pytex import texlive
 from pytex import dimen
 from pytex import glue
 from pytex import token
@@ -70,3 +71,14 @@ def test_macro_serialization_preserves_name(parser):
     restored = serialization.deserialize(parser, data)
     assert restored.name == "\\a"
     assert restored.meaning(parser) == "macro:#1->#1"
+
+
+def test_font_serialization_preserves_mutated_fontdimen_and_fontchar(parser):
+    parser.parse("\\font\\f=cmr10 at 10pt \\fontdimen8\\f=123pt \\hyphenchar\\f=99")
+    font = parser.lookup("\\f")
+    data = serialization.serialize(font)
+    restored = serialization.deserialize(parser, data)
+    assert len(restored.param) == 8
+    assert float(restored.param[7]) == 123.0
+    assert restored.fontchar["hyphenchar"] == 99
+    assert restored.spaceglue == font.spaceglue

@@ -54,7 +54,12 @@ class Font(Command):
             "name": self.backend.name,
             "kind": self.backend.kind,
             "at": self.at,
-        }, {"fontchar": self.fontchar, "name": getattr(self, "name", None)}
+        }, {
+            "fontchar": self.fontchar,
+            "name": getattr(self, "name", None),
+            "param": self.param,
+            "spaceglue": self.spaceglue,
+        }
 
     @classmethod
     def new(cls, parser, at, name, kind=None):

@@ -74,14 +74,10 @@ def readTo(parser, stop, toks=None, expand: bool = False):
             return toks, t
         if catcode == 1:
             level += 1
-            append(t)
-            continue
-        if catcode == 2:
+        elif catcode == 2:
             level -= 1
             if level < 0:
                 raise ValueError("expecting }", parser.input.position())
-            append(t)
-            continue
         append(t)
 
 

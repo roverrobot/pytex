@@ -178,7 +178,6 @@ class MatchStartCaller(Serializable):
             t = parser.token()
             if t is None or t.catcode != b.catcode or t.name != b.name:
                 _macroMismatch(parser, macro)
-        return args
 
 
 class ReadArgUnDelimCaller(Serializable):
@@ -211,7 +210,6 @@ class ReadArgUnDelimCaller(Serializable):
             return args
         result, _end = parser.readTo(CATCODE.END_GROUP)
         args.append(result)
-        return args
     
 
 class ReadArgDelim1Caller(Serializable):
@@ -244,7 +242,7 @@ class ReadArgDelim1Caller(Serializable):
                 _macroMismatch(parser, macro)
             if t.catcode == self.bracket.catcode and t.name == self.bracket.name:
                 args.append(result)
-                return args
+                return
             if t.catcode == CATCODE.BEGIN_GROUP:
                 keep = bool(result)
                 append(t)
@@ -257,7 +255,7 @@ class ReadArgDelim1Caller(Serializable):
                     _macroMismatch(parser, macro)
                 if t.catcode == self.bracket.catcode and t.name == self.bracket.name:
                     args.append(result if keep else result[1:])
-                    return args
+                    return
                 append(end)
             append(t)
 
@@ -287,13 +285,13 @@ class ReadArgDelim2Caller(Serializable):
         t = _matchDelimited(parser, macro, self.bracket, bracket_len)
         if t is None:
             args.append([])
-            return args
+            return
         if t.catcode == CATCODE.BEGIN_GROUP:
             result, end = parser.readTo(CATCODE.END_GROUP, [t])
             t = _matchDelimited(parser, macro, self.bracket, bracket_len)
             if t is None:
                 args.append(result[1:])
-                return args
+                return
             result.append(end)
             result.append(t)
         else:
@@ -302,7 +300,7 @@ class ReadArgDelim2Caller(Serializable):
             t = _matchDelimited(parser, macro, self.bracket, bracket_len)
             if t is None:
                 args.append(result)
-                return args
+                return
             result.append(t)
             if t.catcode == CATCODE.BEGIN_GROUP:
                 result, end = parser.readTo(CATCODE.END_GROUP, result)

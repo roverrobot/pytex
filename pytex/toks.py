@@ -65,16 +65,16 @@ def readTo(parser, stop, toks=None, expand: bool = False):
     while True:
         t = parser.token()
         if t is None:
-            miss = "{" if stop == CATCODE.BEGIN_GROUP else "}"
+            miss = "{" if stop == 1 else "}"
             raise ValueError(f"expecting {miss}", parser.input.position())
         catcode = t.catcode
         if catcode == stop and level == 0:
             return toks, t
-        if catcode == CATCODE.BEGIN_GROUP:
+        if catcode == 1:
             level += 1
             builder.append(t)
             continue
-        if catcode == CATCODE.END_GROUP:
+        if catcode == 2:
             level -= 1
             if level < 0:
                 raise ValueError("expecting }", parser.input.position())

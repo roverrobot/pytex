@@ -43,6 +43,7 @@ class ExpandBuilder:
             return self.toks.extend(definition.expanded(self.parser))
         if self.parser.tracingcommands > 0:
             self.parser.trace(item, "expand")
+        self.parser.current_token = item
         t = definition.expand(self.parser)
         if t is not None:
             self.toks.append(t)

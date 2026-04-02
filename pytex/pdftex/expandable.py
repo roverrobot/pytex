@@ -39,6 +39,19 @@ def _resolve_pdftex_file(parser, name: str):
     return path
 
 
+def _open_pdftex_source(parser, name: str):
+    lower = name.lower()
+    if name.startswith("/"):
+        if lower.startswith("/dev/null."):
+            return None
+        if lower == "/dev/null":
+            return open(name, "rb") if os.path.exists(name) else None
+        raise ValueError("Absolute file name: " + name, parser.input.position())
+    if lower in {"nul", "nul:"}:
+        return open(os.devnull, "rb") if os.name == "nt" else None
+    return parser.resolver.openIn(name, "source")
+
+
 def _read_pdftex_file_name(parser) -> str:
     toks = parser.readGeneralText(expand=True)
     return parser.toksToString(toks)
@@ -94,11 +107,11 @@ class PDFMDfiveSum(token.Command):
         if parser.readKeyword({"file"}):
             toks = parser.readGeneralText(expand=True)
             name = parser.toksToString(toks)
-            file = parser.resolver.openIn(name)
+            file = _open_pdftex_source(parser, name)
             if file is None:
                 return
-            data = file.read()
-            file.close()
+            with file:
+                data = file.read()
             if isinstance(data, str):
                 data = _string_to_bytes(data)
             self._push_hash(parser, data)

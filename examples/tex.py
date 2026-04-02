@@ -3,6 +3,7 @@ import sys
 path = str(Path(Path(__file__).parent.absolute()).parent.absolute())
 sys.path.insert(0, path)
 import cProfile
+import pstats
 from pytex.parser import Parser
 # load the texlive module to resolve files in the texlive tree
 from pytex import texlive
@@ -94,24 +95,33 @@ input = parser.resolver.openIn(source, "source")
 if input is None:
     raise ValueError(f"cannot find {source}")
 
-if args.profile:
-    # disable tex engine console output
-    profile_sort = args.sort if args.sort is not None else "time"
-    cProfile.run("parser.parse(input)", sort=profile_sort)
-    # no need tto dump. stop
-    parser.console.close()
-    exit(0)
-else:
+def run_document():
     if args.format != "initex":
         parser.shipout = dvi.DVIBackend(parser, args.output)
         if parser.equitable["\\DocumentMetadata"] is not None:
             parser.parse(DOCUMENT_METADATA_SNIPPET)
     parser.parse(input, jobname=file)
-input.close()
+    input.close()
+    if args.format != "initex":
+        parser.end()
+
+
+if args.profile:
+    profile_sort = args.sort if args.sort is not None else "time"
+    profiler = cProfile.Profile()
+    profiler.enable()
+    run_document()
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.sort_stats(profile_sort)
+    stats.print_stats()
+    parser.console.close()
+    parser.close()
+    exit(0)
+else:
+    run_document()
 
 if args.format == "initex":
     parser.dumper(parser.dump())
-else:
-    parser.end()
 
 parser.close()

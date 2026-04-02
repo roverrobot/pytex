@@ -67,6 +67,13 @@ def test_pdfmdfivesum_file_hashes_general_text_filename(collector, example_tex):
     assert collector.getString().strip() == expected
 
 
+def test_pdfmdfivesum_file_uses_source_resolution(collector, tmp_path):
+    path = tmp_path / "tt.log"
+    path.write_text("log\n")
+    collector.parse("\\pdfmdfivesum file {tt.log}")
+    assert collector.getString().strip() == hashlib.md5(b"log\n").hexdigest().upper()
+
+
 def test_mdfivesum_alias_matches_pdftex_primitive(collector):
     collector.parse("\\mdfivesum{abc}")
     assert collector.getString().strip() == hashlib.md5(b"abc").hexdigest().upper()

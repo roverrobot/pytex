@@ -68,6 +68,7 @@ class Serializable:
     The base class for all serializable objects. The serialization will be used to dump
     the parser state into a dump file
     """
+    __slots__ = ()
     def saveInfo(self):
         """
         return two dictionaries, the first is the arguments to the __init__ method, and the second stores

@@ -312,7 +312,7 @@ class InputStack:
         if self.saved:
             t = self.saved.pop()
             entry = t.entry
-            if entry is not None:
+            if entry is not None and t.definition is not entry.value:
                 t.definition = entry.value
             return t
         while self.top:

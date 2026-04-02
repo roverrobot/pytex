@@ -53,6 +53,7 @@ class Command(Builtin):
     to be expanded to, such as a macro, or a primitive command that is executed by the
     parser.
     """
+    __slots__ = ()
     name = None
     catcode = None
     protected = False
@@ -106,6 +107,7 @@ class Token(Command):
     @param name: the name of the token
     @param catcode: the category code of the token
     """
+    __slots__ = ("name", "catcode", "definition", "entry")
     def __init__(self, name: str, catcode: typing.Optional[int]):
         self.name = name
         self.catcode = catcode

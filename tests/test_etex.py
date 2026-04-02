@@ -136,6 +136,11 @@ def test_readline(example_tex):
         assert r.catcode == cat
 
 
+def test_scantokens_retokenizes_string_input(collector):
+    collector.parse("\\def\\a{A}\\scantokens{\\a}")
+    assert collector.getString() == "A "
+
+
 def test_marks_value_commands_expand(collector):
     collector.globals["topmarks"] = [toToks("A"), toToks("BC")]
     collector.globals["firstmarks"] = [toToks("D")]

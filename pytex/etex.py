@@ -485,6 +485,14 @@ class Detokenize(token.Command):
         parser.input.push(lexer.TokenListScanner(expandable.toToks(s)))
 
 
+class _ScanTokensSource:
+    """
+    Minimal source object for a single-line \\scantokens tokenizer.
+    """
+    def end(self):
+        pass
+
+
 class ScanTokens(token.Command):
     """
     The \\scantokens command
@@ -492,7 +500,10 @@ class ScanTokens(token.Command):
     def expand(self, parser):
         toks = parser.readGeneralText(expand=False)
         s = expandable.toksToString(parser, toks)
-        parser.input.push(lexer.StringScanner(parser, s))
+        eol = parser.endlinechar.value
+        if 0 <= eol < 256:
+            s += chr(eol)
+        parser.input.push(lexer.Tokenizer(s, parser, _ScanTokensSource()))
 
 
 class Unexpanded(The):

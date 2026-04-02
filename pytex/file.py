@@ -5,7 +5,7 @@ File operations
 from pytex import serialization
 from pytex import node as nd
 from pytex.accessor import Accessor
-from pytex.lexer import TokenListScanner, StringScanner
+from pytex.lexer import TokenListScanner, StringScanner, Tokenizer
 from pytex import token
 from pytex import macro
 from pytex.module import Module
@@ -28,6 +28,35 @@ class EndFileScanToken(token.Token):
 class EndFileScanScanner(TokenListScanner):
     def __init__(self):
         super().__init__([EndFileScanToken()])
+
+
+class _LocalFileLineScanner:
+    """
+    Minimal scanner stub used by local line tokenizers for \\read.
+    """
+    def end(self):
+        pass
+
+
+def _readFileLineTokenizer(parser, file):
+    """
+    Build a local Tokenizer for the next physical input line.
+
+    This mirrors Scanner.feed() enough for \\read, but avoids pushing a
+    temporary StringScanner through parser.input for every line.
+    """
+    line = next(file, None)
+    if line is None:
+        return None
+    line_number = getattr(file, "_pytex_line_number", 0)
+    file._pytex_line_number = line_number + 1
+    if line.endswith("\n"):
+        line = line[:-1]
+    eol = parser.endlinechar.value
+    if 0 <= eol < 256:
+        line += chr(eol)
+    name = getattr(file, "name", None)
+    return Tokenizer(line, parser, _LocalFileLineScanner(), name, line_number)
 
 
 def pushFileScan(parser, scanner):
@@ -179,14 +208,14 @@ class ReadOp(Accessor):
         if file is None or file.closed:
             raise FileNotFoundError(f"file {self.file_id} is not open")
         done = False
-        for s in file:
-            pushFileScan(parser, StringScanner(parser, s))
+        reached_eof = False
+        while True:
+            tokenizer = _readFileLineTokenizer(parser, file)
+            if tokenizer is None:
+                reached_eof = True
+                break
             while True:
-                t = parser.token()
-                if isinstance(t, EndFileScanToken):
-                    popFileScan(parser)
-                    done = level == 0
-                    break
+                t = tokenizer.read()
                 if t is None:
                     done = level == 0
                     break
@@ -194,7 +223,6 @@ class ReadOp(Accessor):
                     level += 1
                 elif t.catcode == token.CATCODE.END_GROUP:
                     if level == 0:
-                        popFileScan(parser)
                         done = True
                         break
                     level -= 1
@@ -204,7 +232,7 @@ class ReadOp(Accessor):
         if level > 0:
             raise ValueError(f"unbalanced curly braces in file id {self.file_id}", parser.input.position())
         # The file reached eof. We close the file.
-        if not done:
+        if reached_eof and not done:
             file.close()
             parser.globals["openin"][self.file_id] = None
         m = macro.Macro([], tokens)

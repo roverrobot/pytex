@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from reportlab.pdfgen import canvas
 from pytex import texlive
 from pytex import pipes
 from pytex.parser import Parser
@@ -126,6 +127,30 @@ def test_open_pipe_command_returns_named_string_stream(parser):
 
 def test_unknown_pipe_command_returns_none(parser):
     assert parser.resolver.openIn("|missingpipe arg", "source") is None
+
+
+def test_extractbb_pipe_reads_pdf_boxes(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    pdf = project / "figure.pdf"
+    c = canvas.Canvas(str(pdf), pagesize=(200, 100))
+    c.drawString(10, 10, "page1")
+    c.showPage()
+    c.setPageSize((120, 80))
+    c.drawString(10, 10, "page2")
+    c.save()
+    parser = Parser(project_dir=str(project))
+    try:
+        f = parser.resolver.openIn("|extractbb -B cropbox -p 2 -O figure.pdf", "source")
+        assert f is not None
+        text = f.read()
+        assert "%%Title: figure.pdf" in text
+        assert "%%BoundingBox: 0 0 120 80" in text
+        assert "%%HiResBoundingBox: 0.000000 0.000000 120.000000 80.000000" in text
+        assert "%%Pages: 2" in text
+        f.close()
+    finally:
+        parser.close()
 
 
 def test_texlive_resolver_caches_directory_walks(tmp_path, monkeypatch):

@@ -287,8 +287,10 @@ class FontDimenSlot:
 
     @property
     def value(self):
-        if self.index < 0 or self.index >= len(self.params):
+        if self.index < 0:
             raise ValueError(f"fontdimen index {self.index} out of range {len(self.params)} for font {self.font.backend.name}  @{int(self.font.at)}", self.pos)
+        if self.index >= len(self.params):
+            return Dimen()
         return self.params[self.index]
 
     @value.setter

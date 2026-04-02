@@ -140,3 +140,13 @@ def test_textfont_assignment_is_local_to_group(collector):
 def test_fontdimen(collector):
     collector.parse("\\font\\f=cmr10 \\fontdimen1\\f10pt \\the\\fontdimen1\\f")
     assert collector.getString() == "10.0pt"
+
+
+def test_fontdimen_read_past_defined_params_returns_zero(collector):
+    collector.parse("\\font\\f=cmr10 \\the\\fontdimen193\\f")
+    assert collector.getString() == "0.0pt"
+
+
+def test_fontdimen_write_past_defined_params_extends_without_format(collector):
+    collector.parse("\\font\\f=cmr10 \\fontdimen193\\f=1pt \\the\\fontdimen193\\f")
+    assert collector.getString() == "1.0pt"

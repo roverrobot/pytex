@@ -490,6 +490,11 @@ class Macro(Command):
         args = []
         for c in self.calls:
             c(parser, self, args)
+        if parser.tracingmacros and parser.checkRange():
+            if len(args) > 0:
+                for i in range(len(args)):
+                    parser.message(f"#{i+1} <- {parser.toksToString(args[i])}")
+                print("")
         # we now create a MacroScanner and read from it.
         # only if the replacement text is not empty
         if self.replacement:

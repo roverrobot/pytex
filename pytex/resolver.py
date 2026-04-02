@@ -101,6 +101,14 @@ class FileResolver:
                     "extensions": ["tfm"], 
                     "binary": True,
                 },
+                "afm": {
+                    "extensions": ["afm"],
+                    "binary": False,
+                },
+                "type1": {
+                    "extensions": ["pfb"],
+                    "binary": True,
+                },
                 "opentype": {
                     "extensions": ["otf"],
                     "binary": True,
@@ -119,6 +127,10 @@ class FileResolver:
             "shipout": {
                 "dvi": {
                     "extensions": ["dvi"],
+                    "binary": True,
+                },
+                "pdf": {
+                    "extensions": ["pdf"],
                     "binary": True,
                 },
             },

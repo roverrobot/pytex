@@ -6,6 +6,7 @@ OpenType/TrueType font backend support.
 from io import BytesIO
 import math
 import os
+from typing import Optional
 
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTFont
@@ -19,9 +20,10 @@ class OpenTypeBackend(FontBackend):
     kind = "opentype"
     DEFAULT_DESIGN_SIZE = 10.0
 
-    def __init__(self, name: str, font: TTFont):
+    def __init__(self, name: str, font: TTFont, path: Optional[str] = None):
         self._name = name
         self.font = font
+        self.path = path
         self.units_per_em = font["head"].unitsPerEm
         self._cmap = font.getBestCmap() or {}
         self._glyph_set = font.getGlyphSet()
@@ -54,8 +56,11 @@ class OpenTypeBackend(FontBackend):
         file = parser.resolver.openIn(name, type)
         if file is None:
             raise FileNotFoundError(f"OpenType font {name} not found")
+        path = getattr(file, "name", None)
+        if not isinstance(path, str) or not os.path.exists(path):
+            path = None
         try:
-            return cls(name, cls._loadFont(file))
+            return cls(name, cls._loadFont(file), path=path)
         finally:
             file.close()
 

@@ -14,3 +14,4 @@ Read in this order:
 10. [10-parser-kernel.md](10-parser-kernel.md)
 11. [11-assignment-ir.md](11-assignment-ir.md)
 12. [12-list-construction-summary.md](12-list-construction-summary.md)
+13. [13-pdf-backend.md](13-pdf-backend.md)

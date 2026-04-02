@@ -131,3 +131,13 @@ def test_pdfprimitive_uses_builtin_meaning_for_expandable_and_nonexpandable_prim
 def test_pdfprimitive_ignores_never_primitive_control_sequences(collector):
     collector.parse("A\\pdfprimitive\\foo B")
     assert collector.getString().strip() == "AB"
+
+
+def test_pdfprimitive_forwards_get_target_for_fixed_integer(collector):
+    collector.parse("\\number\\pdfprimitive\\pdftexversion")
+    assert collector.getString().strip() == "140"
+
+
+def test_pdfprimitive_forwards_get_target_for_accessor(collector):
+    collector.parse("\\count0=17A\\number\\pdfprimitive\\count0 B")
+    assert collector.getString().strip() == "A17B"

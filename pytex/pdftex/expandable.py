@@ -5,6 +5,7 @@ Macro expansions in PDFTeX.
 import datetime
 import hashlib
 import os
+from pytex import accessor
 from pytex import conditional
 from pytex import expandable
 from pytex import token
@@ -54,6 +55,11 @@ def _primitive_token(name: str, definition):
     t = token.CommandToken(name)
     t.definition = definition
     return t
+
+
+def _read_primitive(parser):
+    t = _read_control_sequence(parser)
+    return t.name, parser.builtin.get(t.name)
 
 
 def _pdf_date_string(timestamp: float) -> str:
@@ -206,12 +212,20 @@ class PDFPrimitive(token.Command):
     the control sequence, regardless of its current definition.
     """
 
+    def getTarget(self, parser):
+        name, builtin = _read_primitive(parser)
+        if builtin is None:
+            return accessor.ReadOnlyTarget(None, accessor.VALUE_TYPE.UNKNOWN)
+        get_target = getattr(builtin, "getTarget", None)
+        if get_target is None:
+            return accessor.ReadOnlyTarget(None, accessor.VALUE_TYPE.UNKNOWN)
+        return get_target(parser)
+
     def execute(self, parser):
-        t = _read_control_sequence(parser)
-        builtin = parser.builtin.get(t.name)
+        name, builtin = _read_primitive(parser)
         if builtin is None:
             return
-        primitive = _primitive_token(t.name, builtin)
+        primitive = _primitive_token(name, builtin)
         parser.current_token = primitive
         if builtin.expand is not None:
             if parser.tracingcommands > 0:
@@ -220,6 +234,8 @@ class PDFPrimitive(token.Command):
             if expanded is not None:
                 parser.input.unread(expanded)
             return
+        if parser.tracingcommands > 0:
+            parser.trace(primitive, "execute")
         return builtin.execute(parser)
 
 

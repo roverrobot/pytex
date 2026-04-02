@@ -70,7 +70,7 @@ class FutureLetAccessor(EquitableAccessor):
             raise ValueError("a token is expected")    
         t2 = parser.token()
         if t2 is None:
-            raise ValueError("\\futurelet expects two tokens")
+            raise ValueError("\\futurelet expects two tokens", parser.input.position())
         parser.input.unread(t2)
         parser.input.unread(t1)
         return t2.definition if t2.entry is not None else t2

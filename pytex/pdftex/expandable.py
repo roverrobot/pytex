@@ -5,6 +5,7 @@ Macro expansions in PDFTeX.
 import datetime
 import hashlib
 import os
+from pytex import conditional
 from pytex import expandable
 from pytex import token
 from pytex import lexer
@@ -35,6 +36,18 @@ def _resolve_pdftex_file(parser, name: str):
     path = getattr(file, "name", None)
     file.close()
     return path
+
+
+def _read_pdftex_file_name(parser) -> str:
+    toks = parser.readGeneralText(expand=True)
+    return parser.toksToString(toks)
+
+
+def _read_control_sequence(parser):
+    t = parser.token()
+    if t is None or t.entry is None or t.catcode is not None:
+        raise ValueError("expecting a control sequence", parser.input.position())
+    return t
 
 
 def _pdf_date_string(timestamp: float) -> str:
@@ -86,7 +99,7 @@ class PDFFileSize(token.Command):
     The PDF file size
     """
     def expand(self, parser):
-        name = parser.readFileName()
+        name = _read_pdftex_file_name(parser)
         path = _resolve_pdftex_file(parser, name)
         if path is None:
             return
@@ -100,13 +113,37 @@ class PDFFileModDate(token.Command):
     """
 
     def expand(self, parser):
-        toks = parser.readGeneralText(expand=True)
-        name = parser.toksToString(toks)
+        name = _read_pdftex_file_name(parser)
         path = _resolve_pdftex_file(parser, name)
         if path is None:
             return
         mod = _pdf_date_string(os.path.getmtime(path))
         parser.input.push(lexer.TokenListScanner(expandable.toToks(mod)))
+
+
+class PDFFileDump(token.Command):
+    r"""
+    \pdffiledump [offset <integer>] [length <integer>] <general text>.
+    """
+
+    def expand(self, parser):
+        offset = 0
+        length = 0
+        if parser.readKeyword({"offset"}):
+            offset = parser.readInteger()
+        if parser.readKeyword({"length"}):
+            length = parser.readInteger()
+        if offset < 0 or length < 0:
+            raise ValueError("\\pdffiledump offset and length must be nonnegative", parser.input.position())
+        name = _read_pdftex_file_name(parser)
+        path = _resolve_pdftex_file(parser, name)
+        if path is None or length == 0:
+            return
+        with open(path, "rb") as handle:
+            handle.seek(offset)
+            data = handle.read(length)
+        if data:
+            parser.input.push(lexer.TokenListScanner(expandable.toToks(data.hex().upper())))
 
 
 class Expanded(token.Command):
@@ -136,8 +173,54 @@ class PDFStrcmp(token.Command):
         parser.input.push(lexer.TokenListScanner(expandable.toToks(s)))
 
 
+class IfIncCSName(conditional.Conditional):
+    r"""
+    \ifincsname is true while scanning a \csname ... \endcsname name.
+    """
+
+    def condition(self, parser):
+        return 0 if getattr(parser, "incsname_depth", 0) > 0 else 1
+
+
+class IfPDFPrimitive(conditional.Conditional):
+    r"""
+    \ifpdfprimitive <control sequence> is true if the control sequence still has
+    its original primitive meaning.
+    """
+
+    def condition(self, parser):
+        t = _read_control_sequence(parser)
+        builtin = parser.builtin.get(t.name)
+        return 0 if builtin is not None and t.definition == builtin else 1
+
+
+class PDFPrimitive(token.Command):
+    r"""
+    \pdfprimitive <control sequence> executes or expands the primitive meaning of
+    the control sequence, regardless of its current definition.
+    """
+
+    def expand(self, parser):
+        t = _read_control_sequence(parser)
+        builtin = parser.builtin.get(t.name)
+        if builtin is None:
+            return
+        if builtin.expand is not None:
+            if parser.tracingcommands > 0:
+                parser.trace(t, "expand")
+            parser.current_token = t
+            return builtin.expand(parser)
+        primitive = token.CommandToken(t.name)
+        primitive.definition = builtin
+        return primitive
+
+
 mod = Module("pdftex.expandable",
     commands={
+        "ifincsname": IfIncCSName(),
+        "ifpdfprimitive": IfPDFPrimitive(),
+        "pdfprimitive": PDFPrimitive(),
+        "pdffiledump": PDFFileDump(),
         "pdffilesize": PDFFileSize(),
         "filesize": PDFFileSize(),
         "pdffilemoddate": PDFFileModDate(),

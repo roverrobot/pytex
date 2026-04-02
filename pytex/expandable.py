@@ -101,15 +101,19 @@ endcsname = EndCSName()
 
 def readCSName(parser):
     name = "\\"
-    while True:
-        t = parser.token_expand()
-        if t is None:
-            raise ValueError("expecting \\endcsname", parser.input.position())
-        if t.definition == endcsname:
-            break
-        elif t.catcode is None:
-            raise ValueError(f"unexpected {t.name}", parser.input.position())
-        name += t.name
+    parser.incsname_depth = getattr(parser, "incsname_depth", 0) + 1
+    try:
+        while True:
+            t = parser.token_expand()
+            if t is None:
+                raise ValueError("expecting \\endcsname", parser.input.position())
+            if t.definition == endcsname:
+                break
+            elif t.catcode is None:
+                raise ValueError(f"unexpected {t.name}", parser.input.position())
+            name += t.name
+    finally:
+        parser.incsname_depth -= 1
     t = CommandToken(name)
     t.entry = parser.equitable.entry(name)
     return t

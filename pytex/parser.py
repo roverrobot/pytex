@@ -403,6 +403,11 @@ class Parser:
         if jobname is not None:
             base = os.path.basename(jobname)
             self.jobname = os.path.splitext(base)[0]
+            path = self.logFileName()
+            if self.log is not None and not self.log.closed and self.log_path != path:
+                self.log.close()
+                self.log = None
+                self.log_path = None
         self.getLogFile()
         self.run = True
         self.loop()

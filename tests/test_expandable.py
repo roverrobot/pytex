@@ -146,6 +146,14 @@ def test_jobname(collector):
     assert collector.getString() == "test"
 
 
+def test_parse_switches_log_with_jobname(parser):
+    parser.parse("\\message{fmt}")
+    assert parser.log_path.endswith("texput.log")
+
+    parser.parse("\\message{doc}", "page")
+    assert parser.log_path.endswith("page.log")
+
+
 def test_protected_tokens(parser):
     parser.parse("\\def\\a{123}\\toks0={\\a}\\edef\\b{\\the\\toks0}\\edef\\c{\\b}")
     c = parser.equitable["\\c"]

@@ -2,6 +2,7 @@
 Macro expansions in PDFTeX.
 """
 
+import datetime
 import hashlib
 import os
 from pytex import expandable
@@ -15,6 +16,45 @@ def _string_to_bytes(value: str) -> bytes:
         return value.encode("latin1")
     except UnicodeEncodeError:
         return value.encode("utf-8")
+
+
+def _resolve_pdftex_file(parser, name: str):
+    # latex probes /dev/null to detect host capabilities
+    if name.startswith("/"):
+        if name.startswith("/dev/null."):
+            return None
+        if name == "/dev/null":
+            return name if os.path.exists(name) else None
+        raise ValueError("Absolute file name: " + name, parser.input.position())
+    info = parser.resolver.getInfo(name, None)
+    for ext in info["extensions"]:
+        n = info["name"] + "." + ext
+        if info.get("category") == "source":
+            path = parser.resolver._sourcePath(n)
+        else:
+            path = os.path.realpath(n)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _pdf_date_string(timestamp: float) -> str:
+    if os.environ.get("SOURCE_DATE_EPOCH") is not None and os.environ.get("FORCE_SOURCE_DATE") is not None:
+        dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+    else:
+        dt = datetime.datetime.fromtimestamp(timestamp).astimezone()
+    s = dt.strftime("D:%Y%m%d%H%M%S")
+    offset = dt.utcoffset()
+    if offset is None:
+        return s
+    seconds = int(offset.total_seconds())
+    if seconds == 0:
+        return s + "Z"
+    sign = "+" if seconds >= 0 else "-"
+    seconds = abs(seconds)
+    hours, seconds = divmod(seconds, 3600)
+    minutes = seconds // 60
+    return f"{s}{sign}{hours:02d}'{minutes:02d}'"
 
 
 class PDFMDfiveSum(token.Command):
@@ -48,22 +88,26 @@ class PDFFileSize(token.Command):
     """
     def expand(self, parser):
         name = parser.readFileName()
-        # latex searches for /dev/null to check for system type
-        if name[0] == "/":
-            if name.startswith("/dev/null."):
-                return
-            if name == "/dev/null":
-                if os.path.exists(name):
-                    parser.input.unread(token.Token("0", token.CATCODE.OTHER))
-                return
-            raise ValueError("Absolute file name: " + name, parser.input.position())
-        file = parser.resolver.openIn(name, "source")
-        if file is None:
+        path = _resolve_pdftex_file(parser, name)
+        if path is None:
             return
-        file.seek(0, os.SEEK_END)
-        size = file.tell()
-        file.close()
+        size = os.path.getsize(path)
         parser.input.push(lexer.TokenListScanner(expandable.toToks(str(size))))
+
+
+class PDFFileModDate(token.Command):
+    r"""
+    \pdffilemoddate <file name>.
+    """
+
+    def expand(self, parser):
+        toks = parser.readGeneralText(expand=True)
+        name = parser.toksToString(toks)
+        path = _resolve_pdftex_file(parser, name)
+        if path is None:
+            return
+        mod = _pdf_date_string(os.path.getmtime(path))
+        parser.input.push(lexer.TokenListScanner(expandable.toToks(mod)))
 
 
 class Expanded(token.Command):
@@ -96,9 +140,12 @@ class PDFStrcmp(token.Command):
 mod = Module("pdftex.expandable",
     commands={
         "pdffilesize": PDFFileSize(),
+        "filesize": PDFFileSize(),
+        "pdffilemoddate": PDFFileModDate(),
         "pdfmdfivesum": PDFMDfiveSum(),
         "mdfivesum": PDFMDfiveSum(),
         "expanded": Expanded(),
         "pdfstrcmp": PDFStrcmp(),
+        "strcmp": PDFStrcmp(),
     },
 )

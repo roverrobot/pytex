@@ -50,6 +50,12 @@ def _read_control_sequence(parser):
     return t
 
 
+def _primitive_token(name: str, definition):
+    t = token.CommandToken(name)
+    t.definition = definition
+    return t
+
+
 def _pdf_date_string(timestamp: float) -> str:
     if os.environ.get("SOURCE_DATE_EPOCH") is not None and os.environ.get("FORCE_SOURCE_DATE") is not None:
         dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
@@ -200,19 +206,21 @@ class PDFPrimitive(token.Command):
     the control sequence, regardless of its current definition.
     """
 
-    def expand(self, parser):
+    def execute(self, parser):
         t = _read_control_sequence(parser)
         builtin = parser.builtin.get(t.name)
         if builtin is None:
             return
+        primitive = _primitive_token(t.name, builtin)
+        parser.current_token = primitive
         if builtin.expand is not None:
             if parser.tracingcommands > 0:
-                parser.trace(t, "expand")
-            parser.current_token = t
-            return builtin.expand(parser)
-        primitive = token.CommandToken(t.name)
-        primitive.definition = builtin
-        return primitive
+                parser.trace(primitive, "expand")
+            expanded = builtin.expand(parser)
+            if expanded is not None:
+                parser.input.unread(expanded)
+            return
+        return builtin.execute(parser)
 
 
 mod = Module("pdftex.expandable",

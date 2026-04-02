@@ -1,5 +1,6 @@
 import pytest
 from pytex import texlive
+from pytex import pipes
 from pytex.resolver import InMemoryTextFile
 from pytex import node as nd
 from pytex import macro
@@ -113,6 +114,21 @@ def test_read(read_tex):
     a = read_tex.equitable["\\a"]
     assert isinstance(a, macro.Macro)
     assert len(a.replacement) == 10
+
+
+def test_read_from_pipe_command(parser):
+    def handler(resolver, args):
+        assert args == ["probe"]
+        return "12{3}\n"
+
+    pipes.registerPipeCommand("fakepipe", handler)
+    try:
+        parser.parse('\\openin 0="|fakepipe probe" \\read 0 to \\a\\closein 0')
+    finally:
+        pipes.unregisterPipeCommand("fakepipe")
+    a = parser.equitable["\\a"]
+    assert isinstance(a, macro.Macro)
+    assert "".join(t.name for t in a.replacement) == "12{3} "
 
 
 def test_ifeof(read_tex):

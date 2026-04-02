@@ -86,6 +86,15 @@ class InMemoryBinaryFile:
         return s
 
 
+class PipeTextFile(StringIO):
+    """
+    A read-only text stream produced by an allowlisted pipe command handler.
+    """
+    def __init__(self, content: str, name: str):
+        super().__init__(content)
+        self.name = name
+
+
 class FileResolver:
     """
     The base class for all file resolvers
@@ -313,6 +322,21 @@ class FileResolver:
         """
         return None
 
+    def openPipeIn(self, name: str):
+        """
+        Open an allowlisted pipe command for reading.
+
+        Pipe commands are not arbitrary shell invocations. They are parsed and
+        dispatched through the global pipe-command registry.
+        """
+        if not name.startswith("|"):
+            return None
+        from pytex import pipes
+        content = pipes.openPipe(self, name)
+        if content is None:
+            return None
+        return PipeTextFile(content, name)
+
     def openIn(self, name: str, type: str=None):
         """
         Resolve the file name for reading
@@ -323,6 +347,9 @@ class FileResolver:
         The file type can be a category or a category/subcategory. Please see the getInfo method
         for more details.
         """
+        pipe = self.openPipeIn(name)
+        if pipe is not None or name.startswith("|"):
+            return pipe
         info = self.getInfo(name, type)
         for ext in info["extensions"]:
             n = info["name"] + "." + ext

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from pytex import texlive
+from pytex import pipes
 from pytex.parser import Parser
 from pytex.resolver import InMemoryTextFile
 import os
@@ -100,6 +101,31 @@ def test_in_memory_file(parser):
     assert f is not None
     assert f.read() == "abc"
     f.close()
+
+
+def test_open_pipe_command_returns_named_string_stream(parser):
+    seen = {}
+
+    def handler(resolver, args):
+        seen["resolver"] = resolver
+        seen["args"] = args
+        return "alpha\nbeta\n"
+
+    pipes.registerPipeCommand("fakepipe", handler)
+    try:
+        f = parser.resolver.openIn('|fakepipe "two words" tail', "source")
+        assert f is not None
+        assert f.name == '|fakepipe "two words" tail'
+        assert f.read() == "alpha\nbeta\n"
+        assert seen["resolver"] is parser.resolver
+        assert seen["args"] == ["two words", "tail"]
+        f.close()
+    finally:
+        pipes.unregisterPipeCommand("fakepipe")
+
+
+def test_unknown_pipe_command_returns_none(parser):
+    assert parser.resolver.openIn("|missingpipe arg", "source") is None
 
 
 def test_texlive_resolver_caches_directory_walks(tmp_path, monkeypatch):

@@ -26,7 +26,7 @@ def skipEq(parser, expand: bool=True):
     read the equal sign from the input stack
     @param parser: the parser
     """
-    t = parser.skipSpaces(expand)
+    t = parser.skipSpaces() if expand else parser.skipSpacesNoExpand()
     if t is None:
         return
     # read the equal sign

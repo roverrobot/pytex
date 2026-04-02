@@ -91,7 +91,7 @@ class RowBuildState:
     def newCell(self, parser, column_no, span:bool=False):
         cell = self.alignment.newBox(parser)
         preamble = self.preamble
-        t = parser.skipSpaces(True)
+        t = parser.skipSpaces()
         if t is None:
             raise ValueError("expecting \\cr", parser.input.position())
         if getattr(t, "definition", None) is omit:
@@ -563,7 +563,7 @@ class AlignmentBuilder:
             # alignment template. The special case is \span: it causes the next
             # token to be expanded, which is needed for LaTeX-style preambles
             # such as \span\align@preamble and placeholder macros like \@sharp.
-            t = parser.skipSpaces(False)
+            t = parser.skipSpacesNoExpand()
             t = parser.token_meaning(t)
             # now T is the first meaningful token in a column.
             # in the following loop, we collect the tokens in a column

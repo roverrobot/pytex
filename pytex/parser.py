@@ -451,16 +451,28 @@ class Parser:
         if t is not None and not t.isTokenExpand(token.CATCODE.SPACE):
             self.input.unread(t)
 
-    def skipSpaces(self, expand: bool = True):
+    def skipSpaces(self):
         """
         skip spaces
         @param expand: whether to expand tokens
         @return the next nonspace token
         """
-        tok = self.token_expand if expand else self.token
+        skip = self.token_expand
         while True:
-            t = tok()
-            if t is None or not t.isSpace(expand):
+            t = skip()
+            if t is None or not t.isTokenExpand(10):
+                return t
+
+    def skipSpacesNoExpand(self):
+        """
+        skip spaces
+        @param expand: whether to expand tokens
+        @return the next nonspace token
+        """
+        skip = self.token
+        while True:
+            t = skip()
+            if t is None or t.catcode != 10:
                 return t
 
     def addChar(self, c):

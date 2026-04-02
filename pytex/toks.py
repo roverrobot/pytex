@@ -91,7 +91,7 @@ def skipFiller(parser):
     @param parser: the parser
     """
     while True:
-        t = parser.skipSpaces(expand=True)
+        t = parser.skipSpaces()
         if t is None:
             return
         if t.definition == relax:
@@ -129,8 +129,9 @@ def readToks(parser):
     read a toks value from the input stack
     @param parser: the parser
     """
+    skip = parser.skipSpacesNoExpand
     while True:
-        t = parser.skipSpaces(expand=False)
+        t = skip()
         if t is None:
             break
         if t.definition == relax:

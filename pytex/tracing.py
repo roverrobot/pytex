@@ -292,7 +292,7 @@ class Show(Command):
     The \\show command.
     """
     def execute(self, parser):
-        t = parser.skipSpaces(False)
+        t = parser.skipSpacesNoExpand()
         if t is None:
             raise ValueError("missing token after \\show", parser.input.position())
         _diag(parser, [f"> {tokenToString(parser, t)}={t.meaning(parser)}", "OK."])

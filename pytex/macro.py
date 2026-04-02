@@ -202,7 +202,7 @@ class ReadArgUnDelimCaller(Serializable):
         return {"arg": self.arg}, None
 
     def __call__(self, parser, macro, args):
-        t = parser.skipSpaces(False)
+        t = parser.skipSpacesNoExpand()
         if t is None:
             args.append([])
             return args

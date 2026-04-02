@@ -58,7 +58,7 @@ def test_macro_definition(parser):
     assert a.replacement[0].parameter == 0
     assert a.replacement[1].catcode == CATCODE.PARAMETER
     assert a.replacement[1].parameter == 1
-    assert a.meaning(parser) == "#1#2->#1#2"
+    assert a.meaning(parser) == "macro:#1#2->#1#2"
     parser.parse("\\def\\a12 {1}")
     a = parser.lookup("\\a")
     assert a is not None
@@ -104,7 +104,7 @@ def test_macro_definition(parser):
     assert len(a.replacement) == 1
     assert a.replacement[0].catcode == CATCODE.PARAMETER
     assert a.replacement[0].parameter == -1
-    assert a.meaning(parser) == "->##"
+    assert a.meaning(parser) == "macro:->##"
 
 
 def test_macro_equality(parser):
@@ -176,7 +176,7 @@ def test_parpar(collector):
     assert x.calls == [macro.ReadArgUnDelimCaller(1)]
     assert len(x.replacement) == 1
     assert x.replacement[0].name == "a"
-    assert x.meaning(collector) == "#1->a"
+    assert x.meaning(collector) == "macro:#1->a"
     collector.parse("\\def\\a#1#2#3{\\def#1#2#3}\\a\\b{#1}{{#1}}\\b{x}")
     assert collector.getString() == "x "
 
@@ -188,7 +188,7 @@ def test_macro_replacement_hash_becomes_next_layer_parameter(collector):
     assert foo.calls == [macro.ReadArgUnDelimCaller(1)]
     assert len(foo.replacement) == 1
     assert foo.replacement[0].name == "A"
-    assert foo.meaning(collector) == "#1->A"
+    assert foo.meaning(collector) == "macro:#1->A"
     collector.parse("\\foo{xyz}")
     assert collector.getString().strip() == "A"
 
@@ -199,8 +199,8 @@ def test_macro_helper_can_be_reused_without_mutating_replacement(parser):
     hen = parser.lookup("\\hen")
     assert gen is not None
     assert hen is not None
-    assert gen.meaning(parser) == "#1->\\base #1"
-    assert hen.meaning(parser) == "#1->\\base #1"
+    assert gen.meaning(parser) == "macro:#1->\\base #1"
+    assert hen.meaning(parser) == "macro:#1->\\base #1"
 
 
 def test_edef_expanded_hash_still_belongs_to_current_definition(parser):
@@ -223,7 +223,7 @@ def test_edef_the_toks_preserves_escaped_parameter(parser):
     parser.parse("\\def\\temp{##1}\\toks0=\\expandafter{\\temp}\\edef\\a{\\the\\toks0}")
     a = parser.lookup("\\a")
     assert a is not None
-    assert a.meaning(parser) == "->##1"
+    assert a.meaning(parser) == "macro:->##1"
     assert len(a.replacement) == 2
     assert a.replacement[0].catcode == CATCODE.PARAMETER
     assert a.replacement[0].parameter is None

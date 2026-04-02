@@ -474,11 +474,18 @@ class Macro(Command):
         return "".join(parts)
 
     def meaning(self, parser):
-        long = "\\long " if self.long else ""
-        outer = "\\outer " if self.outer else ""
-        protected = "\\protected " if self.protected else ""
+        prefixes = []
+        if self.protected:
+            prefixes.append("\\protected")
+        if self.long:
+            prefixes.append("\\long")
+        if self.outer:
+            prefixes.append("\\outer")
         args = self._toksToString(parser, self.pattern)
-        s = f"{long}{outer}{protected}{args}->{self._toksToString(parser, self.replacement)}"
+        prefix = "".join(prefixes)
+        if prefix:
+            prefix += " "
+        s = f"{prefix}macro:{args}->{self._toksToString(parser, self.replacement)}"
         return s
     
     def expand(self, parser):

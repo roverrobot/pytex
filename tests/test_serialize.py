@@ -69,4 +69,4 @@ def test_macro_serialization_preserves_name(parser):
     data = serialization.serialize(parser.lookup("\\a"))
     restored = serialization.deserialize(parser, data)
     assert restored.name == "\\a"
-    assert restored.meaning(parser) == "#1->#1"
+    assert restored.meaning(parser) == "macro:#1->#1"

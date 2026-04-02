@@ -116,6 +116,25 @@ def test_input(collector):
     assert collector.getString() == "123abc "
 
 
+def test_macro_meaning_format(collector):
+    collector.parse("\\def\\a#1{#1}")
+    assert collector.lookup("\\a").meaning(collector) == "macro:#1->#1"
+
+    collector.parse("\\def\\b#1{#1}")
+    collector.lookup("\\b").protected = True
+    assert collector.lookup("\\b").meaning(collector) == "\\protected macro:#1->#1"
+
+    collector.parse("\\def\\c#1#2{#1#2}")
+    collector.lookup("\\c").long = True
+    assert collector.lookup("\\c").meaning(collector) == "\\long macro:#1#2->#1#2"
+
+    collector.parse("\\def\\d#1{#1}")
+    d = collector.lookup("\\d")
+    d.protected = True
+    d.long = True
+    assert d.meaning(collector) == "\\protected\\long macro:#1->#1"
+
+
 def test_endinput(collector):
     collector.resolver.in_memory_files["test.tex"] = InMemoryTextFile("abc\\endinput\ndef")
     collector.parse("123\\input test")

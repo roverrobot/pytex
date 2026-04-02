@@ -20,22 +20,21 @@ def _string_to_bytes(value: str) -> bytes:
 
 def _resolve_pdftex_file(parser, name: str):
     # latex probes /dev/null to detect host capabilities
+    lower = name.lower()
     if name.startswith("/"):
-        if name.startswith("/dev/null."):
+        if lower.startswith("/dev/null."):
             return None
-        if name == "/dev/null":
+        if lower == "/dev/null":
             return name if os.path.exists(name) else None
         raise ValueError("Absolute file name: " + name, parser.input.position())
-    info = parser.resolver.getInfo(name, None)
-    for ext in info["extensions"]:
-        n = info["name"] + "." + ext
-        if info.get("category") == "source":
-            path = parser.resolver._sourcePath(n)
-        else:
-            path = os.path.realpath(n)
-        if os.path.exists(path):
-            return path
-    return None
+    if lower in {"nul", "nul:"}:
+        return os.devnull if os.name == "nt" else None
+    file = parser.resolver.openIn(name, "source")
+    if file is None:
+        return None
+    path = getattr(file, "name", None)
+    file.close()
+    return path
 
 
 def _pdf_date_string(timestamp: float) -> str:

@@ -46,3 +46,8 @@ def test_pdffilemoddate_reports_timestamp_for_cwd_file(collector, tmp_path):
 def test_pdffilemoddate_missing_file_expands_to_nothing(collector):
     collector.parse("A\\pdffilemoddate{missing.log}B")
     assert collector.getString().strip() == "AB"
+
+
+def test_pdffilesize_extensionless_missing_file_expands_to_nothing(collector):
+    collector.parse("A\\pdffilesize{missing}B")
+    assert collector.getString().strip() == "AB"

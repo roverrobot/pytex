@@ -289,11 +289,10 @@ class FileResolver:
             info["extensions"] = [ext]
         return cat_info[key] | info
 
-    def resolve(self, name: str, typeinfo: dict):
+    def resolve(self, info: dict):
         """
         Resolve the file name
-        @param name: the file name without extension
-        @param typeinfo: the file type information
+        @param info: the file type information
         @return: the file path, or None if the file does not exist
 
         Before reaching this function, the file has been searched among in-memory files and

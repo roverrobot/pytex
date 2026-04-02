@@ -12,6 +12,19 @@ from pytex.serialization import Serializable
 from pytex import toks
 
 
+def _macroMismatch(parser, macro):
+    name = getattr(macro, "name", None)
+    try:
+        definition = macro.meaning(parser)
+    except Exception:
+        definition = repr(macro)
+    if name:
+        detail = f"{name}: {definition}"
+    else:
+        detail = definition
+    raise ValueError(f"macro does not match the definition {detail}", parser.input.position())
+
+
 def _matchDelimited(parser, macro, bracket, bracket_len):
     """
     Match the next delimiter in a macro parameter list.
@@ -24,7 +37,7 @@ def _matchDelimited(parser, macro, bracket, bracket_len):
     p = bracket[0]
     t = parser.token()
     if t is None:
-        raise ValueError(f"macro does not match the definition {macro}", parser.input.position())
+        _macroMismatch(parser, macro)
     if t.catcode != p.catcode or t.name != p.name:
         return t
     matched = []
@@ -35,7 +48,7 @@ def _matchDelimited(parser, macro, bracket, bracket_len):
         i += 1
         t = parser.token()
         if t is None:
-            raise ValueError(f"macro does not match the definition {macro}", parser.input.position())
+            _macroMismatch(parser, macro)
         if t.catcode != p.catcode or t.name != p.name:
             parser.input.unread(t)
             if i > 2:
@@ -165,7 +178,7 @@ class MatchStartCaller(Serializable):
         for b in self.bracket:
             t = parser.token()
             if t is None or t.catcode != b.catcode or t.name != b.name:
-                raise ValueError(f"macro does not match the definition {macro}", parser.input.position())
+                _macroMismatch(parser, macro)
         return args
 
 
@@ -229,7 +242,7 @@ class ReadArgDelim1Caller(Serializable):
         while True:
             t = token()
             if t is None:
-                raise ValueError(f"macro does not match the definition {macro}", parser.input.position())
+                _macroMismatch(parser, macro)
             if t.catcode == self.bracket.catcode and t.name == self.bracket.name:
                 args.append(result)
                 return args
@@ -242,7 +255,7 @@ class ReadArgDelim1Caller(Serializable):
                     continue
                 t = token()
                 if t is None:
-                    raise ValueError(f"macro does not match the definition {macro}", parser.input.position())
+                    _macroMismatch(parser, macro)
                 if t.catcode == self.bracket.catcode and t.name == self.bracket.name:
                     args.append(result if keep else result[1:])
                     return args
@@ -434,6 +447,7 @@ class Macro(Command):
                 "pattern": self.pattern,
                 "replacement": self.replacement,
             }, {
+                "name": getattr(self, "name", None),
                 "long": self.long,
                 "outer": self.outer,
                 "protected": self.protected

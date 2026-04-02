@@ -160,6 +160,8 @@ def test_macro_expansion_errors(parser):
         assert False, "Expected ValueError"
     except ValueError as e:
         assert "match" in str(e)
+        assert "\\a" in str(e)
+        assert "1#12#2->#1#2" in str(e)
     try:
         parser.parse("\\def\\a1#12#2b{#1#2}\\a1{2}2{3}a")
         assert False, "Expected ValueError"

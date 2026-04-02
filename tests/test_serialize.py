@@ -62,3 +62,11 @@ def test_global_builtins_serialize_via_builtin_name(parser):
     equitable = serialization.serialize(parser.dumpState())["equitable"]
     for name in ["\\deadcycles", "\\insertpenalties", "\\prevdepth", "\\prevgraf", "\\badness", "\\nullfont"]:
         assert equitable[name] == {"pytex.serialization.Builtin": {"name": name}}
+
+
+def test_macro_serialization_preserves_name(parser):
+    parser.parse("\\def\\a#1{#1}")
+    data = serialization.serialize(parser.lookup("\\a"))
+    restored = serialization.deserialize(parser, data)
+    assert restored.name == "\\a"
+    assert restored.meaning(parser) == "#1->#1"

@@ -45,7 +45,7 @@ argparser.add_argument("file")
 args = argparser.parse_args()
 
 
-DOCUMENT_METADATA_SNIPPET = "\\DocumentMetadata{backend=dvipdfmx}\n"
+DOCUMENT_METADATA_SNIPPET = "\\DocumentMetadata{backend=dvipdfmx}\\relax\n"
 
 if args.sort is not None and not args.profile:
     print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
@@ -105,7 +105,7 @@ else:
     if args.format != "initex":
         parser.shipout = dvi.DVIBackend(parser, args.output)
         if parser.equitable["\\DocumentMetadata"] is not None:
-            parser.parse(DOCUMENT_METADATA_SNIPPET + input.read(), jobname=file)
+            parser.parse(DOCUMENT_METADATA_SNIPPET)
     parser.parse(input, jobname=file)
 input.close()
 

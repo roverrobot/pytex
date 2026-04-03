@@ -112,3 +112,23 @@ def test_pdf_ignored_multiline_special_is_sanitized(cmr10, tmp_path):
     data = Path(str(out) + ".pdf").read_bytes()
     assert b"% rawSpecial ignored: foo\\nbar" in data
     assert b"% rawSpecial ignored: foo\nbar" not in data
+
+
+def test_pdf_beginann_endann_and_dest_create_link(cmr10, tmp_path):
+    out = tmp_path / "pdf-link"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse(
+        r"\shipout\vbox{"
+        r"\special{pdf:dest (target.1)[@thispage/XYZ @xpos @ypos null]}"
+        r"\special{pdf: beginann <</Type/Annot/Subtype/Link/A<</S/GoTo/D(target.1)>>>>}"
+        r"\hbox{a}"
+        r"\special{pdf: endann}"
+        r"}",
+        jobname="pdf-link",
+    )
+    cmr10.end()
+    reader = PdfReader(str(out) + ".pdf", strict=False)
+    page = reader.pages[0]
+    annots = page.get("/Annots")
+    assert annots is not None
+    assert len(annots) == 1

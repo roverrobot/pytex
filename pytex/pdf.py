@@ -24,6 +24,10 @@ _PDF_PAGESIZE_RE = re.compile(
     re.IGNORECASE,
 )
 _PAPERSIZE_RE = re.compile(r"^\s*papersize=(\S+),(\S+)\s*$", re.IGNORECASE)
+_PDF_DEST_RE = re.compile(
+    r"^\s*pdf:\s*dest\s+(\(.*\))\s*\[\s*@thispage\s*/XYZ\s+@xpos\s+@ypos\s+null\s*\]\s*$",
+    re.IGNORECASE,
+)
 _PDF_STRING_ESCAPES = {
     "n": "\n",
     "r": "\r",
@@ -59,6 +63,7 @@ class PDFBackend(Shipout):
         self._origin_y = int(_ONE_INCH)
         self._page_overlays = []
         self._pdf_sources = {}
+        self._active_annotations = []
 
     @staticmethod
     def _pt(value):
@@ -160,6 +165,14 @@ class PDFBackend(Shipout):
         self.canvas.setPageSize((self._pt(width), self._pt(height)))
         return True
 
+    def _raw_dest(self, text):
+        match = _PDF_DEST_RE.match(text)
+        if match is None:
+            return False
+        name = self._decode_pdf_string(match.group(1))
+        self.canvas.bookmarkHorizontalAbsolute(name, self._page_y(self.v), left=self._x(self.h))
+        return True
+
     @staticmethod
     def _options_map(options):
         return {key: value for key, value in options or ()}
@@ -225,6 +238,41 @@ class PDFBackend(Shipout):
                 "rotate": float(options.get("rotate", "0")),
             }
         )
+
+    @staticmethod
+    def _parse_annotation_payload(payload):
+        info = {"kind": "raw", "payload": payload}
+        goto = re.search(r"/S\s*/GoTo\s*/D\s*\((.*?)\)", payload)
+        if goto is not None:
+            info["kind"] = "goto"
+            info["destination"] = goto.group(1)
+            return info
+        uri = re.search(r"/S\s*/URI\s*/URI\s*\((.*?)\)", payload)
+        if uri is not None:
+            info["kind"] = "uri"
+            info["url"] = uri.group(1)
+            return info
+        return info
+
+    def _new_annotation_rect(self):
+        return [None, None, None, None]
+
+    def _grow_annotation_rect(self, x0, y0, x1, y1):
+        for ann in self._active_annotations:
+            rect = ann["rect"]
+            rect[0] = x0 if rect[0] is None else min(rect[0], x0)
+            rect[1] = y0 if rect[1] is None else min(rect[1], y0)
+            rect[2] = x1 if rect[2] is None else max(rect[2], x1)
+            rect[3] = y1 if rect[3] is None else max(rect[3], y1)
+
+    def _annotation_rect_tuple(self, rect):
+        if rect[0] is None:
+            return None
+        return tuple(rect)
+
+    def _annotation_font_box(self, x, y, width):
+        size = float(getattr(self.current_font, "at", 10.0) or 10.0)
+        return x, y - 0.2 * size, x + width, y + 0.8 * size
 
     def _pdf_source_reader(self, name):
         reader = self._pdf_sources.get(name)
@@ -386,6 +434,7 @@ class PDFBackend(Shipout):
         self._color_stack = []
         self._current_color = ("gray", ("0",))
         self._page_overlays.append([])
+        self._active_annotations = []
         self._set_canvas_color(*self._current_color)
 
     def end_page(self, box):
@@ -407,7 +456,11 @@ class PDFBackend(Shipout):
         self.v = 0 if v is None else int(v)
 
     def set_char(self, node):
-        self.canvas.drawString(self._x(self.h), self._page_y(self.v), node.char)
+        x = self._x(self.h)
+        y = self._page_y(self.v)
+        self.canvas.drawString(x, y, node.char)
+        if self._active_annotations:
+            self._grow_annotation_rect(*self._annotation_font_box(x, y, self._pt(node.width)))
 
     def set_rule(self, node, box, move):
         def running(d):
@@ -425,9 +478,11 @@ class PDFBackend(Shipout):
         x = self._x(self.h)
         y = self._page_y(self.v) - total_height
         self.canvas.rect(x, y, self._pt(width), total_height, stroke=0, fill=1)
+        if self._active_annotations:
+            self._grow_annotation_rect(x, y, x + self._pt(width), y + total_height)
 
     def rawSpecial(self, text):
-        if not self._raw_pagesize(text):
+        if not self._raw_pagesize(text) and not self._raw_dest(text):
             self._note_ignored(f"rawSpecial ignored: {text}")
 
     def setColor(self, mode, space=None, values=None):
@@ -453,6 +508,45 @@ class PDFBackend(Shipout):
         raise ValueError(f"unsupported color mode {mode}")
 
     def annotate(self, kind, name=None, dimensions=None, payload=None):
+        if kind == "begin":
+            self._active_annotations.append(
+                {
+                    "info": self._parse_annotation_payload(payload),
+                    "rect": self._new_annotation_rect(),
+                }
+            )
+            return
+        if kind == "end":
+            if not self._active_annotations:
+                return
+            ann = self._active_annotations.pop()
+            rect = self._annotation_rect_tuple(ann["rect"])
+            if rect is None:
+                return
+            info = ann["info"]
+            if info["kind"] == "goto":
+                self.canvas.linkAbsolute("", info["destination"], Rect=rect, thickness=0)
+                return
+            if info["kind"] == "uri":
+                self.canvas.linkURL(info["url"], rect, relative=0, thickness=0)
+                return
+            self._note_ignored(f"annotate ignored: {payload}")
+            return
+        if kind == "fixed":
+            dims = dict(dimensions or ())
+            width = self._pt(self._parse_special_dimen(dims.get("width", "0pt")))
+            height = self._pt(self._parse_special_dimen(dims.get("height", "0pt")))
+            depth = self._pt(self._parse_special_dimen(dims.get("depth", "0pt")))
+            x = self._x(self.h)
+            y = self._page_y(self.v) - depth
+            rect = (x, y, x + width, y + height)
+            info = self._parse_annotation_payload(payload)
+            if info["kind"] == "goto":
+                self.canvas.linkAbsolute("", info["destination"], Rect=rect, thickness=0)
+                return
+            if info["kind"] == "uri":
+                self.canvas.linkURL(info["url"], rect, relative=0, thickness=0)
+                return
         self._note_ignored(f"annotate ignored: {kind}")
 
     def xObject(self, kind, name=None, options=None, source=None):
@@ -467,10 +561,18 @@ class PDFBackend(Shipout):
             x = self._x(self.h)
             y = self._page_y(self.v)
             self.canvas.drawImage(path, x, y, width=target_width, height=target_height)
+            if self._active_annotations:
+                self._grow_annotation_rect(x, y, x + target_width, y + target_height)
             return
         if kind == "epdf" and source:
             decoded = self._decode_pdf_string(source)
             self._queue_epdf_overlay(options, decoded)
+            if self._active_annotations:
+                bbox = self._bbox_from_options(options)
+                target_width, target_height = self._target_size(options, bbox)
+                x = self._x(self.h)
+                y = self._page_y(self.v)
+                self._grow_annotation_rect(x, y, x + target_width, y + target_height)
             return
         self._note_ignored(f"xObject ignored: {kind}")
 

@@ -7,6 +7,7 @@ import os
 import re
 
 from pypdf import PdfReader, PdfWriter, Transformation
+from reportlab.pdfbase.pdfdoc import PDFArray, PDFName
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import EmbeddedType1Face, Font as ReportLabFont, registerFont, registerTypeFace
 from reportlab.pdfbase.ttfonts import TTFont as ReportLabTTFont
@@ -242,6 +243,15 @@ class PDFBackend(Shipout):
     @staticmethod
     def _parse_annotation_payload(payload):
         info = {"kind": "raw", "payload": payload}
+        border = re.search(r"/Border\s*\[(.*?)\]", payload)
+        if border is not None:
+            info["border"] = [float(part) for part in border.group(1).split()]
+        color = re.search(r"/C\s*\[(.*?)\]", payload)
+        if color is not None:
+            info["color"] = [float(part) for part in color.group(1).split()]
+        highlight = re.search(r"/H\s*/([A-Za-z]+)", payload)
+        if highlight is not None:
+            info["highlight"] = highlight.group(1)
         goto = re.search(r"/S\s*/GoTo\s*/D\s*\((.*?)\)", payload)
         if goto is not None:
             info["kind"] = "goto"
@@ -269,6 +279,17 @@ class PDFBackend(Shipout):
         if rect[0] is None:
             return None
         return tuple(rect)
+
+    @staticmethod
+    def _annotation_style_kwargs(info):
+        kwargs = {}
+        if "border" in info:
+            kwargs["Border"] = PDFArray(info["border"])
+        if "color" in info:
+            kwargs["C"] = PDFArray(info["color"])
+        if "highlight" in info:
+            kwargs["H"] = PDFName(info["highlight"])
+        return kwargs
 
     def _annotation_font_box(self, x, y, width):
         size = float(getattr(self.current_font, "at", 10.0) or 10.0)
@@ -524,11 +545,12 @@ class PDFBackend(Shipout):
             if rect is None:
                 return
             info = ann["info"]
+            style = self._annotation_style_kwargs(info)
             if info["kind"] == "goto":
-                self.canvas.linkAbsolute("", info["destination"], Rect=rect, thickness=0)
+                self.canvas.linkAbsolute("", info["destination"], Rect=rect, **style)
                 return
             if info["kind"] == "uri":
-                self.canvas.linkURL(info["url"], rect, relative=0, thickness=0)
+                self.canvas.linkURL(info["url"], rect, relative=0, **style)
                 return
             self._note_ignored(f"annotate ignored: {payload}")
             return
@@ -541,11 +563,12 @@ class PDFBackend(Shipout):
             y = self._page_y(self.v) - depth
             rect = (x, y, x + width, y + height)
             info = self._parse_annotation_payload(payload)
+            style = self._annotation_style_kwargs(info)
             if info["kind"] == "goto":
-                self.canvas.linkAbsolute("", info["destination"], Rect=rect, thickness=0)
+                self.canvas.linkAbsolute("", info["destination"], Rect=rect, **style)
                 return
             if info["kind"] == "uri":
-                self.canvas.linkURL(info["url"], rect, relative=0, thickness=0)
+                self.canvas.linkURL(info["url"], rect, relative=0, **style)
                 return
         self._note_ignored(f"annotate ignored: {kind}")
 

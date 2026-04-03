@@ -120,7 +120,7 @@ def test_pdf_beginann_endann_and_dest_create_link(cmr10, tmp_path):
     cmr10.parse(
         r"\shipout\vbox{"
         r"\special{pdf:dest (target.1)[@thispage/XYZ @xpos @ypos null]}"
-        r"\special{pdf: beginann <</Type/Annot/Subtype/Link/A<</S/GoTo/D(target.1)>>>>}"
+        r"\special{pdf: beginann <</Type/Annot/Border [0 0 1] /H /I /C [0.7 0.4 0.41] /Subtype/Link/A<</S/GoTo/D(target.1)>>>>}"
         r"\hbox{a}"
         r"\special{pdf: endann}"
         r"}",
@@ -132,3 +132,7 @@ def test_pdf_beginann_endann_and_dest_create_link(cmr10, tmp_path):
     annots = page.get("/Annots")
     assert annots is not None
     assert len(annots) == 1
+    annot = annots[0].get_object()
+    assert list(annot["/Border"]) == [0, 0, 1]
+    assert annot["/H"] == "/I"
+    assert list(annot["/C"]) == [0.7, 0.4, 0.41]

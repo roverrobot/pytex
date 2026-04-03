@@ -28,16 +28,19 @@ This note does not cover:
 
 At this layer, the runtime objects are:
 
-- scanners, which produce tokens
-- an input stack, which schedules scanners
+- tokenizers, which produce tokens from active text input
+- text sources/backstores, which feed tokenizers line by line
+- an input stack, which schedules tokenizers/sources plus unread token buffers
 
-The important abstraction is that every token source can be viewed as a scanner
-with the same observable interface, even if the underlying source is a file,
-string, token list, or macro expansion.
+The important abstraction is that token flow is composed from:
 
-## Scanner IR
+- active lexical state in a tokenizer
+- source/backstore state that can provide the next physical line
+- a small unread/saved token buffer for already-tokenized input
 
-The common scanner behavior is:
+## Tokenizer / Source IR
+
+The common token-source behavior is:
 
 - `emit(token)`
 - `eof`
@@ -45,44 +48,48 @@ The common scanner behavior is:
 Conceptually, a scanner repeatedly emits tokens and eventually signals that it
 is exhausted.
 
-This means the scanner layer is very small. Most complexity comes from how
-different scanners are created, not from the scanner protocol itself.
+This means the token-flow layer is very small. Most complexity comes from how
+tokenizers are fed and resumed, not from the token protocol itself.
 
-## Scanner Kinds
+## Current Kinds
 
-The current design needs these concrete scanner forms:
+The current design needs these concrete forms:
 
-- plain scanner over string/file input
-- `TokenListScanner`
+- a line-based tokenizer over source text
+- a text source/backstore over string/file input
+- a saved token buffer on the input stack
 
-### Plain Scanner
+### Tokenizer
 
-The plain scanner reads characters from source text and tokenizes them under
+`Tokenizer` reads characters from one physical line and tokenizes them under
 the current parser state, especially catcodes and related scanner settings.
 
-This is the scanner that makes TeX unusual: it is not a pure lexical front end,
+This is the component that makes TeX unusual: it is not a pure lexical front end,
 because the tokenization behavior depends on mutable runtime state.
 
-### `TokenListScanner`
+### Text Source / Backstore
 
-`TokenListScanner` emits a fixed sequence of existing tokens.
+`Scanner` in the current code is best understood as a line source/backstore:
 
-This is the basic reusable scanner for:
+- it reads the next physical line from a file or string
+- appends `endlinechar`
+- creates a `Tokenizer`
+- and hands control to that tokenizer
 
-- stored token lists
-- unread tokens
-- compiled macro replacement results
+So the actual lexical work is already concentrated in `Tokenizer`, while the
+source object mostly manages line feeding and source lifetime.
 
-There is no longer a dedicated `MacroScanner`.
+### Saved Token Buffer
 
-Macro expansion is lowered into:
+Stored token lists, unread tokens, and compiled macro replacement results are
+no longer modeled as a distinct scanner kind.
 
-- argument reading against the current input stream
-- assembly of a replacement token list from compiled pieces
-- one `TokenListScanner` push for the assembled result
+Instead they are lowered into the input stack's saved-token buffer:
 
-That means macro expansion is expressed using the ordinary scanner/input-stack
-machinery rather than by introducing a separate scanner kind.
+- `unread(token)` pushes one token into `saved`
+- `pushTokenList(toks)` splices a token list into `saved`
+
+There is no longer a `TokenListScanner` in the design.
 
 ## `readTo`
 
@@ -227,7 +234,7 @@ Instead, expansion becomes:
 2. start from the leading literal piece
 3. splice each captured argument list
 4. append the following literal piece
-5. push one `TokenListScanner` for the assembled result
+5. splice the assembled result into the input stack with `pushTokenList(...)`
 
 Escaped `#` in replacement compilation is lowered back to an ordinary literal
 parameter token, so the emitted token stream matches the next-layer TeX input
@@ -249,13 +256,13 @@ editing the original input token object in place.
 
 The input stack has two essential operations:
 
-- `push(scanner)`
+- `push(source_or_tokenizer)`
 - `pop()`
 
 This is enough to describe:
 
 - entering a macro expansion
-- entering a stored token list
+- entering a nested text source
 - resuming an outer token source when an inner one finishes
 
 The stack is therefore the control structure that composes scanners into one
@@ -267,10 +274,10 @@ effective token stream.
 
 Conceptually:
 
-- `unread(token)` = `push(TokenListScanner([token]))`
+- `unread(token)` = push a one-token source in front of the current stream
 
-So it does not need to be a primitive in the core algebra, but it is important
-enough operationally that it is worth naming explicitly.
+So it does not need to be a primitive source kind in the core algebra, but it
+is important enough operationally that it is worth naming explicitly.
 
 In implementation, this does not need to allocate a fresh one-token scanner.
 It is often better modeled as a small saved-token buffer on the input stack,
@@ -287,26 +294,132 @@ So the design distinction is:
 
 ## EOF And Pop
 
-In the current implementation, scanner exhaustion is represented by returning
-`None`.
+### Current State
 
-Operationally, that means:
+In the current implementation, source/tokenizer exhaustion is represented by
+returning `None`.
 
-- scanner returns `token` -> continue
-- scanner returns `None` -> this scanner is exhausted, so pop it from the input stack
+Operationally this means:
 
-So the current behavior is effectively:
+- tokenizer returns `token` -> continue
+- tokenizer/source returns `None` -> this frame is exhausted, so the input stack pops it
+- if the whole stack empties, parser-facing code also sees `None`
 
-- `eof => pop`
+So `None` currently plays two roles:
 
-That is a good implementation strategy.
+- local frame exhaustion
+- true end of input
 
-For design purposes, it is still useful to distinguish:
+This works, but it leaks end-of-input control flow into many downstream token
+readers.
 
-- scanner-level exhaustion: `eof`
-- stack-level control effect: `pop()`
+### Locked Direction
 
-even if one is implemented directly in terms of the other.
+The next lexer/input-stack refactor should preserve the current tokenization
+cost profile inside `Tokenizer`, but simplify downstream EOF handling.
+
+The intended direction is:
+
+- `Tokenizer` remains responsible for low-level character and line handling
+- `None` remains an internal tokenizer/source signal
+- true end-of-input should be represented by an EOF exception raised by the
+  input stack when the whole stack is exhausted
+
+More precisely:
+
+- tokenizer/source-local exhaustion is handled inside the token-flow layer
+- `InputStack.read()` should only raise EOF when there is no outer source left
+- normal token reads should remain exception-free
+- EOF exceptions should therefore be rare, occurring only at true source
+  boundaries
+
+This keeps exceptions off the per-token hot path while removing most
+downstream `if t is None` checks whose only purpose is to thread EOF.
+
+### Caller Categories
+
+Under that design, callers split into three groups.
+
+#### 1. Outer parse flow
+
+High-level parser control flow should catch EOF once and stop cleanly.
+
+This includes:
+
+- the main parser loop
+- possibly `token_expand()` if we decide to make EOF an exceptional exit there
+
+#### 2. Optional/probe readers
+
+Readers whose job is "try to read something, otherwise report absence" should
+catch EOF and convert it to the existing absence result.
+
+Examples:
+
+- keyword readers
+- internal-value probes
+- assignment-head probes
+
+These should continue to return things like:
+
+- `None`
+- `(None, None)`
+
+rather than surfacing EOF as a syntax error.
+
+#### 3. Mandatory syntax readers
+
+Readers that are in the middle of scanning required syntax may catch EOF only
+to improve the resulting error message.
+
+Examples:
+
+- undelimited macro arguments
+- integer digit readers
+- dimen/glue/rule specification readers
+- balanced/general-text readers
+- conditionals that are already committed to a syntactic form
+
+These are places where EOF is not "absence", but "unexpected end of input".
+
+### Why This Is Still Cheap
+
+The key point is that the tokenizer already performs `None` checks internally
+while reading characters and lines. So this design does not try to remove that
+low-level cost.
+
+Instead, it pushes EOF handling to the right abstraction boundary:
+
+- tokenizer/source handles local exhaustion
+- input stack handles source switching
+- parser/higher layers see EOF only at true input exhaustion or when a reader
+  explicitly chooses to treat it as syntax failure
+
+So the main benefit is cleaner downstream control flow, not faster low-level
+lexing.
+
+## Tokenizer-Only Stack Direction
+
+The current code is already close to a tokenizer-centric model:
+
+- `Tokenizer` does the lexical work
+- `Scanner` mostly feeds lines and creates tokenizers
+- token lists/unread are handled by `saved`
+
+So the preferred direction is to consolidate toward:
+
+- an input stack of active tokenizers
+- each tokenizer owning a text source/backstore for subsequent lines
+
+In that model:
+
+- tokenizers become the only active lexical frames on the stack
+- sources/backstores become private implementation details of tokenizers
+- saved tokens remain outside that mechanism as the direct implementation of
+  unread and token-list splicing
+
+This should simplify the input stack further without reintroducing a
+token-list-scanner abstraction.
 
 ## Relationship To Expansion
 
@@ -433,20 +546,30 @@ consume tokens semantically.
 
 The token-flow layer has a very small core:
 
-- scanners emit `token` or `eof`
-- the input stack supports `push(scanner)` and `pop()`
+- `Tokenizer`, which performs lexical work under current parser state
+- text sources/backstores, which feed physical lines to tokenizers
+- an input stack, which schedules active tokenizers plus the saved-token buffer
 
 Useful derived structure:
 
-- `unread(token)` as `push(TokenListScanner([token]))`
+- `unread(token)` as a push into the saved-token buffer
+- `pushTokenList(toks)` as direct token-list splicing into that same buffer
 - `readTo(...)` as a structural balanced-token reader
 - `ExpandBuilder` as the token-list expander used by `readTo(..., expand=True)`
 - macro compilation into argument-reading calls plus replacement pieces
 - token-control lowering for primitives such as `\expandafter` and `\futurelet`
 
+The locked direction for EOF handling is:
+
+- local tokenizer/source exhaustion stays inside the token-flow layer
+- `InputStack.read()` should eventually raise EOF only when the whole stack is
+  exhausted
+- optional readers catch EOF and convert it to absence
+- mandatory readers may catch EOF only to improve syntax errors
+
 And the main boundary is:
 
-- scanners and the input stack produce token flow
+- tokenizers, sources, and the input stack produce token flow
 - token dispatch lowers token occurrences into parser-state, expansion, or
   layout effects
 

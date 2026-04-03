@@ -5,7 +5,7 @@ File operations
 from pytex import serialization
 from pytex import node as nd
 from pytex.accessor import Accessor
-from pytex.lexer import TokenListScanner, StringScanner, Tokenizer
+from pytex.lexer import Tokenizer
 from pytex import token
 from pytex import macro
 from pytex.module import Module
@@ -23,11 +23,6 @@ class EndFileScanToken(token.Token):
 
     def execute(self, parser):
         raise RuntimeError("unexpected file scan terminator")
-
-
-class EndFileScanScanner(TokenListScanner):
-    def __init__(self):
-        super().__init__([EndFileScanToken()])
 
 
 class _LocalFileLineScanner:
@@ -57,25 +52,6 @@ def _readFileLineTokenizer(parser, file):
         line += chr(eol)
     name = getattr(file, "name", None)
     return Tokenizer(line, parser, _LocalFileLineScanner(), name, line_number)
-
-
-def pushFileScan(parser, scanner):
-    """
-    Push a temporary scanner that should stop before resuming the normal input stack.
-    """
-    parser.input.push(EndFileScanScanner())
-    parser.input.push(scanner)
-
-
-def popFileScan(parser):
-    """
-    Pop a temporary file scan, including any active line tokenizer layer.
-    """
-    while parser.input.top is not None:
-        top = parser.input.top
-        parser.input.pop()
-        if isinstance(top, EndFileScanScanner):
-            break
 
 
 class OpenOp(Accessor):
@@ -166,13 +142,13 @@ class WriteOp(FileOp):
         return {"file_id": self.file_id, "tokens": self.tokens}, None
     
     def execute(self, parser):
-        pushFileScan(parser, TokenListScanner(self.tokens))
+        parser.input.unread(EndFileScanToken())
+        parser.input.pushTokenList(self.tokens)
         file = self.file(parser)
         expander = toks.ExpandBuilder(parser)
         while True:
             t = parser.token()
             if isinstance(t, EndFileScanToken):
-                popFileScan(parser)
                 break
             expander.append(t)
         s = parser.expandedToksToString(expander.toks)

@@ -71,6 +71,13 @@ def test_openout_preserves_protected_macros(parser):
     assert file.content == "\\a \n"
 
 
+def test_immediate_write_stops_before_outer_input(collector):
+    collector.parse("\\def\\a{123}\\immediate\\openout 1=output-boundary.tex\\immediate\\write1{\\a}\\a\\immediate\\closeout 1")
+    assert collector.getString() == "123"
+    file = collector.resolver.in_memory_files["output-boundary.tex"]
+    assert file.content == "123\n"
+
+
 def test_openout(parser):
     parser.parse("\\def\\a{123}\\openout 1=output1.tex \\write1{\\a xyz}\\closeout 1")
     file = parser.globals["openout"][1]

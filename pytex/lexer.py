@@ -262,32 +262,6 @@ class StringScanner(Scanner):
         super().__init__(parser, io.StringIO(s), name)
 
 
-class TokenListScanner:
-    """
-    A scanner that reads from a list of tokens
-    @param toks: the list of tokens
-    """
-    def __init__(self, toks: typing.List[Token]):
-        assert toks is not None
-        self.toks = toks
-        self.iter = iter(toks)
-
-    def read(self) -> typing.Optional[Token]:
-        """
-        read the next token from the list
-        @return: the next token, or None if the end of the list is reached
-        """
-        return next(self.iter, None)
-
-    # this scanner does not support token position
-    position = None
-
-    def __repr__(self):
-        f = lambda t: t.name + " " if isinstance(t, CommandToken) else t.name
-        s = "".join(map(f, self.toks))
-        return f"TokenListScanner:\n  {s}"
-
-
 class InputStack:
     """
     A stack of scanners. The goal is to support tex commands such as \\input and \\include

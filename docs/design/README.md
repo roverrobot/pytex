@@ -15,3 +15,4 @@ Read in this order:
 11. [11-assignment-ir.md](11-assignment-ir.md)
 12. [12-list-construction-summary.md](12-list-construction-summary.md)
 13. [13-pdf-backend.md](13-pdf-backend.md)
+14. [14-pipe-backends.md](14-pipe-backends.md)

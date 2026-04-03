@@ -1,5 +1,5 @@
-"""
-This module implements conditional commands such as \\\if and \\ifx etc.
+r"""
+This module implements conditional commands such as \if and \ifx etc.
 """
 
 

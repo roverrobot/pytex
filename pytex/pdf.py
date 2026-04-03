@@ -324,11 +324,8 @@ class PDFBackend(Shipout):
     def _apply_overlays(self, data):
         if not any(self._page_overlays):
             return data
-        reader = PdfReader(BytesIO(data))
-        writer = PdfWriter()
-        if reader.metadata is not None:
-            writer.add_metadata(dict(reader.metadata))
-        for page_index, page in enumerate(reader.pages):
+        writer = PdfWriter(clone_from=BytesIO(data))
+        for page_index, page in enumerate(writer.pages):
             for overlay in self._page_overlays[page_index]:
                 if overlay["kind"] != "epdf":
                     continue
@@ -345,7 +342,6 @@ class PDFBackend(Shipout):
                     transform = transform.rotate(overlay["rotate"])
                 transform = transform.translate(overlay["x"] - llx * sx, overlay["y"] - lly * sy)
                 page.merge_transformed_page(source_page, transform, over=True)
-            writer.add_page(page)
         out = BytesIO()
         writer.write(out)
         return out.getvalue()

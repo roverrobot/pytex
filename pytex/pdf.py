@@ -65,6 +65,7 @@ class PDFBackend(Shipout):
         self._page_overlays = []
         self._pdf_sources = {}
         self._active_annotations = []
+        self._reportlab_bug_warnings = set()
 
     @staticmethod
     def _pt(value):
@@ -404,6 +405,19 @@ class PDFBackend(Shipout):
         safe = message.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
         self.canvas.addLiteral(f"% {safe}")
 
+    def _warn_reportlab_non_bmp(self, char):
+        code = ord(char)
+        if code <= 0xFFFF:
+            return
+        if code in self._reportlab_bug_warnings:
+            return
+        self._reportlab_bug_warnings.add(code)
+        font_name = getattr(getattr(self.current_font, "backend", None), "name", "<unknown>")
+        self.parser.message(
+            f"Warning: direct PDF output via ReportLab may misrender non-BMP character {char} (U+{code:04X}) in font {font_name}.",
+            console=False,
+        )
+
     def open(self, output=None):
         if self.canvas is not None:
             return
@@ -477,6 +491,7 @@ class PDFBackend(Shipout):
         self.v = 0 if v is None else int(v)
 
     def set_char(self, node):
+        self._warn_reportlab_non_bmp(node.char)
         x = self._x(self.h)
         y = self._page_y(self.v)
         self.canvas.drawString(x, y, node.char)

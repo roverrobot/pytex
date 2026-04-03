@@ -18,6 +18,17 @@ def _page_content_text(path):
     return page, data.decode("latin1", "replace")
 
 
+def test_pdf_warns_once_for_non_bmp_character(cmr10):
+    backend = pdf.PDFBackend(cmr10)
+    backend.current_font = type("FontHolder", (), {"backend": type("Backend", (), {"name": "Apple Color Emoji"})()})()
+    backend._warn_reportlab_non_bmp("😄")
+    backend._warn_reportlab_non_bmp("😄")
+    log = cmr10.logContent()
+    assert log.count("Warning: direct PDF output via ReportLab may misrender non-BMP character") == 1
+    assert "U+1F604" in log
+    assert "Apple Color Emoji" in log
+
+
 def test_output_pages_uses_pdf_backend(cmr10, tmp_path):
     cmr10.shipout = pdf.PDFBackend(cmr10)
     cmr10.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="out")

@@ -28,11 +28,11 @@ class Tokenizer:
     @param line: the line of text to read
     @param parser: the parser
     """
-    def __init__(self, line: str, parser, scanner, name=None, line_number=0):
+    def __init__(self, line: str, parser, source, name=None, line_number=0):
         # catcode is a dictionary that maps characters to their category codes
         self.catcode = parser.catcode
         self.equitable = parser.equitable
-        self.scanner = scanner
+        self.source = source
         self.name = name
         self.line_number = line_number
         # Skip leading spaces, and also ignored characters that can expose more
@@ -173,7 +173,7 @@ class Tokenizer:
         return Position(self.name, self.line_number + 1, self.pos + 1)
 
     def end(self):
-        self.scanner.end()
+        self.source.end()
 
     def __repr__(self):
         return f"Tokenizer({self.position()})"
@@ -181,7 +181,7 @@ class Tokenizer:
 
 class Scanner:
     """
-    A scanner reads tokens from a stream. The main method is read()
+    A scanner is a line-text backstore for Tokenizer.
     @param parser: the parser
     @param stream: the stream to read from. Must be a file-like object
     @param name: the name of the stream
@@ -204,7 +204,8 @@ class Scanner:
     
     def feed(self):
         """
-        read the next line from the stream
+        Read the next physical line from the stream and build a Tokenizer for
+        it. Returns None when the source is exhausted.
         """
         self.line, line = next(self.lines, (None, None))
         if line is None:
@@ -223,21 +224,6 @@ class Scanner:
         return the position of the last token read
         """
         return Position(self.name, self.line + 1, self.column + 1)
-
-    def read(self) -> typing.Optional[Token]:
-        """
-        read the next token from the stream
-        @return: the next token, or None if the end of the stream is reached
-        """
-        while True:
-            tokenizer = self.feed()
-            if tokenizer is None:
-                return None
-            t = tokenizer.read()
-            self.column = tokenizer.pos
-            if t:
-                self.parser.input.push(tokenizer)
-                return t
 
     def end(self):
         """
@@ -292,30 +278,37 @@ class InputStack:
 
     def read(self) -> typing.Optional[Token]:
         """
-        read the next token from the top scanner on the stack. If the top scanner is
-        exhausted, pop it and read from the next scanner on the stack.
+        Read the next token from the active tokenizer. Line sources are
+        backstores: they feed tokenizers onto the stack, but do not themselves
+        produce tokens.
         @return: the next token, or None if the end of the stack is reached
         """
         if self.saved:
-            t = self.saved.pop()
-            entry = t.entry
-            if entry is not None and t.definition is not entry.value:
-                t.definition = entry.value
-            return t
+            return self._restore(self.saved.pop())
         while self.top:
-            t = self.top.read()
-            if t:
-                entry = t.entry
-                if entry is not None:
-                    t.definition = entry.value
-                return t
-            self.top, self.saved = self.stack.pop()
-            if self.saved:
-                t = self.saved.pop()
-                entry = t.entry
-                if entry is not None:
-                    t.definition = entry.value
-                return t
+            if isinstance(self.top, Tokenizer):
+                t = self.top.read()
+                self.top.source.column = self.top.pos
+                if t is not None:
+                    return self._restore(t)
+                self.pop()
+                if self.saved:
+                    return self._restore(self.saved.pop())
+                continue
+            tokenizer = self.top.feed()
+            if tokenizer is None:
+                self.pop()
+                if self.saved:
+                    return self._restore(self.saved.pop())
+                continue
+            self.push(tokenizer)
+
+    @staticmethod
+    def _restore(t):
+        entry = t.entry
+        if entry is not None and t.definition is not entry.value:
+            t.definition = entry.value
+        return t
 
     def unread(self, token):
         """

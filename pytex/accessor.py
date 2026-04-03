@@ -248,7 +248,7 @@ class Accessor(token.Command):
         """
         return KeyTarget(self.domain, self.currentKey(parser), self.value_type)
 
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         """
         read the value from the input stack
         @param parser: the parser
@@ -296,7 +296,7 @@ class Accessor(token.Command):
             return self.bindKey(self.readKey(parser)).getAssignment(parser)
         target = self.getTarget(parser)
         self.readEq(parser)
-        value = self.readAssignmentValue(parser)
+        value = self.readValue(parser)
         return Assignment(target, value)
 
     def meaning(self, parser):

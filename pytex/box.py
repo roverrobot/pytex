@@ -724,7 +724,7 @@ class BoxDimenAccessor(Accessor):
     def readKey(self, parser):
         return parser.readInteger()
 
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         return parser.readDimen()
 
     def getTarget(self, parser):

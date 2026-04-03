@@ -277,7 +277,7 @@ class TracingSource(Accessor):
     The \\tracingsource command.
     It sets the source file for tracing.
     """
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         return toksToString(parser, toks.readGeneralText(parser))
     
     def set(self, parser, value):

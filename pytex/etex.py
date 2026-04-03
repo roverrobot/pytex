@@ -550,7 +550,7 @@ class ReadlineOp(file.ReadOp):
     """
     Read a line from a file, and assignit as a parameterless macro
     """    
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         tokens = []
         level = 0
         file = parser.globals["openin"][self.file_id]

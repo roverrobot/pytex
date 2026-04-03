@@ -103,12 +103,12 @@ class OpenOp(Accessor):
 
     
 class OpenInOp(OpenOp):
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         return parser.resolver.openIn(self.filename, "source")
 
 
 class OpenOutOp(OpenOp):
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         return parser.resolver.openOut(self.filename, "source")
 
 
@@ -201,7 +201,7 @@ class ReadOp(Accessor):
     def readEq(self, parser):
         pass
 
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         tokens = []
         level = 0
         file = parser.globals["openin"][self.file_id]

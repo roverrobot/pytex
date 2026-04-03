@@ -582,7 +582,7 @@ class SpaceFactor(Accessor):
             raise ValueError("\\spacefactor can only be used in horizontal mode")
         return KeyTarget(self.domain, key, self.value_type)
     
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         value = parser.readInteger()
         if value < 0:
             raise ValueError("invalid space factor")

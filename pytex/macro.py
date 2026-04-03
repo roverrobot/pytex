@@ -537,7 +537,7 @@ class MacroAccessor(EquitableAccessor):
         """
         pass
 
-    def readAssignmentValue(self, parser):
+    def readValue(self, parser):
         """
         read the macro definition from the input stack
 

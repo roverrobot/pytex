@@ -83,8 +83,9 @@ base = os.path.basename(source)
 file, ext = os.path.splitext(base)
 
 if args.format == "initex":
-    if ext == "" and parser.resolver.format != "plain": # no extension
+    if ext == "" and source != "plain": # no extension
         source += ".ini"
+    parser.resolver.format = file
     print(
         f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.pfmt",
         file=parser.console,

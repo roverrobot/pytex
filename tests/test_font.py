@@ -25,6 +25,13 @@ def test_read_font_at(parser):
     assert parser.equitable["\\f"].at == 20.0
 
 
+def test_read_grouped_tfm_font_name(parser):
+    parser.parse('\\font\\f={cmr10} at 20pt')
+    assert parser.equitable["\\f"].backend.kind == "tfm"
+    assert parser.equitable["\\f"].backend.name == 'cmr10'
+    assert parser.equitable["\\f"].at == 20.0
+
+
 def test_load_font_backend(parser):
     backend = parser.loadFontBackend("cmr10")
     assert backend.kind == "tfm"
@@ -68,6 +75,33 @@ def test_read_opentype_font(parser):
     assert font.backend.kind == "opentype"
     assert font.backend.name == "lmroman10-regular.otf"
     assert float(font["A"].width) > 7.0
+
+
+def test_read_system_opentype_font_name(parser, monkeypatch):
+    handle = parser.resolver.openIn("lmroman10-regular.otf", "fonts/opentype")
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    path = handle.name
+    handle.close()
+
+    @classmethod
+    def fake_system_path(cls, name):
+        return (path, 0) if name == "LM Roman 10 Regular" else None
+
+    monkeypatch.setattr(opentype.OpenTypeBackend, "_systemFontPath", fake_system_path)
+    parser.parse("\\font\\f={LM Roman 10 Regular} at 10pt \\f A")
+    font = parser.equitable["\\f"]
+    assert font.backend.kind == "opentype"
+    assert font.backend.name == "LM Roman 10 Regular"
+    assert font.backend.path == path
+    assert float(font["A"].width) > 7.0
+
+
+def test_missing_character_is_logged_and_omitted(cmr10):
+    cmr10.parse('\\setbox0=\\hbox{A\\char"53EF B}')
+    chars = [node.char for node in cmr10.box[0].list if hasattr(node, "char")]
+    assert chars == ["A", "B"]
+    assert "Missing character: There is no 可 (U+53EF) in font cmr10!" in cmr10.logContent()
 
 
 def test_font_optional_keyword_does_not_expand_existing_macro_name(collector):

@@ -485,6 +485,18 @@ class Parser:
             if t is None or t.catcode != 10:
                 return t
 
+    def missingCharacter(self, font, char):
+        if self.tracinglostchars <= 0:
+            return
+        code = ord(char)
+        if 32 <= code < 127:
+            shown = char
+        elif code <= 0xFF:
+            shown = f"^^{code:02x}"
+        else:
+            shown = f"{char} (U+{code:04X})"
+        self.message(f"Missing character: There is no {shown} in font {font.backend.name}!", console=False)
+
     def addChar(self, c):
         """
         add a character to the current list
@@ -515,6 +527,9 @@ class Parser:
             # or after a ligature formed from a sequence that ends with such a 
             # character.
             f = self.parameters["currentfont"]
+            if f.glyphInfo(c) is None:
+                self.missingCharacter(f, c)
+                return
             self.lists[-1].append(f[c])
         else:
             # math mode.

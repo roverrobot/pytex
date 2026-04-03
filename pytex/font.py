@@ -3,6 +3,7 @@ The module implements font handling
 """
 
 
+import os
 from fractions import Fraction
 from pytex.token import Command
 from pytex.module import Module

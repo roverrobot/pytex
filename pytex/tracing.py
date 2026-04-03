@@ -350,7 +350,7 @@ def init(parser):
     parser.tracingparagraphs = 0
     parser.tracingpages = 0
     parser.tracingoutput = 0
-    parser.tracinglostchars = 0
+    parser.tracinglostchars = 1
     parser.tracingcommands = 0
     parser.tracingrestores = 0
     # set the initial values for the pytex tracing parameters
@@ -370,7 +370,7 @@ mod = Module("tracing",
         "tracingparagraphs": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         "tracingpages": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         "tracingoutput": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
-        "tracinglostchars": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
+        "tracinglostchars": {"value": 1, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         "tracingcommands": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         "tracingrestores": {"value": 0, "accessor": integer.IntegerArrayItemAccessor, "domain": "tracing"},
         # pytex tracing facilities

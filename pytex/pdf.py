@@ -355,7 +355,7 @@ class PDFBackend(Shipout):
             raise ValueError(
                 f"PDF backend needs a filesystem-backed font file for OpenType font {font.backend.name}"
             )
-        registerFont(ReportLabTTFont(font_name, path))
+        registerFont(ReportLabTTFont(font_name, path, subfontIndex=getattr(font.backend, "font_number", 0)))
 
     def _register_type1(self, font, font_name):
         base = font.backend.name

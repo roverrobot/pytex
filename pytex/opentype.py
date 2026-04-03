@@ -6,10 +6,12 @@ OpenType/TrueType font backend support.
 from io import BytesIO
 import math
 import os
+import platform
+import re
 from typing import Optional
 
 from fontTools.pens.boundsPen import BoundsPen
-from fontTools.ttLib import TTFont
+from fontTools.ttLib import TTCollection, TTFont, TTLibError, TTLibFileIsCollectionError
 
 from pytex.font_backend import FontBackend, GlyphInfo, registerBackend
 from pytex.module import Module
@@ -19,11 +21,14 @@ from pytex.module import Module
 class OpenTypeBackend(FontBackend):
     kind = "opentype"
     DEFAULT_DESIGN_SIZE = 10.0
+    _system_font_paths = None
+    _system_font_match_cache = {}
 
-    def __init__(self, name: str, font: TTFont, path: Optional[str] = None):
+    def __init__(self, name: str, font: TTFont, path: Optional[str] = None, font_number: int = 0):
         self._name = name
         self.font = font
         self.path = path
+        self.font_number = font_number
         self.units_per_em = font["head"].unitsPerEm
         self._cmap = font.getBestCmap() or {}
         self._glyph_set = font.getGlyphSet()
@@ -36,15 +41,143 @@ class OpenTypeBackend(FontBackend):
         ext = os.path.splitext(name)[1].lower()
         if ext == ".otf":
             return "fonts/opentype"
+        if ext == ".otc":
+            return "fonts/opentype"
         if ext == ".ttf":
             return "fonts/truetype"
+        if ext == ".ttc":
+            return "fonts/truetype"
         return None
+
+    @staticmethod
+    def _normalizeSystemName(name: str):
+        return re.sub(r"\s+", " ", name.strip()).casefold()
+
+    @staticmethod
+    def _systemFontDirs():
+        sys = platform.system()
+        home = os.path.expanduser("~")
+        if sys == "Darwin":
+            return [
+                "/System/Library/Fonts",
+                "/System/Library/AssetsV2",
+                "/Library/Fonts",
+                os.path.join(home, "Library", "Fonts"),
+            ]
+        if sys == "Windows":
+            windir = os.environ.get("WINDIR", r"C:\Windows")
+            return [os.path.join(windir, "Fonts")]
+        return [
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            os.path.join(home, ".local", "share", "fonts"),
+            os.path.join(home, ".fonts"),
+        ]
+
+    @classmethod
+    def _regularScore(cls, names):
+        regular = {"regular", "roman", "book", "normal", "plain"}
+        return 0 if any(name in regular for name in names) else 1
+
+    @classmethod
+    def _fontNameCandidates(cls, path: str):
+        def collect(font, font_number):
+            table = font.get("name")
+            if table is None:
+                return []
+            families = set()
+            full = set()
+            postscript = set()
+            styles = set()
+            for record in table.names:
+                try:
+                    text = record.toUnicode().strip()
+                except Exception:
+                    continue
+                if not text:
+                    continue
+                norm = cls._normalizeSystemName(text)
+                if record.nameID in (1, 16):
+                    families.add(norm)
+                elif record.nameID == 4:
+                    full.add(norm)
+                elif record.nameID == 6:
+                    postscript.add(norm)
+                elif record.nameID in (2, 17):
+                    styles.add(norm)
+            candidates = []
+            regular_score = cls._regularScore(styles)
+            for value in postscript:
+                candidates.append((value, 0, regular_score, path, font_number))
+            for value in full:
+                candidates.append((value, 1, regular_score, path, font_number))
+            for value in families:
+                candidates.append((value, 2, regular_score, path, font_number))
+            return candidates
+
+        try:
+            font = TTFont(path, lazy=True, recalcBBoxes=False, recalcTimestamp=False)
+        except TTLibFileIsCollectionError:
+            try:
+                collection = TTCollection(path, lazy=True)
+            except (OSError, TTLibError):
+                return []
+            try:
+                candidates = []
+                for font_number, subfont in enumerate(collection.fonts):
+                    candidates.extend(collect(subfont, font_number))
+                return candidates
+            finally:
+                collection.close()
+        except (OSError, TTLibError):
+            return []
+        try:
+            return collect(font, 0)
+        finally:
+            font.close()
+
+    @classmethod
+    def _systemFontPath(cls, name: str):
+        key = cls._normalizeSystemName(name)
+        cached = cls._system_font_match_cache.get(key)
+        if cached is not None:
+            return cached
+        if cls._system_font_paths is None:
+            index = {}
+            for root in cls._systemFontDirs():
+                if not os.path.isdir(root):
+                    continue
+                for base, _dirs, files in os.walk(root):
+                    for filename in files:
+                        ext = os.path.splitext(filename)[1].lower()
+                        if ext not in {".otf", ".ttf", ".otc", ".ttc"}:
+                            continue
+                        path = os.path.join(base, filename)
+                        for candidate, priority, regular_score, path, font_number in cls._fontNameCandidates(path):
+                            current = index.get(candidate)
+                            value = (priority, regular_score, path, font_number)
+                            if current is None or value < current:
+                                index[candidate] = value
+            cls._system_font_paths = {
+                name: (path, font_number)
+                for name, (_priority, _regular, path, font_number) in index.items()
+            }
+        match = cls._system_font_paths.get(key)
+        cls._system_font_match_cache[key] = match
+        return match
+
+    @classmethod
+    def _loadPath(cls, path: str, font_number: int = 0):
+        return TTFont(path, fontNumber=font_number, lazy=False, recalcBBoxes=False, recalcTimestamp=False)
 
     @classmethod
     def _loadFont(cls, file):
         path = getattr(file, "name", None)
         if isinstance(path, str) and path and os.path.exists(path):
-            return TTFont(path, lazy=False, recalcBBoxes=False, recalcTimestamp=False)
+            try:
+                return cls._loadPath(path)
+            except TTLibFileIsCollectionError:
+                return cls._loadPath(path, font_number=0)
         data = file.read()
         return TTFont(BytesIO(data), lazy=False, recalcBBoxes=False, recalcTimestamp=False)
 
@@ -52,7 +185,14 @@ class OpenTypeBackend(FontBackend):
     def load(cls, parser, name: str):
         type = cls._type(name)
         if type is None:
-            return None
+            match = cls._systemFontPath(name)
+            if match is None:
+                return None
+            if isinstance(match, str):
+                path, font_number = match, 0
+            else:
+                path, font_number = match
+            return cls(name, cls._loadPath(path, font_number=font_number), path=path, font_number=font_number)
         file = parser.resolver.openIn(name, type)
         if file is None:
             raise FileNotFoundError(f"OpenType font {name} not found")

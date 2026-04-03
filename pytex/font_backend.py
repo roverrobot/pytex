@@ -94,26 +94,63 @@ def registerBackend(backend_cls):
     return backend_cls
 
 
-def resourceName(name: str):
+def resourceName(name: str, kind: str = None):
     root, ext = os.path.splitext(name)
-    if not ext:
+    if not ext and (kind is None or kind == "tfm"):
         return f"{name}.tfm"
     return f"{root}{ext.lower()}"
 
 
 def loadFontBackend(parser, name: str, kind: str = None):
-    name = resourceName(name)
-    cached = _system_font_backend_cache.get(name)
+    if kind is not None:
+        name = resourceName(name, kind=kind)
+        cache_key = (kind, name)
+        cached = _system_font_backend_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        for backend_cls in _backend_classes:
+            if backend_cls.kind != kind:
+                continue
+            backend = backend_cls.load(parser, name)
+            if backend is None:
+                continue
+            _system_font_backend_cache[cache_key] = backend
+            return backend
+        raise FileNotFoundError(f"{kind} font {name} not found")
+
+    _root, ext = os.path.splitext(name)
+    if ext:
+        name = resourceName(name)
+        cache_key = (kind, name)
+        cached = _system_font_backend_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        for backend_cls in _backend_classes:
+            backend = backend_cls.load(parser, name)
+            if backend is None:
+                continue
+            _system_font_backend_cache[cache_key] = backend
+            return backend
+        raise FileNotFoundError(f"font {name} not found")
+
+    cache_key = (kind, name)
+    cached = _system_font_backend_cache.get(cache_key)
     if cached is not None:
         return cached
-    for backend_cls in _backend_classes:
-        if kind is not None and backend_cls.kind != kind:
-            continue
-        backend = backend_cls.load(parser, name)
-        if backend is None:
-            continue
-        _system_font_backend_cache[name] = backend
+    try:
+        backend = loadFontBackend(parser, name, kind="tfm")
+        _system_font_backend_cache[cache_key] = backend
         return backend
+    except FileNotFoundError:
+        pass
+
+    try:
+        backend = loadFontBackend(parser, name, kind="opentype")
+        _system_font_backend_cache[cache_key] = backend
+        return backend
+    except FileNotFoundError:
+        pass
+
     if kind is None:
         raise FileNotFoundError(f"font {name} not found")
     raise FileNotFoundError(f"{kind} font {name} not found")

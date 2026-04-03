@@ -1,9 +1,21 @@
 from pathlib import Path
+import re
 
 import pytest
+from pypdf import PdfReader
+from reportlab.pdfgen import canvas
 
 from pytex import pdf
 from pytex import texlive
+def _page_content_text(path):
+    reader = PdfReader(str(path))
+    page = reader.pages[0]
+    content = page.get_contents()
+    if isinstance(content, list):
+        data = b"".join(c.get_data() for c in content)
+    else:
+        data = content.get_data()
+    return page, data.decode("latin1", "replace")
 
 
 def test_output_pages_uses_pdf_backend(cmr10, tmp_path):
@@ -43,6 +55,46 @@ def test_pdf_shipout_writes_minimal_page(cmr10, tmp_path):
     assert b"/Type /Page" in data
 
 
+def test_pdf_shipout_uses_tex_origin(cmr10, tmp_path):
+    out = tmp_path / "origin"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="origin")
+    cmr10.end()
+    _page, text = _page_content_text(str(out) + ".pdf")
+    match = re.search(r"BT 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm \(a\)", text)
+    assert match is not None
+    x = float(match.group(1))
+    assert 72.0 < x < 72.5
+
+
+def test_pdf_pagesize_special_changes_page_size(cmr10, tmp_path):
+    out = tmp_path / "pagesize"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse(r"\shipout\vbox{\special{pdf:pagesize width 300pt height 200pt}\hbox{a}}", jobname="pagesize")
+    cmr10.end()
+    page, _text = _page_content_text(str(out) + ".pdf")
+    width = float(page.mediabox.width)
+    height = float(page.mediabox.height)
+    assert abs(width - 300.0) < 0.2
+    assert abs(height - 200.0) < 0.2
+
+
+def test_pdf_epdf_special_includes_pdf_figure(cmr10, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    c = canvas.Canvas(str(fig), pagesize=(200, 100))
+    c.drawString(20, 50, "FIG")
+    c.save()
+    out = tmp_path / "epdf"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse(
+        r"\shipout\vbox{\hbox{\special{pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)}\kern72pt}}",
+        jobname="epdf",
+    )
+    cmr10.end()
+    reader = PdfReader(str(out) + ".pdf")
+    assert "FIG" in (reader.pages[0].extract_text() or "")
+
+
 def test_pdf_dvipdfm_color_special_is_emitted(cmr10, tmp_path):
     out = tmp_path / "pdf-color"
     cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
@@ -50,3 +102,13 @@ def test_pdf_dvipdfm_color_special_is_emitted(cmr10, tmp_path):
     cmr10.end()
     data = Path(str(out) + ".pdf").read_bytes()
     assert b"1 0 0 rg" in data
+
+
+def test_pdf_ignored_multiline_special_is_sanitized(cmr10, tmp_path):
+    out = tmp_path / "pdf-special"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse("\\shipout\\vbox{\\special{foo^^Jbar}\\hbox{a}}", jobname="pdf-special")
+    cmr10.end()
+    data = Path(str(out) + ".pdf").read_bytes()
+    assert b"% rawSpecial ignored: foo\\nbar" in data
+    assert b"% rawSpecial ignored: foo\nbar" not in data

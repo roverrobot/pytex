@@ -40,7 +40,7 @@ _XOBJECT_COMMANDS = {
 }
 
 _DIMENSION_KEYS = {"width", "height", "depth"}
-_XOBJECT_OPTION_KEYS = _DIMENSION_KEYS | {"scale", "xscale", "yscale", "rotate", "bbox"}
+_XOBJECT_OPTION_KEYS = _DIMENSION_KEYS | {"scale", "xscale", "yscale", "rotate", "bbox", "page", "pagebox", "clip"}
 
 
 def _skip_spaces(text, index):

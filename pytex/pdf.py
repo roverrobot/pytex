@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 import os
 import re
 
+from pypdf import PdfReader, PdfWriter, Transformation
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import EmbeddedType1Face, Font as ReportLabFont, registerFont, registerTypeFace
 from reportlab.pdfbase.ttfonts import TTFont as ReportLabTTFont
@@ -17,6 +19,11 @@ from pytex.typeset.shipout import Shipout
 
 
 _DIMEN_RE = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))([A-Za-z]+)\s*$")
+_PDF_PAGESIZE_RE = re.compile(
+    r"^\s*pdf:\s*pagesize\s+width\s+(\S+)\s+height\s+(\S+)\s*$",
+    re.IGNORECASE,
+)
+_PAPERSIZE_RE = re.compile(r"^\s*papersize=(\S+),(\S+)\s*$", re.IGNORECASE)
 _PDF_STRING_ESCAPES = {
     "n": "\n",
     "r": "\r",
@@ -27,6 +34,7 @@ _PDF_STRING_ESCAPES = {
     "(": "(",
     ")": ")",
 }
+_ONE_INCH = Dimen(integer=Dimen._trunc_div(UNITS["in"][0] * Dimen.scale, UNITS["in"][1]))
 
 
 class PDFBackend(Shipout):
@@ -35,7 +43,9 @@ class PDFBackend(Shipout):
     def __init__(self, parser, output=None):
         super().__init__(parser, output)
         self.file = None
+        self._canvas_output = None
         self.canvas = None
+        self._canvas_buffer = None
         self.current_font = None
         self.current_font_name = None
         self._font_names = {}
@@ -45,6 +55,10 @@ class PDFBackend(Shipout):
         self.page_height = 0
         self._color_stack = []
         self._current_color = ("gray", ("0",))
+        self._origin_x = int(_ONE_INCH)
+        self._origin_y = int(_ONE_INCH)
+        self._page_overlays = []
+        self._pdf_sources = {}
 
     @staticmethod
     def _pt(value):
@@ -76,7 +90,7 @@ class PDFBackend(Shipout):
         if unit not in UNITS:
             raise ValueError(f"unsupported special unit {unit}")
         num, den = UNITS[unit]
-        return value * num / den
+        return value * num / den * Dimen.scale
 
     @staticmethod
     def _decode_pdf_string(token):
@@ -100,17 +114,19 @@ class PDFBackend(Shipout):
         height_param = self.parser.parameters["pdfpageheight"]
         width = 0 if width_param is None else int(width_param)
         height = 0 if height_param is None else int(height_param)
+        origin_x = int(_ONE_INCH) + int(self.parser.layout["hoffset"])
+        origin_y = int(_ONE_INCH) + int(self.parser.layout["voffset"])
         if width <= 0:
-            width = int(box.width) + 2 * int(self.parser.layout["hoffset"])
+            width = int(box.width) + 2 * origin_x
         if height <= 0:
-            height = int(box.height + box.depth) + 2 * int(self.parser.layout["voffset"])
+            height = int(box.height + box.depth) + 2 * origin_y
         return width, height
 
-    def _baseline(self, v):
-        return self._pt(self.page_height - int(v))
+    def _x(self, h):
+        return self._pt(self._origin_x + int(h))
 
-    def _top(self, v):
-        return self._pt(self.page_height - int(v))
+    def _page_y(self, v):
+        return self._pt(self.page_height - (self._origin_y + int(v)))
 
     def _set_canvas_color(self, space, values):
         vals = tuple(float(v) for v in (values or ()))
@@ -130,6 +146,139 @@ class PDFBackend(Shipout):
             self.canvas.setStrokeColorCMYK(c, m, y, k)
             return
         raise ValueError(f"unsupported color space {space}")
+
+    def _raw_pagesize(self, text):
+        match = _PDF_PAGESIZE_RE.match(text)
+        if match is None:
+            match = _PAPERSIZE_RE.match(text)
+        if match is None:
+            return False
+        width = int(self._parse_special_dimen(match.group(1)))
+        height = int(self._parse_special_dimen(match.group(2)))
+        self.page_width = width
+        self.page_height = height
+        self.canvas.setPageSize((self._pt(width), self._pt(height)))
+        return True
+
+    @staticmethod
+    def _options_map(options):
+        return {key: value for key, value in options or ()}
+
+    @classmethod
+    def _source_path(cls, parser, source):
+        name = cls._decode_pdf_string(source)
+        try:
+            path = parser.resolver._sourcePath(name)
+        except ValueError:
+            return name, None
+        if not os.path.exists(path):
+            return name, None
+        return name, path
+
+    @staticmethod
+    def _bbox_from_options(options):
+        bbox = options.get("bbox")
+        if bbox is None:
+            return (0.0, 0.0, 0.0, 0.0)
+        return tuple(float(v) for v in bbox)
+
+    @classmethod
+    def _target_size(cls, options, bbox):
+        natural_width = bbox[2] - bbox[0]
+        natural_height = bbox[3] - bbox[1]
+        width = options.get("width")
+        height = options.get("height")
+        width = None if width is None else cls._pt(cls._parse_special_dimen(width))
+        height = None if height is None else cls._pt(cls._parse_special_dimen(height))
+        if width is None and height is None:
+            width = natural_width
+            height = natural_height
+        elif width is None:
+            width = natural_width * height / natural_height
+        elif height is None:
+            height = natural_height * width / natural_width
+        scale = float(options.get("scale", "1"))
+        xscale = float(options.get("xscale", "1"))
+        yscale = float(options.get("yscale", "1"))
+        width *= scale * xscale
+        height *= scale * yscale
+        return width, height
+
+    def _queue_epdf_overlay(self, options, source):
+        page_number = int(options.get("page", "1"))
+        pagebox = str(options.get("pagebox", "cropbox")).lower()
+        bbox = self._bbox_from_options(options)
+        target_width, target_height = self._target_size(options, bbox)
+        x = self._x(self.h)
+        y = self._page_y(self.v) - target_height
+        self._page_overlays[-1].append(
+            {
+                "kind": "epdf",
+                "source": source,
+                "page": page_number,
+                "pagebox": pagebox,
+                "bbox": bbox,
+                "width": target_width,
+                "height": target_height,
+                "x": x,
+                "y": self._page_y(self.v),
+                "rotate": float(options.get("rotate", "0")),
+            }
+        )
+
+    def _pdf_source_reader(self, name):
+        reader = self._pdf_sources.get(name)
+        if reader is not None:
+            return reader
+        _decoded, path = self._source_path(self.parser, f"({name})")
+        if path is None:
+            raise FileNotFoundError(name)
+        reader = PdfReader(path)
+        self._pdf_sources[name] = reader
+        return reader
+
+    @staticmethod
+    def _page_box(page, pagebox):
+        if pagebox == "mediabox":
+            return tuple(map(float, page.mediabox))
+        if pagebox == "cropbox":
+            return tuple(map(float, page.cropbox))
+        if pagebox == "bleedbox":
+            return tuple(map(float, page.bleedbox))
+        if pagebox == "trimbox":
+            return tuple(map(float, page.trimbox))
+        if pagebox == "artbox":
+            return tuple(map(float, page.artbox))
+        return tuple(map(float, page.cropbox))
+
+    def _apply_overlays(self, data):
+        if not any(self._page_overlays):
+            return data
+        reader = PdfReader(BytesIO(data))
+        writer = PdfWriter()
+        if reader.metadata is not None:
+            writer.add_metadata(dict(reader.metadata))
+        for page_index, page in enumerate(reader.pages):
+            for overlay in self._page_overlays[page_index]:
+                if overlay["kind"] != "epdf":
+                    continue
+                source_reader = self._pdf_source_reader(overlay["source"])
+                source_page = source_reader.pages[overlay["page"] - 1]
+                source_box = self._page_box(source_page, overlay["pagebox"])
+                llx, lly, urx, ury = overlay["bbox"]
+                if llx == lly == urx == ury == 0.0:
+                    llx, lly, urx, ury = source_box
+                sx = overlay["width"] / (urx - llx)
+                sy = overlay["height"] / (ury - lly)
+                transform = Transformation().scale(sx, sy)
+                if overlay["rotate"]:
+                    transform = transform.rotate(overlay["rotate"])
+                transform = transform.translate(overlay["x"] - llx * sx, overlay["y"] - lly * sy)
+                page.merge_transformed_page(source_page, transform, over=True)
+            writer.add_page(page)
+        out = BytesIO()
+        writer.write(out)
+        return out.getvalue()
 
     def _register_opentype(self, font, font_name):
         path = getattr(font.backend, "path", None)
@@ -183,7 +332,8 @@ class PDFBackend(Shipout):
         return name
 
     def _note_ignored(self, message):
-        self.canvas.addLiteral(f"% {message}")
+        safe = message.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+        self.canvas.addLiteral(f"% {safe}")
 
     def open(self, output=None):
         if self.canvas is not None:
@@ -193,38 +343,49 @@ class PDFBackend(Shipout):
         if output is None:
             output = self.parser.jobname or "texput"
         if hasattr(output, "write"):
-            self.file = output
+            self._canvas_output = output
         else:
             name = os.fspath(output)
             if os.path.isabs(name):
                 if not name.endswith(".pdf"):
                     name += ".pdf"
-                self.file = open(name, "wb")
+                self._canvas_output = open(name, "wb")
             else:
-                self.file = self.parser.resolver.openOut(name, "shipout/pdf")
-        self.canvas = reportlab_canvas.Canvas(self.file, pagesize=(1, 1), pageCompression=0)
+                self._canvas_output = self.parser.resolver.openOut(name, "shipout/pdf")
+        self._canvas_buffer = BytesIO()
+        self.canvas = reportlab_canvas.Canvas(self._canvas_buffer, pagesize=(1, 1), pageCompression=0)
         self.canvas.setTitle(self.parser.jobname or "texput")
 
     def close(self):
-        if self.canvas is None:
+        canvas = self.canvas
+        if canvas is None:
             return
-        self.canvas.save()
         self.canvas = None
+        canvas.save()
+        data = self._canvas_buffer.getvalue()
+        data = self._apply_overlays(data)
+        self._canvas_output.write(data)
+        self._canvas_buffer = None
         self.current_font = None
         self.current_font_name = None
-        if self.file is not None:
-            self.file.close()
-            self.file = None
+        self._page_overlays = []
+        self._pdf_sources = {}
+        if self._canvas_output is not None:
+            self._canvas_output.close()
+            self._canvas_output = None
 
     def begin_page(self, box):
         if self.canvas is None:
             self.open()
         self.page_width, self.page_height = self._page_size(box)
+        self._origin_x = int(_ONE_INCH) + int(self.parser.layout["hoffset"])
+        self._origin_y = int(_ONE_INCH) + int(self.parser.layout["voffset"])
         self.canvas.setPageSize((self._pt(self.page_width), self._pt(self.page_height)))
         self.current_font = None
         self.current_font_name = None
         self._color_stack = []
         self._current_color = ("gray", ("0",))
+        self._page_overlays.append([])
         self._set_canvas_color(*self._current_color)
 
     def end_page(self, box):
@@ -246,7 +407,7 @@ class PDFBackend(Shipout):
         self.v = 0 if v is None else int(v)
 
     def set_char(self, node):
-        self.canvas.drawString(self._pt(self.h), self._baseline(self.v), node.char)
+        self.canvas.drawString(self._x(self.h), self._page_y(self.v), node.char)
 
     def set_rule(self, node, box, move):
         def running(d):
@@ -261,12 +422,13 @@ class PDFBackend(Shipout):
             height = int(box.height) if running(node.height) else int(node.height)
             depth = int(box.depth) if running(node.depth) else int(node.depth)
         total_height = self._pt(height + depth)
-        x = self._pt(self.h)
-        y = self._top(self.v) - total_height
+        x = self._x(self.h)
+        y = self._page_y(self.v) - total_height
         self.canvas.rect(x, y, self._pt(width), total_height, stroke=0, fill=1)
 
     def rawSpecial(self, text):
-        self._note_ignored(f"rawSpecial ignored: {text}")
+        if not self._raw_pagesize(text):
+            self._note_ignored(f"rawSpecial ignored: {text}")
 
     def setColor(self, mode, space=None, values=None):
         if mode == "push":
@@ -294,8 +456,21 @@ class PDFBackend(Shipout):
         self._note_ignored(f"annotate ignored: {kind}")
 
     def xObject(self, kind, name=None, options=None, source=None):
+        options = self._options_map(options)
         if kind == "image" and source:
-            self._note_ignored(f"xObject image not yet implemented: {source}")
+            decoded, path = self._source_path(self.parser, source)
+            if path is None:
+                self._note_ignored(f"xObject image missing: {decoded}")
+                return
+            bbox = self._bbox_from_options(options)
+            target_width, target_height = self._target_size(options, bbox)
+            x = self._x(self.h)
+            y = self._page_y(self.v)
+            self.canvas.drawImage(path, x, y, width=target_width, height=target_height)
+            return
+        if kind == "epdf" and source:
+            decoded = self._decode_pdf_string(source)
+            self._queue_epdf_overlay(options, decoded)
             return
         self._note_ignored(f"xObject ignored: {kind}")
 

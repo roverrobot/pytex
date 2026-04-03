@@ -4,7 +4,7 @@ This module implements macros.
 
 
 from pytex.token import CATCODE, Command, ParameterToken
-from pytex.accessor import Prefix, GlobalPrefix
+from pytex.accessor import Prefix
 from pytex.define import EquitableAccessor
 from pytex.module import Module
 from pytex.serialization import Serializable
@@ -537,7 +537,7 @@ class MacroAccessor(EquitableAccessor):
         """
         pass
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         """
         read the macro definition from the input stack
 
@@ -572,15 +572,11 @@ class MacroAccessor(EquitableAccessor):
             parser.message(f"macro {self.key}: {macro.meaning(parser)}")
         return macro
     
-    def assign(self, parser, prefixes):
-        """
-        assign the macro to the index
-        @param parser: the parser
-        @param prefixes: the prefixes to the assignment
-        """
+    def getAssignment(self, parser):
+        assignment = super().getAssignment(parser)
         if self.globally:
-            prefixes.insert(0, GlobalPrefix())
-        super().assign(parser, prefixes)
+            assignment.global_scope = True
+        return assignment
 
 
 class Def(MacroAccessor):

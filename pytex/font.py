@@ -195,7 +195,7 @@ class FontCharAccessor(Accessor):
     def readKey(self, parser):
         return readFont(parser)
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         return parser.readInteger()
 
     def getTarget(self, parser):
@@ -215,7 +215,7 @@ class FontDefineAccessor(EquitableAccessor):
     def setDefault(self, t):
         t.entry.value = t.definition = nullfont
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         """
         read a font specification from the input stack
         @param parser: the parser
@@ -274,7 +274,7 @@ class FontDimenAccessor(Accessor):
         index = parser.readInteger() - 1
         return readFont(parser), index
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         return parser.readDimen()
 
     def getTarget(self, parser):

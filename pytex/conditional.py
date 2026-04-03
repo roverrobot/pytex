@@ -209,15 +209,15 @@ class IfCase(Conditional):
 class IfNum(Conditional):
     """ the \\ifnum command """
 
-    def readValue(self, parser):
+    def readComparisonValue(self, parser):
         return parser.readInteger()
 
     def condition(self, parser):
-        n1 = self.readValue(parser)
+        n1 = self.readComparisonValue(parser)
         op = parser.token_expand()
         if op is None or op.catcode != CATCODE.OTHER or op.name not in "<=>":
             raise ValueError("expecting a comparison operator", parser.input.position())
-        n2 = self.readValue(parser)
+        n2 = self.readComparisonValue(parser)
         if op.name == "<":
             return 0 if n1 < n2 else 1
         if op.name == "=":
@@ -227,7 +227,7 @@ class IfNum(Conditional):
 
 class IfDim(IfNum):
     """ the \\ifdim command """
-    def readValue(self, parser):
+    def readComparisonValue(self, parser):
         return parser.readDimen()
 
 

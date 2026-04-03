@@ -157,6 +157,34 @@ class Parser:
         """
         return target.get()
 
+    def _readMeaningValue(self, meaning, requested_type):
+        """
+        Read a value from the command occurrence represented by ``meaning``.
+
+        This prefers the new command-side readValue contract, while keeping a
+        compatibility fallback for older getTarget()-based readers.
+        """
+        reader = getattr(meaning, "readValue", None)
+        if reader is not None:
+            value, value_type = reader(self, requested_type)
+            if value_type is not None:
+                return value, value_type
+        get_target = getattr(meaning, "getTarget", None)
+        if get_target is None:
+            return None, None
+        can_bind = True
+        if isinstance(meaning, accessor.Accessor):
+            can_bind = meaning.canReadValue(requested_type)
+        if not can_bind:
+            return None, None
+        target = get_target(self)
+        if not getattr(target, "readable", True):
+            return None, None
+        try:
+            return self.get(target), target.value_type
+        except (IndexError, KeyError, TypeError):
+            return None, None
+
     def cast(self, value, value_type):
         """
         cast a value to a new type
@@ -207,6 +235,53 @@ class Parser:
             raise NotImplementedError(f"no reader registered for value type {value_type}")
         return reader()
 
+    def readAssignment(self, expand: bool = True):
+        """
+        Read an assignment occurrence from the next token.
+
+        Returns a parsed Assignment object, a LegacyAssignment wrapper for
+        older assign(parser, prefixes) commands, or None if the next token is
+        not an assignment head.
+        """
+        t = self.token_expand() if expand else self.token()
+        if t is None:
+            return None
+        meaning = t.definition
+        if meaning is None:
+            self.input.unread(t)
+            return None
+        getter = getattr(meaning, "getAssignment", None)
+        assignment = None if getter is None else getter(self)
+        if assignment is not None:
+            return assignment
+        assign = getattr(meaning, "assign", None)
+        if assign is None:
+            self.input.unread(t)
+            return None
+        return accessor.LegacyAssignment(meaning)
+
+    def readInternalValueInfo(self, value_type, expand: bool = True):
+        """
+        Read an internal value and return both the value and its effective type.
+
+        On failure, the original token is unread and ``(None, None)``
+        is returned.
+        """
+        t = self.token_expand() if expand else self.token()
+        if t is None:
+            return None, None
+        value, actual_type = self._readMeaningValue(t.definition, value_type)
+        if actual_type is None:
+            self.input.unread(t)
+            return None, None
+        if value_type != accessor.VALUE_TYPE.UNKNOWN and actual_type != value_type:
+            casted = self.cast(value, value_type)
+            if casted is None:
+                self.input.unread(t)
+                return None, None
+            return casted, value_type
+        return value, actual_type
+
     def readInternalValue(self, value_type, expand: bool = True):
         """
         Read an internal value of the requested type from the next token.
@@ -217,61 +292,8 @@ class Parser:
         If the next token does not denote an internal value of that shape, it is
         unread and `None` is returned.
         """
-        t = self.token_expand() if expand else self.token()
-        if t is None:
-            return None
-        meaning = t.definition
-        getter_name = {
-            accessor.VALUE_TYPE.MEANING: "meaningValue",
-        }.get(value_type)
-        value = None
-        get_target = getattr(meaning, "getTarget", None)
-        can_bind = False
-        if get_target is not None:
-            if isinstance(meaning, accessor.Accessor):
-                # Binding an accessor target may consume trailing syntax such as
-                # a register index. So we must reject incompatible internal-value
-                # shapes before calling getTarget(); once the target is safely
-                # bound, the readable value may still be cast to the requested
-                # type below.
-                compatible_targets = {
-                    accessor.VALUE_TYPE.INT: {accessor.VALUE_TYPE.INT},
-                    accessor.VALUE_TYPE.DIMEN: {accessor.VALUE_TYPE.INT, accessor.VALUE_TYPE.DIMEN},
-                    accessor.VALUE_TYPE.GLUE: {
-                        accessor.VALUE_TYPE.INT,
-                        accessor.VALUE_TYPE.DIMEN,
-                        accessor.VALUE_TYPE.GLUE,
-                    },
-                    accessor.VALUE_TYPE.MUGLUE: {
-                        accessor.VALUE_TYPE.INT,
-                        accessor.VALUE_TYPE.DIMEN,
-                        accessor.VALUE_TYPE.MUGLUE,
-                    },
-                    accessor.VALUE_TYPE.TOKS: {accessor.VALUE_TYPE.TOKS},
-                    accessor.VALUE_TYPE.FONT: {accessor.VALUE_TYPE.FONT},
-                    accessor.VALUE_TYPE.MEANING: {accessor.VALUE_TYPE.MEANING},
-                }
-                can_bind = (
-                    meaning.canBindInternalValue()
-                    and value_type in compatible_targets.get(meaning.target_type, set())
-                )
-            else:
-                can_bind = True
-        if can_bind:
-            target = get_target(self)
-            if getattr(target, "readable", True):
-                try:
-                    value = self.cast(self.get(target), value_type)
-                except (IndexError, KeyError, TypeError):
-                    value = None
-        elif getter_name is not None:
-            getter = getattr(meaning, getter_name, None)
-            if getter is not None:
-                value = getter(self)
-        if value is not None:
-            return value
-        self.input.unread(t)
-        return None
+        value, _ = self.readInternalValueInfo(value_type, expand=expand)
+        return value
 
     def resolveGlobalScope(self, global_scope: bool = False):
         """

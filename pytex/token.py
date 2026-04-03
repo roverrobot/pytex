@@ -66,6 +66,22 @@ class Command(Builtin):
     # the expanded method.
     expanded = None
 
+    def readValue(self, parser, requested_type):
+        """
+        Read this command occurrence as an internal value.
+
+        The default implementation means "not readable as a value".
+        """
+        return None, None
+
+    def getAssignment(self, parser):
+        """
+        Parse this command occurrence as an assignment head.
+
+        The default implementation means "not an assignment".
+        """
+        return None
+
     def __eq__(self, other):
         """
         compare the command with another command.

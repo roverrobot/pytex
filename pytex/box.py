@@ -513,11 +513,11 @@ def readBox(parser, setbox=False):
     @param parser: the parser
     @param setbox: whether the this function is called from setbox
     """
-    target = parser.readTarget()
-    if target is not None:
-        if target.value_type != VALUE_TYPE.BOX or not getattr(target, "readable", True):
+    value, value_type = parser.readInternalValueInfo(VALUE_TYPE.BOX)
+    if value_type is not None:
+        if value_type != VALUE_TYPE.BOX:
             raise ValueError("expecting a box", parser.input.position())
-        return target.get()
+        return value
     t = parser.token_expand()
     if t is None:
         raise ValueError("expecting a box", parser.input.position())
@@ -711,7 +711,7 @@ class BoxDimenAccessor(Accessor):
     def readKey(self, parser):
         return parser.readInteger()
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         return parser.readDimen()
 
     def getTarget(self, parser):

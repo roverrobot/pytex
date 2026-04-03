@@ -40,7 +40,7 @@ class LetAccessor(EquitableAccessor):
         if t is not None and t.catcode != CATCODE.SPACE:
             parser.input.unread(t)
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         t = parser.token()
         if t is None:
             raise ValueError("a token is expected")
@@ -60,7 +60,7 @@ class FutureLetAccessor(EquitableAccessor):
         """
         pass
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         """
         read the value from the input stack
         @param parser: the parser
@@ -117,7 +117,7 @@ class CharDefAccessor(EquitableAccessor):
     """
     An accessor for the \\chardef command
     """
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         """
         read the value from the input stack
         @param parser: the parser
@@ -140,7 +140,7 @@ class RegisterDefAccessor(EquitableAccessor):
         self.register = register
         self.accessor_generator = accessor_generator
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         i = parser.readInteger()
         register = getattr(parser, self.register)
         c = self.accessor_generator(register, i, builtin=False)

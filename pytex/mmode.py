@@ -1105,7 +1105,7 @@ class MathCharValue(lists.ModeDependentCommand):
 
 
 class MathCharDefAccesor(EquitableAccessor):
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         return MathCharValue(parser.readInteger())
 
 
@@ -1901,7 +1901,7 @@ class VolatileParameterAccessor(Accessor):
     def saveInfo(self):
         return {"name": self.name}, None
 
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         return parser.readDimen()
 
     def getTarget(self, parser):

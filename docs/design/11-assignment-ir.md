@@ -22,10 +22,11 @@ The stable command-side interface should be:
 
 with the convention:
 
-- unsupported read: `(None, requested_type)`
+- unsupported read: `(None, None)`
 - supported read:
   - `(value, requested_type)` when the command chooses to satisfy the request directly
   - or `(value, native_type)` when the native type matters
+  - notably, `(None, type)` is a valid successful read of a typed `None` value
 - `requested_type == UNKNOWN` asks for the native readable form
 
 And the stable parser-side interface should be:
@@ -78,7 +79,7 @@ value, value_type = meaning.readValue(parser, requested_type)
 
 with these rules:
 
-- the default implementation returns `(None, requested_type)`
+- the default implementation returns `(None, None)`
 - commands that are not readable need do nothing special
 - a readable command may consume trailing syntax only after it knows it can
   satisfy the requested read
@@ -186,7 +187,7 @@ through those same target objects.
 
 1. read the next token, expanded or raw depending on `expand`
 2. ask its meaning for `readValue(parser, value_type)`
-3. if the returned value is `None`, unread the token and fail
+3. if the returned type is `None`, unread the token and fail
 4. if the returned type differs from the requested type, cast at the parser layer
 5. return the final value
 
@@ -228,7 +229,7 @@ Prefixes should provide:
 
 So for prefixes:
 
-- `readValue(...)` returns `(None, requested_type)`
+- `readValue(...)` returns `(None, None)`
 - `getAssignment(parser)` reads the next assignment and modifies it
 
 This matches TeX semantics much better than pretending that prefixes are

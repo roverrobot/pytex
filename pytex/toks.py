@@ -237,24 +237,24 @@ class The(Command):
         @param parser: the parser
         @return: the token list
         """
-        target = parser.readTarget()
-        if target is not None:
-            value = parser.get(target)
-            if target.value_type == accessor.VALUE_TYPE.MUGLUE:
+        value, value_type = parser.readInternalValueInfo(accessor.VALUE_TYPE.UNKNOWN)
+        if value_type is not None:
+            if value_type == accessor.VALUE_TYPE.MUGLUE:
                 return toToks(str(value))
-            if target.value_type == accessor.VALUE_TYPE.GLUE:
+            if value_type == accessor.VALUE_TYPE.GLUE:
                 return toToks(str(value))
-            if target.value_type == accessor.VALUE_TYPE.DIMEN:
+            if value_type == accessor.VALUE_TYPE.DIMEN:
                 return toToks(repr(value) + "pt")
-            if target.value_type == accessor.VALUE_TYPE.INT:
+            if value_type == accessor.VALUE_TYPE.INT:
                 return toToks(repr(parser.cast(value, accessor.VALUE_TYPE.INT)))
-            if target.value_type == accessor.VALUE_TYPE.TOKS:
+            if value_type == accessor.VALUE_TYPE.TOKS:
                 return value
-            if target.value_type == accessor.VALUE_TYPE.FONT:
+            if value_type == accessor.VALUE_TYPE.FONT:
                 f = value
                 t = CommandToken(f.name)
                 t.entry = parser.equitable.entry(f.name)
                 return [t]
+            raise ValueError(f"invalid value after \\the", parser.input.position())
         t = parser.token_expand()
         if t is None:
             raise ValueError(f"expecting a token after \\the", parser.input.position())

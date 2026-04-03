@@ -58,7 +58,7 @@ class Expr(ModeDependentCommand):
     """
     The \\numexpr etc commands
     """
-    def readValue(self, parser):
+    def readTermValue(self, parser):
         """
         Read a value from the input stack
         @param parser: the parser
@@ -149,14 +149,14 @@ class Expr(ModeDependentCommand):
             return value
         if integer:
             return parser.readInteger()
-        return self.readValue(parser)
+        return self.readTermValue(parser)
     
 
 class NumExpr(Expr):
     """
     The \\numexpr command
     """
-    def readValue(self, parser):
+    def readTermValue(self, parser):
         return parser.readInteger()
     
     def divide(self, x, y):
@@ -171,7 +171,7 @@ class DimExpr(Expr):
     """
     The \\dimexpr command
     """
-    def readValue(self, parser):
+    def readTermValue(self, parser):
         return parser.readDimen()
 
     def getTarget(self, parser):
@@ -182,7 +182,7 @@ class GlueExpr(Expr):
     """
     The \\glueexpr command
     """
-    def readValue(self, parser):
+    def readTermValue(self, parser):
         return parser.readGlue()
 
     def getTarget(self, parser):
@@ -193,7 +193,7 @@ class MuExpr(Expr):
     """
     The \\muexpr command
     """
-    def readValue(self, parser):
+    def readTermValue(self, parser):
         return parser.readGlue(mu=True)
 
     def getTarget(self, parser):
@@ -518,7 +518,7 @@ class ReadlineOp(file.ReadOp):
     """
     Read a line from a file, and assignit as a parameterless macro
     """    
-    def readValue(self, parser):
+    def readAssignmentValue(self, parser):
         tokens = []
         level = 0
         file = parser.globals["openin"][self.file_id]

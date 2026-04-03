@@ -10,14 +10,13 @@ from pytex import texlive
 from pytex import etex
 # latex would require pdftex
 from pytex import pdftex
-# dvi output
-from pytex import dvi
 from pytex import opentype
 
 from argparse import ArgumentParser
 import os
 import types
 
+backends = ["dvi", "pdf"]
 
 argparser = ArgumentParser()
 argparser.add_argument("-f", "--format", default="initex",
@@ -27,8 +26,9 @@ argparser.add_argument("-p", "--profile", action="store_true",
 argparser.add_argument(
     "-o",
     "--output",
-    default=None,
-    help="output file name for shipout backends (for example the DVI file name)",
+    default="pdf",
+    choices=["dvi", "pdf"],
+    help="shipout output format. Relative output paths are derived from the jobname in the project directory.",
 )
 argparser.add_argument(
     "-s",
@@ -51,7 +51,15 @@ DOCUMENT_METADATA_SNIPPET = "\\DocumentMetadata{backend=dvipdfmx}\\relax\n"
 if args.sort is not None and not args.profile:
     print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
 
+if args.format != "initex":
+    # load the shipout backend
+    if args.output == "dvi":
+        import pytex.dvi
+    elif args.output == "pdf":
+        import pytex.pdf
+
 parser = Parser(project_dir=args.project_dir)
+parser.resolver.format = args.format
 
 # tracing settings
 #parser.tracingcommands = 2
@@ -60,7 +68,6 @@ parser = Parser(project_dir=args.project_dir)
 #parser.tracinglinebegin = 1670
 #parser.tracinglineend = 1670
 #parser.tracingstopatend = 1
-
 
 def dumper(parser, data):
     with open(parser.resolver.format + '.pfmt', "wb") as fmt:
@@ -74,7 +81,6 @@ source = args.file
 dir = os.path.dirname(source)
 base = os.path.basename(source)
 file, ext = os.path.splitext(base)
-parser.resolver.format = file
 
 if args.format == "initex":
     if ext == "" and parser.resolver.format != "plain": # no extension
@@ -96,10 +102,8 @@ if input is None:
     raise ValueError(f"cannot find {source}")
 
 def run_document():
-    if args.format != "initex":
-        parser.shipout = dvi.DVIBackend(parser, args.output)
-        if parser.equitable["\\DocumentMetadata"] is not None:
-            parser.parse(DOCUMENT_METADATA_SNIPPET)
+    if args.format != "initex" and parser.equitable["\\DocumentMetadata"] is not None:
+        parser.parse(DOCUMENT_METADATA_SNIPPET)
     parser.parse(input, jobname=file)
     input.close()
     if args.format != "initex":

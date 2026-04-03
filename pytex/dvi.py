@@ -56,9 +56,12 @@ class DVIBackend(Shipout):
             self._write_pre()
             return
         path = os.fspath(output)
-        if not path.endswith(".dvi"):
-            path += ".dvi"
-        self.file = open(path, "wb")
+        if os.path.isabs(path):
+            if not path.endswith(".dvi"):
+                path += ".dvi"
+            self.file = open(path, "wb")
+        else:
+            self.file = self.parser.resolver.openOut(path, "shipout/dvi")
         self._write_pre()
 
     def _write(self, data):

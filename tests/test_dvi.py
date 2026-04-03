@@ -6,6 +6,7 @@ from pytex import dvi
 from pytex import opentype
 from pytex import resolver
 from pytex import texlive
+from pytex.token import CATCODE
 
 
 def _find_subsequence(data: bytes, needle: bytes) -> int:
@@ -30,6 +31,31 @@ def test_output_pages_uses_explicit_output_name(parser, tmp_path):
     shipout = parser.shipout
     assert isinstance(shipout, dvi.DVIBackend)
     assert Path(str(out) + ".dvi").exists()
+
+
+def test_output_pages_default_to_project_directory(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    from pytex.parser import Parser
+    parser = Parser(project_dir=str(project))
+    try:
+        parser.catcode[ord("{")] = CATCODE.BEGIN_GROUP
+        parser.catcode[ord("}")] = CATCODE.END_GROUP
+        parser.catcode[ord("$")] = CATCODE.MATH_SHIFT
+        parser.catcode[ord("&")] = CATCODE.ALIGNMENT_TAB
+        parser.catcode[ord("#")] = CATCODE.PARAMETER
+        parser.catcode[ord("^")] = CATCODE.SUPERSCRIPT
+        parser.catcode[ord("_")] = CATCODE.SUBSCRIPT
+        parser.shipout = dvi.DVIBackend(parser)
+        parser.parse("\\vsize=20pt\\topskip=0pt\\hbox{A}", jobname="out")
+        parser.end()
+        assert (project / "out.dvi").exists()
+        assert not (work / "out.dvi").exists()
+    finally:
+        parser.close()
 
 
 def test_dvi_shipout_writes_minimal_page(cmr10, tmp_path):

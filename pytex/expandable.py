@@ -290,7 +290,7 @@ class EndInput(Command):
     This command ends the active scanner of the input stack.
     """
     def expand(self, parser):
-        active = parser.input.active
+        active = parser.input.activeScanner()
         if active is not None:
             active.end()
 

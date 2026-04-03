@@ -163,6 +163,23 @@ def test_push_token_list_splices_tokens_without_new_scanner_frame(parser):
     assert token is None
 
 
+def test_position_ignores_non_positioned_token_frames(parser):
+    stack = parser.input
+    scanner = lexer.StringScanner(parser, "AB")
+    stack.push(scanner)
+    token = stack.read()
+    assert token is not None
+    assert token.name == "A"
+    pos = stack.position()
+    before = (pos.line, pos.column)
+    stack.pushTokenList([tk.Token.token("X", CATCODE.LETTER)])
+    pos = stack.position()
+    assert (pos.line, pos.column) == before
+    active = stack.activeScanner()
+    assert active is not None
+    assert (active.position().line, active.position().column) == before
+
+
 def test_unicode(parser):
     s = "1é测"
     scanner = lexer.StringScanner(parser, s)

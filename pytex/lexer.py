@@ -300,8 +300,21 @@ class InputStack:
         self.stack = []
         # the saved tokens that are unread
         self.saved = []
-        # the last scanner in teh stack that can return a position
-        self.active = None
+
+    @staticmethod
+    def _positioned(scanner):
+        return callable(getattr(scanner, "position", None))
+
+    def activeScanner(self):
+        """
+        Return the nearest scanner frame that can report source position.
+        """
+        if self._positioned(self.top):
+            return self.top
+        for scanner, _saved in reversed(self.stack):
+            if self._positioned(scanner):
+                return scanner
+        return None
 
     def read(self) -> typing.Optional[Token]:
         """
@@ -322,7 +335,7 @@ class InputStack:
                 if entry is not None:
                     t.definition = entry.value
                 return t
-            self.top, self.active, self.saved = self.stack.pop()
+            self.top, self.saved = self.stack.pop()
             if self.saved:
                 t = self.saved.pop()
                 entry = t.entry
@@ -350,10 +363,8 @@ class InputStack:
         push a new scanner on the stack
         @param lexer: the scanner to push
         """
-        self.stack.append((self.top, self.active, self.saved))
+        self.stack.append((self.top, self.saved))
         self.top = lexer
-        if lexer.position is not None:
-            self.active = lexer
         self.saved = []
     
     def pop(self):
@@ -362,10 +373,9 @@ class InputStack:
         @param to: the scanner to pop to (including to)
         """
         try:
-            self.top, self.active, self.saved = self.stack.pop()
+            self.top, self.saved = self.stack.pop()
         except IndexError:
             self.top = None
-            self.active = None
             self.saved = []
 
     def clear(self):
@@ -375,15 +385,15 @@ class InputStack:
         self.top = None
         self.saved = []
         self.stack = []
-        self.active = None
 
     def position(self):
         """
         return the position of the last token read
         """
-        if self.active is None:
+        active = self.activeScanner()
+        if active is None:
             return Position(None, 0, 0)
-        return self.active.position()
+        return active.position()
     
     def __repr__(self):
         l = ["Input stack:"]
@@ -393,7 +403,7 @@ class InputStack:
             l.append(f"  saved: {s}")
         for s in repr(self.top).split("\n"):
             l.append(f"  top: {s}")
-        for scanner in reversed(self.stack):
+        for scanner, _saved in reversed(self.stack):
             for s in repr(scanner).split("\n"):
                 l.append(f"  {s}")
         return "\n".join(l)

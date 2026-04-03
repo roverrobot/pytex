@@ -225,11 +225,11 @@ class PDFPrimitive(token.Command):
     the control sequence, regardless of its current definition.
     """
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         name, builtin = _read_primitive(parser)
         if builtin is None:
             return None, None
-        reader = getattr(builtin, "readValue", None)
+        reader = getattr(builtin, "fetchValue", None)
         if reader is None:
             return None, None
         return reader(parser, requested_type)

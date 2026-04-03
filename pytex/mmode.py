@@ -1086,7 +1086,7 @@ class MathCharValue(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         mlist.append(self.mathCharValue(parser))
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.INT, requested_type):
             return None, None
         return self.mathcode, VALUE_TYPE.INT

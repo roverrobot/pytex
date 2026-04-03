@@ -99,7 +99,7 @@ class CharDefValue(Command):
     def execute(self, parser):
         return parser.addChar(chr(self.value))
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         return self.value, accessor.VALUE_TYPE.INT

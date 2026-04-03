@@ -288,7 +288,7 @@ class PageMark(Command):
 
     value_type = accessor.VALUE_TYPE.TOKS
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(self.value_type, requested_type):
             return None, None
         return getattr(parser, self.domain)[self.key], self.value_type

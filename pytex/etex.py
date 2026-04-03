@@ -39,7 +39,7 @@ class MarksValue(token.Command):
 
     value_type = accessor.VALUE_TYPE.TOKS
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(self.value_type, requested_type):
             return None, None
         index = parser.readInteger()
@@ -51,7 +51,7 @@ class MarksValue(token.Command):
         return register[index], self.value_type
 
     def expand(self, parser):
-        toks, _ = self.readValue(parser, self.value_type)
+        toks, _ = self.fetchValue(parser, self.value_type)
         if toks:
             parser.input.pushTokenList(toks)
 
@@ -165,7 +165,7 @@ class NumExpr(Expr):
         d = int(abs(x) / abs(y) + 0.5)
         return -d if x < 0 < y or y < 0 < x else d
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         return self.readExpr(parser, False), accessor.VALUE_TYPE.INT
@@ -178,7 +178,7 @@ class DimExpr(Expr):
     def readTermValue(self, parser):
         return parser.readDimen()
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.DIMEN, requested_type):
             return None, None
         return self.readExpr(parser, False), accessor.VALUE_TYPE.DIMEN
@@ -191,7 +191,7 @@ class GlueExpr(Expr):
     def readTermValue(self, parser):
         return parser.readGlue()
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.GLUE, requested_type):
             return None, None
         return self.readExpr(parser, False), accessor.VALUE_TYPE.GLUE
@@ -204,7 +204,7 @@ class MuExpr(Expr):
     def readTermValue(self, parser):
         return parser.readGlue(mu=True)
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.MUGLUE, requested_type):
             return None, None
         return self.readExpr(parser, False), accessor.VALUE_TYPE.MUGLUE
@@ -251,7 +251,7 @@ class LastNodeType(tk.Command):
     """
     The \\lastnodetype command
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         top = parser.lists[-1]
@@ -263,7 +263,7 @@ class CurrentGroupType(tk.Command):
     """
     The \\currentgrouptype command
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         groups = parser.groups
@@ -275,7 +275,7 @@ class CurrentGroupLevel(tk.Command):
     """
     The \\currentgrouplevel command
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         return len(parser.groups), accessor.VALUE_TYPE.INT
@@ -285,7 +285,7 @@ class CurrentIfLevel(tk.Command):
     """
     The \\currentiflevel command
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         return len(parser.ifstack), accessor.VALUE_TYPE.INT
@@ -318,7 +318,7 @@ class CurrentIfType(tk.Command):
         "ifcsname",
         "iffontchar", #20
     ]
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         value = -1 if len(parser.ifstack) == 0 else self.if_types.index(parser.ifstack[-1][0].name[1:])
@@ -329,7 +329,7 @@ class CurrentIfBranch(tk.Command):
     """
     The \\currentifbranch command
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         b = parser.ifstack[-1][2]
@@ -343,7 +343,7 @@ class GlueOrder(tk.Command):
     def __init__(self, field):
         self.field = field
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         glue = parser.readGlue()
@@ -357,7 +357,7 @@ class Penalties(tk.Command):
     def __init__(self, penalties):
         self.penalties = penalties
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
             return None, None
         index = parser.readInteger()
@@ -386,7 +386,7 @@ class ParShapeDimen(tk.Command):
     def __init__(self, index):
         self.index = index
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.DIMEN, requested_type):
             return None, None
         row = parser.readInteger()
@@ -411,7 +411,7 @@ class GlueStrechness(tk.Command):
     def __init__(self, field):
         self.field = field
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.DIMEN, requested_type):
             return None, None
         glue = parser.readGlue()
@@ -425,7 +425,7 @@ class FontCharDimen(tk.Command):
     def __init__(self, field):
         self.field = field
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.DIMEN, requested_type):
             return None, None
         f = font.readFont(parser)

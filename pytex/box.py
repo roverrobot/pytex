@@ -401,7 +401,7 @@ class BoxCommand(Command):
             return None
         return box.copy()
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.BOX, requested_type):
             return None, None
         return self._readBoxValue(parser), VALUE_TYPE.BOX
@@ -1026,7 +1026,7 @@ class LastBox(Command):
     """
     The \\lastbox command.
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.BOX, requested_type):
             return None, None
         top = parser.lists[-1]
@@ -1039,7 +1039,7 @@ class LastBox(Command):
         return top.pop() if top and isinstance(top[-1], Box) else None, VALUE_TYPE.BOX
     
     def execute(self, parser):
-        self.readValue(parser, VALUE_TYPE.BOX)
+        self.fetchValue(parser, VALUE_TYPE.BOX)
 
 
 mod = Module("hbox", 

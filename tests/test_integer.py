@@ -127,7 +127,7 @@ def test_read_internal_integer_rejects_unreadable_command(parser):
         def __init__(self, value):
             self.value = value
 
-        def readValue(self, parser, requested_type):
+        def fetchValue(self, parser, requested_type):
             return None, None
 
     parser.equitable["\\a"] = UnreadableInteger(7)

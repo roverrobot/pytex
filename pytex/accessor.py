@@ -8,9 +8,9 @@ a specific value, could be an item in an array, or a parameter. The latter is al
 an item int heequitable. So the Accessor class denote the value that it poitns to by
 a domain and an index. 
 
-There are two main methods in the Accessor class: readValue and getAssignment. When the
+There are two main methods in the Accessor class: fetchValue and getAssignment. When the
 command is executed, it is an assignment. On the other hand, the command may be read by
-other commands. In this case, the command is not an assignment, but readValue() is called.
+other commands. In this case, the command is not an assignment, but fetchValue() is called.
 
 """
 
@@ -255,7 +255,7 @@ class Accessor(token.Command):
         """
         return parser.readValue(self.value_type)
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not self.canBindInternalValue():
             return None, None
         if not canReadAs(self.value_type, requested_type):

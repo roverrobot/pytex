@@ -66,9 +66,9 @@ class Command(Builtin):
     # the expanded method.
     expanded = None
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         """
-        Read this command occurrence as an internal value.
+        Fetch this command occurrence as an internal value.
 
         The default implementation means "not readable as a value".
         """

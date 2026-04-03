@@ -337,7 +337,7 @@ class LastPenalty(Command):
     """
     The \\lastpenalty command.
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.INT, requested_type):
             return None, None
         top = parser.lists[-1]
@@ -350,7 +350,7 @@ class LastKern(Command):
     """
     The \\lastkern command.
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.DIMEN, requested_type):
             return None, None
         top = parser.lists[-1]
@@ -363,7 +363,7 @@ class LastSkip(Command):
     """
     The \\lastskip command.
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.GLUE, requested_type):
             return None, None
         top = parser.lists[-1]

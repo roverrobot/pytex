@@ -17,7 +17,7 @@ So the runtime contract should split cleanly into:
 
 The stable command-side interface should be:
 
-- `readValue(parser, requested_type) -> (value, value_type)`
+- `fetchValue(parser, requested_type) -> (value, value_type)`
 - `getAssignment(parser) -> Assignment | None`
 
 with the convention:
@@ -74,7 +74,7 @@ If not, report failure in-band.
 The read-side command hook is:
 
 ```python
-value, value_type = meaning.readValue(parser, requested_type)
+value, value_type = meaning.fetchValue(parser, requested_type)
 ```
 
 with these rules:
@@ -186,7 +186,7 @@ through those same target objects.
 `Parser.readInternalValue(value_type, expand=True)` should now work like this:
 
 1. read the next token, expanded or raw depending on `expand`
-2. ask its meaning for `readValue(parser, value_type)`
+2. ask its meaning for `fetchValue(parser, value_type)`
 3. if the returned type is `None`, unread the token and fail
 4. if the returned type differs from the requested type, cast at the parser layer
 5. return the final value
@@ -229,7 +229,7 @@ Prefixes should provide:
 
 So for prefixes:
 
-- `readValue(...)` returns `(None, None)`
+- `fetchValue(...)` returns `(None, None)`
 - `getAssignment(parser)` reads the next assignment and modifies it
 
 This matches TeX semantics much better than pretending that prefixes are
@@ -256,7 +256,7 @@ So the old single method:
 
 should split conceptually into:
 
-- read-side `readValue(...)`
+- read-side `fetchValue(...)`
 - write-side `getAssignment(...)`
 
 The old mixed "accessor is both a readable target provider and an assignment
@@ -276,7 +276,7 @@ It wants:
 
 So `\the` should request:
 
-- `readValue(parser, UNKNOWN)`
+- `fetchValue(parser, UNKNOWN)`
 
 and then serialize according to the returned native type.
 
@@ -339,7 +339,7 @@ The safest migration path is incremental.
 
 Add the new command hooks:
 
-- `readValue(parser, requested_type)`
+- `fetchValue(parser, requested_type)`
 - `getAssignment(parser)`
 
 with conservative defaults.

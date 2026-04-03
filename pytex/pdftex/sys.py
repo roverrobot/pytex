@@ -20,7 +20,7 @@ class PDFElapsedtime(token.Command):
         """
         pass
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.INT, requested_type):
             return None, None
         return int(time.time() - parser.timer), VALUE_TYPE.INT

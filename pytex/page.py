@@ -384,7 +384,7 @@ class VSplit(Command):
     The \\vsplit command.
     """
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not accessor.canReadAs(accessor.VALUE_TYPE.BOX, requested_type):
             return None, None
         index = parser.readInteger()
@@ -470,7 +470,7 @@ class VSplit(Command):
         return result.typeset(parser, maxdepth=break_context.maxdepth), accessor.VALUE_TYPE.BOX
 
     def execute(self, parser):
-        box, _ = self.readValue(parser, accessor.VALUE_TYPE.BOX)
+        box, _ = self.fetchValue(parser, accessor.VALUE_TYPE.BOX)
         if box is not None:
             parser.lists[-1].append(box)
 

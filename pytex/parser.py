@@ -157,11 +157,11 @@ class Parser:
         """
         return target.get()
 
-    def _readMeaningValue(self, meaning, requested_type):
+    def _fetchMeaningValue(self, meaning, requested_type):
         """
         Read a value from the command occurrence represented by ``meaning``.
         """
-        reader = getattr(meaning, "readValue", None)
+        reader = getattr(meaning, "fetchValue", None)
         if reader is not None:
             return reader(self, requested_type)
         return None, None
@@ -246,7 +246,7 @@ class Parser:
         t = self.token_expand() if expand else self.token()
         if t is None:
             return None, None
-        value, actual_type = self._readMeaningValue(t.definition, value_type)
+        value, actual_type = self._fetchMeaningValue(t.definition, value_type)
         if actual_type is None:
             self.input.unread(t)
             return None, None

@@ -117,7 +117,7 @@ class Font(Command):
     def meaning(self, parser):
         return f"select font {self.backend.name} at {self.at}pt"
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.FONT, requested_type):
             return None, None
         return self, VALUE_TYPE.FONT

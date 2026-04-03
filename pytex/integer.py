@@ -287,7 +287,7 @@ class FixedInteger(Command):
     def __init__(self, value):
         self.value = value
 
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.INT, requested_type):
             return None, None
         return self.value, VALUE_TYPE.INT
@@ -300,7 +300,7 @@ class InputLineNo(Command):
     """
     \\inputlineno, which returns the current line number in the source file
     """
-    def readValue(self, parser, requested_type):
+    def fetchValue(self, parser, requested_type):
         if not canReadAs(VALUE_TYPE.INT, requested_type):
             return None, None
         return parser.input.position().line, VALUE_TYPE.INT

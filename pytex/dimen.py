@@ -7,7 +7,7 @@ from pytex.token import CATCODE
 from pytex.module import Module
 from pytex.integer import readDigits, readSigns, readUnsigned
 from pytex.state import Array
-from pytex.accessor import VALUE_TYPE, typedAccessor
+from pytex.accessor import VALUE_TYPE, Accessor
 from pytex.define import registerdef
 
 
@@ -329,7 +329,13 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     return dimen
 
 
-DimenArrayItemAccessor = typedAccessor(VALUE_TYPE.DIMEN)
+DimenArrayItemAccessor = lambda domain=None, key=None, builtin=True: Accessor(
+    domain,
+    key,
+    builtin=builtin,
+    value_type=VALUE_TYPE.DIMEN,
+    read_key=lambda parser: parser.readInteger(),
+)
 
 
 class DimenArray(Array):

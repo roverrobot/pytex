@@ -37,21 +37,21 @@ class MarksValue(token.Command):
     def __init__(self, key):
         self.key = key
 
-    target_type = accessor.VALUE_TYPE.TOKS
+    value_type = accessor.VALUE_TYPE.TOKS
 
     def readValue(self, parser, requested_type):
-        if not accessor.canReadAs(self.target_type, requested_type):
+        if not accessor.canReadAs(self.value_type, requested_type):
             return None, None
         index = parser.readInteger()
         if index < 0:
             raise ValueError("mark class must be non-negative", parser.input.position())
         register = parser.globals[self.key]
         if index >= len(register):
-            return [], self.target_type
-        return register[index], self.target_type
+            return [], self.value_type
+        return register[index], self.value_type
 
     def expand(self, parser):
-        toks, _ = self.readValue(parser, self.target_type)
+        toks, _ = self.readValue(parser, self.value_type)
         if toks:
             parser.input.pushTokenList(toks)
 

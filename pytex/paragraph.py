@@ -111,7 +111,6 @@ class SetLanguage(HorizontalCommand):
 
 
 class PrevGraf(Accessor):
-    target_type = VALUE_TYPE.INT
     value_type = VALUE_TYPE.INT
 
 

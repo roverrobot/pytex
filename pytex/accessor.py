@@ -8,9 +8,9 @@ a specific value, could be an item in an array, or a parameter. The latter is al
 an item int heequitable. So the Accessor class denote the value that it poitns to by
 a domain and an index. 
 
-There are two main methods in the Accessor class: getValue and assign. When the command
-is executed, it is an assignment.  On the other hand, the command may be read by other 
-commands. In this case, the command is not an assignment, but the getValue() method is called.
+There are two main methods in the Accessor class: readValue and getAssignment. When the
+command is executed, it is an assignment. On the other hand, the command may be read by
+other commands. In this case, the command is not an assignment, but readValue() is called.
 
 """
 
@@ -155,31 +155,6 @@ class Assignment:
         parser.afterAssignment()
         return self.value
 
-
-def typedAccessor(value_type, read_key=None):
-    """
-    Generate a plain typed-accessor factory.
-
-    This is used for the common array/parameter accessor families where the
-    only real variability is the value type plus how to read the key.
-    """
-    if read_key is None:
-        def _read_key(parser):
-            return parser.readInteger()
-    else:
-        def _read_key(parser):
-            return read_key(parser)
-    def _factory(domain=None, key=None, builtin=True):
-        return Accessor(
-            domain,
-            key,
-            builtin,
-            target_type=value_type,
-            value_type=value_type,
-            read_key=_read_key,
-        )
-    return _factory
-
 class Accessor(token.Command):
     """
     access a value in a domain
@@ -188,19 +163,12 @@ class Accessor(token.Command):
     @param builtin: whether the accessor is a builtin command for serialization
     """
     _MISSING_KEY = object()
-    target_type = VALUE_TYPE.UNKNOWN
     value_type = VALUE_TYPE.UNKNOWN
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        if "value_type" not in cls.__dict__:
-            cls.value_type = getattr(cls, "target_type", VALUE_TYPE.UNKNOWN)
-
-    def __init__(self, domain=None, key=None, builtin=True, *, target_type=None, value_type=None, read_key=None):
+    def __init__(self, domain=None, key=None, builtin=True, *, value_type=None, read_key=None):
         self.domain = domain
         self.key = key
         self.builtin = builtin
-        self.target_type = self.__class__.target_type if target_type is None else target_type
         self.value_type = self.__class__.value_type if value_type is None else value_type
         self._read_key = read_key
 
@@ -212,7 +180,6 @@ class Accessor(token.Command):
             return Builtin.saveInfo(self)
         info = {"domain": self.domain.name, "key": self.key}
         if type(self) is Accessor:
-            info["target_type"] = int(self.target_type)
             info["value_type"] = int(self.value_type)
         return info, None
 
@@ -227,8 +194,7 @@ class Accessor(token.Command):
             getattr(parser, kargs["domain"]),
             kargs["key"],
             builtin=False,
-            target_type=VALUE_TYPE(kargs.get("target_type", cls.target_type)),
-            value_type=VALUE_TYPE(kargs.get("value_type", cls.value_type)),
+            value_type=VALUE_TYPE(kargs.get("value_type", kargs.get("target_type", cls.value_type))),
         )
 
     def bindKey(self, key):
@@ -250,11 +216,6 @@ class Accessor(token.Command):
         whether this accessor can safely bind itself for parser.readInternalValue()
         """
         return True
-
-    def canReadValue(self, requested_type):
-        if not self.canBindInternalValue():
-            return False
-        return canReadAs(self.target_type, requested_type)
 
     def readEq(self, parser):
         """
@@ -285,7 +246,7 @@ class Accessor(token.Command):
         """
         return the bound target for this accessor occurrence
         """
-        return KeyTarget(self.domain, self.currentKey(parser), self.target_type)
+        return KeyTarget(self.domain, self.currentKey(parser), self.value_type)
 
     def readAssignmentValue(self, parser):
         """
@@ -295,7 +256,9 @@ class Accessor(token.Command):
         return parser.readValue(self.value_type)
 
     def readValue(self, parser, requested_type):
-        if not self.canReadValue(requested_type):
+        if not self.canBindInternalValue():
+            return None, None
+        if not canReadAs(self.value_type, requested_type):
             return None, None
         target = self.getTarget(parser)
         if not getattr(target, "readable", True):

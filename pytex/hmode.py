@@ -573,14 +573,14 @@ class SpaceFactor(Accessor):
     """
     The \\spacefactor command, which sets the space factor in a horizontal list.
     """
-    target_type = VALUE_TYPE.INT
+    value_type = VALUE_TYPE.INT
 
     def getTarget(self, parser):
         key = self.currentKey(parser)
         top = parser.lists[-1]
         if top.type != lists.LISTTYPE.HORIZONTAL:
             raise ValueError("\\spacefactor can only be used in horizontal mode")
-        return KeyTarget(self.domain, key, self.target_type)
+        return KeyTarget(self.domain, key, self.value_type)
     
     def readAssignmentValue(self, parser):
         value = parser.readInteger()

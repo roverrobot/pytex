@@ -9,7 +9,7 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget, ReadOnlyTarget, typedAccessor, canReadAs
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget, ReadOnlyTarget, canReadAs
 from pytex.integer import IntegerArrayItemAccessor
 from pytex.dimen import Dimen
 from pytex.glue import Glue, Stretchness
@@ -157,7 +157,13 @@ def readFont(parser):
     return value
 
 
-FontArrayItemAccessor = typedAccessor(VALUE_TYPE.FONT)
+FontArrayItemAccessor = lambda domain=None, key=None, builtin=True: Accessor(
+    domain,
+    key,
+    builtin=builtin,
+    value_type=VALUE_TYPE.FONT,
+    read_key=lambda parser: parser.readInteger(),
+)
 
 nullfont = NullFont(backend=nullfont_backend, at=0)
 nullfont.name = "\\nullfont"
@@ -188,7 +194,7 @@ def fontarray(name):
 
 
 class FontCharAccessor(Accessor):
-    target_type = VALUE_TYPE.INT
+    value_type = VALUE_TYPE.INT
 
     def __init__(self, field, key=None, builtin=True):
         super().__init__(None, key, builtin=builtin)
@@ -202,7 +208,7 @@ class FontCharAccessor(Accessor):
 
     def getTarget(self, parser):
         font = self.currentKey(parser)
-        return KeyTarget(font.fontchar, self.field, self.target_type, supports_global=False)
+        return KeyTarget(font.fontchar, self.field, self.value_type, supports_global=False)
 
     def setGlobal(self, parser, value):
         """
@@ -248,14 +254,14 @@ class FontAccessor(Accessor):
     """
     An accessor for the current font
     """
-    target_type = VALUE_TYPE.FONT
+    value_type = VALUE_TYPE.FONT
         
 
 class FontCommand(FontDefineAccessor):
     """
     The \\font command
     """
-    target_type = VALUE_TYPE.FONT
+    value_type = VALUE_TYPE.FONT
 
     def __init__(self):
         super().__init__(None)
@@ -270,7 +276,7 @@ class FontDimenAccessor(Accessor):
     """
     An accessor for the \\fontdimen command
     """
-    target_type = VALUE_TYPE.DIMEN
+    value_type = VALUE_TYPE.DIMEN
 
     def readKey(self, parser):
         index = parser.readInteger() - 1
@@ -282,7 +288,7 @@ class FontDimenAccessor(Accessor):
     def getTarget(self, parser):
         font, index = self.currentKey(parser)
         pos = parser.input.position()
-        return AttrTarget(FontDimenSlot(font, font.param, index, pos), "value", self.target_type)
+        return AttrTarget(FontDimenSlot(font, font.param, index, pos), "value", self.value_type)
 
 
 class FontDimenSlot:

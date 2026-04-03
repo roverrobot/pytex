@@ -143,7 +143,13 @@ def readToks(parser):
     return readGeneralText(parser, expand=False)
     
 
-ToksAccessor = accessor.typedAccessor(accessor.VALUE_TYPE.TOKS)
+ToksAccessor = lambda domain=None, key=None, builtin=True: accessor.Accessor(
+    domain,
+    key,
+    builtin=builtin,
+    value_type=accessor.VALUE_TYPE.TOKS,
+    read_key=lambda parser: parser.readInteger(),
+)
 
 class ToksArray(Array):
     """
@@ -280,12 +286,12 @@ class PageMark(Command):
         self.key = key
         self.domain = domain
 
-    target_type = accessor.VALUE_TYPE.TOKS
+    value_type = accessor.VALUE_TYPE.TOKS
 
     def readValue(self, parser, requested_type):
-        if not accessor.canReadAs(self.target_type, requested_type):
+        if not accessor.canReadAs(self.value_type, requested_type):
             return None, None
-        return getattr(parser, self.domain)[self.key], self.target_type
+        return getattr(parser, self.domain)[self.key], self.value_type
 
     def expand(self, parser):
         toks = getattr(parser, self.domain)[self.key]

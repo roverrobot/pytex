@@ -1894,7 +1894,7 @@ class Line(Atom):
 
 
 class VolatileParameterAccessor(Accessor):
-    target_type = VALUE_TYPE.DIMEN
+    value_type = VALUE_TYPE.DIMEN
 
     def __init__(self, index):
         super().__init__(None, index)
@@ -1908,7 +1908,7 @@ class VolatileParameterAccessor(Accessor):
 
     def getTarget(self, parser):
         pos = parser.input.position()
-        return AttrTarget(VolatileParameterSlot(parser, self.index, pos), "value", self.target_type)
+        return AttrTarget(VolatileParameterSlot(parser, self.index, pos), "value", self.value_type)
     
     def set(self, parser, value):
         self.getTarget(parser).set(value, global_scope=False)

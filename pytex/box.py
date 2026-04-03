@@ -238,7 +238,6 @@ class BadnessAccessor(Accessor):
     """
     Lazily realize the most recent box pack when \\badness is inspected.
     """
-    target_type = VALUE_TYPE.INT
     value_type = VALUE_TYPE.INT
 
     def getTarget(self, parser):
@@ -248,7 +247,7 @@ class BadnessAccessor(Accessor):
             parser.lastbox = None
             if box._packed is None:
                 box.typeset(parser)
-        return KeyTarget(self.domain, key, self.target_type)
+        return KeyTarget(self.domain, key, self.value_type)
 
 
 class HBox(Box):
@@ -720,7 +719,7 @@ class VTopCommand(VBoxCommand):
 
 
 class BoxDimenAccessor(Accessor):
-    target_type = VALUE_TYPE.DIMEN
+    value_type = VALUE_TYPE.DIMEN
 
     def readKey(self, parser):
         return parser.readInteger()
@@ -730,7 +729,7 @@ class BoxDimenAccessor(Accessor):
 
     def getTarget(self, parser):
         index = self.currentKey(parser)
-        return BoxDimensionTarget(parser.box, index, self.domain, self.target_type)
+        return BoxDimensionTarget(parser.box, index, self.domain, self.value_type)
 
 
 class BoxDimensionTarget(AttrTarget):

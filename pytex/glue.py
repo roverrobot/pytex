@@ -7,7 +7,7 @@ from pytex import serialization
 from pytex.dimen import readUnsignedDimen, Dimen
 from pytex.integer import readSigns
 from pytex.state import Array
-from pytex.accessor import VALUE_TYPE, typedAccessor
+from pytex.accessor import VALUE_TYPE, Accessor
 from pytex.module import Module
 from pytex.define import registerdef
 
@@ -231,7 +231,13 @@ def readGlue(parser, mu: bool=False):
     return Glue(dimen, stretch, shrink)
 
 
-GlueArrayItemAccessor = typedAccessor(VALUE_TYPE.GLUE)
+GlueArrayItemAccessor = lambda domain=None, key=None, builtin=True: Accessor(
+    domain,
+    key,
+    builtin=builtin,
+    value_type=VALUE_TYPE.GLUE,
+    read_key=lambda parser: parser.readInteger(),
+)
 
 
 class SkipArray(Array):
@@ -243,7 +249,13 @@ class SkipArray(Array):
         self.mu = False
 
 
-MuGlueArrayItemAccessor = typedAccessor(VALUE_TYPE.MUGLUE)
+MuGlueArrayItemAccessor = lambda domain=None, key=None, builtin=True: Accessor(
+    domain,
+    key,
+    builtin=builtin,
+    value_type=VALUE_TYPE.MUGLUE,
+    read_key=lambda parser: parser.readInteger(),
+)
 mod = Module("glue",
     attributes={
         "readGlue": readGlue,

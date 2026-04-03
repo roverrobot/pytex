@@ -100,39 +100,37 @@ def test_read_internal_integer_from_inputlineno_target(parser):
     assert parser.readInternalValue(VALUE_TYPE.INT) == 1
 
 
-def test_chardef_target_is_read_only(parser):
+def test_chardef_is_not_an_assignment_head(parser):
     parser.parse("\\chardef\\a=65")
-    target = parser.lookup("\\a").getTarget(parser)
-    with pytest.raises(ValueError, match="not writable"):
-        target.set(66)
+    parser.readFrom("\\a")
+    assert parser.readAssignment() is None
 
 
-def test_mathchardef_target_is_read_only(parser):
+def test_mathchardef_is_not_an_assignment_head(parser):
     parser.parse("\\mathchardef\\a=65")
-    target = parser.lookup("\\a").getTarget(parser)
-    with pytest.raises(ValueError, match="not writable"):
-        target.set(66)
+    parser.readFrom("\\a")
+    assert parser.readAssignment() is None
 
 
 def test_advance_rejects_read_only_chardef_target(parser):
-    with pytest.raises(ValueError, match="not writable"):
+    with pytest.raises(ValueError, match="expecting a register or a parameter"):
         parser.parse("\\chardef\\a=0 \\advance\\a by 1")
 
 
 def test_advance_rejects_read_only_mathchardef_target(parser):
-    with pytest.raises(ValueError, match="not writable"):
+    with pytest.raises(ValueError, match="expecting a register or a parameter"):
         parser.parse("\\mathchardef\\a=0 \\advance\\a by 1")
 
 
-def test_read_internal_integer_rejects_write_only_target(parser):
-    class WriteOnlyInteger(Command):
+def test_read_internal_integer_rejects_unreadable_command(parser):
+    class UnreadableInteger(Command):
         def __init__(self, value):
             self.value = value
 
-        def getTarget(self, parser):
-            return AttrTarget(self, "value", VALUE_TYPE.INT, readable=False)
+        def readValue(self, parser, requested_type):
+            return None, None
 
-    parser.equitable["\\a"] = WriteOnlyInteger(7)
+    parser.equitable["\\a"] = UnreadableInteger(7)
     parser.readFrom("\\a")
     assert parser.readInternalValue(VALUE_TYPE.INT) is None
     t = parser.token_expand()

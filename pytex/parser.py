@@ -160,30 +160,11 @@ class Parser:
     def _readMeaningValue(self, meaning, requested_type):
         """
         Read a value from the command occurrence represented by ``meaning``.
-
-        This prefers the new command-side readValue contract, while keeping a
-        compatibility fallback for older getTarget()-based readers.
         """
         reader = getattr(meaning, "readValue", None)
         if reader is not None:
-            value, value_type = reader(self, requested_type)
-            if value_type is not None:
-                return value, value_type
-        get_target = getattr(meaning, "getTarget", None)
-        if get_target is None:
-            return None, None
-        can_bind = True
-        if isinstance(meaning, accessor.Accessor):
-            can_bind = meaning.canReadValue(requested_type)
-        if not can_bind:
-            return None, None
-        target = get_target(self)
-        if not getattr(target, "readable", True):
-            return None, None
-        try:
-            return self.get(target), target.value_type
-        except (IndexError, KeyError, TypeError):
-            return None, None
+            return reader(self, requested_type)
+        return None, None
 
     def cast(self, value, value_type):
         """
@@ -239,9 +220,8 @@ class Parser:
         """
         Read an assignment occurrence from the next token.
 
-        Returns a parsed Assignment object, a LegacyAssignment wrapper for
-        older assign(parser, prefixes) commands, or None if the next token is
-        not an assignment head.
+        Returns a parsed Assignment object, or None if the next token is not an
+        assignment head.
         """
         t = self.token_expand() if expand else self.token()
         if t is None:
@@ -252,13 +232,9 @@ class Parser:
             return None
         getter = getattr(meaning, "getAssignment", None)
         assignment = None if getter is None else getter(self)
-        if assignment is not None:
-            return assignment
-        assign = getattr(meaning, "assign", None)
-        if assign is None:
+        if assignment is None:
             self.input.unread(t)
-            return None
-        return accessor.LegacyAssignment(meaning)
+        return assignment
 
     def readInternalValueInfo(self, value_type, expand: bool = True):
         """

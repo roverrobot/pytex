@@ -57,6 +57,7 @@ def canReadAs(source_type, requested_type):
         VALUE_TYPE.DIMEN: {VALUE_TYPE.INT, VALUE_TYPE.DIMEN},
         VALUE_TYPE.GLUE: {VALUE_TYPE.INT, VALUE_TYPE.DIMEN, VALUE_TYPE.GLUE},
         VALUE_TYPE.MUGLUE: {VALUE_TYPE.INT, VALUE_TYPE.DIMEN, VALUE_TYPE.MUGLUE},
+        VALUE_TYPE.BOX: {VALUE_TYPE.BOX},
         VALUE_TYPE.TOKS: {VALUE_TYPE.TOKS},
         VALUE_TYPE.FONT: {VALUE_TYPE.FONT},
         VALUE_TYPE.MEANING: {VALUE_TYPE.MEANING},
@@ -153,20 +154,6 @@ class Assignment:
         self.target.set(self.value, global_scope=globally)
         parser.afterAssignment()
         return self.value
-
-
-class LegacyAssignment:
-    """
-    Compatibility wrapper for older assign(parser, prefixes) implementations.
-    """
-    __slots__ = ("meaning", "prefixes")
-
-    def __init__(self, meaning, prefixes=None):
-        self.meaning = meaning
-        self.prefixes = [] if prefixes is None else list(prefixes)
-
-    def apply(self, parser):
-        return self.meaning.assign(parser, self.prefixes)
 
 
 def typedAccessor(value_type, read_key=None):
@@ -300,12 +287,6 @@ class Accessor(token.Command):
         """
         return KeyTarget(self.domain, self.currentKey(parser), self.target_type)
 
-    def readTarget(self, parser):
-        """
-        compatibility alias for older target-reading call sites
-        """
-        return self.getTarget(parser)
-
     def readAssignmentValue(self, parser):
         """
         read the value from the input stack
@@ -347,21 +328,6 @@ class Accessor(token.Command):
         """
         self.getTarget(parser).set(value, global_scope=True)
 
-    def assign(self, parser, prefixes):
-        """
-        assign the value to the index
-        @param parser: the parser
-        @param prefixes: the prefixes to the assignment
-        """
-        assignment = self.getAssignment(parser)
-        try:
-            for p in prefixes:
-                assignment = p.modifyAssignment(parser, assignment)
-        except ValueError as e:
-            e.args = (e.args[0], parser.input.position())
-            raise e
-        assignment.apply(parser)
-
     def getAssignment(self, parser):
         if self.key is None and self.needsKey():
             return self.bindKey(self.readKey(parser)).getAssignment(parser)
@@ -398,9 +364,6 @@ class Prefix(token.Command):
         raise ValueError("prefix not defined")
 
     def modifyAssignment(self, parser, assignment):
-        if isinstance(assignment, LegacyAssignment):
-            assignment.prefixes.insert(0, self)
-            return assignment
         value, globally = self.modify(assignment.value, assignment.global_scope)
         assignment.value = value
         assignment.global_scope = globally
@@ -419,23 +382,8 @@ class Prefix(token.Command):
         getter = getattr(meaning, "getAssignment", None)
         assignment = None if getter is None else getter(parser)
         if assignment is None:
-            assign = getattr(meaning, "assign", None)
-            if assign is None:
-                raise ValueError("expecting an assignment", parser.input.position())
-            assignment = LegacyAssignment(meaning, [self])
-            return assignment
+            raise ValueError("expecting an assignment", parser.input.position())
         return self.modifyAssignment(parser, assignment)
-
-    def assign(self, parser, prefixes):
-        """
-        execute the prefix. It reads an assignment from the input stack
-        then calls the its assign method.
-        @param parser: the parser
-        """
-        assignment = self.getAssignment(parser)
-        for prefix in prefixes:
-            assignment = prefix.modifyAssignment(parser, assignment)
-        assignment.apply(parser)
 
     def execute(self, parser):
         """

@@ -225,14 +225,14 @@ class PDFPrimitive(token.Command):
     the control sequence, regardless of its current definition.
     """
 
-    def getTarget(self, parser):
+    def readValue(self, parser, requested_type):
         name, builtin = _read_primitive(parser)
         if builtin is None:
-            return accessor.ReadOnlyTarget(None, accessor.VALUE_TYPE.UNKNOWN)
-        get_target = getattr(builtin, "getTarget", None)
-        if get_target is None:
-            return accessor.ReadOnlyTarget(None, accessor.VALUE_TYPE.UNKNOWN)
-        return get_target(parser)
+            return None, None
+        reader = getattr(builtin, "readValue", None)
+        if reader is None:
+            return None, None
+        return reader(parser, requested_type)
 
     def execute(self, parser):
         name, builtin = _read_primitive(parser)

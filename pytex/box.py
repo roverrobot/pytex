@@ -5,9 +5,10 @@ parse and wrap up an hbox
 from pytex import node as nd
 from pytex import hmode
 from pytex import vmode
+from pytex import accessor
 from pytex.glue import Glue
 from pytex.module import Module
-from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget, AttrTarget, ReadOnlyTarget
+from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget, AttrTarget, ReadOnlyTarget, canReadAs
 from pytex.state import Array
 from pytex.token import Command, CATCODE
 from pytex.dimen import Dimen
@@ -390,22 +391,27 @@ class BoxCommand(Command):
     """
     def __init__(self, wipe: bool=False):
         self.wipe = wipe
-    
-    def execute(self, parser):
-        box = self.getTarget(parser).get()
-        if box is None:
-            return
-        parser.lists[-1].append(box)
 
-    def getTarget(self, parser):
+    def _readBoxValue(self, parser):
         index = parser.readInteger()
         box = parser.box[index]
         if self.wipe:
             parser.box[index] = None
-            return ReadOnlyTarget(box, VALUE_TYPE.BOX)
+            return box
         if box is None:
-            return ReadOnlyTarget(None, VALUE_TYPE.BOX)
-        return ReadOnlyTarget(box.copy(), VALUE_TYPE.BOX)
+            return None
+        return box.copy()
+
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.BOX, requested_type):
+            return None, None
+        return self._readBoxValue(parser), VALUE_TYPE.BOX
+    
+    def execute(self, parser):
+        box = self._readBoxValue(parser)
+        if box is None:
+            return
+        parser.lists[-1].append(box)
 
 
 def readBoxSpec(parser, keywords=["to", "spread"]):
@@ -540,30 +546,38 @@ class SetBoxEndCallback:
         KeyTarget(parser.box, self.index, VALUE_TYPE.BOX).set(self.box, global_scope=self.globally)
 
 
+class SetBoxAssignment(accessor.Assignment):
+    def __init__(self, index, value, top):
+        super().__init__(None, value, global_scope=False)
+        self.index = index
+        self.top = top
+
+    def apply(self, parser):
+        globally = parser.resolveGlobalScope(self.global_scope)
+        parser.afterAssignment()
+        new = parser.lists[-1]
+        if new is not self.top:
+            parser.beginGroup(
+                parser.input.position(),
+                new.group_type,
+                to_end=BoxPretypesetCallback(self.value),
+                ended=SetBoxEndCallback(self.index, self.value, globally),
+            )
+        else:
+            KeyTarget(parser.box, self.index, VALUE_TYPE.BOX).set(self.value, global_scope=globally)
+        return self.value
+
+
 class SetBox(Command):
-    def assign(self, parser, prefixes):
+    def getAssignment(self, parser):
         index = parser.readInteger()
         parser.skipEq(expand=True)
         top = parser.lists[-1]
         value = readBox(parser, setbox=True)
-        globally = False
-        for prefix in prefixes:
-            value, globally = prefix.modify(value, globally)
-        globally = parser.resolveGlobalScope(globally)
-        parser.afterAssignment()
-        new = parser.lists[-1]
-        if new is not top:
-            parser.beginGroup(
-                parser.input.position(),
-                new.group_type,
-                to_end=BoxPretypesetCallback(value),
-                ended=SetBoxEndCallback(index, value, globally),
-            )
-        else:
-            KeyTarget(parser.box, index, VALUE_TYPE.BOX).set(value, global_scope=globally)
+        return SetBoxAssignment(index, value, top)
 
     def execute(self, parser):
-        self.assign(parser, prefixes=[])
+        self.getAssignment(parser).apply(parser)
 
 class IfBox(conditional.Conditional):
     """
@@ -1013,7 +1027,9 @@ class LastBox(Command):
     """
     The \\lastbox command.
     """
-    def getTarget(self, parser):
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.BOX, requested_type):
+            return None, None
         top = parser.lists[-1]
         # this command can only be unsed in horizontal mode or in ner vertical mode
         if top.type == LISTTYPE.VERTICAL and not top.inner:
@@ -1021,10 +1037,10 @@ class LastBox(Command):
                 raise ValueError("\\lastbox cannot be used in the main vertical list", parser.input.position())
         if top.type == LISTTYPE.MATH:
             raise ValueError("\\lastbox cannot be used in math mode", parser.input.position())
-        return ReadOnlyTarget(top.pop() if top and isinstance(top[-1], Box) else None, VALUE_TYPE.BOX)
+        return top.pop() if top and isinstance(top[-1], Box) else None, VALUE_TYPE.BOX
     
     def execute(self, parser):
-        self.getTarget(parser).get()
+        self.readValue(parser, VALUE_TYPE.BOX)
 
 
 mod = Module("hbox", 

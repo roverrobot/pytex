@@ -10,7 +10,7 @@ from math import inf
 from copy import deepcopy
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.glue import Glue
-from pytex.accessor import ReadOnlyTarget, VALUE_TYPE
+from pytex.accessor import VALUE_TYPE, canReadAs
 import enum
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
@@ -337,33 +337,39 @@ class LastPenalty(Command):
     """
     The \\lastpenalty command.
     """
-    def getTarget(self, parser):
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.INT, requested_type):
+            return None, None
         top = parser.lists[-1]
         node = _last_list_node(top)
         value = 0 if node is None or node.node_type != nd.NODE_TYPE.PENALTY else node.penalty
-        return ReadOnlyTarget(value, VALUE_TYPE.INT)
+        return value, VALUE_TYPE.INT
 
 
 class LastKern(Command):
     """
     The \\lastkern command.
     """
-    def getTarget(self, parser):
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.DIMEN, requested_type):
+            return None, None
         top = parser.lists[-1]
         node = _last_list_node(top)
         value = Dimen() if node is None or node.node_type != nd.NODE_TYPE.KERN else node.kern
-        return ReadOnlyTarget(value, VALUE_TYPE.DIMEN)
+        return value, VALUE_TYPE.DIMEN
 
 
 class LastSkip(Command):
     """
     The \\lastskip command.
     """
-    def getTarget(self, parser):
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.GLUE, requested_type):
+            return None, None
         top = parser.lists[-1]
         node = _last_list_node(top)
         value = Glue() if node is None or node.node_type != nd.NODE_TYPE.GLUE else deepcopy(node.glue)
-        return ReadOnlyTarget(value, VALUE_TYPE.GLUE)
+        return value, VALUE_TYPE.GLUE
 
 
 class ItalicCorrection(ModeDependentCommand):

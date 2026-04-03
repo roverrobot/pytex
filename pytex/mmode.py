@@ -13,7 +13,7 @@ from pytex import node as nd
 from pytex.token import CATCODE, MathShiftToken
 from pytex.module import Module
 from pytex.state import GROUP_TYPE
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget, canReadAs
 from pytex.define import EquitableAccessor
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
@@ -1086,8 +1086,10 @@ class MathCharValue(lists.ModeDependentCommand):
     def math(self, parser, mlist):
         mlist.append(self.mathCharValue(parser))
 
-    def getTarget(self, parser):
-        return ReadOnlyTarget(self.mathcode, VALUE_TYPE.INT)
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.INT, requested_type):
+            return None, None
+        return self.mathcode, VALUE_TYPE.INT
 
     def mathCharValue(self, parser):
         return parser.mathChar(self.mathcode)

@@ -9,7 +9,7 @@ from pytex.token import Command
 from pytex.module import Module
 from pytex.font_backend import FontBackend
 from pytex.tfm import nullfont_backend
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget, ReadOnlyTarget, typedAccessor
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, KeyTarget, ReadOnlyTarget, typedAccessor, canReadAs
 from pytex.integer import IntegerArrayItemAccessor
 from pytex.dimen import Dimen
 from pytex.glue import Glue, Stretchness
@@ -117,8 +117,10 @@ class Font(Command):
     def meaning(self, parser):
         return f"select font {self.backend.name} at {self.at}pt"
 
-    def getTarget(self, parser):
-        return ReadOnlyTarget(self, VALUE_TYPE.FONT)
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.FONT, requested_type):
+            return None, None
+        return self, VALUE_TYPE.FONT
     
     def hyphenChar(self):
         """

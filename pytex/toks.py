@@ -282,11 +282,13 @@ class PageMark(Command):
 
     target_type = accessor.VALUE_TYPE.TOKS
 
-    def getTarget(self, parser):
-        return accessor.ReadOnlyTarget(getattr(parser, self.domain)[self.key], self.target_type)
+    def readValue(self, parser, requested_type):
+        if not accessor.canReadAs(self.target_type, requested_type):
+            return None, None
+        return getattr(parser, self.domain)[self.key], self.target_type
 
     def expand(self, parser):
-        toks = self.getTarget(parser).get()
+        toks = getattr(parser, self.domain)[self.key]
         if toks:
             parser.input.pushTokenList(toks)
 

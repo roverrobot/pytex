@@ -5,7 +5,7 @@ This module contains the system interface for the pdftex engine.
 from pytex import token
 from pytex.module import Module
 from pytex.integer import FixedInteger
-from pytex.accessor import ReadOnlyTarget, VALUE_TYPE
+from pytex.accessor import VALUE_TYPE, canReadAs
 import time
 
 
@@ -20,8 +20,10 @@ class PDFElapsedtime(token.Command):
         """
         pass
 
-    def getTarget(self, parser):
-        return ReadOnlyTarget(int(time.time() - parser.timer), VALUE_TYPE.INT)
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.INT, requested_type):
+            return None, None
+        return int(time.time() - parser.timer), VALUE_TYPE.INT
 
 
 class PDFResettimer(token.Command):

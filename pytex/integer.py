@@ -7,7 +7,7 @@ from pytex.token import CATCODE, Command
 from pytex.module import Module
 from pytex.serialization import Builtin
 from pytex.state import Array
-from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget, typedAccessor
+from pytex.accessor import Accessor, VALUE_TYPE, AttrTarget, ReadOnlyTarget, typedAccessor, canReadAs
 from pytex.define import registerdef
 
 
@@ -282,8 +282,10 @@ class FixedInteger(Command):
     def __init__(self, value):
         self.value = value
 
-    def getTarget(self, parser):
-        return ReadOnlyTarget(self.value, VALUE_TYPE.INT)
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.INT, requested_type):
+            return None, None
+        return self.value, VALUE_TYPE.INT
     
     def execute(self, parser):
         raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())
@@ -293,8 +295,10 @@ class InputLineNo(Command):
     """
     \\inputlineno, which returns the current line number in the source file
     """
-    def getTarget(self, parser):
-        return ReadOnlyTarget(parser.input.position().line, VALUE_TYPE.INT)
+    def readValue(self, parser, requested_type):
+        if not canReadAs(VALUE_TYPE.INT, requested_type):
+            return None, None
+        return parser.input.position().line, VALUE_TYPE.INT
 
     def execute(self, parser):
         raise ValueError(f"{self.name} cannot be executed, it is read-only", parser.input.position())

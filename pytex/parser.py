@@ -445,10 +445,7 @@ class Parser:
         read from the input
         @param input: the input
         """
-        if isinstance(input, str):
-            self.input.push(lexer.StringScanner(self, input, name))
-        else:
-            self.input.push(lexer.Scanner(self, input, name))
+        self.input.push(lexer.Tokenizer(input, self, name))
 
     def skipSpaceExapnd(self):
         """

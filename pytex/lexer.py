@@ -244,18 +244,18 @@ class InputStack:
         """
         if self.saved:
             return self._restore(self.saved.pop())
-        while self.top:
-            try:
-                t = self.top.read()
-            except EOFError:
-                self.pop()
-                if self.eof_passthrough:
-                    raise EOFError
-                if self.saved:
-                    return self._restore(self.saved.pop())
-                continue
-            self.top.source.column = self.top.pos
+        if self.top is None:
+            if self.eof_passthrough:
+                raise EOFError
+            return None
+        try:
+            t = self.top.read()
             return self._restore(t)
+        except EOFError:
+            self.pop()
+            if self.eof_passthrough:
+                raise EOFError
+            return self.read()
 
     @staticmethod
     def _restore(t):

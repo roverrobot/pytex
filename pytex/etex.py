@@ -521,6 +521,21 @@ class _ScanTokensSource:
     """
     Minimal source object for a single-line \\scantokens tokenizer.
     """
+    def __init__(self, parser, line):
+        self.parser = parser
+        self.name = None
+        self.line = -1
+        self.column = 0
+        self._line = line
+
+    def nextLine(self):
+        line = self._line
+        self._line = None
+        if line is None:
+            return None
+        self.line = 0
+        return 0, line
+
     def end(self):
         pass
 
@@ -532,10 +547,7 @@ class ScanTokens(token.Command):
     def expand(self, parser):
         toks = parser.readGeneralText(expand=False)
         s = expandable.toksToString(parser, toks)
-        eol = parser.endlinechar.value
-        if 0 <= eol < 256:
-            s += chr(eol)
-        parser.input.push(lexer.Tokenizer(s, parser, _ScanTokensSource()))
+        parser.input.push(lexer.Tokenizer(_ScanTokensSource(parser, s)))
 
 
 class Unexpanded(The):

@@ -23,18 +23,31 @@ class Position:
 
 class Tokenizer:
     """
-    A tokenizer reads a line of text and returns tokens.
-    The main method is read()
-    @param line: the line of text to read
-    @param parser: the parser
+    A tokenizer reads text from a line-oriented source and returns tokens.
+    The main method is read().
     """
-    def __init__(self, line: str, parser, source, name=None, line_number=0):
+    def __init__(self, source):
+        parser = source.parser
         # catcode is a dictionary that maps characters to their category codes
         self.catcode = parser.catcode
         self.equitable = parser.equitable
+        self.endlinechar = dict.__getitem__(parser.parameters, "endlinechar")
         self.source = source
-        self.name = name
+        self.name = getattr(source, "name", None)
+        self.line_number = 0
+        self.chars = iter(())
+        self.pos = -1
+        self.first = -1
+        self.peek = None
+        self.exhausted = not self._loadLine()
+
+    def _setLine(self, line: str, line_number: int):
         self.line_number = line_number
+        if line.endswith("\n"):
+            line = line[:-1]
+        eol = self.endlinechar.value
+        if 0 <= eol < 256:
+            line += chr(eol)
         # Skip leading spaces, and also ignored characters that can expose more
         # leading spaces (for example kvsetkeys uses lines that begin with an
         # ignored '&' in e-TeX mode).
@@ -55,6 +68,20 @@ class Tokenizer:
         # line has only spaces; keep the last one for current behavior
         self.pos = last_pos
         self.first = last_pos
+
+    def _loadLine(self):
+        item = self.source.nextLine()
+        if item is None:
+            self.chars = iter(())
+            self.pos = -1
+            self.first = -1
+            self.peek = None
+            self.exhausted = True
+            return False
+        line_number, line = item
+        self._setLine(line, line_number)
+        self.exhausted = False
+        return True
 
     def char(self):
         """
@@ -130,44 +157,49 @@ class Tokenizer:
 
     def read(self) -> typing.Optional[Token]:
         """
-        read the next token from the line
-        @return: the next token, or None if the end of the line is reached
+        read the next token from the source
+        @return: the next token, or None if the end of the source is reached
         """
-        c, catcode = self.charExpand()
-        if catcode is None or catcode == CATCODE.COMMENT:
-            return None
-        # handle spaces
-        if catcode == CATCODE.SPACE:
-            self.skipSpaces()
-            return SpaceToken()
-        if catcode == CATCODE.END_OF_LINE:
-            if self.pos == self.first:
-                t = CommandToken("\\par")
-                t.entry = self.equitable.entry("\\par")
-                return t
-            return SpaceToken()
-        if catcode == CATCODE.ACTIVE:
-            t = ActiveToken(c, catcode)
-            t.entry = self.equitable.entry(c)
-            return t
-        if catcode is not CATCODE.ESCAPE:
-            return self.read() if catcode == CATCODE.IGNORE else Token.token(c, catcode)
-        c, catcode = self.charExpand()
-        name = "\\" + c
-        while catcode == CATCODE.LETTER:
-            c = self.peek
-            if c is None: 
-                break
-            catcode = self.catcode[ord(c)]
-            if catcode == CATCODE.LETTER:
-                name += c
-                self.charExpand()
-            elif catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
+        while True:
+            c, catcode = self.charExpand()
+            if catcode is None or catcode == CATCODE.COMMENT:
+                if self._loadLine():
+                    continue
+                return None
+            # handle spaces
+            if catcode == CATCODE.SPACE:
                 self.skipSpaces()
-                break
-        t = CommandToken(name)
-        t.entry = self.equitable.entry(name)        
-        return t
+                return SpaceToken()
+            if catcode == CATCODE.END_OF_LINE:
+                if self.pos == self.first:
+                    t = CommandToken("\\par")
+                    t.entry = self.equitable.entry("\\par")
+                    return t
+                return SpaceToken()
+            if catcode == CATCODE.ACTIVE:
+                t = ActiveToken(c, catcode)
+                t.entry = self.equitable.entry(c)
+                return t
+            if catcode is not CATCODE.ESCAPE:
+                if catcode == CATCODE.IGNORE:
+                    continue
+                return Token.token(c, catcode)
+            c, catcode = self.charExpand()
+            name = "\\" + c
+            while catcode == CATCODE.LETTER:
+                c = self.peek
+                if c is None: 
+                    break
+                catcode = self.catcode[ord(c)]
+                if catcode == CATCODE.LETTER:
+                    name += c
+                    self.charExpand()
+                elif catcode == CATCODE.SPACE or catcode == CATCODE.END_OF_LINE:
+                    self.skipSpaces()
+                    break
+            t = CommandToken(name)
+            t.entry = self.equitable.entry(name)        
+            return t
 
     def position(self):
         return Position(self.name, self.line_number + 1, self.pos + 1)
@@ -193,7 +225,6 @@ class Scanner:
         if not isinstance(stream, io.IOBase):
             raise TypeError("stream must be a file-like object")
         self.parser = parser
-        self.eol = dict.__getitem__(parser.parameters, "endlinechar")
         self.stream = stream
         self.lines = enumerate(stream)
         self.name = name
@@ -202,22 +233,18 @@ class Scanner:
         # column number of the last line after the last token is read
         self.column = 0
     
-    def feed(self):
+    def nextLine(self):
         """
-        Read the next physical line from the stream and build a Tokenizer for
-        it. Returns None when the source is exhausted.
+        Read the next physical line from the stream.
         """
-        self.line, line = next(self.lines, (None, None))
+        line_number, line = next(self.lines, (None, None))
         if line is None:
+            self.lines = enumerate(())
             if not self.stream.closed:
                 self.stream.close()
             return None
-        if line.endswith("\n"):
-            line = line[:-1]
-        eol = self.eol.value
-        if 0 <= eol < 256:
-            line += chr(eol)
-        return Tokenizer(line, self.parser, self, self.name, self.line)
+        self.line = line_number
+        return line_number, line
 
     def position(self):
         """
@@ -295,8 +322,8 @@ class InputStack:
                 if self.saved:
                     return self._restore(self.saved.pop())
                 continue
-            tokenizer = self.top.feed()
-            if tokenizer is None:
+            tokenizer = Tokenizer(self.top)
+            if tokenizer.exhausted:
                 self.pop()
                 if self.saved:
                     return self._restore(self.saved.pop())

@@ -27,8 +27,23 @@ class EndFileScanToken(token.Token):
 
 class _LocalFileLineScanner:
     """
-    Minimal scanner stub used by local line tokenizers for \\read.
+    Minimal one-line source used by local tokenizers for \\read.
     """
+    def __init__(self, parser, name, line_number, line):
+        self.parser = parser
+        self.name = name
+        self.line = line_number
+        self.column = 0
+        self._line_number = line_number
+        self._line = line
+
+    def nextLine(self):
+        line = self._line
+        self._line = None
+        if line is None:
+            return None
+        return self._line_number, line
+
     def end(self):
         pass
 
@@ -45,13 +60,8 @@ def _readFileLineTokenizer(parser, file):
         return None
     line_number = getattr(file, "_pytex_line_number", 0)
     file._pytex_line_number = line_number + 1
-    if line.endswith("\n"):
-        line = line[:-1]
-    eol = parser.endlinechar.value
-    if 0 <= eol < 256:
-        line += chr(eol)
     name = getattr(file, "name", None)
-    return Tokenizer(line, parser, _LocalFileLineScanner(), name, line_number)
+    return Tokenizer(_LocalFileLineScanner(parser, name, line_number, line))
 
 
 class OpenOp(Accessor):

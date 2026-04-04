@@ -240,16 +240,8 @@ class InputStack:
         @return: the next token
         @raise EOFError: if the end of the stack is reached
         """
-        if self.saved:
-            t = self.saved.pop()
-            entry = t.entry
-            if entry is not None and t.definition is not entry.value:
-                t.definition = entry.value
-            return t
-        if self.top is None:
-            raise EOFError
         try:
-            t = self.top.read()
+            t = self.saved.pop() if self.saved else self.top.read()
             entry = t.entry
             if entry is not None and t.definition is not entry.value:
                 t.definition = entry.value
@@ -257,6 +249,10 @@ class InputStack:
         except EOFError:
             self.pop()
             return self.read()
+        except AttributeError as e:
+            if self.top is None:
+                raise EOFError
+            raise e
 
     def unread(self, token):
         """

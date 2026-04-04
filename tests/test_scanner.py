@@ -94,8 +94,8 @@ def test_token(parser, input):
         assert token is not None
         assert token.name == t
         assert token.catcode == c
-    token = stack.read()
-    assert token is None
+    with pytest.raises(EOFError):
+        stack.read()
 
 
 def test_input_stack(parser):
@@ -132,8 +132,8 @@ def test_input_stack(parser):
     assert token is not None
     assert token.name == " "
     assert token.catcode == CATCODE.SPACE
-    token = stack.read()
-    assert token is None
+    with pytest.raises(EOFError):
+        stack.read()
 
 
 def test_push_token_list_splices_tokens_without_new_scanner_frame(parser):
@@ -159,8 +159,8 @@ def test_push_token_list_splices_tokens_without_new_scanner_frame(parser):
     token = stack.read()
     assert token is not None
     assert token.isSpace(False)
-    token = stack.read()
-    assert token is None
+    with pytest.raises(EOFError):
+        stack.read()
 
 
 def test_position_ignores_non_positioned_token_frames(parser):
@@ -209,8 +209,8 @@ def test_ignore(parser):
     t = stack.read()
     assert t is not None
     assert t.catcode == CATCODE.SPACE
-    t = stack.read()
-    assert t is None
+    with pytest.raises(EOFError):
+        stack.read()
 
 
 def test_leading_ignore_does_not_preserve_space(parser):
@@ -224,8 +224,8 @@ def test_leading_ignore_does_not_preserve_space(parser):
     t = stack.read()
     assert t is not None
     assert t.catcode == CATCODE.SPACE
-    t = stack.read()
-    assert t is None
+    with pytest.raises(EOFError):
+        stack.read()
 
 
 def test_command(parser):
@@ -246,8 +246,8 @@ def test_endlinechar_negative_one_skips_empty_line(parser):
     assert token is not None
     assert token.name == "A"
     assert token.catcode == CATCODE.LETTER
-    token = stack.read()
-    assert token is None
+    with pytest.raises(EOFError):
+        stack.read()
 
 
 def test_carets_at_eol_with_no_endlinechar(parser):
@@ -256,8 +256,9 @@ def test_carets_at_eol_with_no_endlinechar(parser):
     stack = stack_for(parser, tokenizer)
     tokens = []
     while True:
-        token = stack.read()
-        if token is None:
+        try:
+            token = stack.read()
+        except EOFError:
             break
         tokens.append(token)
     assert [t.name for t in tokens] == ["^", "^"]
@@ -272,8 +273,8 @@ def test_carets_at_eol_with_default_endlinechar(parser):
     assert token is not None
     assert token.name == "M"
     assert token.catcode == CATCODE.LETTER
-    token = stack.read()
-    assert token is None
+    with pytest.raises(EOFError):
+        stack.read()
 
 
 def test_utf(parser):
@@ -285,8 +286,8 @@ def test_utf(parser):
     assert token.catcode == CATCODE.OTHER
     token = stack.read()
     assert token.catcode == CATCODE.SPACE
-    token = stack.read()
-    assert token is None
+    with pytest.raises(EOFError):
+        stack.read()
 
 
 def test_tokenizer_raises_eof_when_source_exhausted(parser):

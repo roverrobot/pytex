@@ -237,22 +237,18 @@ class InputStack:
     def read(self) -> typing.Optional[Token]:
         """
         Read the next token from the active tokenizer.
-        @return: the next token, or None if the end of the stack is reached
+        @return: the next token
+        @raise EOFError: if the end of the stack is reached
         """
         if self.saved:
             return self._restore(self.saved.pop())
+        if self.top is None:
+            raise EOFError
         try:
             return self._restore(self.top.read())
         except EOFError:
-            try:
-                self.pop()
-                return self.read()
-            except EOFError:
-                return None
-        except AttributeError as e:
-            if self.top is None:
-                return None
-            raise e
+            self.pop()
+            return self.read()
 
     @staticmethod
     def _restore(t):

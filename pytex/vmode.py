@@ -63,30 +63,33 @@ class VList(lists.List):
             return page_builder.rawNodes(self)
         return list(self.raw)
 
-    def _notePageBuilder(self, node):
-        page_builder = self._pageBuilder()
-        if page_builder is not None:
-            page_builder.noteAppend(self, node)
-
     def appendParagraph(self, para):
         self.raw.append(para)
         self.parser.typeset.paragraph.typeset(para, self)
-        self._notePageBuilder(para)
+        page_builder = self._pageBuilder()
+        if page_builder is not None:
+            page_builder.contribute(self, para)
 
     def appendDisplayMath(self, node):
         self.raw.append(node)
         self.parser.typeset.math.typesetDisplayMath(node, self)
-        self._notePageBuilder(node)
+        page_builder = self._pageBuilder()
+        if page_builder is not None:
+            page_builder.contribute(self, node)
 
     def appendHAlignment(self, node):
         self.raw.append(node)
         self.parser.typeset.align.typesetHAlignment(node, self)
-        self._notePageBuilder(node)
+        page_builder = self._pageBuilder()
+        if page_builder is not None:
+            page_builder.contribute(self, node)
 
     def appendMAlignment(self, node):
         self.raw.append(node)
         self.parser.typeset.align.typesetMAlignment(node, self)
-        self._notePageBuilder(node)
+        page_builder = self._pageBuilder()
+        if page_builder is not None:
+            page_builder.contribute(self, node)
 
     def appendVAdjust(self, node):
         self.raw.append(node)
@@ -104,11 +107,15 @@ class VList(lists.List):
         if node.node_type == nd.NODE_TYPE.RULE:
             self.parser.globals["prevdepth"] = init_prevdepth
             self.list.append(node)
-            self._notePageBuilder(node)
+            page_builder = self._pageBuilder()
+            if page_builder is not None:
+                page_builder.contribute(self, node)
             return
         if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
             self.list.append(node)
-            self._notePageBuilder(node)
+            page_builder = self._pageBuilder()
+            if page_builder is not None:
+                page_builder.contribute(self, node)
             return
         prevdepth = self.parser.globals["prevdepth"]
         interline_penalty = getattr(node, "interline_penalty", None)
@@ -134,7 +141,9 @@ class VList(lists.List):
         if node.node_type == nd.NODE_TYPE.HLIST:
             for n in getattr(node, "migratory", []):
                 self.append(n, add_interline=False)
-        self._notePageBuilder(node)
+        page_builder = self._pageBuilder()
+        if page_builder is not None:
+            page_builder.contribute(self, node)
     
     @staticmethod
     def isOwner(node, owner):

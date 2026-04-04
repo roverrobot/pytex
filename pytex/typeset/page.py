@@ -436,7 +436,14 @@ class PageBuilder:
             nd.NODE_TYPE.INS,
         )
 
-    def noteAppend(self, pending, node):
+    def contribute(self, pending, node):
+        """
+        Page-builder IR entry for a newly contributed outer-vlist node.
+
+        The caller has already appended `node` to the pending vertical list;
+        this method decides whether that contribution should flush pending
+        nodes into the contribution list and exercise page breaking.
+        """
         if not self._triggersPageBuilder(node):
             return
         self.contributePending(pending)

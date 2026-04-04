@@ -66,8 +66,9 @@ def readTo(parser, stop, toks=None, expand: bool = False):
     tok = parser.token
     append = builder.append
     while True:
-        t = tok()
-        if t is None:
+        try:
+            t = tok()
+        except EOFError:
             miss = "{" if stop == 1 else "}"
             raise ValueError(f"expecting {miss}", parser.input.position())
         catcode = t.catcode
@@ -90,8 +91,9 @@ def skipFiller(parser):
     @param parser: the parser
     """
     while True:
-        t = parser.skipSpaces()
-        if t is None:
+        try:
+            t = parser.skipSpaces()
+        except EOFError:
             return
         if t.definition == relax:
             continue
@@ -109,13 +111,14 @@ def readGeneralText(parser, expand: bool = True):
     @return: the token list
     """
     skipFiller(parser)
-    lbrace = parser.token_expand() if expand else parser.token()
+    try:
+        lbrace = parser.token_expand() if expand else parser.token()
+    except EOFError:
+        raise ValueError("expecting {", parser.input.position())
     is_begin_group = (
-        lbrace is not None and (
-            lbrace.isTokenExpand(CATCODE.BEGIN_GROUP)
-            if expand else
-            lbrace.catcode == CATCODE.BEGIN_GROUP
-        )
+        lbrace.isTokenExpand(CATCODE.BEGIN_GROUP)
+        if expand else
+        lbrace.catcode == CATCODE.BEGIN_GROUP
     )
     if not is_begin_group:
         raise ValueError("expecting {", parser.input.position())
@@ -130,8 +133,9 @@ def readToks(parser):
     """
     skip = parser.skipSpacesNoExpand
     while True:
-        t = skip()
-        if t is None:
+        try:
+            t = skip()
+        except EOFError:
             break
         if t.definition == relax:
             continue
@@ -173,8 +177,9 @@ class AfterGroup(Command):
         execute the command
         @param parser: the parser
         """
-        t = parser.token()
-        if t is None:
+        try:
+            t = parser.token()
+        except EOFError:
             raise ValueError("token expected")
         group = parser.current_group
         if group is not None:
@@ -227,9 +232,11 @@ class IgnoreSpaces(Command):
     the \\ignorespaces command
     """
     def execute(self, parser):
-        t = parser.skipSpaces()
-        if t is not None:
-            parser.input.unread(t)
+        try:
+            t = parser.skipSpaces()
+        except EOFError:
+            return
+        parser.input.unread(t)
 
 
 class The(Command):
@@ -261,8 +268,9 @@ class The(Command):
                 t.entry = parser.equitable.entry(f.name)
                 return [t]
             raise ValueError(f"invalid value after \\the", parser.input.position())
-        t = parser.token_expand()
-        if t is None:
+        try:
+            t = parser.token_expand()
+        except EOFError:
             raise ValueError(f"expecting a token after \\the", parser.input.position())
         raise ValueError(f"invalid token after \\the: {t.name}", parser.input.position())
     

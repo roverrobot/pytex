@@ -10,8 +10,8 @@ def test_noexpand(parser):
     t = parser.token_expand()
     assert t is not None
     assert t.name == "\\test"
-    t = parser.token_expand()
-    assert t is None
+    with pytest.raises(EOFError):
+        parser.token_expand()
     parser.readFrom("\\noexpand a")
     t = parser.token_expand()
     assert t is not None
@@ -37,8 +37,8 @@ def test_csname(collector):
     collector.readFrom("\\csname test\\endcsname")
     t = collector.token_expand()
     assert t is not None and t.entry is not None
-    t = collector.token_expand()
-    assert t is None
+    with pytest.raises(EOFError):
+        collector.token_expand()
     collector.parse("\\test")
     assert collector.getString() == ""
     collector.parse("\\def\\test{a}\\csname test\\endcsname")

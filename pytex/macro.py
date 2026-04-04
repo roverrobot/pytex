@@ -34,8 +34,9 @@ def _matchDelimited(parser, macro, bracket, bracket_len):
     @return: None for matched, or the first token that failed to match
     """
     p = bracket[0]
-    t = parser.token()
-    if t is None:
+    try:
+        t = parser.token()
+    except EOFError:
         _macroMismatch(parser, macro)
     if t.catcode != p.catcode or t.name != p.name:
         return t
@@ -45,8 +46,9 @@ def _matchDelimited(parser, macro, bracket, bracket_len):
     while i < bracket_len:
         p = bracket[i]
         i += 1
-        t = parser.token()
-        if t is None:
+        try:
+            t = parser.token()
+        except EOFError:
             _macroMismatch(parser, macro)
         if t.catcode != p.catcode or t.name != p.name:
             parser.input.unread(t)
@@ -175,8 +177,11 @@ class MatchStartCaller(Serializable):
 
     def __call__(self, parser, macro, args):
         for b in self.bracket:
-            t = parser.token()
-            if t is None or t.catcode != b.catcode or t.name != b.name:
+            try:
+                t = parser.token()
+            except EOFError:
+                _macroMismatch(parser, macro)
+            if t.catcode != b.catcode or t.name != b.name:
                 _macroMismatch(parser, macro)
 
 
@@ -201,10 +206,10 @@ class ReadArgUnDelimCaller(Serializable):
         return {"arg": self.arg}, None
 
     def __call__(self, parser, macro, args):
-        t = parser.skipSpacesNoExpand()
-        if t is None:
-            args.append([])
-            return args
+        try:
+            t = parser.skipSpacesNoExpand()
+        except EOFError:
+            _macroMismatch(parser, macro)
         if t.catcode != CATCODE.BEGIN_GROUP:
             args.append([t])
             return args
@@ -237,8 +242,9 @@ class ReadArgDelim1Caller(Serializable):
         result = []
         append = result.append
         while True:
-            t = token()
-            if t is None:
+            try:
+                t = token()
+            except EOFError:
                 _macroMismatch(parser, macro)
             if t.catcode == self.bracket.catcode and t.name == self.bracket.name:
                 args.append(result)
@@ -250,8 +256,9 @@ class ReadArgDelim1Caller(Serializable):
                 if keep:
                     append(end)
                     continue
-                t = token()
-                if t is None:
+                try:
+                    t = token()
+                except EOFError:
                     _macroMismatch(parser, macro)
                 if t.catcode == self.bracket.catcode and t.name == self.bracket.name:
                     args.append(result if keep else result[1:])

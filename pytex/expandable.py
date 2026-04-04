@@ -44,8 +44,9 @@ class NoExpand(Command):
         This command prevents the next token from being expanded.
         @param parser: the parser
         """
-        t = parser.token()
-        if t is None:
+        try:
+            t = parser.token()
+        except EOFError:
             raise ValueError("expecting a token after \\noexpand", parser.input.position())
         entry = t.entry
         if entry is not None and (entry.value is None or entry.value.expand):
@@ -65,10 +66,15 @@ class ExpandAfter(Command):
         Expand the command. The expandafter command expands the next token after the next token.
         @param parser: the parser
         """
-        t = parser.token()
-        if t is None:
+        try:
+            t = parser.token()
+        except EOFError:
             return
-        t1 = parser.token()
+        try:
+            t1 = parser.token()
+        except EOFError:
+            parser.input.unread(t)
+            return
         if t1.entry is not None:
             definition = t1.definition
             if definition is None:
@@ -104,8 +110,9 @@ def readCSName(parser):
     parser.incsname_depth = getattr(parser, "incsname_depth", 0) + 1
     try:
         while True:
-            t = parser.token_expand()
-            if t is None:
+            try:
+                t = parser.token_expand()
+            except EOFError:
                 raise ValueError("expecting \\endcsname", parser.input.position())
             if t.definition == endcsname:
                 break
@@ -260,8 +267,9 @@ class String(Command):
     with catcode OTHER. The result is pushed back to the input stack.
     """
     def expand(self, parser):
-        t = parser.token()
-        if t is None:
+        try:
+            t = parser.token()
+        except EOFError:
             raise ValueError("expecting a token", parser.input.position())
         parser.input.pushTokenList(toToks(parser.expandedTokenToString(t)))
 
@@ -301,8 +309,9 @@ class JobName(Command):
 
 class Meaning(Command):
     def expand(self, parser):
-        t = parser.token()
-        if t is None:
+        try:
+            t = parser.token()
+        except EOFError:
             raise ValueError("expecting a token", parser.input.position())
         parser.input.pushTokenList(toToks(t.meaning(parser)))
 

@@ -20,8 +20,9 @@ def readSigns(parser):
     sign = 1
     # skips spaces
     while True:
-        t = parser.skipSpaces()
-        if t is None:
+        try:
+            t = parser.skipSpaces()
+        except EOFError:
             return sign
         if t.catcode != CATCODE.OTHER:
             parser.input.unread(t)
@@ -56,8 +57,9 @@ def readUnsigned(parser):
     value = parser.readInternalValue(VALUE_TYPE.INT)
     if value is not None:
         return int(value)
-    t = parser.token_expand()
-    if t is None:
+    try:
+        t = parser.token_expand()
+    except EOFError:
         raise ValueError("expecting an integer", parser.input.position())
     # a normal integer is either a ` followed by a character, or a ' followed by
     # an octant number, or a " followed by a hex number, or a number
@@ -129,8 +131,9 @@ def readDigits(parser, base, optional=False):
     read = False
     value = ""
     while True:
-        t = parser.token_expand()
-        if t is None:
+        try:
+            t = parser.token_expand()
+        except EOFError:
             break
         # commands do not have a catcode
         if (t.catcode != CATCODE.OTHER and t.catcode != CATCODE.LETTER) or not validDigit(t.name):

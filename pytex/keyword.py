@@ -33,8 +33,9 @@ def readKeyword(parser, keywords: set):
     @return: the keyword or None
     """
     keywords = set(keywords)
-    t = parser.skipSpaces()
-    if t is None:
+    try:
+        t = parser.skipSpaces()
+    except EOFError:
         return None
     read = [t]
     # the current location in the string
@@ -47,8 +48,9 @@ def readKeyword(parser, keywords: set):
         if not keywords:
             break
         i += 1
-        t = parser.token_expand()
-        if t is None:
+        try:
+            t = parser.token_expand()
+        except EOFError:
             break
         read.append(t)
     for t in reversed(read):

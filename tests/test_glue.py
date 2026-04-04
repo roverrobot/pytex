@@ -23,8 +23,8 @@ def test_read_glue(parser):
     parser.readFrom("-10in plus 1pt minus 2fillll")
     result = parser.readGlue()
     assert result == Glue(-10*72.27, Stretchness(1, 0), Stretchness(2, 3))
-    t = parser.token_expand()
-    assert t is None
+    with pytest.raises(EOFError):
+        parser.token_expand()
         
 
 def test_read_mu(parser):

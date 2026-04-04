@@ -85,12 +85,11 @@ class Parser:
 
     def token(self):
         """
-        Read the next token from input, returning None at true end of input.
+        Read the next token from input.
+
+        Raises EOFError when the input stack is exhausted.
         """
-        try:
-            return self.input.read()
-        except EOFError:
-            return None
+        return self.input.read()
 
     def initState(self):
         self.groups = []
@@ -145,8 +144,9 @@ class Parser:
         @param meaning: optional accessor-like object; if omitted it is read from input
         @return: the resolved target
         """
-        t = self.token_expand()
-        if t is None:
+        try:
+            t = self.token_expand()
+        except EOFError:
             return None
         if t.definition is None or getattr(t.definition, "getTarget", None) is None:
             self.input.unread(t)
@@ -231,8 +231,9 @@ class Parser:
         Returns a parsed Assignment object, or None if the next token is not an
         assignment head.
         """
-        t = self.token_expand() if expand else self.token()
-        if t is None:
+        try:
+            t = self.token_expand() if expand else self.token()
+        except EOFError:
             return None
         meaning = t.definition
         if meaning is None:
@@ -251,8 +252,9 @@ class Parser:
         On failure, the original token is unread and ``(None, None)``
         is returned.
         """
-        t = self.token_expand() if expand else self.token()
-        if t is None:
+        try:
+            t = self.token_expand() if expand else self.token()
+        except EOFError:
             return None, None
         value, actual_type = self._fetchMeaningValue(t.definition, value_type)
         if actual_type is None:
@@ -373,7 +375,7 @@ class Parser:
             t = self.token()
             # t is expanable. As a token, it is either a command sequence or an active token
             # if its meaning is None, we find its meaning by expanding it
-            if t is not None and t.entry is not None:
+            if t.entry is not None:
                 definition = t.definition
                 if definition is None:
                     raise ValueError("undefined command" + t.name, self.input.position())
@@ -439,8 +441,9 @@ class Parser:
         the main read-execute loop
         """
         while self.run:
-            t = self.token_expand()
-            if t is None:
+            try:
+                t = self.token_expand()
+            except EOFError:
                 self.run = False
                 break
             if self.tracingcommands:
@@ -460,8 +463,11 @@ class Parser:
         skip one optional space
         @param expand: whether to expand tokens
         """
-        t = self.token_expand()
-        if t is not None and not t.isTokenExpand(token.CATCODE.SPACE):
+        try:
+            t = self.token_expand()
+        except EOFError:
+            return
+        if not t.isTokenExpand(token.CATCODE.SPACE):
             self.input.unread(t)
 
     def skipSpaces(self):
@@ -473,7 +479,7 @@ class Parser:
         skip = self.token_expand
         while True:
             t = skip()
-            if t is None or not t.isTokenExpand(10):
+            if not t.isTokenExpand(10):
                 return t
 
     def skipSpacesNoExpand(self):
@@ -485,7 +491,7 @@ class Parser:
         skip = self.token
         while True:
             t = skip()
-            if t is None or t.catcode != 10:
+            if t.catcode != 10:
                 return t
 
     def missingCharacter(self, font, char):

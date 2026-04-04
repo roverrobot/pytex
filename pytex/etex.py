@@ -79,11 +79,13 @@ class Expr(ModeDependentCommand):
         @param allowed: the allowed operators
         @return: the operator as a character
         """
-        t = parser.skipSpaces()
-        if t is not None:
-            if t.catcode == tk.CATCODE.OTHER and t.name in allowed:
-                return t.name
-            parser.input.unread(t)
+        try:
+            t = parser.skipSpaces()
+        except EOFError:
+            return None
+        if t.catcode == tk.CATCODE.OTHER and t.name in allowed:
+            return t.name
+        parser.input.unread(t)
         return None
         
     def readExpr(self, parser, integer: bool = False):
@@ -98,8 +100,11 @@ class Expr(ModeDependentCommand):
             op = self.readOp(parser, "+-")
             if op is None:
                 # skip spaces and an optional \relax
-                t = parser.skipSpaces()
-                if t is not None and t.definition != token.relax:
+                try:
+                    t = parser.skipSpaces()
+                except EOFError:
+                    return term
+                if t.definition != token.relax:
                     parser.input.unread(t)
                 return term
             oprand = self.readTerm(parser, integer)
@@ -449,8 +454,9 @@ class IfDefined(conditional.Conditional):
     The \\ifdefined command
     """
     def condition(self, parser):
-        t = parser.token()
-        if t is None:
+        try:
+            t = parser.token()
+        except EOFError:
             raise ValueError("expecting a token, but reached end of input", parser.input.position())
         return 0 if t.entry is None or t.definition is not None else 1
 
@@ -488,8 +494,9 @@ class UnlessConditional(conditional.Conditional):
 
 class Unless(token.Command):
     def expand(self, parser):
-        t = parser.token()
-        if t is None:
+        try:
+            t = parser.token()
+        except EOFError:
             raise ValueError("expecting a token, but reached end of input", parser.input.position())
         c = t.definition
         if isinstance(c, conditional.Conditional) and not isinstance(c, conditional.IfCase):

@@ -190,8 +190,9 @@ def readUnsignedNumberRatio(parser):
     value = parser.readInternalValue(VALUE_TYPE.INT)
     if value is not None:
         return int(value), 1
-    t = parser.token_expand()
-    if t is None:
+    try:
+        t = parser.token_expand()
+    except EOFError:
         raise ValueError("expecting a number", parser.input.position())
     if t.catcode != CATCODE.OTHER or t.name != ".":
         parser.input.unread(t)
@@ -199,10 +200,11 @@ def readUnsignedNumberRatio(parser):
             int_part = readUnsigned(parser)
         except ValueError as e:
             raise ValueError("expecting a number", e.args[1] if len(e.args) > 1 else parser.input.position())
-        t = parser.token_expand()
-        # a decimal point
-        if t is None:
+        try:
+            t = parser.token_expand()
+        except EOFError:
             return int_part, 1
+        # a decimal point
         if t.catcode != CATCODE.OTHER or (t.name!= "." and t.name != ","):
             parser.input.unread(t)
             return int_part, 1
@@ -257,8 +259,9 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
         parser.input.unread(t)
         return parser.readInternalValue(VALUE_TYPE.DIMEN)
     # an unsigned dimension
-    t = parser.token_expand()
-    if t is None:
+    try:
+        t = parser.token_expand()
+    except EOFError:
         raise Exception("dimension expected")
     # an internal dimension or a glue (both have a dimenValue method)
     # a number
@@ -266,10 +269,11 @@ def readUnsignedDimen(parser, mu: bool, stretchness: bool):
     if value is not None:
         return (value, 0) if stretchness else value
     num, den = readUnsignedNumberRatio(parser)
-    t = parser.skipSpaces()
-    # a unit
-    if t is None:
+    try:
+        t = parser.skipSpaces()
+    except EOFError:
         raise ValueError("dimension unit expected", parser.input.position())
+    # a unit
     value = readInternalDimen(t)
     if value is not None:
         dimen = Dimen(integer=Dimen._trunc_div(num * int(value), den))

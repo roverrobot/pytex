@@ -241,21 +241,22 @@ class InputStack:
         @raise EOFError: if the end of the stack is reached
         """
         if self.saved:
-            return self._restore(self.saved.pop())
+            t = self.saved.pop()
+            entry = t.entry
+            if entry is not None and t.definition is not entry.value:
+                t.definition = entry.value
+            return t
         if self.top is None:
             raise EOFError
         try:
-            return self._restore(self.top.read())
+            t = self.top.read()
+            entry = t.entry
+            if entry is not None and t.definition is not entry.value:
+                t.definition = entry.value
+            return t
         except EOFError:
             self.pop()
             return self.read()
-
-    @staticmethod
-    def _restore(t):
-        entry = t.entry
-        if entry is not None and t.definition is not entry.value:
-            t.definition = entry.value
-        return t
 
     def unread(self, token):
         """

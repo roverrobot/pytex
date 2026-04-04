@@ -82,14 +82,7 @@ class Parser:
         self.lastbox = None
         self.ended = False
         self.formatfile = None
-
-    def token(self):
-        """
-        Read the next token from input.
-
-        Raises EOFError when the input stack is exhausted.
-        """
-        return self.input.read()
+        self.token = self.input.read
 
     def initState(self):
         self.groups = []

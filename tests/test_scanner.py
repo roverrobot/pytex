@@ -288,3 +288,35 @@ def test_utf(parser):
     assert token.catcode == CATCODE.SPACE
     token = stack.read()
     assert token is None
+
+
+def test_tokenizer_raises_eof_when_source_exhausted(parser):
+    tokenizer = lexer.Tokenizer(lexer.StringScanner(parser, "A"))
+    token = tokenizer.read()
+    assert token is not None
+    assert token.name == "A"
+    token = tokenizer.read()
+    assert token is not None
+    assert token.isSpace(False)
+    with pytest.raises(EOFError):
+        tokenizer.read()
+
+
+def test_input_stack_can_passthrough_eof_after_popping_exhausted_frame(parser):
+    stack = parser.input
+    stack.push(lexer.StringScanner(parser, "A"))
+    stack.push(lexer.StringScanner(parser, "B"))
+    stack.eof_passthrough = True
+    token = stack.read()
+    assert token is not None
+    assert token.name == "B"
+    token = stack.read()
+    assert token is not None
+    assert token.isSpace(False)
+    with pytest.raises(EOFError):
+        stack.read()
+    assert isinstance(stack.top, lexer.StringScanner)
+    stack.eof_passthrough = False
+    token = stack.read()
+    assert token is not None
+    assert token.name == "A"

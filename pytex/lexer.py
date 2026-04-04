@@ -158,14 +158,15 @@ class Tokenizer:
     def read(self) -> typing.Optional[Token]:
         """
         read the next token from the source
-        @return: the next token, or None if the end of the source is reached
+        @return: the next token
+        @raise EOFError: if the source is exhausted
         """
         while True:
             c, catcode = self.charExpand()
             if catcode is None or catcode == CATCODE.COMMENT:
                 if self._loadLine():
                     continue
-                return None
+                raise EOFError
             # handle spaces
             if catcode == CATCODE.SPACE:
                 self.skipSpaces()
@@ -287,6 +288,9 @@ class InputStack:
         self.stack = []
         # the saved tokens that are unread
         self.saved = []
+        # when true, source exhaustion is re-raised after the exhausted frame
+        # has been popped instead of being absorbed into ordinary token flow
+        self.eof_passthrough = False
 
     @staticmethod
     def _positioned(scanner):
@@ -314,17 +318,22 @@ class InputStack:
             return self._restore(self.saved.pop())
         while self.top:
             if isinstance(self.top, Tokenizer):
-                t = self.top.read()
+                try:
+                    t = self.top.read()
+                except EOFError:
+                    self.pop()
+                    if self.eof_passthrough:
+                        raise
+                    if self.saved:
+                        return self._restore(self.saved.pop())
+                    continue
                 self.top.source.column = self.top.pos
-                if t is not None:
-                    return self._restore(t)
-                self.pop()
-                if self.saved:
-                    return self._restore(self.saved.pop())
-                continue
+                return self._restore(t)
             tokenizer = Tokenizer(self.top)
             if tokenizer.exhausted:
                 self.pop()
+                if self.eof_passthrough:
+                    raise EOFError
                 if self.saved:
                     return self._restore(self.saved.pop())
                 continue

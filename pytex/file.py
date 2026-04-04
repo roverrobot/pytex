@@ -201,8 +201,9 @@ class ReadOp(Accessor):
                 reached_eof = True
                 break
             while True:
-                t = tokenizer.read()
-                if t is None:
+                try:
+                    t = tokenizer.read()
+                except EOFError:
                     done = level == 0
                     break
                 if t.catcode == token.CATCODE.BEGIN_GROUP:

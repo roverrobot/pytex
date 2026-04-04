@@ -47,8 +47,8 @@ def parser():
     return ScannerParser()
 
 
-def stack_for(parser, scanner):
-    parser.input.push(scanner)
+def stack_for(parser, tokenizer):
+    parser.input.push(tokenizer)
     return parser.input
 
 
@@ -85,8 +85,8 @@ def test_token(parser, input):
     for t in input.toks:
         c = None if t[0] == "\\" else parser.catcode[ord(t[0])]
         cat.append(c)
-    scanner = lexer.StringScanner(parser, input.input)
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer(input.input, parser)
+    stack = stack_for(parser, tokenizer)
     for i in range(len(input.toks)):
         t = input.toks[i]
         c = cat[i]
@@ -100,8 +100,8 @@ def test_token(parser, input):
 
 def test_input_stack(parser):
     stack = parser.input
-    scanner = lexer.StringScanner(parser, "ABC")
-    stack.push(scanner)
+    tokenizer = lexer.Tokenizer("ABC", parser)
+    stack.push(tokenizer)
     token = stack.read()
     assert token is not None
     assert token.name == "A"
@@ -110,8 +110,8 @@ def test_input_stack(parser):
     C = stack.read()
     stack.unread(C)
     stack.unread(B)
-    scanner = lexer.StringScanner(parser, "1")
-    stack.push(scanner)
+    tokenizer = lexer.Tokenizer("1", parser)
+    stack.push(tokenizer)
     token = stack.read()
     assert token is not None
     assert token.name == "1"
@@ -138,8 +138,8 @@ def test_input_stack(parser):
 
 def test_push_token_list_splices_tokens_without_new_scanner_frame(parser):
     stack = parser.input
-    scanner = lexer.StringScanner(parser, "A")
-    stack.push(scanner)
+    tokenizer = lexer.Tokenizer("A", parser)
+    stack.push(tokenizer)
     token = stack.read()
     assert token is not None
     assert token.name == "A"
@@ -165,8 +165,8 @@ def test_push_token_list_splices_tokens_without_new_scanner_frame(parser):
 
 def test_position_ignores_non_positioned_token_frames(parser):
     stack = parser.input
-    scanner = lexer.StringScanner(parser, "AB")
-    stack.push(scanner)
+    tokenizer = lexer.Tokenizer("AB", parser)
+    stack.push(tokenizer)
     token = stack.read()
     assert token is not None
     assert token.name == "A"
@@ -175,15 +175,14 @@ def test_position_ignores_non_positioned_token_frames(parser):
     stack.pushTokenList([tk.Token.token("X", CATCODE.LETTER)])
     pos = stack.position()
     assert (pos.line, pos.column) == before
-    active = stack.activeScanner()
-    assert active is not None
-    assert (active.position().line, active.position().column) == before
+    assert stack.top is not None
+    assert (stack.top.position().line, stack.top.position().column) == before
 
 
 def test_unicode(parser):
     s = "1é测"
-    scanner = lexer.StringScanner(parser, s)
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer(s, parser)
+    stack = stack_for(parser, tokenizer)
     for i in range(len(s)):
         t = stack.read()
         assert t is not None
@@ -197,8 +196,8 @@ def test_ignore(parser):
     # ignore space 
     parser.catcode[32] = CATCODE.IGNORE
     s = "\\a b"
-    scanner = lexer.StringScanner(parser, s)
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer(s, parser)
+    stack = stack_for(parser, tokenizer)
     t = stack.read()
     assert t is not None
     assert t.catcode == None
@@ -216,8 +215,8 @@ def test_ignore(parser):
 
 def test_leading_ignore_does_not_preserve_space(parser):
     parser.catcode[ord("&")] = CATCODE.IGNORE
-    scanner = lexer.StringScanner(parser, "& A")
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer("& A", parser)
+    stack = stack_for(parser, tokenizer)
     t = stack.read()
     assert t is not None
     assert t.catcode == CATCODE.LETTER
@@ -230,8 +229,8 @@ def test_leading_ignore_does_not_preserve_space(parser):
 
 
 def test_command(parser):
-    scanner = lexer.StringScanner(parser, "\\: ")
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer("\\: ", parser)
+    stack = stack_for(parser, tokenizer)
     t = stack.read()
     assert t is not None
     assert t.catcode is None and t.name == "\\:"
@@ -241,8 +240,8 @@ def test_command(parser):
 
 def test_endlinechar_negative_one_skips_empty_line(parser):
     parser.parameters["endlinechar"] = -1
-    scanner = lexer.StringScanner(parser, "\nA")
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer("\nA", parser)
+    stack = stack_for(parser, tokenizer)
     token = stack.read()
     assert token is not None
     assert token.name == "A"
@@ -253,8 +252,8 @@ def test_endlinechar_negative_one_skips_empty_line(parser):
 
 def test_carets_at_eol_with_no_endlinechar(parser):
     parser.parameters["endlinechar"] = -1
-    scanner = lexer.StringScanner(parser, "^^")
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer("^^", parser)
+    stack = stack_for(parser, tokenizer)
     tokens = []
     while True:
         token = stack.read()
@@ -267,8 +266,8 @@ def test_carets_at_eol_with_no_endlinechar(parser):
 
 def test_carets_at_eol_with_default_endlinechar(parser):
     parser.parameters["endlinechar"] = ord("\r")
-    scanner = lexer.StringScanner(parser, "^^")
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer("^^", parser)
+    stack = stack_for(parser, tokenizer)
     token = stack.read()
     assert token is not None
     assert token.name == "M"
@@ -278,8 +277,8 @@ def test_carets_at_eol_with_default_endlinechar(parser):
 
 
 def test_utf(parser):
-    scanner = lexer.StringScanner(parser, "😄")
-    stack = stack_for(parser, scanner)
+    tokenizer = lexer.Tokenizer("😄", parser)
+    stack = stack_for(parser, tokenizer)
     token = stack.read()
     assert token is not None
     assert token.name == "😄"
@@ -291,7 +290,7 @@ def test_utf(parser):
 
 
 def test_tokenizer_raises_eof_when_source_exhausted(parser):
-    tokenizer = lexer.Tokenizer(lexer.StringScanner(parser, "A"))
+    tokenizer = lexer.Tokenizer("A", parser)
     token = tokenizer.read()
     assert token is not None
     assert token.name == "A"
@@ -304,8 +303,8 @@ def test_tokenizer_raises_eof_when_source_exhausted(parser):
 
 def test_input_stack_can_passthrough_eof_after_popping_exhausted_frame(parser):
     stack = parser.input
-    stack.push(lexer.StringScanner(parser, "A"))
-    stack.push(lexer.StringScanner(parser, "B"))
+    stack.push(lexer.Tokenizer("A", parser))
+    stack.push(lexer.Tokenizer("B", parser))
     stack.eof_passthrough = True
     token = stack.read()
     assert token is not None
@@ -315,7 +314,7 @@ def test_input_stack_can_passthrough_eof_after_popping_exhausted_frame(parser):
     assert token.isSpace(False)
     with pytest.raises(EOFError):
         stack.read()
-    assert isinstance(stack.top, lexer.StringScanner)
+    assert isinstance(stack.top, lexer.Tokenizer)
     stack.eof_passthrough = False
     token = stack.read()
     assert token is not None

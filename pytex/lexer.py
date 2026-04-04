@@ -237,17 +237,6 @@ class InputStack:
         # has been popped instead of being absorbed into ordinary token flow
         self.eof_passthrough = False
 
-    def activeScanner(self):
-        """
-        Return the nearest tokenizer frame that can report source position.
-        """
-        if self.top is not None:
-            return self.top
-        for tokenizer, _saved in reversed(self.stack):
-            if tokenizer is not None:
-                return tokenizer
-        return None
-
     def read(self) -> typing.Optional[Token]:
         """
         Read the next token from the active tokenizer.
@@ -323,10 +312,9 @@ class InputStack:
         """
         return the position of the last token read
         """
-        active = self.activeScanner()
-        if active is None:
+        if self.top is None:
             return Position(None, 0, 0)
-        return active.position()
+        return self.top.position()
     
     def __repr__(self):
         l = ["Input stack:"]

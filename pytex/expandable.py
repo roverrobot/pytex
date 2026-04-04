@@ -5,7 +5,7 @@ This module implements various expandable commands.
 
 from pytex.token import Command, CATCODE, CommandToken, ActiveToken, relax, SpaceToken, CharToken
 from pytex.module import Module
-from pytex.lexer import Scanner
+from pytex.lexer import Tokenizer
 from pytex.state import NamedEntry
 import pathlib
 
@@ -280,19 +280,18 @@ class Input(Command):
         f = parser.resolver.openIn(name, "source")
         if f is None:
             raise ValueError(f"file {name} not found", pos)
-        parser.input.push(Scanner(parser, f, name))
+        parser.input.push(Tokenizer(f, parser, name))
 
 
 class EndInput(Command):
     """
     The \\endinput command.
 
-    This command ends the active scanner of the input stack.
+    This command ends the active tokenizer of the input stack.
     """
     def expand(self, parser):
-        active = parser.input.activeScanner()
-        if active is not None:
-            active.end()
+        if parser.input.top is not None:
+            parser.input.top.end()
 
 
 class JobName(Command):

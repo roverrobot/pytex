@@ -6,6 +6,8 @@ Like the texlive module, users need to explicitly loading the module
 by importing it.
 """
 
+import io
+
 from pytex import token as tk
 from pytex.module import Module
 from pytex.lists import ModeDependentCommand
@@ -517,29 +519,6 @@ class Detokenize(token.Command):
         parser.input.pushTokenList(expandable.toToks(s))
 
 
-class _ScanTokensSource:
-    """
-    Minimal source object for a single-line \\scantokens tokenizer.
-    """
-    def __init__(self, parser, line):
-        self.parser = parser
-        self.name = None
-        self.line = -1
-        self.column = 0
-        self._line = line
-
-    def nextLine(self):
-        line = self._line
-        self._line = None
-        if line is None:
-            return None
-        self.line = 0
-        return 0, line
-
-    def end(self):
-        pass
-
-
 class ScanTokens(token.Command):
     """
     The \\scantokens command
@@ -547,7 +526,7 @@ class ScanTokens(token.Command):
     def expand(self, parser):
         toks = parser.readGeneralText(expand=False)
         s = expandable.toksToString(parser, toks)
-        parser.input.push(lexer.Tokenizer(_ScanTokensSource(parser, s)))
+        parser.input.push(lexer.Tokenizer(io.StringIO(s), parser))
 
 
 class Unexpanded(The):

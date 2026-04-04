@@ -23,18 +23,22 @@ class Position:
 
 class Tokenizer:
     """
-    A tokenizer reads text from a line-oriented source and returns tokens.
+    A tokenizer reads text from a file-like backstore and returns tokens.
     The main method is read().
     """
-    def __init__(self, source):
-        parser = source.parser
+    def __init__(self, source, parser, name=None, line_number=0):
+        if isinstance(source, str):
+            source = io.StringIO(source)
+        elif not isinstance(source, io.IOBase):
+            raise TypeError("source must be a string or a file-like object")
         # catcode is a dictionary that maps characters to their category codes
         self.catcode = parser.catcode
         self.equitable = parser.equitable
         self.endlinechar = dict.__getitem__(parser.parameters, "endlinechar")
         self.source = source
-        self.name = getattr(source, "name", None)
-        self.line_number = 0
+        self.name = name if name is not None else getattr(source, "name", None)
+        self.lines = enumerate(source, start=line_number)
+        self.line_number = line_number
         self.chars = iter(())
         self.pos = -1
         self.first = -1
@@ -70,15 +74,17 @@ class Tokenizer:
         self.first = last_pos
 
     def _loadLine(self):
-        item = self.source.nextLine()
-        if item is None:
+        line_number, line = next(self.lines, (None, None))
+        if line is None:
             self.chars = iter(())
             self.pos = -1
             self.first = -1
             self.peek = None
+            self.lines = enumerate(())
+            if not self.source.closed:
+                self.source.close()
             self.exhausted = True
             return False
-        line_number, line = item
         self._setLine(line, line_number)
         self.exhausted = False
         return True
@@ -206,85 +212,24 @@ class Tokenizer:
         return Position(self.name, self.line_number + 1, self.pos + 1)
 
     def end(self):
-        self.source.end()
+        if self.source is not None and not self.source.closed:
+            self.source.close()
+        self.lines = enumerate(())
 
     def __repr__(self):
         return f"Tokenizer({self.position()})"
 
 
-class Scanner:
-    """
-    A scanner is a line-text backstore for Tokenizer.
-    @param parser: the parser
-    @param stream: the stream to read from. Must be a file-like object
-    @param name: the name of the stream
-
-    We will need the parser.catcode and parser.parameters["endlinchar"]
-    in the lexer.
-    """
-    def __init__(self, parser, stream, name=None):
-        if not isinstance(stream, io.IOBase):
-            raise TypeError("stream must be a file-like object")
-        self.parser = parser
-        self.stream = stream
-        self.lines = enumerate(stream)
-        self.name = name
-        # line number
-        self.line = -1
-        # column number of the last line after the last token is read
-        self.column = 0
-    
-    def nextLine(self):
-        """
-        Read the next physical line from the stream.
-        """
-        line_number, line = next(self.lines, (None, None))
-        if line is None:
-            self.lines = enumerate(())
-            if not self.stream.closed:
-                self.stream.close()
-            return None
-        self.line = line_number
-        return line_number, line
-
-    def position(self):
-        """
-        return the position of the last token read
-        """
-        return Position(self.name, self.line + 1, self.column + 1)
-
-    def end(self):
-        """
-        terminate the scanner
-        """
-        if self.stream is not None:
-            self.stream.close()
-        self.lines = enumerate([])
-
-    def __repr__(self):
-        return f"Scanner({self.position()})"
-
-
-class StringScanner(Scanner):
-    """
-    A scanner that reads from a string
-    @param parser: the parser
-    @param s: the string to read from
-    @param name: the name of the string
-    """
-    def __init__(self, parser, s: str, name: str=None):
-        super().__init__(parser, io.StringIO(s), name)
-
-
 class InputStack:
     """
-    A stack of scanners. The goal is to support tex commands such as \\input and \\include
+    A stack of tokenizers. The goal is to support tex commands such as \\input
+    and \\include.
 
     The main methods are push(), read() and unread()
     """
     def __init__(self):
         self.top = None
-        # the stack of scanners
+        # the stack of tokenizers
         self.stack = []
         # the saved tokens that are unread
         self.saved = []
@@ -292,52 +237,36 @@ class InputStack:
         # has been popped instead of being absorbed into ordinary token flow
         self.eof_passthrough = False
 
-    @staticmethod
-    def _positioned(scanner):
-        return callable(getattr(scanner, "position", None))
-
     def activeScanner(self):
         """
-        Return the nearest scanner frame that can report source position.
+        Return the nearest tokenizer frame that can report source position.
         """
-        if self._positioned(self.top):
+        if self.top is not None:
             return self.top
-        for scanner, _saved in reversed(self.stack):
-            if self._positioned(scanner):
-                return scanner
+        for tokenizer, _saved in reversed(self.stack):
+            if tokenizer is not None:
+                return tokenizer
         return None
 
     def read(self) -> typing.Optional[Token]:
         """
-        Read the next token from the active tokenizer. Line sources are
-        backstores: they feed tokenizers onto the stack, but do not themselves
-        produce tokens.
+        Read the next token from the active tokenizer.
         @return: the next token, or None if the end of the stack is reached
         """
         if self.saved:
             return self._restore(self.saved.pop())
         while self.top:
-            if isinstance(self.top, Tokenizer):
-                try:
-                    t = self.top.read()
-                except EOFError:
-                    self.pop()
-                    if self.eof_passthrough:
-                        raise
-                    if self.saved:
-                        return self._restore(self.saved.pop())
-                    continue
-                self.top.source.column = self.top.pos
-                return self._restore(t)
-            tokenizer = Tokenizer(self.top)
-            if tokenizer.exhausted:
+            try:
+                t = self.top.read()
+            except EOFError:
                 self.pop()
                 if self.eof_passthrough:
                     raise EOFError
                 if self.saved:
                     return self._restore(self.saved.pop())
                 continue
-            self.push(tokenizer)
+            self.top.source.column = self.top.pos
+            return self._restore(t)
 
     @staticmethod
     def _restore(t):
@@ -361,19 +290,20 @@ class InputStack:
         if toks:
             self.saved.extend(reversed(toks))
 
-    def push(self, lexer):
+    def push(self, tokenizer):
         """
-        push a new scanner on the stack
-        @param lexer: the scanner to push
+        push a new tokenizer on the stack
+        @param tokenizer: the tokenizer to push
         """
+        if not isinstance(tokenizer, Tokenizer):
+            raise TypeError("InputStack only accepts Tokenizer frames")
         self.stack.append((self.top, self.saved))
-        self.top = lexer
+        self.top = tokenizer
         self.saved = []
     
     def pop(self):
         """
-        pop the top scanner if it is terminated
-        @param to: the scanner to pop to (including to)
+        pop the top tokenizer if it is terminated
         """
         try:
             self.top, self.saved = self.stack.pop()
@@ -383,7 +313,7 @@ class InputStack:
 
     def clear(self):
         """
-        clear the stack of scanners
+        clear the stack of tokenizers
         """
         self.top = None
         self.saved = []
@@ -406,7 +336,7 @@ class InputStack:
             l.append(f"  saved: {s}")
         for s in repr(self.top).split("\n"):
             l.append(f"  top: {s}")
-        for scanner, _saved in reversed(self.stack):
-            for s in repr(scanner).split("\n"):
+        for tokenizer, _saved in reversed(self.stack):
+            for s in repr(tokenizer).split("\n"):
                 l.append(f"  {s}")
         return "\n".join(l)

@@ -2,6 +2,8 @@
 File operations
 """
 
+import io
+
 from pytex import serialization
 from pytex import node as nd
 from pytex.accessor import Accessor
@@ -25,35 +27,12 @@ class EndFileScanToken(token.Token):
         raise RuntimeError("unexpected file scan terminator")
 
 
-class _LocalFileLineScanner:
-    """
-    Minimal one-line source used by local tokenizers for \\read.
-    """
-    def __init__(self, parser, name, line_number, line):
-        self.parser = parser
-        self.name = name
-        self.line = line_number
-        self.column = 0
-        self._line_number = line_number
-        self._line = line
-
-    def nextLine(self):
-        line = self._line
-        self._line = None
-        if line is None:
-            return None
-        return self._line_number, line
-
-    def end(self):
-        pass
-
-
 def _readFileLineTokenizer(parser, file):
     """
     Build a local Tokenizer for the next physical input line.
 
-    This mirrors Scanner.feed() enough for \\read, but avoids pushing a
-    temporary StringScanner through parser.input for every line.
+    This keeps \\read line scanning local instead of pushing a temporary input
+    tokenizer through parser.input.
     """
     line = next(file, None)
     if line is None:
@@ -61,7 +40,7 @@ def _readFileLineTokenizer(parser, file):
     line_number = getattr(file, "_pytex_line_number", 0)
     file._pytex_line_number = line_number + 1
     name = getattr(file, "name", None)
-    return Tokenizer(_LocalFileLineScanner(parser, name, line_number, line))
+    return Tokenizer(io.StringIO(line), parser, name=name, line_number=line_number)
 
 
 class OpenOp(Accessor):

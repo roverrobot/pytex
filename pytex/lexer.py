@@ -233,9 +233,6 @@ class InputStack:
         self.stack = []
         # the saved tokens that are unread
         self.saved = []
-        # when true, source exhaustion is re-raised after the exhausted frame
-        # has been popped instead of being absorbed into ordinary token flow
-        self.eof_passthrough = False
 
     def read(self) -> typing.Optional[Token]:
         """
@@ -244,18 +241,18 @@ class InputStack:
         """
         if self.saved:
             return self._restore(self.saved.pop())
-        if self.top is None:
-            if self.eof_passthrough:
-                raise EOFError
-            return None
         try:
-            t = self.top.read()
-            return self._restore(t)
+            return self._restore(self.top.read())
         except EOFError:
-            self.pop()
-            if self.eof_passthrough:
-                raise EOFError
-            return self.read()
+            try:
+                self.pop()
+                return self.read()
+            except EOFError:
+                return None
+        except AttributeError as e:
+            if self.top is None:
+                return None
+            raise e
 
     @staticmethod
     def _restore(t):
@@ -299,6 +296,7 @@ class InputStack:
         except IndexError:
             self.top = None
             self.saved = []
+            raise EOFError
 
     def clear(self):
         """

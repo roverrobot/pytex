@@ -299,23 +299,3 @@ def test_tokenizer_raises_eof_when_source_exhausted(parser):
     assert token.isSpace(False)
     with pytest.raises(EOFError):
         tokenizer.read()
-
-
-def test_input_stack_can_passthrough_eof_after_popping_exhausted_frame(parser):
-    stack = parser.input
-    stack.push(lexer.Tokenizer("A", parser))
-    stack.push(lexer.Tokenizer("B", parser))
-    stack.eof_passthrough = True
-    token = stack.read()
-    assert token is not None
-    assert token.name == "B"
-    token = stack.read()
-    assert token is not None
-    assert token.isSpace(False)
-    with pytest.raises(EOFError):
-        stack.read()
-    assert isinstance(stack.top, lexer.Tokenizer)
-    stack.eof_passthrough = False
-    token = stack.read()
-    assert token is not None
-    assert token.name == "A"

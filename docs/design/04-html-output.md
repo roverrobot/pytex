@@ -2,6 +2,11 @@
 
 This note locks in the first design for HTML output.
 
+For the dedicated true reflow backend direction, see
+[15-reflow-backend.md](15-reflow-backend.md). That later note supersedes the
+older page-aware "reflow" assumption here when the goal is semantic reflow
+rather than page-local HTML reconstruction.
+
 ## Goals
 
 - Support HTML as a first-class output target, not just as a debugging view.

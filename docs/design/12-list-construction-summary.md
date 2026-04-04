@@ -75,6 +75,23 @@ So the current direction is:
 - avoid scattering major construction logic across unrelated node classes
 - avoid collapsing structure earlier than necessary
 
+For the outer vertical list, this now also includes an explicit page-builder
+contribution step.
+
+The main vertical `VList` does not treat page breaking as an implicit side
+effect hidden behind a local helper anymore. Instead, once a node has been
+appended to the outer vertical list, the list hands that contribution to the
+page builder explicitly. The page builder then decides whether the pending
+vertical material should be flushed onto the contribution list and whether page
+breaking should be exercised.
+
+That keeps the boundary clearer:
+
+- `VList` owns live vertical-list construction
+- the page builder owns contribution-list and page-breaking decisions
+- the handoff between them is an explicit runtime step rather than an internal
+  append-side callback name
+
 ## Math Construction
 
 Math construction is one of the clearest places where parser-owned realization

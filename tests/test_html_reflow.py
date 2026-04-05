@@ -47,7 +47,25 @@ def test_html_reflow_preserves_paragraph_font_size_without_heading_inference(cmr
     )
     cmr10.end()
     html = cmr10.resolver.in_memory_files["reflow-font-size.html"].content
-    assert '<p class="paragraph indent" style="font-size:' in html
+    assert '<p class="paragraph indent"' in html
+    assert 'style="font-size:' in html
     assert ">1 Figure</p>" in html
     assert "<h1" not in html
     assert "<h2" not in html
+
+
+def test_html_reflow_preserves_inline_font_runs(cmr10):
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(
+        r"\font\b=cmbx10 "
+        r"\font\i=cmti10 "
+        r"A {\b B} {\i C}\par",
+        jobname="reflow-inline-fonts",
+    )
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-inline-fonts.html"].content
+    assert '<p class="paragraph indent">A' in html
+    assert 'data-tex-font="cmbx10"' in html
+    assert 'style="font-weight:bold"' in html
+    assert 'data-tex-font="cmti10"' in html
+    assert 'style="font-style:italic"' in html

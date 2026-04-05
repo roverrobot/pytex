@@ -18,6 +18,12 @@ from pytex.typeset.shipout import Shipout
 
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
+_DEFAULT_FONT_ROLE = {
+    "family": "serif",
+    "weight": "normal",
+    "style": "normal",
+    "variant": "normal",
+}
 
 
 class HTMLReflowBackend(Shipout):
@@ -34,7 +40,7 @@ class HTMLReflowBackend(Shipout):
         super().__init__(parser, output)
         self.file = None
         self.finished = False
-        self._body_font_size = None
+        self._body_font = None
         self._pending_media_blocks = []
 
     def shipout(self, box):
@@ -131,35 +137,178 @@ class HTMLReflowBackend(Shipout):
                     last_space = text.endswith(" ")
         return "".join(parts)
 
-    def _font_sizes(self, nodes):
-        sizes = []
+    @staticmethod
+    def _font_signature(font):
+        if font is None:
+            return None
+        backend = getattr(font, "backend", None)
+        name = None if backend is None else getattr(backend, "name", None)
+        at = getattr(font, "at", None)
+        size = None if at is None else round(float(at), 2)
+        return name, size
+
+    def _fonts(self, nodes):
+        fonts = []
         for node in nodes:
             font = getattr(node, "font", None)
             if font is not None:
-                at = getattr(font, "at", None)
-                if at is not None:
-                    sizes.append(float(at))
+                fonts.append(font)
             children = getattr(node, "list", None)
             if children is not None:
-                sizes.extend(self._font_sizes(children))
-        return sizes
+                fonts.extend(self._fonts(children))
+        return fonts
 
-    def _dominant_font_size(self, nodes):
-        sizes = self._font_sizes(nodes)
-        if not sizes:
+    def _dominant_font(self, nodes):
+        fonts = self._fonts(nodes)
+        if not fonts:
             return None
-        return Counter(round(size, 2) for size in sizes).most_common(1)[0][0]
-
-    def _infer_body_font_size(self, owners):
         counts = Counter()
+        sample = {}
+        for font in fonts:
+            key = self._font_signature(font)
+            counts[key] += 1
+            sample.setdefault(key, font)
+        return sample[counts.most_common(1)[0][0]]
+
+    def _infer_body_font(self, owners):
+        counts = Counter()
+        sample = {}
         for owner in owners:
             if not isinstance(owner, paragraph.Paragraph):
                 continue
-            for size in self._font_sizes(owner.list):
-                counts[round(size, 2)] += 1
+            for font in self._fonts(owner.list):
+                key = self._font_signature(font)
+                counts[key] += 1
+                sample.setdefault(key, font)
         if not counts:
             return None
-        return counts.most_common(1)[0][0]
+        return sample[counts.most_common(1)[0][0]]
+
+    @staticmethod
+    def _font_role(font):
+        if font is None:
+            return dict(_DEFAULT_FONT_ROLE)
+        name = getattr(getattr(font, "backend", None), "name", "") or ""
+        lower = name.lower()
+        role = dict(_DEFAULT_FONT_ROLE)
+        if "tt" in lower:
+            role["family"] = "monospace"
+        elif "ss" in lower:
+            role["family"] = "sans-serif"
+        if "bx" in lower or lower.startswith("cmb") or "bold" in lower:
+            role["weight"] = "bold"
+        if "it" in lower or "ti" in lower or "sl" in lower:
+            role["style"] = "italic"
+        if "csc" in lower:
+            role["variant"] = "small-caps"
+        return role
+
+    def _font_attrs(self, font, base_font=None):
+        if font is None:
+            return {}
+        attrs = {}
+        key = self._font_signature(font)
+        role = self._font_role(font)
+        base_role = self._font_role(base_font)
+        style = []
+        at = getattr(font, "at", None)
+        base_at = getattr(base_font, "at", None)
+        if at is not None and base_at is not None:
+            size = round(float(at), 2)
+            base_size = round(float(base_at), 2)
+            if size != base_size:
+                style.append(f"font-size:{size / base_size:.2f}em")
+        elif at is not None and base_font is None and self._body_font is not None:
+            size = round(float(at), 2)
+            body_size = round(float(self._body_font.at), 2)
+            if size != body_size:
+                style.append(f"font-size:{size / body_size:.2f}em")
+        for css_key, role_key in (
+            ("font-family", "family"),
+            ("font-weight", "weight"),
+            ("font-style", "style"),
+            ("font-variant", "variant"),
+        ):
+            value = role.get(role_key)
+            if value != base_role.get(role_key):
+                style.append(f"{css_key}:{value}")
+        if key != self._font_signature(base_font) and (style or base_font is not None):
+            attrs["data-tex-font"] = getattr(getattr(font, "backend", None), "name", None)
+        if style:
+            attrs["style"] = ";".join(style)
+        return attrs
+
+    def _raw_text_segments(self, nodes):
+        segments = []
+        for node in nodes:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.CHAR:
+                segments.append((node.font, node.char))
+                continue
+            if node_type == nd.NODE_TYPE.LIGATURE:
+                source = getattr(node, "source", None) or []
+                if source:
+                    text = "".join(getattr(child, "char", "") for child in source)
+                else:
+                    text = node.char
+                segments.append((node.font, text))
+                continue
+            if node_type == nd.NODE_TYPE.GLUE:
+                segments.append((None, " "))
+                continue
+            if node_type in (
+                nd.NODE_TYPE.KERN,
+                nd.NODE_TYPE.PENALTY,
+                nd.NODE_TYPE.MARK,
+                nd.NODE_TYPE.INS,
+                nd.NODE_TYPE.ADJUST,
+                nd.NODE_TYPE.WHATSIT,
+            ):
+                continue
+            if node_type == nd.NODE_TYPE.DISC:
+                segments.extend(self._raw_text_segments(node.replace))
+                continue
+            children = getattr(node, "list", None)
+            if children is not None:
+                segments.extend(self._raw_text_segments(children))
+        return segments
+
+    def _normalize_segments(self, segments):
+        normalized = []
+        pending_space = False
+        started = False
+        for font, text in segments:
+            for char in text:
+                if char.isspace():
+                    if started:
+                        pending_space = True
+                    continue
+                if pending_space:
+                    normalized.append((font, " "))
+                    pending_space = False
+                normalized.append((font, char))
+                started = True
+        if not normalized:
+            return []
+        merged = []
+        for font, text in normalized:
+            key = self._font_signature(font)
+            if merged and merged[-1][0] == key:
+                merged[-1][2] += text
+                continue
+            merged.append([key, font, text])
+        return [(font, text) for _key, font, text in merged]
+
+    def _inline_children(self, nodes, base_font=None):
+        children = []
+        segments = self._normalize_segments(self._raw_text_segments(nodes))
+        for font, text in segments:
+            attrs = self._font_attrs(font, base_font)
+            if attrs:
+                children.append(element("span", text, **attrs))
+            else:
+                children.append(text)
+        return children
 
     def _special_text(self, node):
         text = getattr(node, "text", None)
@@ -247,30 +396,33 @@ class HTMLReflowBackend(Shipout):
                 span = getattr(cell, "span", 1)
                 if span > 1:
                     attrs["colspan"] = span
-                cells.append(element("td", self._flatten_text(getattr(cell, "list", ())), **attrs))
+                dominant = self._dominant_font(getattr(cell, "list", ()))
+                attrs.update(self._font_attrs(dominant, self._body_font))
+                cells.append(
+                    element(
+                        "td",
+                        self._inline_children(getattr(cell, "list", ()), dominant),
+                        **attrs,
+                    )
+                )
             if cells:
                 rows.append(element("tr", cells))
         return rows
 
     def _render_owner(self, owner):
         if isinstance(owner, paragraph.Paragraph):
-            text = self._flatten_text(owner.list)
-            if not text:
+            dominant = self._dominant_font(owner.list)
+            children = self._inline_children(owner.list, dominant)
+            if not children:
                 return []
             attrs = {
                 "class_": ["paragraph", "indent" if owner.indent else "noindent"],
             }
-            dominant = self._dominant_font_size(owner.list)
-            if (
-                self._body_font_size is not None
-                and dominant is not None
-                and dominant != self._body_font_size
-            ):
-                attrs["style"] = f"font-size:{dominant / self._body_font_size:.2f}em"
+            attrs.update(self._font_attrs(dominant, self._body_font))
             return [
                 element(
                     "p",
-                    text,
+                    children,
                     **attrs,
                 )
             ]
@@ -321,7 +473,7 @@ class HTMLReflowBackend(Shipout):
         return []
 
     def _render_document(self, owners):
-        self._body_font_size = self._infer_body_font_size(owners)
+        self._body_font = self._infer_body_font(owners)
         self._pending_media_blocks = self._collect_media_blocks()
         blocks = []
         for owner in owners:

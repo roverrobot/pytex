@@ -1,4 +1,4 @@
-"""HTML reflow backend driven by outer-vlist contributions."""
+"""HTML reflow backend driven by the outer-vlist raw history."""
 
 from __future__ import annotations
 
@@ -12,35 +12,49 @@ from pytex import paragraph
 from pytex import vmode
 from pytex.html_builder import element, render
 from pytex.module import Module
+from pytex.typeset.shipout import Shipout
 
 
 _SPACE_RE = re.compile(r"\s+")
 
 
-class HTMLReflowBackend:
+class HTMLReflowBackend(Shipout):
     """
-    Collect semantic block owners from the outer vertical list and render them
-    using the concrete owned nodes that exist before page breaking.
+    Null shipout backend for reflow mode.
+
+    We still let TeX/LaTeX run the normal page builder and output routine so
+    deferred writes, aux replay, and shipout hooks behave normally. The backend
+    itself only executes shipped whatsits; the final HTML is emitted once at
+    close from the main vertical list's raw ownership history.
     """
 
     def __init__(self, parser, output=None):
-        self.parser = parser
-        self.output = output
-        self.contrib = []
+        super().__init__(parser, output)
         self.file = None
         self.finished = False
 
-    def reset(self):
-        self.contrib[:] = []
-        self.finished = False
+    def shipout(self, box):
+        if box.width is None:
+            packed = []
+            box.typeset(self.parser, packed)
+            box = packed[-1]
+        self._emit_whatsits(box)
 
-    def concreteNodes(self, pending):
-        return list(pending.list)
+    def _emit_whatsits(self, node):
+        if getattr(node, "node_type", None) == nd.NODE_TYPE.WHATSIT:
+            node.output(self.parser, self)
+            return
+        items = getattr(node, "list", None)
+        if items is None:
+            return
+        for child in items:
+            self._emit_whatsits(child)
 
-    def rawNodes(self, pending):
-        return list(pending.raw)
+    def open(self):
+        # Runtime shipout is intentionally side-effect free for HTML reflow.
+        return
 
-    def open(self, output=None):
+    def _open_output(self, output=None):
         if self.file is not None:
             return
         if output is None:
@@ -61,49 +75,6 @@ class HTMLReflowBackend:
         self.file = self.parser.resolver.openOut(path, None)
 
     @staticmethod
-    def _collectible(node):
-        if isinstance(
-            node,
-            (
-                paragraph.Paragraph,
-                mmode.DisplayMathNode,
-                align.HAlignment,
-                align.MAlignment,
-            ),
-        ):
-            return True
-        if getattr(node, "source", None) is not None:
-            return False
-        return node.node_type in (
-            nd.NODE_TYPE.HLIST,
-            nd.NODE_TYPE.VLIST,
-            nd.NODE_TYPE.RULE,
-            nd.NODE_TYPE.INS,
-        )
-
-    def contribute(self, pending, node):
-        if not self._collectible(node):
-            return
-        self.contrib.append(node)
-
-    def _owns(self, node, owner):
-        if vmode.VList.isOwner(node, owner):
-            return True
-        if isinstance(owner, align.MAlignment):
-            source = getattr(owner, "source", None)
-            if source is not None and vmode.VList.isOwner(node, source):
-                return True
-        return False
-
-    def _owned_slice(self, concrete, owner, start):
-        while start < len(concrete) and not self._owns(concrete[start], owner):
-            start += 1
-        end = start
-        while end < len(concrete) and self._owns(concrete[end], owner):
-            end += 1
-        return concrete[start:end], end
-
-    @staticmethod
     def _normalize_text(text):
         return _SPACE_RE.sub(" ", text).strip()
 
@@ -112,7 +83,7 @@ class HTMLReflowBackend:
         last_space = True
         for node in nodes:
             node_type = getattr(node, "node_type", None)
-            if node_type in (nd.NODE_TYPE.CHAR,):
+            if node_type == nd.NODE_TYPE.CHAR:
                 parts.append(node.char)
                 last_space = False
                 continue
@@ -125,11 +96,18 @@ class HTMLReflowBackend:
                 last_space = False
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
-                if (not last_space) and parts:
+                if parts and not last_space:
                     parts.append(" ")
                     last_space = True
                 continue
-            if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.MARK):
+            if node_type in (
+                nd.NODE_TYPE.KERN,
+                nd.NODE_TYPE.PENALTY,
+                nd.NODE_TYPE.MARK,
+                nd.NODE_TYPE.INS,
+                nd.NODE_TYPE.ADJUST,
+                nd.NODE_TYPE.WHATSIT,
+            ):
                 continue
             if node_type == nd.NODE_TYPE.DISC:
                 text = self._flatten_text(node.replace)
@@ -145,79 +123,76 @@ class HTMLReflowBackend:
                     last_space = text.endswith(" ")
         return self._normalize_text("".join(parts))
 
-    def _paragraph_lines(self, owner, nodes):
-        lines = []
-        for node in nodes:
-            if node.node_type != nd.NODE_TYPE.HLIST:
-                continue
-            if getattr(node, "source", None) is not owner:
-                continue
-            text = self._flatten_text(getattr(node, "list", ()))
-            if text:
-                lines.append(text)
-        return self._normalize_text(" ".join(lines))
-
-    def _alignment_rows(self, owner, nodes):
+    def _alignment_rows(self, owner):
         rows = []
-        source = owner if not isinstance(owner, align.MAlignment) else getattr(owner, "source", None)
-        for node in nodes:
-            if node.node_type != nd.NODE_TYPE.HLIST:
-                continue
-            if getattr(node, "source", None) is not source:
-                continue
+        for row in getattr(owner, "rows", ()):
             cells = []
-            for child in getattr(node, "list", ()):
-                if not isinstance(child, nd.Box):
-                    continue
-                text = self._flatten_text(getattr(child, "list", ()))
-                cells.append(element("td", text))
+            for cell in getattr(row, "cells", ()):
+                attrs = {}
+                span = getattr(cell, "span", 1)
+                if span > 1:
+                    attrs["colspan"] = span
+                cells.append(element("td", self._flatten_text(getattr(cell, "list", ())), **attrs))
             if cells:
                 rows.append(element("tr", cells))
         return rows
 
-    def _render_block(self, owner, nodes):
+    def _render_owner(self, owner):
         if isinstance(owner, paragraph.Paragraph):
-            text = self._paragraph_lines(owner, nodes)
+            text = self._flatten_text(owner.list)
             if not text:
-                return None
-            return element(
-                "p",
-                text,
-                class_=["paragraph", "indent" if owner.indent else "noindent"],
-            )
+                return []
+            return [
+                element(
+                    "p",
+                    text,
+                    class_=["paragraph", "indent" if owner.indent else "noindent"],
+                )
+            ]
         if isinstance(owner, mmode.DisplayMathNode):
-            text = self._normalize_text(" ".join(self._flatten_text(getattr(node, "list", ())) for node in nodes))
+            text = self._flatten_text(owner.list)
             if not text:
-                return None
-            return element("div", element("code", text), class_="display-math")
-        if isinstance(owner, (align.HAlignment, align.MAlignment)):
-            rows = self._alignment_rows(owner, nodes)
+                return []
+            return [element("div", element("code", text), class_="display-math")]
+        if isinstance(owner, align.HAlignment):
+            rows = self._alignment_rows(owner)
             if not rows:
-                return None
-            return element("table", rows, class_="alignment")
-        if owner.node_type == nd.NODE_TYPE.RULE:
-            return element("hr", class_="separator")
-        if owner.node_type == nd.NODE_TYPE.INS:
+                return []
+            return [element("table", rows, class_="alignment")]
+        if isinstance(owner, align.MAlignment):
+            source = getattr(owner, "source", None)
+            if isinstance(source, align.HAlignment):
+                rows = self._alignment_rows(source)
+                if rows:
+                    return [element("table", rows, class_=["alignment", "display-math"])]
             text = self._flatten_text(getattr(owner, "list", ()))
             if not text:
-                return None
-            return element("aside", text, class_="note")
-        if owner.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                return []
+            return [element("div", element("code", text), class_="display-math")]
+        if isinstance(owner, vmode.VAdjust):
+            blocks = []
+            for child in getattr(owner, "list", ()):
+                blocks.extend(self._render_owner(child))
+            return blocks
+        node_type = getattr(owner, "node_type", None)
+        if node_type == nd.NODE_TYPE.RULE:
+            return [element("hr", class_="separator")]
+        if node_type == nd.NODE_TYPE.INS:
             text = self._flatten_text(getattr(owner, "list", ()))
             if not text:
-                return None
-            return element("div", text, class_="box")
-        return None
+                return []
+            return [element("aside", text, class_="note")]
+        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            text = self._flatten_text(getattr(owner, "list", ()))
+            if not text:
+                return []
+            return [element("div", text, class_="box")]
+        return []
 
-    def _render_document(self, pending):
-        concrete = self.concreteNodes(pending)
+    def _render_document(self, owners):
         blocks = []
-        index = 0
-        for owner in self.contrib:
-            nodes, index = self._owned_slice(concrete, owner, index)
-            block = self._render_block(owner, nodes)
-            if block is not None:
-                blocks.append(block)
+        for owner in owners:
+            blocks.extend(self._render_owner(owner))
         title = os.path.basename(os.fspath(self.parser.jobname or "texput"))
         doc = element(
             "html",
@@ -234,17 +209,16 @@ class HTMLReflowBackend:
         )
         return "<!doctype html>\n" + render(doc) + "\n"
 
-    def finish(self, pending):
-        if self.finished:
-            return
-        self.open()
-        self.file.write(self._render_document(pending))
-        self.finished = True
-        self.close()
-
     def close(self):
-        if self.file is None:
+        if self.finished or not getattr(self.parser, "ended", False):
             return
+        if not self.parser.lists:
+            return
+        main = self.parser.lists[0]
+        owners = main.rawNodes() if hasattr(main, "rawNodes") else list(getattr(main, "raw", ()))
+        self._open_output()
+        self.file.write(self._render_document(owners))
+        self.finished = True
         self.file.close()
         self.file = None
 

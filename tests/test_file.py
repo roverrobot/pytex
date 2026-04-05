@@ -1,4 +1,5 @@
 import pytest
+from pytex import html_reflow
 from pytex import texlive
 from pytex import pipes
 from pytex.resolver import InMemoryTextFile
@@ -104,6 +105,14 @@ def test_openout(parser):
 
 def test_deferred_shipout_flushes_write_before_closeout(parser, tmp_path):
     parser.shipout = parser.shipout.__class__(parser, str(tmp_path / "shipwrite"))
+    parser.parse("\\immediate\\openout 1=output2.tex\\shipout\\vbox{\\write1{abc}}\\closeout 1")
+    parser.end()
+    file = parser.resolver.in_memory_files["output2.tex"]
+    assert file.content == "abc\n"
+
+
+def test_html_reflow_shipout_flushes_write_before_closeout(parser):
+    parser.shipout = html_reflow.HTMLReflowBackend(parser)
     parser.parse("\\immediate\\openout 1=output2.tex\\shipout\\vbox{\\write1{abc}}\\closeout 1")
     parser.end()
     file = parser.resolver.in_memory_files["output2.tex"]

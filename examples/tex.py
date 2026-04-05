@@ -63,8 +63,7 @@ if args.format != "initex":
 
 parser = Parser(project_dir=args.project_dir)
 if html_reflow_backend is not None:
-    parser.page_builder = html_reflow_backend.HTMLReflowBackend(parser)
-    parser.shipout = None
+    parser.shipout = html_reflow_backend.HTMLReflowBackend(parser)
 parser.resolver.format = args.format
 
 # tracing settings

@@ -1,165 +1,338 @@
 # Reflow Backend
 
-This note locks the intended architecture for a true reflow backend.
+This note describes the current `html_reflow` implementation.
 
-It is narrower than the broader HTML note. The key point here is not HTML as a
-format, but the correct semantic input layer for reflow output.
+It supersedes the earlier idea that reflow should consume the outer vertical
+list contribution stream in parallel with the page builder. That earlier model
+was a good semantic target, but it broke real LaTeX workflows that depend on
+the normal page builder, output routine, and builtin `\shipout` lifecycle.
+
+The current design keeps TeX/LaTeX pagination alive for compatibility, but
+builds the final HTML from the preserved raw document stream.
 
 ## Main Point
 
-A true reflow backend should not be driven by shipped pages or the output
-routine.
+`html_reflow` is now a null shipout backend plus an end-of-document renderer.
 
-It should consume the contribution stream of the outer vertical list before page
-breaking and before page-local output-routine effects are turned into final page
-structure.
+In practice:
 
-In practice, the right hook is the explicit page-builder contribution step used
-by the outer `VList`.
+- the normal page builder still runs
+- the normal output routine still runs
+- builtin `\shipout` still runs
+- `html_reflow` does not emit visual page output at shipout time
+- final HTML is written once, at document close, from the outer main vertical
+  list's raw ownership history
 
-## Why Not The Output Routine
+So reflow is no longer a replacement for page building.
 
-The output routine is the right place for page-faithful backends because it is
-where TeX turns the contribution list into final pages and applies page-local
-behavior such as:
+It is a compatibility-preserving backend that lets TeX finish its normal page
+  lifecycle, while deriving reflow HTML from the preserved semantic stream.
 
-- running heads and feet
-- page numbers
-- marks as used by page furniture
-- page-local insert placement
-- final `\box255` assembly
+## Why We Changed Direction
 
-But these are mostly page concepts, not reflow concepts.
+The earlier design tried to bypass the page builder and output routine because
+reflow should not be page-driven semantically.
 
-In a true reflow model:
+That turned out to be too aggressive operationally.
 
-- headers and footers are usually meaningless
-- page numbers are usually meaningless
-- marks are usually meaningless unless later reinterpreted as metadata
-- output-routine page furniture should not be treated as primary document
-  structure
+LaTeX packages depend on the normal end-of-page and shipout lifecycle for
+things such as:
 
-So the output routine is the wrong semantic boundary for reflow.
+- deferred `\write`
+- aux replay
+- bookmark/link hooks
+- output-routine-installed late actions
+- allocation/opening of output streams associated with shipout hooks
 
-## Why The Contribution Stream Is Better
+Skipping that machinery caused real failures, such as bookmark-related aux
+replay errors.
 
-The outer vertical list contribution stream is earlier than page building but
-later than raw command execution.
+So the current design keeps the TeX page/output machinery alive, but simply
+does not use shipped page geometry as the primary HTML source.
 
-That makes it a good reflow boundary because:
+## Runtime Architecture
 
-- paragraphs, display math, and alignments have already been recognized as real
-  contributed objects
-- the backend can inspect the `source` relationships of contributed nodes
-- page splitting has not happened yet
-- output-routine page furniture has not been imposed yet
+In reflow mode:
 
-This means the reflow builder sees semantically meaningful block contributions
-without needing to reconstruct them from page fragments.
+- `parser.shipout` is set to `HTMLReflowBackend`
+- `parser.page_builder` remains the normal TeX page builder
+- the LaTeX output routine still assembles `\box255` and calls builtin
+  `\shipout`
 
-## Relationship To Page Building
+At runtime, `HTMLReflowBackend.shipout(box)` does only two things:
 
-The page builder and the reflow builder should be siblings, not one built on
-top of the other.
+- records shipped pages in `self.pages`
+- walks the shipped box tree and executes whatsits
 
-The intended model is:
+It does not emit visual HTML per page.
 
-- the outer `VList` contributes nodes
-- the page builder consumes those contributions for TeX-faithful page breaking
-- the reflow builder consumes those contributions for semantic block flow
+`open()` is intentionally a no-op for this backend.
 
-So reflow is not a variation of shipout.
+At the end of the document, `HTMLReflowBackend.close()` renders one HTML
+document from the outer main vertical list's preserved raw owners.
 
-It is a parallel consumer of the same contributed vertical material.
+## Document Input For Reflow
 
-## Block Identity
+The final reflow input is the raw ownership history of the outer main vertical
+list:
 
-The reflow builder should use the contribution boundary plus `.source`
-provenance to recover higher-level block structure.
+- `VList.list` is the expanded pending content used for page breaking
+- `VList.raw` is the archival raw history of contributed owners
 
-The important cases are:
+The page builder is allowed to drain `VList.list`, but it must not destroy the
+outer `VList.raw` history.
 
-- `Paragraph` -> paragraph block
-- `DisplayMathNode` -> display-math block
-- `HAlignment` / `MAlignment` -> table/alignment block
-- contributed rules or separators -> structural separator blocks when useful
-- whatsits/specials -> metadata or media hooks, depending on type
+Reflow therefore reads the document from:
 
-The contribution step is especially valuable because it sees these blocks before
-page breaking can split them across pages.
+- `parser.lists[0].rawNodes()`
 
-## Paragraphs And Alignments
+at document close, after TeX has finished the run.
 
-For true reflow, page splitting should not define block boundaries.
+This gives reflow a stable document-order stream while still allowing ordinary
+TeX pagination to happen during the run.
 
-If a paragraph or alignment would later be split across pages in TeX's page
-builder, that should not matter to the reflow backend. The reflow backend should
-work from the pre-page-break contribution stream and preserve the original block
-as one semantic unit.
+## What Reflow Renders
 
-This is one of the main reasons to avoid page-local shipout data as the primary
-input for reflow.
+The renderer walks raw owners and maps them to block HTML.
+
+Current important cases are:
+
+- `Paragraph` -> `<p>`
+- `DisplayMathNode` -> block MathML container
+- `HAlignment` -> HTML table
+- `MAlignment` -> display math block or alignment table, depending on source
+- `VAdjust` -> inline expansion of its owned blocks
+- rules -> `<hr>`
+- `\insert` nodes -> `<aside class="note">`
+- whatsits/specials -> anchors, links, or hidden markers
+- media containers -> `<figure>` with embedded object/link
+
+This is document-order rendering, not page-order reconstruction.
+
+## Paragraph Rendering
+
+Paragraphs are rendered from their raw owned nodes, not from shipped page
+fragments.
+
+The inline text pass recognizes:
+
+- character nodes
+- ligatures
+- glue as collapsible spaces
+- discretionary replacements
+- inline math owners
+- specials/whatsits
+- forced line breaks
+
+Positive penalties are ignored in reflow.
+
+Only `Penalty <= -10000` is treated as an actual break opportunity that becomes
+`<br>`. This matches TeX's "break here" meaning better than treating large
+positive penalties as breaks.
+
+Paragraph font handling is approximate but useful:
+
+- the paragraph gets a dominant font inferred from its concrete line-box list
+- inline font changes become `<span>` wrappers with font metadata/styles
+- section titles currently remain paragraphs; reflow does not infer heading
+  semantics from font size alone
+
+## Specials And Hyperlinks
+
+Special nodes are preserved and interpreted where useful.
+
+Current handling includes:
+
+- `pdf:dest (...)` -> HTML anchor target via `id=...`
+- dvipdfm/dvipdfmx GoTo annotations -> HTML links
+- GoToR annotations -> external links, optionally with fragment targets
+- other specials -> hidden marker spans with `data-tex-special=...`
+
+This means cross-references can become real hyperlinks in the reflow output
+without requiring page-faithful shipout graphics.
+
+## Math Rendering
+
+Math is rendered from raw math nodes, not from shipped TeX glyph boxes.
+
+This is the most important implementation change compared to the earliest HTML
+prototype.
+
+### Why Raw Math Nodes
+
+Shipped math boxes contain concrete glyphs and layout artifacts, but reflow
+needs structure:
+
+- atom kind
+- delimiters
+- numerator/denominator structure
+- scripts
+- accents
+- alignment structure
+
+The raw math nodes already carry that information.
+
+### Math Output Format
+
+Math is emitted as MathML and styled with a real browser math-font stack:
+
+- `Latin Modern Math`
+- `STIX Two Math`
+- `Cambria Math`
+- generic `math`
+
+So the current split is:
+
+- TeX raw math nodes provide structure
+- a small TeX-math-symbol decoder provides Unicode leaf characters
+- MathML provides layout
+- browser math fonts provide appearance
+
+### Symbol Decoding
+
+Classic TeX math fonts are slot-encoded, not browser-ready text.
+
+So reflow still needs a small mapping layer from TeX math family/code values to
+Unicode characters.
+
+That mapping currently covers the common Computer Modern math families used by
+the existing parser state, such as:
+
+- operators
+- Greek letters
+- relation and binary symbols
+- large operator symbols
+
+This mapping is only for leaf-symbol decoding. It is not the overall math
+layout strategy.
+
+### MathML Mapping
+
+The current renderer maps raw math structures approximately like this:
+
+- `MathSymbol` -> MathML leaf (`<mi>`, `<mo>`, or `<mn>` depending on atom type)
+- `MathListHolder`, `Subformula`, `InlineMathNode`, `DisplayMathNode` -> grouped
+  MathML content
+- `Over` -> `<mfrac>` with optional delimiters
+- `Rad` -> `<msqrt>`
+- `Accent` -> `<mover accent="true">`
+- `Atom` scripts -> `<msub>`, `<msup>`, or `<msubsup>`
+- delimiter/boundary atoms -> grouped fenced MathML content
+
+Inline math becomes:
+
+- `<math class="inline-math">`
+
+Display math becomes:
+
+- `<math display="block" class="display-mathml">`
+
+### Raw Math Recovery Inside Paragraphs
+
+Paragraph raw streams do not always contain explicit `InlineMathNode` objects.
+Sometimes they contain concrete chars or boxes whose `.source` chain points back
+into math.
+
+The renderer therefore walks the `.source` chain and only promotes such content
+to inline math when the chain passes through actual semantic math nodes such as:
+
+- `MathSymbol`
+- `Atom`
+- `Subformula`
+- `MathListHolder`
+- math/alignment owners
+
+This avoids accidentally turning arbitrary wrapper boxes into MathML.
+
+### Breaks Inside Math
+
+The raw math-to-MathML conversion uses the same normalized raw segment stream as
+text, but a forced break becomes:
+
+- `<mspace linebreak="newline">`
+
+instead of `<br>`.
+
+### Equation Numbers
+
+Display equations with `\eqno`/`\leqno` are rendered as a two-part block:
+
+- centered display math body
+- equation label lane on the left or right
+
+When the label is plain numeric text, reflow wraps it as `(n)` in HTML.
+Otherwise it falls back to MathML for the equation label itself.
+
+## Alignments And Tables
+
+`HAlignment` is used for both genuine tables and math-style alignments, so
+reflow does not replace it wholesale with one representation.
+
+Current behavior is:
+
+- plain top-level `HAlignment` -> HTML `<table>`
+- `MAlignment` with `HAlignment` source -> display alignment table whose cells
+  are rendered as MathML fragments
+- math-internal `HAlignment` -> MathML `<mtable>` for matrix/array-like
+  structures
+
+So the representation depends on context:
+
+- table-like outside math -> HTML table
+- matrix/array-like inside math -> MathML table
+- aligned displayed equations -> HTML table wrapper with MathML cells
+
+This is intentionally pragmatic. It preserves readable aligned displays without
+forcing every `HAlignment` into MathML.
+
+## Media And Figures
+
+Embedded PDF-media specials are still detected from the shipped page boxes,
+because those containers are easiest to identify from the runtime box tree.
+
+The backend records shipped pages during normal `\shipout`, then scans them for
+media containers and turns them into source-order-ish `<figure>` blocks in the
+final document.
+
+So media is one place where the runtime shipout walk still contributes useful
+information beyond whatsit execution.
 
 ## Inserts And Notes
 
-`\insert` is semantically important for reflow because it represents anchored
-content at the point where the note is introduced.
+`\insert` content is reinterpreted for reflow as note-like anchored content, not
+as page-local footnote area geometry.
 
-So for reflow:
+The current HTML shape is intentionally simple:
 
-- inserts should not be treated primarily as page-local footnote areas
-- they should be treated as note-like anchored annotations in reading order
+- `<aside class="note">...</aside>`
 
-This is a semantic reinterpretation, not a page-faithful reproduction of TeX's
-insert placement.
+This stays faithful to reading order, not page placement.
 
-## Floats
+## What Reflow Deliberately Ignores
 
-Floats need separate treatment from notes.
-
-The first reflow interpretation should be:
-
-- preserve source order
-- represent figures/tables as block-level media objects
-- do not try to preserve output-routine page placement
-
-Later work may add placement hints or float metadata, but that should not be
-the initial model.
-
-## Initial Reflow IR
-
-The first reflow IR should stay small and block-oriented.
-
-Suggested initial block kinds:
-
-- `ParagraphBlock`
-- `DisplayMathBlock`
-- `AlignmentBlock`
-- `MediaBlock`
-- `NoteAnchor`
-- `SeparatorBlock`
-- `MetadataBlock`
-
-This IR should represent semantic reading structure, not page geometry.
-
-## Non-Goals
-
-The reflow backend should not try to preserve:
+Reflow does not try to preserve page-faithful output such as:
 
 - running headers/footers
-- page numbers
-- page-local mark behavior
-- exact output-routine placement
-- page geometry as such
+- page geometry
+- page numbers as layout furniture
+- exact page-local mark behavior
+- final visual shipout positioning
 
-Those belong to page-faithful output, not reflow.
+The normal page/output lifecycle still runs for compatibility, but the reflow
+renderer intentionally ignores most page furniture when building HTML.
 
 ## Short Version
 
-The true reflow backend should:
+The current `html_reflow` backend works like this:
 
-- hook into outer-vertical-list contribution, not shipped pages
-- ignore page-only output-routine furniture by default
-- preserve semantic block structure in source order
-- treat `\insert` as anchored note content
-- treat floats as source-order block media, not page-positioned furniture
+- keep the normal TeX page builder and output routine
+- use a null shipout backend so whatsits, writes, aux replay, and hooks still
+  run
+- preserve the outer main vertical list's raw ownership history
+- render final HTML once, at close, from that raw document-order stream
+- render prose from raw paragraph nodes, with only forced penalties producing
+  line breaks
+- render math from raw math nodes as MathML, using a TeX-symbol-to-Unicode leaf
+  map plus real browser math fonts
+- treat tables, aligned displays, notes, specials, and media according to their
+  semantic context rather than page geometry

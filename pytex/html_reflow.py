@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import os
 import re
 
@@ -16,6 +17,7 @@ from pytex.typeset.shipout import Shipout
 
 
 _SPACE_RE = re.compile(r"\s+")
+_EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
 
 
 class HTMLReflowBackend(Shipout):
@@ -32,12 +34,15 @@ class HTMLReflowBackend(Shipout):
         super().__init__(parser, output)
         self.file = None
         self.finished = False
+        self._body_font_size = None
+        self._pending_media_blocks = []
 
     def shipout(self, box):
         if box.width is None:
             packed = []
             box.typeset(self.parser, packed)
             box = packed[-1]
+        self.pages.append(box)
         self._emit_whatsits(box)
 
     def _emit_whatsits(self, node):
@@ -79,6 +84,9 @@ class HTMLReflowBackend(Shipout):
         return _SPACE_RE.sub(" ", text).strip()
 
     def _flatten_text(self, nodes):
+        return self._normalize_text(self._flatten_text_raw(nodes))
+
+    def _flatten_text_raw(self, nodes):
         parts = []
         last_space = True
         for node in nodes:
@@ -110,18 +118,125 @@ class HTMLReflowBackend(Shipout):
             ):
                 continue
             if node_type == nd.NODE_TYPE.DISC:
-                text = self._flatten_text(node.replace)
+                text = self._flatten_text_raw(node.replace)
                 if text:
                     parts.append(text)
                     last_space = text.endswith(" ")
                 continue
             children = getattr(node, "list", None)
             if children is not None:
-                text = self._flatten_text(children)
+                text = self._flatten_text_raw(children)
                 if text:
                     parts.append(text)
                     last_space = text.endswith(" ")
-        return self._normalize_text("".join(parts))
+        return "".join(parts)
+
+    def _font_sizes(self, nodes):
+        sizes = []
+        for node in nodes:
+            font = getattr(node, "font", None)
+            if font is not None:
+                at = getattr(font, "at", None)
+                if at is not None:
+                    sizes.append(float(at))
+            children = getattr(node, "list", None)
+            if children is not None:
+                sizes.extend(self._font_sizes(children))
+        return sizes
+
+    def _dominant_font_size(self, nodes):
+        sizes = self._font_sizes(nodes)
+        if not sizes:
+            return None
+        return Counter(round(size, 2) for size in sizes).most_common(1)[0][0]
+
+    def _infer_body_font_size(self, owners):
+        counts = Counter()
+        for owner in owners:
+            if not isinstance(owner, paragraph.Paragraph):
+                continue
+            for size in self._font_sizes(owner.list):
+                counts[round(size, 2)] += 1
+        if not counts:
+            return None
+        return counts.most_common(1)[0][0]
+
+    def _special_text(self, node):
+        text = getattr(node, "text", None)
+        if text is None:
+            return None
+        if isinstance(text, list):
+            return self.parser.expandedToksToString(text)
+        return text
+
+    def _contains_epdf(self, node):
+        if getattr(node, "node_type", None) == nd.NODE_TYPE.WHATSIT:
+            text = self._special_text(node)
+            return bool(text and _EPDF_RE.search(text))
+        for child in getattr(node, "list", ()) or ():
+            if self._contains_epdf(child):
+                return True
+        return False
+
+    def _extract_epdf_path(self, node):
+        if getattr(node, "node_type", None) == nd.NODE_TYPE.WHATSIT:
+            text = self._special_text(node)
+            if text is None:
+                return None
+            match = _EPDF_RE.search(text)
+            return None if match is None else match.group(1)
+        for child in getattr(node, "list", ()) or ():
+            path = self._extract_epdf_path(child)
+            if path is not None:
+                return path
+        return None
+
+    def _is_media_container(self, node):
+        node_type = getattr(node, "node_type", None)
+        if node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            return False
+        if not self._contains_epdf(node):
+            return False
+        for child in getattr(node, "list", ()) or ():
+            child_type = getattr(child, "node_type", None)
+            if child_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                continue
+            if self._contains_epdf(child) and self._flatten_text(getattr(child, "list", ())) != "":
+                return False
+        return True
+
+    def _render_media_container(self, node):
+        path = self._extract_epdf_path(node)
+        if path is None:
+            return None
+        caption = self._flatten_text(getattr(node, "list", ()))
+        media = element(
+            "object",
+            element("a", os.path.basename(path), href=path),
+            data=path,
+            type="application/pdf",
+            class_="media-object",
+        )
+        children = [media]
+        if caption:
+            children.append(element("figcaption", caption))
+        return element("figure", children, class_="media-block")
+
+    def _collect_media_blocks(self):
+        blocks = []
+
+        def walk(node):
+            if self._is_media_container(node):
+                block = self._render_media_container(node)
+                if block is not None:
+                    blocks.append(block)
+                return
+            for child in getattr(node, "list", ()) or ():
+                walk(child)
+
+        for page in self.pages:
+            walk(page)
+        return blocks
 
     def _alignment_rows(self, owner):
         rows = []
@@ -142,11 +257,21 @@ class HTMLReflowBackend(Shipout):
             text = self._flatten_text(owner.list)
             if not text:
                 return []
+            attrs = {
+                "class_": ["paragraph", "indent" if owner.indent else "noindent"],
+            }
+            dominant = self._dominant_font_size(owner.list)
+            if (
+                self._body_font_size is not None
+                and dominant is not None
+                and dominant != self._body_font_size
+            ):
+                attrs["style"] = f"font-size:{dominant / self._body_font_size:.2f}em"
             return [
                 element(
                     "p",
                     text,
-                    class_=["paragraph", "indent" if owner.indent else "noindent"],
+                    **attrs,
                 )
             ]
         if isinstance(owner, mmode.DisplayMathNode):
@@ -183,6 +308,12 @@ class HTMLReflowBackend(Shipout):
                 return []
             return [element("aside", text, class_="note")]
         if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            if (
+                len(getattr(owner, "list", ())) == 0
+                and getattr(owner, "source", None) is not None
+                and self._pending_media_blocks
+            ):
+                return [self._pending_media_blocks.pop(0)]
             text = self._flatten_text(getattr(owner, "list", ()))
             if not text:
                 return []
@@ -190,9 +321,14 @@ class HTMLReflowBackend(Shipout):
         return []
 
     def _render_document(self, owners):
+        self._body_font_size = self._infer_body_font_size(owners)
+        self._pending_media_blocks = self._collect_media_blocks()
         blocks = []
         for owner in owners:
             blocks.extend(self._render_owner(owner))
+        if self._pending_media_blocks:
+            blocks.extend(self._pending_media_blocks)
+            self._pending_media_blocks = []
         title = os.path.basename(os.fspath(self.parser.jobname or "texput"))
         doc = element(
             "html",

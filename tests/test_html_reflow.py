@@ -35,3 +35,19 @@ def test_html_reflow_renders_halign_as_table(cmr10):
     assert "<td>b</td>" in html
     assert "<td>c</td>" in html
     assert "<td>d</td>" in html
+
+
+def test_html_reflow_preserves_paragraph_font_size_without_heading_inference(cmr10):
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(
+        r"\font\big=cmr10 at 17.28pt "
+        r"{\big 1 Figure}\par "
+        r"Body text",
+        jobname="reflow-font-size",
+    )
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-font-size.html"].content
+    assert '<p class="paragraph indent" style="font-size:' in html
+    assert ">1 Figure</p>" in html
+    assert "<h1" not in html
+    assert "<h2" not in html

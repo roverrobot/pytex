@@ -493,6 +493,196 @@ class HTMLReflowBackend(Shipout):
             return None
         return element("mtext", text)
 
+    def _mathml_text_segment(self, text):
+        if not text:
+            return []
+        if any(char.isspace() for char in text):
+            return [element("mtext", text)]
+        nodes = []
+        for token in re.findall(r"[A-Za-z]+|\d+|.", text):
+            if token.isdigit():
+                nodes.append(element("mn", token))
+                continue
+            if token.isalpha():
+                nodes.append(element("mi", token))
+                continue
+            nodes.append(element("mo", token))
+        return nodes
+
+    @staticmethod
+    def _is_mathml_field(field):
+        return isinstance(
+            field,
+            (
+                mmode.MathSymbol,
+                mmode.MathListHolder,
+                mmode.Subformula,
+                mmode.InlineMathNode,
+                mmode.DisplayMathNode,
+                mmode.Over,
+                mmode.Rad,
+                mmode.Accent,
+                mmode.Atom,
+                align.HAlignment,
+                align.MAlignment,
+            ),
+        )
+
+    def _math_source_owner(self, node):
+        source = getattr(node, "source", None)
+        while source is not None and not isinstance(source, (list, tuple)):
+            if self._is_mathml_field(source):
+                return source
+            source = getattr(source, "source", None)
+        return None
+
+    def _mathml_raw_segments(self, nodes):
+        segments = []
+        for node in nodes:
+            if self._is_mathml_field(node):
+                segments.append(("math", node))
+                continue
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.WHATSIT:
+                segments.append(("special", self._special_text(node)))
+                continue
+            if node_type == nd.NODE_TYPE.PENALTY:
+                if getattr(node, "penalty", None) is not None and node.penalty >= 10000:
+                    segments.append(("break",))
+                continue
+            source = self._math_source_owner(node)
+            if source is not None:
+                segments.append(("math", source))
+                continue
+            if node_type == nd.NODE_TYPE.CHAR:
+                segments.append(("text", node.font, node.char))
+                continue
+            if node_type == nd.NODE_TYPE.LIGATURE:
+                source = getattr(node, "source", None) or []
+                if source:
+                    text = "".join(getattr(child, "char", "") for child in source)
+                else:
+                    text = node.char
+                segments.append(("text", node.font, text))
+                continue
+            if node_type == nd.NODE_TYPE.GLUE:
+                segments.append(("text", None, " "))
+                continue
+            if node_type in (
+                nd.NODE_TYPE.KERN,
+                nd.NODE_TYPE.MARK,
+                nd.NODE_TYPE.INS,
+                nd.NODE_TYPE.ADJUST,
+            ):
+                continue
+            if node_type == nd.NODE_TYPE.DISC:
+                segments.extend(self._mathml_raw_segments(node.replace))
+                continue
+            children = getattr(node, "list", None)
+            if children is not None:
+                owner = self._direct_math_child_owner(node)
+                if owner is not None:
+                    segments.append(("math", owner))
+                    continue
+                segments.extend(self._mathml_raw_segments(children))
+        return segments
+
+    def _direct_math_child_owner(self, node):
+        children = getattr(node, "list", None)
+        if not children:
+            return None
+        owners = []
+        seen = set()
+        for child in children:
+            owner = child if self._is_mathml_field(child) else self._math_source_owner(child)
+            if owner is None:
+                continue
+            key = id(owner)
+            if key in seen:
+                continue
+            seen.add(key)
+            owners.append(owner)
+        if len(owners) == 1:
+            return owners[0]
+        return None
+
+    def _mathml_from_raw_nodes(self, nodes):
+        children = []
+        ids = []
+        last_math = None
+        for segment in self._normalize_segments(self._mathml_raw_segments(nodes)):
+            kind = segment[0]
+            if kind == "special":
+                action = self._special_action(segment[1])
+                if action is not None and action["kind"] == "dest":
+                    ids.append(action["target"])
+                continue
+            if kind == "break":
+                children.append(element("mspace", linebreak="newline"))
+                last_math = None
+                continue
+            if kind == "math":
+                field = segment[1]
+                key = id(field)
+                if key == last_math:
+                    continue
+                child = self._render_mathml_field(field)
+                if child is not None:
+                    children.append(child)
+                    last_math = key
+                continue
+            _kind, _font, text = segment
+            children.extend(self._mathml_text_segment(text))
+            last_math = None
+        return children, ids
+
+    def _mathml_alignment(self, owner, mode="matrix"):
+        rows = []
+        max_cols = 0
+        for row in getattr(owner, "rows", ()):
+            cells = []
+            col_count = 0
+            for cell in getattr(row, "cells", ()):
+                children, ids = self._mathml_from_raw_nodes(self._owner_raw_nodes(cell))
+                attrs = {}
+                span = getattr(cell, "span", 1)
+                col_count += span
+                if span > 1:
+                    attrs["columnspan"] = span
+                if ids:
+                    attrs["id"] = ids[0]
+                cells.append(element("mtd", self._mathml_group(children) or element("mrow"), **attrs))
+            if cells:
+                rows.append(element("mtr", cells))
+                max_cols = max(max_cols, col_count)
+        if not rows:
+            return None
+        if mode == "align":
+            aligns = []
+            for i in range(max_cols):
+                if max_cols > 2 and i == max_cols - 1:
+                    aligns.append("right")
+                else:
+                    aligns.append("right" if i % 2 == 0 else "left")
+        else:
+            aligns = ["center"] * max_cols
+        attrs = {}
+        if aligns:
+            attrs["columnalign"] = " ".join(aligns)
+        return element("mtable", rows, **attrs)
+
+    def _find_source_owner(self, node, classes):
+        source = getattr(node, "source", None)
+        while source is not None and not isinstance(source, (list, tuple)):
+            if isinstance(source, classes):
+                return source
+            source = getattr(source, "source", None)
+        for child in getattr(node, "list", ()) or ():
+            found = self._find_source_owner(child, classes)
+            if found is not None:
+                return found
+        return None
+
     def _render_mathml_scripts(self, atom, base_node):
         sub = getattr(atom, "sub", None)
         sup = getattr(atom, "sup", None)
@@ -576,8 +766,18 @@ class HTMLReflowBackend(Shipout):
             if field.right is not None:
                 children.append(self._mathml_delimiter(field.right))
             return self._render_mathml_scripts(field, self._mathml_group(children))
+        if isinstance(field, align.HAlignment):
+            return self._mathml_alignment(field, mode="matrix")
+        if isinstance(field, align.MAlignment):
+            source = getattr(field, "source", None)
+            if isinstance(source, align.HAlignment):
+                return self._mathml_alignment(source, mode="align")
+            return self._mathml_group(self._render_mathml_items(getattr(field, "list", ())))
         if getattr(field, "node_type", None) == nd.NODE_TYPE.WHATSIT:
             return None
+        source = self._find_source_owner(field, (align.HAlignment, align.MAlignment))
+        if source is not None:
+            return self._render_mathml_field(source)
         raw = getattr(field, "raw", None)
         if raw is not None:
             return self._mathml_text(raw)
@@ -858,7 +1058,7 @@ class HTMLReflowBackend(Shipout):
             return raw
         return getattr(owner, "list", ())
 
-    def _alignment_rows(self, owner):
+    def _alignment_rows(self, owner, mathml_cells=False):
         rows = []
         for row in getattr(owner, "rows", ()):
             cells = []
@@ -867,19 +1067,87 @@ class HTMLReflowBackend(Shipout):
                 span = getattr(cell, "span", 1)
                 if span > 1:
                     attrs["colspan"] = span
-                dominant = self._dominant_font(getattr(cell, "list", ()))
                 raw_nodes = self._owner_raw_nodes(cell)
-                attrs.update(self._font_attrs(dominant, self._body_font))
+                if mathml_cells:
+                    math_children, ids = self._mathml_from_raw_nodes(raw_nodes)
+                    if ids:
+                        attrs["id"] = ids[0]
+                    cell_children = []
+                    if math_children:
+                        cell_children.append(
+                            element(
+                                "math",
+                                self._mathml_group(math_children),
+                                class_="aligned-cell-math",
+                            )
+                        )
+                else:
+                    dominant = self._dominant_font(getattr(cell, "list", ()))
+                    attrs.update(self._font_attrs(dominant, self._body_font))
+                    cell_children = self._inline_children(raw_nodes, dominant)
                 cells.append(
                     element(
                         "td",
-                        self._inline_children(raw_nodes, dominant),
+                        cell_children,
                         **attrs,
                     )
                 )
             if cells:
                 rows.append(element("tr", cells))
         return rows
+
+    def _m_alignment_rows(self, owner):
+        rows = []
+        for rowbox in getattr(owner, "list", ()):
+            if getattr(rowbox, "node_type", None) != nd.NODE_TYPE.HLIST:
+                continue
+            cells = []
+            seen = set()
+            for child in getattr(rowbox, "list", ()):
+                source = getattr(child, "source", None)
+                if source is None:
+                    continue
+                key = id(source)
+                if key in seen:
+                    continue
+                seen.add(key)
+                attrs = {}
+                nodes = list(getattr(source, "list", ())) or self._owner_raw_nodes(source)
+                cell_children = []
+                if self._is_alignment_tag_cell(source):
+                    dominant = self._dominant_font(nodes)
+                    cell_children.extend(self._inline_children(nodes, dominant))
+                else:
+                    math_children, ids = self._mathml_from_raw_nodes(nodes)
+                    if ids:
+                        attrs["id"] = ids[0]
+                    if math_children:
+                        cell_children.append(
+                            element(
+                                "math",
+                                self._mathml_group(math_children),
+                                class_="aligned-cell-math",
+                            )
+                        )
+                cells.append(element("td", cell_children, **attrs))
+            if cells:
+                rows.append(element("tr", cells))
+        return rows
+
+    @staticmethod
+    def _is_alignment_tag_cell(source):
+        raw = list(getattr(source, "raw", ()))
+        if not raw:
+            return False
+        if getattr(raw[0], "node_type", None) != nd.NODE_TYPE.KERN:
+            return False
+        non_kern = [node for node in raw if getattr(node, "node_type", None) != nd.NODE_TYPE.KERN]
+        if len(non_kern) > 1:
+            return False
+        for node in raw[:-len(non_kern) or None]:
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.KERN:
+                return False
+        return True
 
     def _display_math_children(self, owner):
         math = self._render_mathml(owner, display=True, class_name="display-mathml")
@@ -926,9 +1194,9 @@ class HTMLReflowBackend(Shipout):
         if isinstance(owner, align.MAlignment):
             source = getattr(owner, "source", None)
             if isinstance(source, align.HAlignment):
-                rows = self._alignment_rows(source)
+                rows = self._alignment_rows(source, mathml_cells=True)
                 if rows:
-                    return [element("table", rows, class_=["alignment", "display-math"])]
+                    return [element("div", element("table", rows, class_=["alignment", "display-math-table"]), class_="display-math")]
             math = self._render_mathml(owner, display=True, class_name="display-mathml")
             if math is None:
                 return []
@@ -993,6 +1261,9 @@ class HTMLReflowBackend(Shipout):
                         "math{font-family:\"Latin Modern Math\",\"STIX Two Math\",\"Cambria Math\",math;}"
                         ".display-math{overflow-x:auto;}"
                         ".display-math math{display:block;}"
+                        ".display-math-table{border-collapse:collapse;}"
+                        ".display-math-table td{padding:0 0.35em;vertical-align:middle;}"
+                        ".display-math-table math{display:block;}"
                     ),
                 ),
             ),

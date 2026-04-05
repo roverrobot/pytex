@@ -1,6 +1,10 @@
 import re
 
 from pytex import html_reflow
+from pytex import html_builder
+from pytex import mmode
+from pytex import node as nd
+from pytex import box
 from pytex import texlive
 
 
@@ -26,6 +30,7 @@ def _init_math_fonts(parser):
         "\\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy "
         "\\textfont3=\\tenex \\scriptfont3=\\tenex \\scriptscriptfont3=\\tenex "
         "\\mathchardef\\beta=\"010C "
+        "\\mathchardef\\gamma=\"010D "
         "\\mathchardef\\dagger=\"0279"
     )
 
@@ -156,3 +161,61 @@ def test_html_reflow_renders_math_from_alignment_cell_raw_nodes(cmr10):
     assert "<table class=\"alignment\">" in html
     assert '<math class="inline-math">' in html
     assert "β" in html
+
+
+def test_html_reflow_renders_display_halign_cells_with_mathml(cmr10):
+    _init_math_fonts(cmr10)
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(r"$$\halign{$#$&$#$\cr \beta&\gamma\cr}$$", jobname="reflow-display-halign-math")
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-display-halign-math.html"].content
+    assert '<div class="display-math"><table class="alignment display-math-table">' in html
+    assert 'class="aligned-cell-math"' in html
+    assert "β" in html
+    assert "γ" in html
+
+
+def test_html_reflow_prefers_math_source_over_flattened_math_font_chars(cmr10):
+    _init_math_fonts(cmr10)
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    beta = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | 0x0C, -1)
+    holder = mmode.MathListHolder([beta])
+    char = nd.CharNode(chr(0x0C), cmr10.textfont[1])
+    char.source = holder
+    children, ids = backend._mathml_from_raw_nodes([char])
+    assert ids == []
+    html = html_builder.render(html_builder.element("math", children))
+    assert "β" in html
+
+
+def test_html_reflow_detects_alignment_tag_cells(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    tag = box.HBox(cmr10, None, 0)
+    inner = box.HBox(cmr10, None, 0)
+    tag.raw = [nd.Kern(1), nd.Kern(1), inner]
+    assert backend._is_alignment_tag_cell(tag)
+    cell = box.HBox(cmr10, None, 0)
+    cell.raw = [inner, nd.Glue(cmr10.layout["tabskip"], "\\tabskip")]
+    assert not backend._is_alignment_tag_cell(cell)
+
+
+def test_html_reflow_collapses_single_math_owner_wrappers(cmr10):
+    _init_math_fonts(cmr10)
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    beta = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | 0x0C, -1)
+    holder = mmode.InlineMathNode(nodes=[beta])
+    wrapped = box.HBox(cmr10, None, 0)
+    inner = box.HBox(cmr10, None, 0)
+    inner.source = holder
+    char = nd.CharNode(chr(0x0C), cmr10.textfont[1])
+    char.source = beta
+    inner.list = [char]
+    on = nd.MathShift(True)
+    on.source = holder
+    off = nd.MathShift(False)
+    off.source = holder
+    wrapped.list = [on, inner, off]
+    children, ids = backend._mathml_from_raw_nodes([wrapped])
+    assert ids == []
+    html = html_builder.render(html_builder.element("math", children))
+    assert html.count("β") == 1

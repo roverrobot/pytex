@@ -43,6 +43,7 @@ class Parser:
     """
     def __init__(self, project_dir: typing.Optional[str] = None):
         self.initState()
+        self.reflow = None
         # the builtin commands
         self.builtin = {}
         # now we are at a similar stage to INITEX. We do not need to keep the current state.
@@ -423,6 +424,9 @@ class Parser:
         
     def close(self):
         self.input.clear()
+        reflow = getattr(self, "reflow", None)
+        if reflow is not None:
+            reflow.close()
         shipout = getattr(self, "shipout", None)
         if shipout is not None:
             shipout.close()
@@ -810,7 +814,12 @@ class Parser:
         top = self.lists[-1]
         if top.type != lists.LISTTYPE.VERTICAL or top.inner:
             raise ValueError("did not end in the main vertical list")
+        reflow = getattr(self, "reflow", None)
+        if reflow is not None:
+            reflow.finish(top)
         self.page_builder.finish(top)
         self.shipout.close()
+        if reflow is not None:
+            reflow.close()
 
         

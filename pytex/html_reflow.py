@@ -453,99 +453,157 @@ class HTMLReflowBackend(Shipout):
             return children
         return [element("span", children, class_=class_name)]
 
-    def _render_math_field(self, field):
+    @staticmethod
+    def _mathml_group(children):
+        children = [child for child in children if child is not None and child != ""]
+        if not children:
+            return None
+        if len(children) == 1:
+            return children[0]
+        return element("mrow", children)
+
+    def _mathml_leaf(self, text, atom_type=None, fence=False, stretchy=False):
+        if text is None or text == "":
+            return None
+        if text.isdigit():
+            return element("mn", text)
+        if atom_type in (
+            mmode.ATOM_TYPE.BIN,
+            mmode.ATOM_TYPE.REL,
+            mmode.ATOM_TYPE.OPEN,
+            mmode.ATOM_TYPE.CLOSE,
+            mmode.ATOM_TYPE.PUNCT,
+        ):
+            return element("mo", text, fence=fence, stretchy=stretchy)
+        if atom_type == mmode.ATOM_TYPE.OP and not text.isalpha():
+            return element("mo", text)
+        if text.isalpha():
+            return element("mi", text)
+        return element("mo", text, fence=fence, stretchy=stretchy)
+
+    def _mathml_delimiter(self, delim):
+        text = self._math_delim_text(delim)
+        if text is None:
+            return None
+        return self._mathml_leaf(text, mmode.ATOM_TYPE.OPEN, fence=True, stretchy=True)
+
+    def _mathml_text(self, nodes):
+        text = self._flatten_text(nodes)
+        if not text:
+            return None
+        return element("mtext", text)
+
+    def _render_mathml_scripts(self, atom, base_node):
+        sub = getattr(atom, "sub", None)
+        sup = getattr(atom, "sup", None)
+        if base_node is None:
+            if sub is None and sup is None:
+                return None
+            base_node = element("mrow")
+        if sub is None and sup is None:
+            return base_node
+        if sub is not None and sup is not None:
+            return element(
+                "msubsup",
+                base_node,
+                self._mathml_group(self._render_mathml_items([sub])),
+                self._mathml_group(self._render_mathml_items([sup])),
+            )
+        if sub is not None:
+            return element(
+                "msub",
+                base_node,
+                self._mathml_group(self._render_mathml_items([sub])),
+            )
+        return element(
+            "msup",
+            base_node,
+            self._mathml_group(self._render_mathml_items([sup])),
+        )
+
+    def _render_mathml_field(self, field):
         if field is None:
-            return []
+            return None
         if isinstance(field, mmode.StyleNode):
-            return []
+            return None
         if isinstance(field, mmode.MathSymbol):
             text = self._math_symbol_text(field)
             if text is None:
-                return []
-            return [text]
+                return None
+            return self._mathml_leaf(text, field.type)
         if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
-            return self._render_math_items(field.list)
+            return self._mathml_group(self._render_mathml_items(field.list))
         if isinstance(field, mmode.Over):
             num, den, _bar, _thickness = field.nucleus
             frac = element(
-                "span",
-                [
-                    element("span", self._render_math_field(num), class_="math-num"),
-                    "/",
-                    element("span", self._render_math_field(den), class_="math-den"),
-                ],
-                class_="math-frac",
+                "mfrac",
+                self._mathml_group(self._render_mathml_items(getattr(num, "list", ()))),
+                self._mathml_group(self._render_mathml_items(getattr(den, "list", ()))),
             )
-            return self._render_math_scripts(field, [frac])
+            if field.delims is not None:
+                left_delim, right_delim = field.delims
+                frac = self._mathml_group(
+                    [
+                        self._mathml_delimiter(left_delim),
+                        frac,
+                        self._mathml_delimiter(right_delim),
+                    ]
+                )
+            return self._render_mathml_scripts(field, frac)
         if isinstance(field, mmode.Rad):
-            children = ["√"]
-            children.extend(self._render_math_field(field.oprand))
-            return self._math_fragment(children, class_name="math-rad")
+            base = element("msqrt", self._mathml_group(self._render_mathml_items([field.oprand])))
+            return self._render_mathml_scripts(field, base)
         if isinstance(field, mmode.Accent):
-            children = []
-            children.extend(self._render_math_field(field.base))
-            accent = self._render_math_field(field.accent)
-            if accent:
-                children.append(element("sup", accent, class_="math-accent"))
-            return self._render_math_scripts(field, children)
+            accent = self._render_mathml_field(field.accent)
+            base = self._render_mathml_field(field.base)
+            if base is None:
+                return None
+            if accent is not None:
+                base = element("mover", base, accent, accent="true")
+            return self._render_mathml_scripts(field, base)
         if isinstance(field, mmode.Atom):
             children = []
             if field.left is not None:
-                left = self._math_delim_text(field.left)
-                if left is not None:
-                    children.append(left)
+                children.append(self._mathml_delimiter(field.left))
             boundary = field._boundaryInfo()
             if boundary is not None:
                 left_delim, right_delim, body_items = boundary
-                left = self._math_delim_text(left_delim)
-                right = self._math_delim_text(right_delim)
-                if left is not None:
-                    children.append(left)
-                children.extend(self._render_math_items(body_items))
-                if right is not None:
-                    children.append(right)
+                children.append(self._mathml_delimiter(left_delim))
+                children.extend(self._render_mathml_items(body_items))
+                children.append(self._mathml_delimiter(right_delim))
             else:
-                children.extend(self._render_math_field(getattr(field, "nucleus", None)))
+                children.append(self._render_mathml_field(getattr(field, "nucleus", None)))
             if field.right is not None:
-                right = self._math_delim_text(field.right)
-                if right is not None:
-                    children.append(right)
-            return self._render_math_scripts(field, children)
+                children.append(self._mathml_delimiter(field.right))
+            return self._render_mathml_scripts(field, self._mathml_group(children))
         if getattr(field, "node_type", None) == nd.NODE_TYPE.WHATSIT:
-            text = self._special_text(field)
-            if text is None:
-                return []
-            action = self._special_action(text)
-            if action is None:
-                return []
-            if action["kind"] == "dest":
-                return [element("span", id=action["target"], class_="tex-dest")]
-            if action["kind"] == "marker":
-                return [self._special_marker(action["text"])]
-            return []
+            return None
         raw = getattr(field, "raw", None)
         if raw is not None:
-            return self._inline_children(raw)
+            return self._mathml_text(raw)
         children = getattr(field, "list", None)
         if children is not None:
-            return self._inline_children(children)
+            return self._mathml_text(children)
         if isinstance(field, str):
-            return [field]
-        return []
+            return element("mtext", field)
+        return None
 
-    def _render_math_items(self, items):
+    def _render_mathml_items(self, items):
         children = []
         for item in items:
-            children.extend(self._render_math_field(item))
+            child = self._render_mathml_field(item)
+            if child is not None:
+                children.append(child)
         return children
 
-    def _render_math_scripts(self, atom, base_children):
-        children = list(base_children)
-        if getattr(atom, "sub", None) is not None:
-            children.append(element("sub", self._render_math_field(atom.sub)))
-        if getattr(atom, "sup", None) is not None:
-            children.append(element("sup", self._render_math_field(atom.sup)))
-        return self._math_fragment(children, class_name="math-atom")
+    def _render_mathml(self, node, display=False, class_name=None):
+        children = self._render_mathml_items(getattr(node, "list", ()))
+        if not children:
+            return None
+        attrs = {"display": "block"} if display else {}
+        if class_name is not None:
+            attrs["class_"] = class_name
+        return element("math", children, **attrs)
 
     def _raw_text_segments(self, nodes):
         segments = []
@@ -703,7 +761,7 @@ class HTMLReflowBackend(Shipout):
                 pending_break = True
                 continue
             if kind == "math":
-                append(element("span", self._render_math_field(segment[1]), class_=["math", "inline-math"]))
+                append(self._render_mathml(segment[1], class_name="inline-math"))
                 continue
             _kind, font, text = segment
             attrs = self._font_attrs(font, base_font)
@@ -824,15 +882,16 @@ class HTMLReflowBackend(Shipout):
         return rows
 
     def _display_math_children(self, owner):
-        children = self._render_math_items(getattr(owner, "list", ()))
+        math = self._render_mathml(owner, display=True, class_name="display-mathml")
         eqno = getattr(owner, "eqno", None)
         if eqno is None:
-            return children
+            return [math] if math is not None else []
         eqno_list, left = eqno
-        eqno_children = self._render_math_items(getattr(eqno_list, "list", ()))
-        if not eqno_children:
-            return children
-        label = element("span", eqno_children, class_="eqno")
+        eqno_math = self._render_mathml(eqno_list, class_name="eqno")
+        if eqno_math is None:
+            return [math] if math is not None else []
+        label = element("span", eqno_math, class_="eqno-wrap")
+        children = [math] if math is not None else []
         if left:
             return [label] + children
         return children + [label]
@@ -870,10 +929,10 @@ class HTMLReflowBackend(Shipout):
                 rows = self._alignment_rows(source)
                 if rows:
                     return [element("table", rows, class_=["alignment", "display-math"])]
-            children = self._render_math_items(getattr(owner, "list", ()))
-            if not children:
+            math = self._render_mathml(owner, display=True, class_name="display-mathml")
+            if math is None:
                 return []
-            return [element("div", children, class_="display-math")]
+            return [element("div", math, class_="display-math")]
         if isinstance(owner, vmode.VAdjust):
             blocks = []
             for child in getattr(owner, "list", ()):
@@ -928,6 +987,14 @@ class HTMLReflowBackend(Shipout):
                 "head",
                 element("meta", charset="utf-8"),
                 element("title", title),
+                element(
+                    "style",
+                    (
+                        "math{font-family:\"Latin Modern Math\",\"STIX Two Math\",\"Cambria Math\",math;}"
+                        ".display-math{overflow-x:auto;}"
+                        ".display-math math{display:block;}"
+                    ),
+                ),
             ),
             element(
                 "body",

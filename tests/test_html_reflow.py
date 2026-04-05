@@ -127,8 +127,11 @@ def test_html_reflow_uses_raw_paragraph_nodes_for_math_and_breaks(cmr10):
     )
     cmr10.end()
     html = cmr10.resolver.in_memory_files["reflow-raw-math-breaks.html"].content
-    assert '<sup><span class="math-atom">1</span><span class="math-atom">*</span></sup>' in html
-    assert '<sup><span class="math-atom">2</span><span class="math-atom">†</span></sup>' in html
+    assert '<math class="inline-math">' in html
+    assert "<msup>" in html
+    assert "<mn>1</mn>" in html
+    assert "<mn>2</mn>" in html
+    assert "†" in html
     assert "<br>" in html
 
 
@@ -139,8 +142,8 @@ def test_html_reflow_renders_display_math_from_raw_math_nodes(cmr10):
     cmr10.end()
     html = cmr10.resolver.in_memory_files["reflow-display-math.html"].content
     assert '<div class="display-math">' in html
-    assert "<sub>S</sub>" in html
-    assert "<sub>I</sub>" in html
+    assert '<math display="block" class="display-mathml">' in html
+    assert "<msub>" in html
     assert "-" in html
 
 
@@ -151,4 +154,5 @@ def test_html_reflow_renders_math_from_alignment_cell_raw_nodes(cmr10):
     cmr10.end()
     html = cmr10.resolver.in_memory_files["reflow-halign-math.html"].content
     assert "<table class=\"alignment\">" in html
+    assert '<math class="inline-math">' in html
     assert "β" in html

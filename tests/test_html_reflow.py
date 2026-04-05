@@ -8,6 +8,28 @@ def _normalize(text):
     return re.sub(r"\s+", " ", text)
 
 
+def _init_math_fonts(parser):
+    parser.parse(
+        "\\font\\tenrm=cmr10 "
+        "\\font\\sevenrm=cmr7 "
+        "\\font\\fiverm=cmr5 "
+        "\\font\\teni=cmmi10 "
+        "\\font\\seveni=cmmi7 "
+        "\\font\\fivei=cmmi5 "
+        "\\font\\tensy=cmsy10 "
+        "\\font\\sevensy=cmsy7 "
+        "\\font\\fivesy=cmsy5 "
+        "\\font\\tenex=cmex10 "
+        "\\skewchar\\teni='177 \\skewchar\\seveni='177 \\skewchar\\fivei='177 "
+        "\\skewchar\\tensy='60 \\skewchar\\sevensy='60 \\skewchar\\fivesy='60 "
+        "\\textfont1=\\teni \\scriptfont1=\\seveni \\scriptscriptfont1=\\fivei "
+        "\\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy "
+        "\\textfont3=\\tenex \\scriptfont3=\\tenex \\scriptscriptfont3=\\tenex "
+        "\\mathchardef\\beta=\"010C "
+        "\\mathchardef\\dagger=\"0279"
+    )
+
+
 def test_html_reflow_merges_owned_line_boxes_into_one_paragraph(cmr10):
     cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
     cmr10.parse(r"\hsize=20pt a a a a a a a a", jobname="reflow-para")
@@ -94,3 +116,39 @@ def test_html_reflow_maps_dvipdfm_link_specials_to_html_anchor(cmr10):
     html = cmr10.resolver.in_memory_files["reflow-link-special.html"].content
     assert 'id="target.1"' in html
     assert '<a href="#target.1" class="tex-link">a</a>' in html
+
+
+def test_html_reflow_uses_raw_paragraph_nodes_for_math_and_breaks(cmr10):
+    _init_math_fonts(cmr10)
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(
+        r"\noindent A$^{1*}$ and B$^{2\dagger}$\penalty10000 C\par",
+        jobname="reflow-raw-math-breaks",
+    )
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-raw-math-breaks.html"].content
+    assert '<sup><span class="math-atom">1</span><span class="math-atom">*</span></sup>' in html
+    assert '<sup><span class="math-atom">2</span><span class="math-atom">†</span></sup>' in html
+    assert "<br>" in html
+
+
+def test_html_reflow_renders_display_math_from_raw_math_nodes(cmr10):
+    _init_math_fonts(cmr10)
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(r"$$p_S=1-p_I$$", jobname="reflow-display-math")
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-display-math.html"].content
+    assert '<div class="display-math">' in html
+    assert "<sub>S</sub>" in html
+    assert "<sub>I</sub>" in html
+    assert "-" in html
+
+
+def test_html_reflow_renders_math_from_alignment_cell_raw_nodes(cmr10):
+    _init_math_fonts(cmr10)
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(r"\halign{$#$\cr \beta\cr}", jobname="reflow-halign-math")
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-halign-math.html"].content
+    assert "<table class=\"alignment\">" in html
+    assert "β" in html

@@ -127,7 +127,7 @@ def test_html_reflow_uses_raw_paragraph_nodes_for_math_and_breaks(cmr10):
     _init_math_fonts(cmr10)
     cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
     cmr10.parse(
-        r"\noindent A$^{1*}$ and B$^{2\dagger}$\penalty10000 C\par",
+        r"\noindent A$^{1*}$ and B$^{2\dagger}$\penalty-10000 C\par",
         jobname="reflow-raw-math-breaks",
     )
     cmr10.end()
@@ -138,6 +138,15 @@ def test_html_reflow_uses_raw_paragraph_nodes_for_math_and_breaks(cmr10):
     assert "<mn>2</mn>" in html
     assert "†" in html
     assert "<br>" in html
+
+
+def test_html_reflow_ignores_positive_penalties_in_prose(cmr10):
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(r"\noindent M.\penalty10000\ E. Newman\par", jobname="reflow-no-break-penalty")
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-no-break-penalty.html"].content
+    assert "<br>" not in html
+    assert "M. E. Newman" in _normalize(html)
 
 
 def test_html_reflow_renders_display_math_from_raw_math_nodes(cmr10):
@@ -186,6 +195,17 @@ def test_html_reflow_prefers_math_source_over_flattened_math_font_chars(cmr10):
     assert ids == []
     html = html_builder.render(html_builder.element("math", children))
     assert "β" in html
+
+
+def test_html_reflow_only_promotes_inline_math_when_source_chain_is_semantic(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    holder = mmode.InlineMathNode(nodes=[])
+    wrapper = box.HBox(cmr10, None, 0)
+    wrapper.source = holder
+    char = nd.CharNode("A", cmr10.parameters["currentfont"])
+    char.source = wrapper
+    segments = backend._raw_text_segments([char])
+    assert segments == [("text", char.font, "A")]
 
 
 def test_html_reflow_detects_alignment_tag_cells(cmr10):

@@ -536,6 +536,30 @@ class HTMLReflowBackend(Shipout):
             source = getattr(source, "source", None)
         return None
 
+    @staticmethod
+    def _inline_math_source_owner(node):
+        source = getattr(node, "source", None)
+        owner = None
+        saw_math_semantics = False
+        while source is not None and not isinstance(source, (list, tuple)):
+            if isinstance(
+                source,
+                (
+                    mmode.MathSymbol,
+                    mmode.Atom,
+                    mmode.Subformula,
+                    mmode.MathListHolder,
+                    align.HAlignment,
+                    align.MAlignment,
+                ),
+            ):
+                saw_math_semantics = True
+            if isinstance(source, mmode.InlineMathNode):
+                if saw_math_semantics:
+                    owner = source
+            source = getattr(source, "source", None)
+        return owner
+
     def _mathml_raw_segments(self, nodes):
         segments = []
         for node in nodes:
@@ -809,6 +833,10 @@ class HTMLReflowBackend(Shipout):
         segments = []
         for node in nodes:
             node_type = getattr(node, "node_type", None)
+            inline_math = self._inline_math_source_owner(node)
+            if inline_math is not None:
+                segments.append(("math", inline_math))
+                continue
             if node_type == nd.NODE_TYPE.CHAR:
                 segments.append(("text", node.font, node.char))
                 continue
@@ -834,7 +862,10 @@ class HTMLReflowBackend(Shipout):
             ):
                 continue
             if node_type == nd.NODE_TYPE.PENALTY:
-                if getattr(node, "penalty", None) is not None and node.penalty >= 10000:
+                if (
+                    getattr(node, "penalty", None) is not None
+                    and node.penalty <= -10000
+                ):
                     segments.append(("break",))
                 continue
             if node_type == nd.NODE_TYPE.WHATSIT:
@@ -923,6 +954,22 @@ class HTMLReflowBackend(Shipout):
         children = []
         link_stack = []
         pending_break = False
+        last_math = None
+
+        def has_visible_content(target):
+            for item in target:
+                if isinstance(item, str):
+                    if item.strip():
+                        return True
+                    continue
+                attrs = getattr(item, "attrs", None)
+                if attrs is None:
+                    return True
+                classes = str(attrs.get("class", "")).split()
+                if "tex-special" in classes or "tex-dest" in classes:
+                    continue
+                return True
+            return False
 
         def append(child):
             if child is None:
@@ -930,7 +977,8 @@ class HTMLReflowBackend(Shipout):
             nonlocal pending_break
             if pending_break:
                 target = link_stack[-1]["children"] if link_stack else children
-                target.append(element("br"))
+                if has_visible_content(target):
+                    target.append(element("br"))
                 pending_break = False
             if link_stack:
                 link_stack[-1]["children"].append(child)
@@ -959,9 +1007,15 @@ class HTMLReflowBackend(Shipout):
                 continue
             if kind == "break":
                 pending_break = True
+                last_math = None
                 continue
             if kind == "math":
-                append(self._render_mathml(segment[1], class_name="inline-math"))
+                field = segment[1]
+                key = id(field)
+                if key == last_math:
+                    continue
+                append(self._render_mathml(field, class_name="inline-math"))
+                last_math = key
                 continue
             _kind, font, text = segment
             attrs = self._font_attrs(font, base_font)
@@ -969,10 +1023,20 @@ class HTMLReflowBackend(Shipout):
                 append(element("span", text, **attrs))
             else:
                 append(text)
+            last_math = None
         while link_stack:
             link = link_stack.pop(0)
             append(element("a", link["children"], href=link["href"], class_="tex-link"))
         return children
+
+    def _render_eqno(self, eqno_list):
+        text = self._flatten_text(getattr(eqno_list, "list", ()))
+        if text and re.fullmatch(r"\d+[A-Za-z]?", text):
+            return element("span", f"({text})", class_="eqno-wrap")
+        eqno_math = self._render_mathml(eqno_list, class_name="eqno")
+        if eqno_math is None:
+            return None
+        return element("span", eqno_math, class_="eqno-wrap")
 
     def _special_text(self, node):
         text = getattr(node, "text", None)
@@ -1155,11 +1219,11 @@ class HTMLReflowBackend(Shipout):
         if eqno is None:
             return [math] if math is not None else []
         eqno_list, left = eqno
-        eqno_math = self._render_mathml(eqno_list, class_name="eqno")
-        if eqno_math is None:
+        label = self._render_eqno(eqno_list)
+        if label is None:
             return [math] if math is not None else []
-        label = element("span", eqno_math, class_="eqno-wrap")
-        children = [math] if math is not None else []
+        body = element("div", math, class_="display-math-body") if math is not None else None
+        children = [body] if body is not None else []
         if left:
             return [label] + children
         return children + [label]
@@ -1185,7 +1249,10 @@ class HTMLReflowBackend(Shipout):
             children = self._display_math_children(owner)
             if not children:
                 return []
-            return [element("div", children, class_="display-math")]
+            classes = ["display-math"]
+            if getattr(owner, "eqno", None) is not None:
+                classes.append("with-eqno")
+            return [element("div", children, class_=classes)]
         if isinstance(owner, align.HAlignment):
             rows = self._alignment_rows(owner)
             if not rows:
@@ -1261,6 +1328,10 @@ class HTMLReflowBackend(Shipout):
                         "math{font-family:\"Latin Modern Math\",\"STIX Two Math\",\"Cambria Math\",math;}"
                         ".display-math{overflow-x:auto;}"
                         ".display-math math{display:block;}"
+                        ".display-math.with-eqno{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:1em;overflow:visible;}"
+                        ".display-math-body{min-width:0;overflow-x:auto;justify-self:center;}"
+                        ".eqno-wrap{white-space:nowrap;}"
+                        ".eqno-wrap math{display:inline;}"
                         ".display-math-table{border-collapse:collapse;}"
                         ".display-math-table td{padding:0 0.35em;vertical-align:middle;}"
                         ".display-math-table math{display:block;}"

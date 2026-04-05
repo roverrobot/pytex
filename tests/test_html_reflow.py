@@ -69,3 +69,28 @@ def test_html_reflow_preserves_inline_font_runs(cmr10):
     assert 'style="font-weight:bold"' in html
     assert 'data-tex-font="cmti10"' in html
     assert 'style="font-style:italic"' in html
+
+
+def test_html_reflow_preserves_raw_special_markers(cmr10):
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(r"\special{foo}", jobname="reflow-special")
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-special.html"].content
+    assert 'class="tex-special"' in html
+    assert 'data-tex-special="foo"' in html
+
+
+def test_html_reflow_maps_dvipdfm_link_specials_to_html_anchor(cmr10):
+    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
+    cmr10.parse(
+        r"\special{pdf:dest (target.1) [@thispage /XYZ @xpos @ypos null]}"
+        r"x"
+        r"\special{pdf: bann<< /Type/Annot /Subtype/Link /A<< /S/GoTo /D(target.1) >> >>}"
+        r"a"
+        r"\special{pdf: eann}\par",
+        jobname="reflow-link-special",
+    )
+    cmr10.end()
+    html = cmr10.resolver.in_memory_files["reflow-link-special.html"].content
+    assert 'id="target.1"' in html
+    assert '<a href="#target.1" class="tex-link">a</a>' in html

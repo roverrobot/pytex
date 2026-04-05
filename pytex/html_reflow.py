@@ -18,6 +18,14 @@ from pytex.typeset.shipout import Shipout
 
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
+_DEST_RE = re.compile(r"^\s*pdf:\s*dest\s*\(([^()]*)\)", re.IGNORECASE)
+_BEGINANN_RE = re.compile(r"^\s*pdf:\s*(?:beginann|bann|annotate|annot|ann)\b", re.IGNORECASE)
+_ENDANN_RE = re.compile(r"^\s*pdf:\s*(?:endann|eann|eannot)\b", re.IGNORECASE)
+_GOTO_RE = re.compile(r"/S\s*/GoTo\b.*?/D\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
+_GOTOR_RE = re.compile(
+    r"/S\s*/GoToR\b.*?/F\s*\(([^()]*)\)(?:.*?/D\s*\(([^()]*)\))?",
+    re.IGNORECASE | re.DOTALL,
+)
 _DEFAULT_FONT_ROLE = {
     "family": "serif",
     "weight": "normal",
@@ -243,7 +251,7 @@ class HTMLReflowBackend(Shipout):
         for node in nodes:
             node_type = getattr(node, "node_type", None)
             if node_type == nd.NODE_TYPE.CHAR:
-                segments.append((node.font, node.char))
+                segments.append(("text", node.font, node.char))
                 continue
             if node_type == nd.NODE_TYPE.LIGATURE:
                 source = getattr(node, "source", None) or []
@@ -251,10 +259,10 @@ class HTMLReflowBackend(Shipout):
                     text = "".join(getattr(child, "char", "") for child in source)
                 else:
                     text = node.char
-                segments.append((node.font, text))
+                segments.append(("text", node.font, text))
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
-                segments.append((None, " "))
+                segments.append(("text", None, " "))
                 continue
             if node_type in (
                 nd.NODE_TYPE.KERN,
@@ -262,8 +270,10 @@ class HTMLReflowBackend(Shipout):
                 nd.NODE_TYPE.MARK,
                 nd.NODE_TYPE.INS,
                 nd.NODE_TYPE.ADJUST,
-                nd.NODE_TYPE.WHATSIT,
             ):
+                continue
+            if node_type == nd.NODE_TYPE.WHATSIT:
+                segments.append(("special", self._special_text(node)))
                 continue
             if node_type == nd.NODE_TYPE.DISC:
                 segments.extend(self._raw_text_segments(node.replace))
@@ -277,37 +287,111 @@ class HTMLReflowBackend(Shipout):
         normalized = []
         pending_space = False
         started = False
-        for font, text in segments:
+        for segment in segments:
+            kind = segment[0]
+            if kind == "special":
+                normalized.append(segment)
+                continue
+            _kind, font, text = segment
             for char in text:
                 if char.isspace():
                     if started:
                         pending_space = True
                     continue
                 if pending_space:
-                    normalized.append((font, " "))
+                    normalized.append(("text", font, " "))
                     pending_space = False
-                normalized.append((font, char))
+                normalized.append(("text", font, char))
                 started = True
         if not normalized:
             return []
         merged = []
-        for font, text in normalized:
-            key = self._font_signature(font)
-            if merged and merged[-1][0] == key:
-                merged[-1][2] += text
+        for segment in normalized:
+            if segment[0] == "special":
+                merged.append(segment)
                 continue
-            merged.append([key, font, text])
-        return [(font, text) for _key, font, text in merged]
+            _kind, font, text = segment
+            if (
+                merged
+                and merged[-1][0] == "text"
+                and self._font_signature(merged[-1][1]) == self._font_signature(font)
+            ):
+                merged[-1] = ("text", merged[-1][1], merged[-1][2] + text)
+                continue
+            merged.append(("text", font, text))
+        return merged
+
+    def _special_marker(self, text):
+        attrs = {
+            "class_": "tex-special",
+            "aria-hidden": "true",
+            "data-tex-special": text,
+        }
+        return element("span", **attrs)
+
+    def _special_action(self, text):
+        if text is None:
+            return None
+        stripped = text.strip()
+        if not stripped:
+            return None
+        match = _DEST_RE.match(stripped)
+        if match is not None:
+            return {"kind": "dest", "target": match.group(1)}
+        match = _GOTO_RE.search(stripped)
+        if match is not None and _BEGINANN_RE.match(stripped):
+            return {"kind": "link-start", "href": f"#{match.group(1)}"}
+        match = _GOTOR_RE.search(stripped)
+        if match is not None and _BEGINANN_RE.match(stripped):
+            href = match.group(1)
+            if match.group(2):
+                href = f"{href}#{match.group(2)}"
+            return {"kind": "link-start", "href": href}
+        if _ENDANN_RE.match(stripped):
+            return {"kind": "link-end"}
+        return {"kind": "marker", "text": stripped}
 
     def _inline_children(self, nodes, base_font=None):
         children = []
-        segments = self._normalize_segments(self._raw_text_segments(nodes))
-        for font, text in segments:
+        link_stack = []
+
+        def append(child):
+            if child is None:
+                return
+            if link_stack:
+                link_stack[-1]["children"].append(child)
+            else:
+                children.append(child)
+
+        for segment in self._normalize_segments(self._raw_text_segments(nodes)):
+            kind = segment[0]
+            if kind == "special":
+                action = self._special_action(segment[1])
+                if action is None:
+                    continue
+                if action["kind"] == "dest":
+                    append(element("span", id=action["target"], class_="tex-dest"))
+                    continue
+                if action["kind"] == "link-start":
+                    link_stack.append({"href": action["href"], "children": []})
+                    continue
+                if action["kind"] == "link-end":
+                    if not link_stack:
+                        continue
+                    link = link_stack.pop()
+                    append(element("a", link["children"], href=link["href"], class_="tex-link"))
+                    continue
+                append(self._special_marker(action["text"]))
+                continue
+            _kind, font, text = segment
             attrs = self._font_attrs(font, base_font)
             if attrs:
-                children.append(element("span", text, **attrs))
+                append(element("span", text, **attrs))
             else:
-                children.append(text)
+                append(text)
+        while link_stack:
+            link = link_stack.pop(0)
+            append(element("a", link["children"], href=link["href"], class_="tex-link"))
         return children
 
     def _special_text(self, node):
@@ -459,6 +543,18 @@ class HTMLReflowBackend(Shipout):
             if not text:
                 return []
             return [element("aside", text, class_="note")]
+        if node_type == nd.NODE_TYPE.WHATSIT:
+            text = self._special_text(owner)
+            if text is None:
+                return []
+            action = self._special_action(text)
+            if action is None:
+                return []
+            if action["kind"] == "dest":
+                return [element("span", id=action["target"], class_="tex-dest")]
+            if action["kind"] == "marker":
+                return [self._special_marker(action["text"])]
+            return []
         if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
             if (
                 len(getattr(owner, "list", ())) == 0

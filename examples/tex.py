@@ -17,6 +17,7 @@ import os
 import types
 
 backends = ["dvi", "pdf"]
+html_reflow_backend = None
 
 argparser = ArgumentParser()
 argparser.add_argument("-f", "--format", default="initex",
@@ -27,7 +28,7 @@ argparser.add_argument(
     "-o",
     "--output",
     default="pdf",
-    choices=["dvi", "pdf"],
+    choices=["dvi", "pdf", "html-reflow"],
     help="shipout output format. Relative output paths are derived from the jobname in the project directory.",
 )
 argparser.add_argument(
@@ -52,13 +53,18 @@ if args.sort is not None and not args.profile:
     print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
 
 if args.format != "initex":
-    # load the shipout backend
+    # load the selected output backend
     if args.output == "dvi":
         import pytex.dvi
     elif args.output == "pdf":
         import pytex.pdf
+    elif args.output == "html-reflow":
+        from pytex import html_reflow as html_reflow_backend
 
 parser = Parser(project_dir=args.project_dir)
+if html_reflow_backend is not None:
+    parser.page_builder = html_reflow_backend.HTMLReflowBackend(parser)
+    parser.shipout = None
 parser.resolver.format = args.format
 
 # tracing settings

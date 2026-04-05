@@ -51,11 +51,6 @@ class VList(lists.List):
             return None
         return getattr(self.parser, "page_builder", None)
 
-    def _reflowBuilder(self):
-        if self.inner:
-            return None
-        return getattr(self.parser, "reflow", None)
-
     def concreteNodes(self):
         page_builder = self._pageBuilder()
         if page_builder is not None:
@@ -74,9 +69,6 @@ class VList(lists.List):
         page_builder = self._pageBuilder()
         if page_builder is not None:
             page_builder.contribute(self, para)
-        reflow_builder = self._reflowBuilder()
-        if reflow_builder is not None:
-            reflow_builder.contribute(self, para)
 
     def appendDisplayMath(self, node):
         self.raw.append(node)
@@ -84,9 +76,6 @@ class VList(lists.List):
         page_builder = self._pageBuilder()
         if page_builder is not None:
             page_builder.contribute(self, node)
-        reflow_builder = self._reflowBuilder()
-        if reflow_builder is not None:
-            reflow_builder.contribute(self, node)
 
     def appendHAlignment(self, node):
         self.raw.append(node)
@@ -94,9 +83,6 @@ class VList(lists.List):
         page_builder = self._pageBuilder()
         if page_builder is not None:
             page_builder.contribute(self, node)
-        reflow_builder = self._reflowBuilder()
-        if reflow_builder is not None:
-            reflow_builder.contribute(self, node)
 
     def appendMAlignment(self, node):
         self.raw.append(node)
@@ -104,9 +90,6 @@ class VList(lists.List):
         page_builder = self._pageBuilder()
         if page_builder is not None:
             page_builder.contribute(self, node)
-        reflow_builder = self._reflowBuilder()
-        if reflow_builder is not None:
-            reflow_builder.contribute(self, node)
 
     def appendVAdjust(self, node):
         self.raw.append(node)
@@ -127,18 +110,12 @@ class VList(lists.List):
             page_builder = self._pageBuilder()
             if page_builder is not None:
                 page_builder.contribute(self, node)
-            reflow_builder = self._reflowBuilder()
-            if reflow_builder is not None and node.source is None:
-                reflow_builder.contribute(self, node)
             return
         if node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
             self.list.append(node)
             page_builder = self._pageBuilder()
             if page_builder is not None:
                 page_builder.contribute(self, node)
-            reflow_builder = self._reflowBuilder()
-            if reflow_builder is not None and node.source is None:
-                reflow_builder.contribute(self, node)
             return
         prevdepth = self.parser.globals["prevdepth"]
         interline_penalty = getattr(node, "interline_penalty", None)
@@ -167,9 +144,6 @@ class VList(lists.List):
         page_builder = self._pageBuilder()
         if page_builder is not None:
             page_builder.contribute(self, node)
-        reflow_builder = self._reflowBuilder()
-        if reflow_builder is not None and node.source is None:
-            reflow_builder.contribute(self, node)
     
     @staticmethod
     def isOwner(node, owner):

@@ -43,7 +43,6 @@ class Parser:
     """
     def __init__(self, project_dir: typing.Optional[str] = None):
         self.initState()
-        self.reflow = None
         # the builtin commands
         self.builtin = {}
         # now we are at a similar stage to INITEX. We do not need to keep the current state.
@@ -399,7 +398,9 @@ class Parser:
         """
         # we first set up today etc.
         if self.lists is None:
-            self.page_builder.reset()
+            page_builder = getattr(self, "page_builder", None)
+            if page_builder is not None:
+                page_builder.reset()
             self.lists = lists.ListStack([vmode.VList(self, [], inner=False)])
         date = datetime.datetime.now()
         self.volatile["year"] = date.year
@@ -424,10 +425,12 @@ class Parser:
         
     def close(self):
         self.input.clear()
-        reflow = getattr(self, "reflow", None)
-        if reflow is not None:
-            reflow.close()
+        page_builder = getattr(self, "page_builder", None)
         shipout = getattr(self, "shipout", None)
+        if page_builder is not None and page_builder is not shipout:
+            close = getattr(page_builder, "close", None)
+            if close is not None:
+                close()
         if shipout is not None:
             shipout.close()
         if self.log is not None and not self.log.closed:
@@ -814,12 +817,11 @@ class Parser:
         top = self.lists[-1]
         if top.type != lists.LISTTYPE.VERTICAL or top.inner:
             raise ValueError("did not end in the main vertical list")
-        reflow = getattr(self, "reflow", None)
-        if reflow is not None:
-            reflow.finish(top)
-        self.page_builder.finish(top)
-        self.shipout.close()
-        if reflow is not None:
-            reflow.close()
+        page_builder = getattr(self, "page_builder", None)
+        if page_builder is not None:
+            page_builder.finish(top)
+        shipout = getattr(self, "shipout", None)
+        if shipout is not None:
+            shipout.close()
 
         

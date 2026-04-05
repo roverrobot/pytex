@@ -30,6 +30,16 @@ class HTMLReflowBackend:
         self.file = None
         self.finished = False
 
+    def reset(self):
+        self.contrib[:] = []
+        self.finished = False
+
+    def concreteNodes(self, pending):
+        return list(pending.list)
+
+    def rawNodes(self, pending):
+        return list(pending.raw)
+
     def open(self, output=None):
         if self.file is not None:
             return
@@ -62,6 +72,8 @@ class HTMLReflowBackend:
             ),
         ):
             return True
+        if getattr(node, "source", None) is not None:
+            return False
         return node.node_type in (
             nd.NODE_TYPE.HLIST,
             nd.NODE_TYPE.VLIST,
@@ -198,7 +210,7 @@ class HTMLReflowBackend:
         return None
 
     def _render_document(self, pending):
-        concrete = pending.concreteNodes()
+        concrete = self.concreteNodes(pending)
         blocks = []
         index = 0
         for owner in self.contrib:
@@ -228,6 +240,7 @@ class HTMLReflowBackend:
         self.open()
         self.file.write(self._render_document(pending))
         self.finished = True
+        self.close()
 
     def close(self):
         if self.file is None:
@@ -236,12 +249,7 @@ class HTMLReflowBackend:
         self.file = None
 
 
-def init(parser):
-    parser.reflow = HTMLReflowBackend(parser)
-
-
 mod = Module(
     "html_reflow",
-    init=init,
     attributes={},
 )

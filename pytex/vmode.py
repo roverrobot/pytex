@@ -58,9 +58,6 @@ class VList(lists.List):
         return list(self.list)
 
     def rawNodes(self):
-        page_builder = self._pageBuilder()
-        if page_builder is not None:
-            return page_builder.rawNodes(self)
         return list(self.raw)
 
     def appendParagraph(self, para):

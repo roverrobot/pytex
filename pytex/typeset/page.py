@@ -377,9 +377,6 @@ class PageBuilder:
     def concreteNodes(self, pending):
         return list(self.contrib) + list(pending.list)
 
-    def rawNodes(self, pending):
-        return [node for node in self.concreteNodes(pending) if getattr(node, "source", None) is None]
-
     @staticmethod
     def _syncLastItem(pending, contrib):
         pending.lastitem = contrib[-1] if contrib else None
@@ -415,7 +412,6 @@ class PageBuilder:
             return
         self.contrib.extend(pending.list)
         pending.list[:] = []
-        pending.raw[:] = []
         self._pruneContribTop(pending)
 
     def _triggersPageBuilder(self, node):

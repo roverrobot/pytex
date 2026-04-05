@@ -780,6 +780,18 @@ def test_main_vlist_raw_nodes_include_migrated_mark(cmr10):
     assert toksToString(cmr10, raw[1].tokens) == "123"
 
 
+def test_contribute_pending_preserves_main_vlist_raw_history(cmr10):
+    cmr10.parse("\\hbox{a}\\hbox{b}")
+    main = cmr10.lists[0]
+    raw_before = main.rawNodes()
+    assert len(raw_before) == 2
+
+    cmr10.page_builder.contributePending(main)
+
+    assert main.list == []
+    assert main.rawNodes() == raw_before
+
+
 def test_insert_migrate(cmr10):
     cmr10.parse("\\hbox{1\\insert 2{\\vskip 1in}}")
     top = cmr10.lists[-1]

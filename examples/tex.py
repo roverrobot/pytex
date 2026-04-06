@@ -47,7 +47,7 @@ argparser.add_argument("file")
 args = argparser.parse_args()
 
 
-DOCUMENT_METADATA_SNIPPET = "\\DocumentMetadata{backend=dvipdfmx}\\relax\n"
+DOCUMENT_METADATA_SNIPPET = "\\DocumentMetadata{backend=dvipdfmx}"
 
 if args.sort is not None and not args.profile:
     print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
@@ -109,8 +109,10 @@ if input is None:
 
 def run_document():
     if args.format != "initex" and parser.equitable["\\DocumentMetadata"] is not None:
-        parser.parse(DOCUMENT_METADATA_SNIPPET)
-    parser.parse(input, jobname=file)
+        parser.readFrom(input, file)
+        parser.parse(DOCUMENT_METADATA_SNIPPET, jobname=file)
+    else:
+        parser.parse(input, jobname=file)
     input.close()
     if args.format != "initex":
         parser.end()

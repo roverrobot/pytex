@@ -222,6 +222,14 @@ def test_halign_typesets_directly_to_rows(cmr10):
     assert packed[0].node_type == nd.NODE_TYPE.HLIST
 
 
+def test_halign_rebox_entry_does_not_create_self_source(cmr10):
+    cmr10.parse("\\halign{#\\cr a\\cr}")
+    node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]
+    cell = node.rows[0].cells[0]
+    reboxed = node.reboxEntry(cmr10, cell, cell.width)
+    assert reboxed.source is not reboxed
+
+
 def test_alignment_cells_are_pretypeset_when_closed(cmr10):
     cmr10.parse("\\halign{#&#\\cr a&bc\\cr}")
     node = _source_nodes(cmr10.lists[-1], align.HAlignment)[0]

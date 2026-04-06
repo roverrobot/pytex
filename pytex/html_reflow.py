@@ -530,7 +530,12 @@ class HTMLReflowBackend(Shipout):
 
     def _math_source_owner(self, node):
         source = getattr(node, "source", None)
+        seen = set()
         while source is not None and not isinstance(source, (list, tuple)):
+            key = id(source)
+            if key in seen:
+                break
+            seen.add(key)
             if self._is_mathml_field(source):
                 return source
             source = getattr(source, "source", None)
@@ -541,7 +546,12 @@ class HTMLReflowBackend(Shipout):
         source = getattr(node, "source", None)
         owner = None
         saw_math_semantics = False
+        seen = set()
         while source is not None and not isinstance(source, (list, tuple)):
+            key = id(source)
+            if key in seen:
+                break
+            seen.add(key)
             if isinstance(
                 source,
                 (
@@ -549,8 +559,9 @@ class HTMLReflowBackend(Shipout):
                     mmode.Atom,
                     mmode.Subformula,
                     mmode.MathListHolder,
-                    align.HAlignment,
-                    align.MAlignment,
+                    mmode.Over,
+                    mmode.Rad,
+                    mmode.Accent,
                 ),
             ):
                 saw_math_semantics = True
@@ -571,7 +582,10 @@ class HTMLReflowBackend(Shipout):
                 segments.append(("special", self._special_text(node)))
                 continue
             if node_type == nd.NODE_TYPE.PENALTY:
-                if getattr(node, "penalty", None) is not None and node.penalty >= 10000:
+                if (
+                    getattr(node, "penalty", None) is not None
+                    and node.penalty <= -10000
+                ):
                     segments.append(("break",))
                 continue
             source = self._math_source_owner(node)
@@ -1038,6 +1052,16 @@ class HTMLReflowBackend(Shipout):
             return None
         return element("span", eqno_math, class_="eqno-wrap")
 
+    def _render_alignment_tag(self, nodes):
+        text = self._flatten_text(nodes)
+        if text and re.fullmatch(r"\d+[A-Za-z]?", text):
+            return element("span", f"({text})", class_="eqno-wrap")
+        dominant = self._dominant_font(nodes)
+        children = self._inline_children(nodes, dominant)
+        if not children:
+            return None
+        return element("span", children, class_="eqno-wrap")
+
     def _special_text(self, node):
         text = getattr(node, "text", None)
         if text is None:
@@ -1133,18 +1157,24 @@ class HTMLReflowBackend(Shipout):
                     attrs["colspan"] = span
                 raw_nodes = self._owner_raw_nodes(cell)
                 if mathml_cells:
-                    math_children, ids = self._mathml_from_raw_nodes(raw_nodes)
-                    if ids:
-                        attrs["id"] = ids[0]
                     cell_children = []
-                    if math_children:
-                        cell_children.append(
-                            element(
-                                "math",
-                                self._mathml_group(math_children),
-                                class_="aligned-cell-math",
+                    if self._is_alignment_tag_cell(cell):
+                        attrs["class_"] = "eqno-cell"
+                        label = self._render_alignment_tag(raw_nodes)
+                        if label is not None:
+                            cell_children.append(label)
+                    else:
+                        math_children, ids = self._mathml_from_raw_nodes(raw_nodes)
+                        if ids:
+                            attrs["id"] = ids[0]
+                        if math_children:
+                            cell_children.append(
+                                element(
+                                    "math",
+                                    self._mathml_group(math_children),
+                                    class_="aligned-cell-math",
+                                )
                             )
-                        )
                 else:
                     dominant = self._dominant_font(getattr(cell, "list", ()))
                     attrs.update(self._font_attrs(dominant, self._body_font))
@@ -1334,6 +1364,7 @@ class HTMLReflowBackend(Shipout):
                         ".eqno-wrap math{display:inline;}"
                         ".display-math-table{border-collapse:collapse;}"
                         ".display-math-table td{padding:0 0.35em;vertical-align:middle;}"
+                        ".display-math-table td.eqno-cell{text-align:right;white-space:nowrap;}"
                         ".display-math-table math{display:block;}"
                     ),
                 ),

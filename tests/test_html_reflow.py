@@ -1,5 +1,6 @@
 import re
 
+from pytex import align
 from pytex import html_reflow
 from pytex import html_builder
 from pytex import mmode
@@ -208,6 +209,19 @@ def test_html_reflow_only_promotes_inline_math_when_source_chain_is_semantic(cmr
     assert segments == [("text", char.font, "A")]
 
 
+def test_html_reflow_does_not_treat_text_alignment_as_inline_math(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    holder = mmode.InlineMathNode(nodes=[])
+    table = align.HAlignment()
+    table.source = holder
+    wrapper = box.HBox(cmr10, None, 0)
+    wrapper.source = table
+    char = nd.CharNode("A", cmr10.parameters["currentfont"])
+    char.source = wrapper
+    segments = backend._raw_text_segments([char])
+    assert segments == [("text", char.font, "A")]
+
+
 def test_html_reflow_detects_alignment_tag_cells(cmr10):
     backend = html_reflow.HTMLReflowBackend(cmr10)
     tag = box.HBox(cmr10, None, 0)
@@ -239,3 +253,41 @@ def test_html_reflow_collapses_single_math_owner_wrappers(cmr10):
     assert ids == []
     html = html_builder.render(html_builder.element("math", children))
     assert html.count("β") == 1
+
+
+def test_html_reflow_ignores_positive_penalties_in_mathml(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    currentfont = cmr10.parameters["currentfont"]
+    children, ids = backend._mathml_from_raw_nodes(
+        [nd.CharNode("a", currentfont), nd.Penalty(10000), nd.CharNode("b", currentfont)]
+    )
+    assert ids == []
+    html = html_builder.render(html_builder.element("math", children))
+    assert 'linebreak="newline"' not in html
+
+
+def test_html_reflow_uses_negative_penalties_as_mathml_linebreaks(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    currentfont = cmr10.parameters["currentfont"]
+    children, ids = backend._mathml_from_raw_nodes(
+        [nd.CharNode("a", currentfont), nd.Penalty(-10000), nd.CharNode("b", currentfont)]
+    )
+    assert ids == []
+    html = html_builder.render(html_builder.element("math", children))
+    assert 'linebreak="newline"' in html
+
+
+def test_html_reflow_renders_alignment_tag_cells_as_eqnos(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    currentfont = cmr10.parameters["currentfont"]
+    owner = align.HAlignment()
+    row = align.Row()
+    body = box.HBox(cmr10, None, 0)
+    body.raw = [nd.CharNode("a", currentfont)]
+    tag = box.HBox(cmr10, None, 0)
+    tag.raw = [nd.Kern(1), nd.CharNode("4", currentfont)]
+    row.cells = [body, tag]
+    owner.rows = [row]
+    html = html_builder.render(html_builder.element("table", backend._alignment_rows(owner, mathml_cells=True)))
+    assert 'class="eqno-cell"' in html
+    assert "(4)" in html

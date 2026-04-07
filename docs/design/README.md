@@ -2,10 +2,10 @@
 
 Read in this order:
 
+1. [01-layer-separation.md](01-layer-separation.md)
 3. [03-font-backends.md](03-font-backends.md)
 4. [04-html-output.md](04-html-output.md)
 5. [05-special-ir.md](05-special-ir.md)
-6. [06-layer-separation.md](06-layer-separation.md)
 7. [07-parser-state.md](07-parser-state.md)
 8. [08-token-flow.md](08-token-flow.md)
 9. [09-execution-ir-inventory.md](09-execution-ir-inventory.md)

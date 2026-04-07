@@ -1,18 +1,16 @@
 = pytex
 
-This is a tex compiler re-implemented in Python 3.
+This is a tex engine re-implemented in Python 3.
 
-Currently, it does not support typesetting yet, but will be implemented in a later version.
-These features include
-* typesetting math formula
-* line breaking
-* pagebreaking
-* output routings
-* leaders
+Currently, it does not support leaders and the etex extension \mid. It implements a minimal set of pdftex premitives that are needed for latex2e. 
 
-It currently only support plain tex. Eventually etex and a minimal version of the pdftex will
-be implemented, so that latex parsing is viable.
+It currently supports the following output formats:
+* dvi (no ttf/otf font support)
+* pdf
+* html-reflow (no pages)
 
-In addition, tracing commands are not implemented. However, this parser is more flexible, and can
-incrementally parse a documnet. The internal state of the parser are always available for
-examination. 
+An example tex parsing driver is provided in examples/tex.py, which supports format dumping, and all three supported output formats.
+
+This engine provides a very flexible module framework, where parts of the parser can be extended or even replaced using modules. In addition, pipe commands (currently extractbb for extracting boundin boxes for pdf images) and typeset backends are all provided using modules.
+
+It supports utf-8 input and output natively, with native supports to ttf/otf fonts. A convenient extension is use system-wide fonts by type face names such as \font\a={Times New Roman}. CJK support is thus automatic: we first select a font, then use the font and directly type the characters (currently only pdf and html-reflow backends support it because it uses ttf/otf fonts). For example: \font\a={Baoli SC} {\a 中文}

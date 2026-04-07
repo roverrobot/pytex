@@ -3,6 +3,7 @@
 Read in this order:
 
 1. [01-layer-separation.md](01-layer-separation.md)
+2. [02-module.md](02-module.md)
 3. [03-font-backends.md](03-font-backends.md)
 4. [04-html-output.md](04-html-output.md)
 5. [05-special-ir.md](05-special-ir.md)

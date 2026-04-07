@@ -7,7 +7,7 @@ Read in this order:
 3. [03-token-flow.md](03-token-flow.md)
 4. [04-resolver.md](04-resolver.md)
 5. [05-pipe-backends.md](05-pipe-backends.md)
-7. [07-parser-state.md](07-parser-state.md)
+6. [06-parser-state.md](06-parser-state.md)
 8. [03-font-backends.md](03-font-backends.md)
 9. [09-execution-ir-inventory.md](09-execution-ir-inventory.md)
 10. [10-parser-kernel.md](10-parser-kernel.md)

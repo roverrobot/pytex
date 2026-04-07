@@ -2,19 +2,23 @@
 
 Read in this order:
 
-1. [01-layer-separation.md](01-layer-separation.md)
-2. [02-module.md](02-module.md)
-3. [03-token-flow.md](03-token-flow.md)
-4. [04-resolver.md](04-resolver.md)
-5. [05-pipe-backends.md](05-pipe-backends.md)
-6. [06-parser-state.md](06-parser-state.md)
-7. [07-parser-kernel.md](07-parser-kernel.md)
-8. [08-assignment-ir.md](08-assignment-ir.md)
-9. [09-list-construction.md](09-list-construction.md)
-10. [10-font-backends.md](03-font-backends.md)
-11. [11-typeset-backends.md](11-typeset-backends.md)
-12. [12-shipout-ir.md](11-shipout-ir.md)
-13. [13-special-ir.md](13-special-ir.md)
-14. [13-pdf-backend.md](13-pdf-backend.md)
-15. [04-html-output.md](04-html-output.md)
-16. [15-reflow-backend.md](15-reflow-backend.md)
+* [01-layer-separation.md](01-layer-separation.md): how the parser functions are divided into layers
+* [02-module.md](02-module.md): how the parser is modularized
+* The tokenization layer:
+    * [03-token-flow.md](03-token-flow.md): the "mouse" of the tex engine, how tokens are fed into the execution layer
+    * [04-resolver.md](04-resolver.md): how file names are resolved
+        * [05-pipe-backends.md](05-pipe-backends.md) how the pipes (shell escapes) are implemented 
+* The execution layer:
+    * [06-parser-state.md](06-parser-state.md)
+    * [07-parser-kernel.md](07-parser-kernel.md)
+    * [08-assignment-ir.md](08-assignment-ir.md)
+    * [09-list-construction.md](09-list-construction.md)
+    * [10-font-backends.md](03-font-backends.md)
+* Typesetting and shipping out:
+    * [11-typeset-backends.md](11-typeset-backends.md)
+    * [12-shipout-ir.md](11-shipout-ir.md)
+    * [13-special-ir.md](13-special-ir.md)
+* Shipout backends:
+    * [13-pdf-backend.md](13-pdf-backend.md)
+    * [04-html-output.md](04-html-output.md)
+    * [15-reflow-backend.md](15-reflow-backend.md)

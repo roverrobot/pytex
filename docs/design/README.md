@@ -10,7 +10,7 @@ Read in this order:
 6. [06-parser-state.md](06-parser-state.md)
 7. [07-parser-kernel.md](07-parser-kernel.md)
 8. [08-assignment-ir.md](08-assignment-ir.md)
-9. [12-list-construction-summary.md](12-list-construction-summary.md)
+9. [09-list-construction.md](09-list-construction.md)
 10. [03-font-backends.md](03-font-backends.md)
 11. [05-special-ir.md](05-special-ir.md)
 12. [13-pdf-backend.md](13-pdf-backend.md)

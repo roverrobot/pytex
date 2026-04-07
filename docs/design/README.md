@@ -19,6 +19,6 @@ Read in this order:
     * [12-shipout-ir.md](11-shipout-ir.md)
     * [13-special-ir.md](13-special-ir.md)
 * Shipout backends:
-    * [13-pdf-backend.md](13-pdf-backend.md)
+    * [14-pdf-backend.md](14-pdf-backend.md)
     * [04-html-output.md](04-html-output.md)
     * [15-reflow-backend.md](15-reflow-backend.md)

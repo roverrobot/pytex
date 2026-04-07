@@ -11,7 +11,7 @@ Read in this order:
 7. [07-parser-kernel.md](07-parser-kernel.md)
 8. [08-assignment-ir.md](08-assignment-ir.md)
 9. [09-list-construction.md](09-list-construction.md)
-10. [03-font-backends.md](03-font-backends.md)
+10. [10-font-backends.md](03-font-backends.md)
 11. [05-special-ir.md](05-special-ir.md)
 12. [13-pdf-backend.md](13-pdf-backend.md)
 13. [04-html-output.md](04-html-output.md)

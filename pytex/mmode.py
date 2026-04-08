@@ -516,6 +516,8 @@ class Atom(nd.Node):
         x.width += mathlayout(parser, "scriptspace")
         if hasattr(x, "to"):
             x.to = x.width
+        if field is not None and getattr(x, "source", None) is None:
+            x.source = field
         return x
 
     def rule18c(self, parser, x, context, style, u):
@@ -635,7 +637,10 @@ class Atom(nd.Node):
         if self._attach_scripts:
             self.typesetScripts(parser, b.list, context, style, delta)
         self._attach_scripts = True
-        return b.typeset(parser)
+        out = b.typeset(parser)
+        if getattr(out, "source", None) is None:
+            out.source = self
+        return out
 
     @staticmethod
     def overbar(parser, b, k, t):
@@ -836,7 +841,10 @@ class Op(Atom):
         else:
             b.list.append(y)
             self.typesetScripts(parser, b.list, context, style, delta)
-        return b.typeset(parser)
+        out = b.typeset(parser)
+        if getattr(out, "source", None) is None:
+            out.source = self
+        return out
 
 
 class MathSymbol(serialization.Serializable):
@@ -885,7 +893,10 @@ class Box(Atom):
     def typesetNucleus(self, parser, packed, context, style):
         # Box atoms carry a prebuilt box nucleus.
         typeset = getattr(self.nucleus, "typeset", None)
-        packed.append(self.nucleus if typeset is None else typeset(parser))
+        out = self.nucleus if typeset is None else typeset(parser)
+        if getattr(out, "source", None) is None:
+            out.source = self
+        packed.append(out)
         return Dimen()
 
 
@@ -1378,7 +1389,10 @@ class Rad(Atom):
         y.shifted = -(x.height + clr)
         out = box.HBox(parser, None, 0)
         out.list[:] = [y, Atom.overbar(parser, x, clr, y.height)]
-        packed.append(out.typeset(parser))
+        out = out.typeset(parser)
+        if getattr(out, "source", None) is None:
+            out.source = self
+        packed.append(out)
         return Dimen()
 
     node_type = nd.NODE_TYPE.MATHNODE
@@ -1606,7 +1620,10 @@ class Over(Atom):
         right_box = right_delim.typeset(parser, total, context, style, axis)
         wrapped = box.HBox(parser, None, 0)
         wrapped.list[:] = [left_box, out, right_box]
-        packed.append(wrapped.typeset(parser))
+        wrapped = wrapped.typeset(parser)
+        if getattr(wrapped, "source", None) is None:
+            wrapped.source = self
+        packed.append(wrapped)
         return Dimen()
 
     node_type = nd.NODE_TYPE.MATHNODE

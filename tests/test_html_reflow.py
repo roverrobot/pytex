@@ -162,6 +162,25 @@ def test_html_reflow_renders_display_math_from_raw_math_nodes(cmr10):
     assert "-" in html
 
 
+def test_html_reflow_ignores_generic_payload_fields_in_mathml(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+
+    class _TokenishPayload:
+        def __init__(self):
+            self.list = ["from-list"]
+            self.raw = [nd.CharNode("x", cmr10.parameters["currentfont"])]
+            self.text = "from-text"
+
+    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_a.nucleus = mmode.MathSymbol(ord("a"), -1)
+    html = html_builder.render(
+        html_builder.element("math", backend._render_mathml_items([_TokenishPayload(), atom_a]))
+    )
+    assert "from-list" not in html
+    assert "from-text" not in html
+    assert ">a<" in html
+
+
 def test_html_reflow_renders_math_from_alignment_cell_raw_nodes(cmr10):
     _init_math_fonts(cmr10)
     cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)

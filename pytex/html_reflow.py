@@ -752,6 +752,8 @@ class HTMLReflowBackend(Shipout):
     def _render_mathml_field(self, field):
         if field is None:
             return None
+        if isinstance(field, str):
+            return element("mtext", field)
         if isinstance(field, mmode.StyleNode):
             return None
         if isinstance(field, mmode.MathSymbol):
@@ -816,14 +818,6 @@ class HTMLReflowBackend(Shipout):
         source = self._find_source_owner(field, (align.HAlignment, align.MAlignment))
         if source is not None:
             return self._render_mathml_field(source)
-        raw = getattr(field, "raw", None)
-        if raw is not None:
-            return self._mathml_text(raw)
-        children = getattr(field, "list", None)
-        if children is not None:
-            return self._mathml_text(children)
-        if isinstance(field, str):
-            return element("mtext", field)
         return None
 
     def _render_mathml_items(self, items):

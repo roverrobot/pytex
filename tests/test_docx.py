@@ -6,6 +6,7 @@ from docx import Document
 import pytest
 
 from pytex import docx
+from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
 from pytex.dimen import Dimen
@@ -97,6 +98,16 @@ def _page_box(parser, items):
 def _docx_bytes(parser, backend):
     backend.close()
     return parser.resolver.in_memory_files["texput.docx"].content
+
+
+def _math_symbol(ch, atom_type=mmode.ATOM_TYPE.ORD, fam=0):
+    return mmode.MathSymbol((atom_type.value << 12) | (fam << 8) | ord(ch), -1)
+
+
+def _display_math_owner(*fields):
+    owner = mmode.DisplayMathNode()
+    owner.list.extend(fields)
+    return owner
 
 
 
@@ -234,3 +245,173 @@ def test_docx_backend_handles_horizontally_shifted_nested_vlists(parser):
 
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
     assert [p.text for p in document.paragraphs] == ["Shifted text"]
+
+
+def test_docx_backend_emits_display_math_textbox(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_a.nucleus = _math_symbol("a")
+    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
+    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
+    atom_b = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_b.nucleus = _math_symbol("b")
+    display = _display_math_owner(atom_a, atom_plus, atom_b)
+
+    box = _FakeHBox([_FakeVBox([nd.Kern(Dimen(1))], width=0, height=0, depth=0)], display, width=40, height=9, depth=3)
+    box.display = True
+    box.shifted = Dimen(15)
+    page = _page_box(
+        parser,
+        [
+            nd.Glue(Glue(Dimen(6)), "\\abovedisplayskip"),
+            box,
+            nd.Glue(Glue(Dimen(8)), "\\belowdisplayskip"),
+        ],
+    )
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "m:oMathPara" in xml
+    assert "mso-fit-text-to-shape:t" in xml
+    assert "v:textbox" in xml
+    assert 'style="width:40.0000pt;height:12.0000pt"' in xml
+    assert 'style="width:15.0000pt;height:1.0000pt"' in xml
+    assert "<m:t>a</m:t>" in xml
+    assert "<m:t>+</m:t>" in xml
+    assert "<m:t>b</m:t>" in xml
+    assert 'w:left="300"' not in xml
+
+
+def test_docx_display_math_does_not_use_token_stringification(parser, monkeypatch):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    def fail(_tokens):
+        raise AssertionError("display-math DOCX export should not stringify token lists")
+
+    monkeypatch.setattr(parser, "expandedToksToString", fail)
+
+    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_a.nucleus = _math_symbol("a")
+    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
+    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
+    atom_b = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_b.nucleus = _math_symbol("b")
+    display = _display_math_owner(atom_a, atom_plus, atom_b)
+
+    box = _FakeHBox([], display, width=40, height=9, depth=3)
+    box.display = True
+    page = _page_box(parser, [box])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "m:oMathPara" in xml
+
+
+def test_docx_display_math_ignores_generic_payload_fields(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    class _TokenishPayload:
+        def __init__(self):
+            self.list = ["from-list"]
+            self.raw = "from-raw"
+            self.text = "from-text"
+
+    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_a.nucleus = _math_symbol("a")
+    display = _display_math_owner(_TokenishPayload(), atom_a)
+
+    box = _FakeHBox([], display, width=40, height=9, depth=3)
+    box.display = True
+    page = _page_box(parser, [box])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "m:oMathPara" in xml
+    assert "<m:t>a</m:t>" in xml
+    assert "from-list" not in xml
+    assert "from-raw" not in xml
+    assert "from-text" not in xml
+
+
+def test_docx_display_math_emits_eqno_as_separate_box(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_a.nucleus = _math_symbol("a")
+    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
+    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
+    atom_b = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_b.nucleus = _math_symbol("b")
+    display = _display_math_owner(atom_a, atom_plus, atom_b)
+    eqno = mmode.Subformula()
+    atom_1 = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_1.nucleus = _math_symbol("1")
+    eqno.list.append(atom_1)
+    display.eqno = (eqno, False)
+
+    formula_box = _FakeHBox([], None, width=40, height=9, depth=3)
+    eqno_box = _FakeHBox([], None, width=15, height=9, depth=3)
+    box = _FakeHBox([formula_box, nd.Kern(Dimen(60)), eqno_box], display, width=115, height=9, depth=3)
+    box.display = True
+    page = _page_box(parser, [box])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert 'style="width:40.0000pt;height:12.0000pt"' in xml
+    assert 'style="width:60.0000pt;height:1.0000pt"' in xml
+    assert 'style="width:15.0000pt;height:12.0000pt"' in xml
+    assert xml.count("<m:oMathPara>") == 2
+    assert "<m:t>1</m:t>" in xml
+
+
+def test_docx_maps_math_operator_period_slot_to_period(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    atom = mmode.Atom(mmode.ATOM_TYPE.PUNCT)
+    atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.PUNCT.value << 12) | (0 << 8) | 0x3A, -1)
+    display = _display_math_owner(atom)
+
+    box = _FakeHBox([], display, width=10, height=9, depth=3)
+    box.display = True
+    page = _page_box(parser, [box])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<m:t>.</m:t>" in xml
+    assert "<m:t>:</m:t>" not in xml
+
+
+def test_docx_maps_math_letter_period_slot_to_period(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | 0x3A, -1)
+    display = _display_math_owner(atom)
+
+    box = _FakeHBox([], display, width=10, height=9, depth=3)
+    box.display = True
+    page = _page_box(parser, [box])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<m:t>.</m:t>" in xml
+    assert "<m:t>:</m:t>" not in xml

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from xml.sax.saxutils import escape
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
-from docx.oxml import OxmlElement
+from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Pt
 
 from pytex import box as bx
+from pytex import html_reflow as html_math
+from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
 from pytex.dimen import Dimen
@@ -20,6 +23,16 @@ from pytex.typeset.shipout import Shipout
 
 _ONE_INCH_PT = 72.0
 _FIT_TEXT_SHORT_LINE_TOLERANCE_PT = 1.0
+_MATH_FAMILY_TEXT_OVERRIDES = {
+    0: {
+        0x3A: ".",
+        0x3B: ",",
+    },
+    1: {
+        0x3A: ".",
+        0x3B: ",",
+    },
+}
 
 
 @dataclass
@@ -59,6 +72,13 @@ class _LineEvent:
     owner: object
     baseline: int
     box: object
+
+
+@dataclass
+class _DisplayMathSpec:
+    owner: object
+    box: object
+    space_before: Dimen = field(default_factory=Dimen)
 
 
 class DocxBackend(Shipout):
@@ -125,6 +145,11 @@ class DocxBackend(Shipout):
             seen.add(key)
             source = getattr(source, "source", None)
         return None
+
+    @staticmethod
+    def _display_math_owner(node):
+        source = getattr(node, "source", None)
+        return source if isinstance(source, mmode.DisplayMathNode) else None
 
     @staticmethod
     def _pt(value):
@@ -433,6 +458,10 @@ class DocxBackend(Shipout):
         treat the current box itself as a line.
         """
         owner = self._paragraph_owner(box)
+        display_owner = self._display_math_owner(box)
+        if display_owner is not None and getattr(box, "display", False):
+            yield ("display", display_owner, box)
+            return
         items = getattr(box, "list", None) or ()
         emitted_descendant = False
         for node in items:
@@ -481,7 +510,7 @@ class DocxBackend(Shipout):
                 v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
                 continue
 
-    def _page_paragraphs(self, page, glyphs):
+    def _page_flow_specs(self, page, glyphs):
         current = None
         pending_gap = Dimen()
         line_map = self._glyphs_by_baseline(glyphs)
@@ -517,6 +546,17 @@ class DocxBackend(Shipout):
                 )
                 pending_gap = Dimen()
                 continue
+            if kind == "display":
+                if current is not None:
+                    yield current
+                    current = None
+                yield _DisplayMathSpec(
+                    owner=event[1],
+                    box=event[2],
+                    space_before=self._nonnegative_dimen(pending_gap),
+                )
+                pending_gap = Dimen()
+                continue
             if kind == "penalty":
                 continue
             if kind in ("glue", "kern"):
@@ -533,6 +573,321 @@ class DocxBackend(Shipout):
                 pending_gap = Dimen()
         if current is not None:
             yield current
+
+    @staticmethod
+    def _xml_space_attr(text):
+        return ' xml:space="preserve"' if text[:1].isspace() or text[-1:].isspace() else ""
+
+    @staticmethod
+    def _printable_char(char):
+        return isinstance(char, str) and len(char) == 1 and char.isprintable() and ord(char) >= 0x20
+
+    def _math_symbol_text(self, symbol):
+        if symbol is None:
+            return None
+        code = ord(symbol.char)
+        override = _MATH_FAMILY_TEXT_OVERRIDES.get(symbol.fam, {}).get(code)
+        if override is not None:
+            return override
+        if symbol.fam == 0:
+            text = html_math._MATH_OPERATORS_MAP.get(code)
+            if text is not None:
+                return text
+        elif symbol.fam == 1:
+            text = html_math._MATH_LETTERS_MAP.get(code)
+            if text is not None:
+                return text
+        elif symbol.fam == 2:
+            text = html_math._MATH_SYMBOLS_MAP.get(code)
+            if text is not None:
+                return text
+        elif symbol.fam == 3:
+            text = html_math._MATH_LARGE_SYMBOLS_MAP.get(code)
+            if text is not None:
+                return text
+        if self._printable_char(symbol.char):
+            return symbol.char
+        return None
+
+    def _math_run_xml(self, text):
+        if not text:
+            return ""
+        return f"<m:r><m:t{self._xml_space_attr(text)}>{escape(text)}</m:t></m:r>"
+
+    def _flatten_math_text(self, field):
+        if field is None:
+            return ""
+        if isinstance(field, str):
+            return field
+        if isinstance(field, mmode.MathSymbol):
+            return self._math_symbol_text(field) or ""
+        if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
+            return "".join(self._flatten_math_text(item) for item in getattr(field, "list", ()))
+        if isinstance(field, mmode.Over):
+            num, den, _bar, _thickness = field.nucleus
+            return (
+                self._flatten_math_text(num)
+                + "/"
+                + self._flatten_math_text(den)
+            )
+        if isinstance(field, mmode.Rad):
+            return self._flatten_math_text(field.oprand)
+        if isinstance(field, mmode.Accent):
+            return self._flatten_math_text(field.base)
+        if isinstance(field, mmode.Atom):
+            boundary = field._boundaryInfo() if hasattr(field, "_boundaryInfo") else None
+            if boundary is not None:
+                left_delim, right_delim, body_items = boundary
+                return (
+                    self._delimiter_text(left_delim)
+                    + "".join(self._flatten_math_text(item) for item in body_items)
+                    + self._delimiter_text(right_delim)
+                )
+            return self._flatten_math_text(getattr(field, "nucleus", None))
+        if isinstance(field, mmode.Box):
+            return self._flatten_box_text(getattr(field, "nucleus", None))
+        return ""
+
+    def _omml_group_xml(self, fields):
+        return "".join(self._omml_field_xml(field) for field in fields if field is not None)
+
+    def _omml_script_xml(self, atom, base_xml):
+        sub = getattr(atom, "sub", None)
+        sup = getattr(atom, "sup", None)
+        if sub is None and sup is None:
+            return base_xml
+        base = base_xml or self._math_run_xml("")
+        if sub is not None and sup is not None:
+            return (
+                "<m:sSubSup>"
+                f"<m:e>{base}</m:e>"
+                f"<m:sub>{self._omml_field_xml(sub)}</m:sub>"
+                f"<m:sup>{self._omml_field_xml(sup)}</m:sup>"
+                "</m:sSubSup>"
+            )
+        if sub is not None:
+            return (
+                "<m:sSub>"
+                f"<m:e>{base}</m:e>"
+                f"<m:sub>{self._omml_field_xml(sub)}</m:sub>"
+                "</m:sSub>"
+            )
+        return (
+            "<m:sSup>"
+            f"<m:e>{base}</m:e>"
+            f"<m:sup>{self._omml_field_xml(sup)}</m:sup>"
+            "</m:sSup>"
+        )
+
+    def _delimiter_text(self, delim):
+        if delim is None:
+            return ""
+        symbol = getattr(delim, "small", None) or getattr(delim, "large", None)
+        if symbol is None:
+            return ""
+        text = self._math_symbol_text(symbol)
+        return "" if text is None else text
+
+    def _omml_atom_xml(self, atom):
+        boundary = atom._boundaryInfo() if hasattr(atom, "_boundaryInfo") else None
+        if boundary is not None:
+            left_delim, right_delim, body_items = boundary
+            base_xml = (
+                self._math_run_xml(self._delimiter_text(left_delim))
+                + self._omml_group_xml(body_items)
+                + self._math_run_xml(self._delimiter_text(right_delim))
+            )
+        else:
+            base_xml = self._omml_field_xml(getattr(atom, "nucleus", None))
+        if getattr(atom, "left", None) is not None:
+            base_xml = self._math_run_xml(self._delimiter_text(atom.left)) + base_xml
+        if getattr(atom, "right", None) is not None:
+            base_xml += self._math_run_xml(self._delimiter_text(atom.right))
+        return self._omml_script_xml(atom, base_xml)
+
+    def _omml_field_xml(self, field):
+        if field is None or isinstance(field, mmode.StyleNode):
+            return ""
+        if isinstance(field, str):
+            return self._math_run_xml(field)
+        node_type = getattr(field, "node_type", None)
+        if node_type in (
+            nd.NODE_TYPE.WHATSIT,
+            nd.NODE_TYPE.GLUE,
+            nd.NODE_TYPE.KERN,
+            nd.NODE_TYPE.PENALTY,
+        ):
+            return ""
+        if isinstance(field, mmode.MathSymbol):
+            return self._math_run_xml(self._math_symbol_text(field))
+        if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
+            return self._omml_group_xml(getattr(field, "list", ()))
+        if isinstance(field, mmode.Over):
+            num, den, _bar, _thickness = field.nucleus
+            frac_xml = (
+                "<m:f>"
+                f"<m:num>{self._omml_group_xml(getattr(num, 'list', ()))}</m:num>"
+                f"<m:den>{self._omml_group_xml(getattr(den, 'list', ()))}</m:den>"
+                "</m:f>"
+            )
+            if getattr(field, "delims", None) is not None:
+                left_delim, right_delim = field.delims
+                frac_xml = (
+                    self._math_run_xml(self._delimiter_text(left_delim))
+                    + frac_xml
+                    + self._math_run_xml(self._delimiter_text(right_delim))
+                )
+            return self._omml_script_xml(field, frac_xml)
+        if isinstance(field, mmode.Rad):
+            base_xml = (
+                "<m:rad>"
+                "<m:radPr><m:degHide m:val=\"1\"/></m:radPr>"
+                f"<m:e>{self._omml_field_xml(field.oprand)}</m:e>"
+                "</m:rad>"
+            )
+            return self._omml_script_xml(field, base_xml)
+        if isinstance(field, mmode.Accent):
+            accent = getattr(field, "accent", None)
+            base_xml = self._omml_field_xml(field.base)
+            if not base_xml:
+                return ""
+            if accent is not None:
+                accent_char = escape(accent.char, {'"': "&quot;"})
+                base_xml = (
+                    "<m:acc>"
+                    f"<m:accPr><m:chr m:val=\"{accent_char}\"/></m:accPr>"
+                    f"<m:e>{base_xml}</m:e>"
+                    "</m:acc>"
+                )
+            return self._omml_script_xml(field, base_xml)
+        if isinstance(field, mmode.Atom):
+            return self._omml_atom_xml(field)
+        if isinstance(field, mmode.Box):
+            return self._math_run_xml(self._flatten_box_text(getattr(field, "nucleus", None)))
+        return ""
+
+    def _flatten_box_text(self, box):
+        if box is None:
+            return ""
+        parts = []
+        for node in getattr(box, "list", ()) or ():
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                parts.append(self._glyph_text(node))
+                continue
+            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                parts.append(self._flatten_box_text(node))
+        return "".join(parts)
+
+    def _display_math_content_xml(self, fields, box):
+        inner = self._omml_group_xml(fields)
+        if inner:
+            body = f"<w:p><m:oMathPara><m:oMath>{inner}</m:oMath></m:oMathPara></w:p>"
+            return f"<w:txbxContent>{body}</w:txbxContent>"
+        text = self._flatten_box_text(box)
+        if not text:
+            return "<w:txbxContent><w:p/></w:txbxContent>"
+        body = (
+            "<w:p><w:r><w:rPr><w:noProof/></w:rPr>"
+            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+            "</w:r></w:p>"
+        )
+        return f"<w:txbxContent>{body}</w:txbxContent>"
+
+    def _display_math_run_xml(self, fields, box):
+        width = max(self._pt(getattr(box, "width", 0)), 1.0)
+        height = max(self._pt(getattr(box, "height", 0) + getattr(box, "depth", 0)), 1.0)
+        content = self._display_math_content_xml(fields, box)
+        return parse_xml(
+            (
+                "<w:r "
+                "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
+                "xmlns:v=\"urn:schemas-microsoft-com:vml\" "
+                "xmlns:o=\"urn:schemas-microsoft-com:office:office\" "
+                "xmlns:w10=\"urn:schemas-microsoft-com:office:word\" "
+                "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
+                "<w:rPr><w:noProof/></w:rPr>"
+                "<w:pict>"
+                f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:{height:.4f}pt\">"
+                f"<v:textbox inset=\"0,0,0,0\" style=\"mso-fit-text-to-shape:t\">{content}</v:textbox>"
+                "<w10:wrap type=\"none\"/>"
+                "</v:rect>"
+                "</w:pict>"
+                "</w:r>"
+            )
+        )
+
+    def _display_spacer_run_xml(self, width):
+        width = max(self._pt(width), 0.0)
+        if width <= 0:
+            return None
+        return parse_xml(
+            (
+                "<w:r "
+                "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
+                "xmlns:v=\"urn:schemas-microsoft-com:vml\" "
+                "xmlns:o=\"urn:schemas-microsoft-com:office:office\" "
+                "xmlns:w10=\"urn:schemas-microsoft-com:office:word\">"
+                "<w:rPr><w:noProof/></w:rPr>"
+                "<w:pict>"
+                f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:1.0000pt\">"
+                "<v:textbox inset=\"0,0,0,0\" style=\"mso-fit-text-to-shape:t\"><w:txbxContent><w:p/></w:txbxContent></v:textbox>"
+                "<w10:wrap type=\"none\"/>"
+                "</v:rect>"
+                "</w:pict>"
+                "</w:r>"
+            )
+        )
+
+    @staticmethod
+    def _display_item_width(node):
+        node_type = getattr(node, "node_type", None)
+        if node_type == nd.NODE_TYPE.KERN:
+            return Dimen(getattr(node, "kern", 0))
+        if node_type == nd.NODE_TYPE.GLUE:
+            return Dimen(getattr(getattr(node, "glue", None), "dimen", 0))
+        width = getattr(node, "width", None)
+        if width is not None:
+            return Dimen(width)
+        return Dimen()
+
+    def _display_math_segments(self, spec):
+        segments = []
+        shifted = self._nonnegative_dimen(getattr(spec.box, "shifted", Dimen()))
+        if shifted != 0:
+            segments.append(("spacer", shifted, None, None))
+        items = list(getattr(spec.box, "list", ()) or ())
+        box_items = [
+            (index, item)
+            for index, item in enumerate(items)
+            if getattr(item, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+        ]
+        if not box_items:
+            segments.append(("math", Dimen(getattr(spec.box, "width", 0)), getattr(spec.owner, "list", ()), spec.box))
+            return segments
+        if getattr(spec.owner, "eqno", None) is None or len(box_items) < 2:
+            formula_box = box_items[0][1]
+            if self._display_item_width(formula_box) <= 0:
+                formula_box = spec.box
+            segments.append(("math", Dimen(getattr(formula_box, "width", 0)), getattr(spec.owner, "list", ()), formula_box))
+            return segments
+        eqno_holder, left = spec.owner.eqno
+        first_index, first_box = box_items[0]
+        last_index, last_box = box_items[-1]
+        gap = Dimen()
+        for item in items[first_index + 1:last_index]:
+            gap += self._display_item_width(item)
+        if left:
+            segments.append(("eqno", Dimen(getattr(first_box, "width", 0)), getattr(eqno_holder, "list", ()), first_box))
+            if gap != 0:
+                segments.append(("spacer", gap, None, None))
+            segments.append(("math", Dimen(getattr(last_box, "width", 0)), getattr(spec.owner, "list", ()), last_box))
+            return segments
+        segments.append(("math", Dimen(getattr(first_box, "width", 0)), getattr(spec.owner, "list", ()), first_box))
+        if gap != 0:
+            segments.append(("spacer", gap, None, None))
+        segments.append(("eqno", Dimen(getattr(last_box, "width", 0)), getattr(eqno_holder, "list", ()), last_box))
+        return segments
 
     def _runs_from_line_box(self, box):
         if not self._can_use_box_runs(box):
@@ -669,6 +1024,21 @@ class DocxBackend(Shipout):
                 self._apply_run_fit_text(run, line_spec.fit_text_twips, fit_text_id)
         return para
 
+    def _emit_display_math(self, document, spec):
+        para = document.add_paragraph()
+        fmt = para.paragraph_format
+        fmt.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        fmt.space_before = self._length(self._nonnegative_dimen(spec.space_before))
+        fmt.space_after = Pt(0)
+        for kind, width, fields, box in self._display_math_segments(spec):
+            if kind == "spacer":
+                run_xml = self._display_spacer_run_xml(width)
+            else:
+                run_xml = self._display_math_run_xml(fields, box)
+            if run_xml is not None:
+                para._p.append(run_xml)
+        return para
+
     def _build_document(self):
         document = Document()
         if not self.pages:
@@ -677,15 +1047,18 @@ class DocxBackend(Shipout):
             raise NotImplementedError("DOCX proof-of-concept backend only supports a single shipped page")
         page = self.pages[0]
         glyphs = self._captured_pages[0] if self._captured_pages else []
-        if not glyphs and any(getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST for node in getattr(page, "list", ())):
+        flow_specs = list(self._page_flow_specs(page, glyphs))
+        if not glyphs and not flow_specs and any(getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST for node in getattr(page, "list", ())):
             raise ValueError(
                 "DOCX backend captured no text glyphs from the shipped page; "
                 "the document may have been typeset with nullfont or contain only unsupported content"
             )
         self._configure_section(document, page)
-        for spec in self._page_paragraphs(page, glyphs):
-            if spec.lines:
+        for spec in flow_specs:
+            if isinstance(spec, _ParagraphSpec) and spec.lines:
                 self._emit_paragraph(document, spec)
+            elif isinstance(spec, _DisplayMathSpec):
+                self._emit_display_math(document, spec)
         return document
 
     def close(self):

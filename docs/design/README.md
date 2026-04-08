@@ -22,3 +22,4 @@ Read in this order:
     * [14-pdf-backend.md](14-pdf-backend.md)
     * [15-html-reflow-backend.md](15-html-reflow-backend.md)
     * [16-html-faithful-backend-proposal.md](16-html-faithful-backend-proposal.md)
+    * [17-docx-faithful-backend-proposal.md](17-docx-faithful-backend-proposal.md)

@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 
 from docx import Document
-from docx.enum.text import WD_LINE_SPACING
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
@@ -19,7 +19,6 @@ from pytex.module import Module
 from pytex.typeset.shipout import Shipout
 
 _ONE_INCH_PT = 72.0
-_FIT_TEXT_FUDGE_PT = 0.5
 _FIT_TEXT_SHORT_LINE_TOLERANCE_PT = 1.0
 
 
@@ -365,14 +364,13 @@ class DocxBackend(Shipout):
     def _spacing_twips(cls, delta):
         if not delta:
             return 0
-        pt = cls._pt(Dimen(integer=int(delta)))
-        return int(round(pt * 20))
+        value = int(delta) if isinstance(delta, Dimen) else int(Dimen(delta))
+        return Dimen._trunc_div(value * 20, Dimen.scale)
 
     @classmethod
     def _fit_text_twips(cls, width):
-        base = cls._pt(width)
-        twips = int(round((base + _FIT_TEXT_FUDGE_PT) * 20))
-        return max(0, twips)
+        value = int(width) if isinstance(width, Dimen) else int(Dimen(width))
+        return max(0, Dimen._trunc_div(value * 20, Dimen.scale))
 
     @classmethod
     def _fit_text_for_line(cls, box, first_line_indent=Dimen(), is_first_line=False):
@@ -566,7 +564,7 @@ class DocxBackend(Shipout):
             if node_type == nd.NODE_TYPE.KERN:
                 if not self._kern_is_text_kern(items, index):
                     continue
-                self._apply_text_kern(runs, int(node.kern))
+                self._apply_text_kern(runs, node.kern)
                 continue
             if node_type == nd.NODE_TYPE.DISC:
                 runs.extend(self._runs_from_box(node))
@@ -641,6 +639,7 @@ class DocxBackend(Shipout):
     def _emit_paragraph(self, document, spec):
         para = document.add_paragraph()
         fmt = para.paragraph_format
+        fmt.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         fmt.space_before = self._length(self._nonnegative_dimen(spec.space_before))
         fmt.space_after = Pt(0)
         fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY

@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 
 from docx import Document
 from docx.enum.text import WD_BREAK, WD_LINE_SPACING
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Pt
 
 from pytex import box as bx
@@ -23,6 +25,7 @@ _ONE_INCH_PT = 72.0
 class _TextRun:
     text: str
     font: object | None
+    spacing_twips: int = 0
 
 
 @dataclass
@@ -47,6 +50,7 @@ class _ParagraphSpec:
 class _LineEvent:
     owner: object
     baseline: int
+    box: object
 
 
 class DocxBackend(Shipout):
@@ -243,6 +247,19 @@ class DocxBackend(Shipout):
         at = getattr(font, "at", None)
         if at is not None:
             run.font.size = self._length(at)
+            self._apply_run_kerning(run, at)
+
+    @classmethod
+    def _apply_run_kerning(cls, run, size):
+        half_points = int(round(cls._pt(size) * 2))
+        if half_points <= 0:
+            return
+        rPr = run._r.get_or_add_rPr()
+        kern = rPr.find(qn("w:kern"))
+        if kern is None:
+            kern = OxmlElement("w:kern")
+            rPr.append(kern)
+        kern.set(qn("w:val"), str(half_points))
 
     @staticmethod
     def _space_width(font):
@@ -271,8 +288,16 @@ class DocxBackend(Shipout):
                 space_width = self._space_width(prev_font or glyph.font)
                 threshold = max(1, int(round(space_width * 0.4))) if space_width > 0 else 1
                 if gap > threshold:
-                    count = 1 if space_width <= 0 else max(1, int(round(gap / max(space_width, 1))))
-                    runs.append(_TextRun(" " * count, None))
+                    count = 1
+                    nominal_width = max(space_width, 0)
+                    delta = gap - nominal_width
+                    runs.append(
+                        _TextRun(
+                            " " * count,
+                            prev_font or glyph.font,
+                            spacing_twips=self._spacing_twips(delta),
+                        )
+                    )
             runs.append(_TextRun(glyph.text, glyph.font))
             prev_end = glyph.x + glyph.width
             prev_font = glyph.font
@@ -280,23 +305,46 @@ class DocxBackend(Shipout):
 
     def _normalize_runs(self, runs):
         merged = []
-        pending_space = ""
         for run in runs:
             text = run.text
             if not text:
                 continue
-            if text.isspace():
-                if merged:
-                    pending_space += text
+            if text.isspace() and merged and merged[-1].text.isspace():
+                prev = merged[-1]
+                prev.spacing_twips = self._collapsed_space_spacing(prev, run)
+                prev.text = " "
                 continue
-            if pending_space:
-                text = pending_space + text
-                pending_space = ""
-            if merged and merged[-1].font is run.font:
+            if merged and merged[-1].font is run.font and merged[-1].spacing_twips == run.spacing_twips:
                 merged[-1].text += text
             else:
-                merged.append(_TextRun(text, run.font))
+                merged.append(_TextRun(text, run.font, run.spacing_twips))
         return merged
+
+    @classmethod
+    def _spacing_twips(cls, delta):
+        if not delta:
+            return 0
+        pt = cls._pt(Dimen(integer=int(delta)))
+        return int(round(pt * 20))
+
+    @staticmethod
+    def _apply_run_spacing(run, spacing_twips):
+        if spacing_twips == 0:
+            return
+        rPr = run._r.get_or_add_rPr()
+        spacing = rPr.find(qn("w:spacing"))
+        if spacing is None:
+            spacing = OxmlElement("w:spacing")
+            rPr.append(spacing)
+        spacing.set(qn("w:val"), str(int(spacing_twips)))
+
+    def _collapsed_space_spacing(self, left, right):
+        font = left.font or right.font
+        nominal = self._space_width(font)
+        total_spaces = len(left.text) + len(right.text)
+        removed_spaces = max(0, total_spaces - 1)
+        removed_twips = self._spacing_twips(removed_spaces * nominal)
+        return left.spacing_twips + right.spacing_twips + removed_twips
 
     def _glyphs_by_baseline(self, glyphs):
         lines = {}
@@ -340,7 +388,7 @@ class DocxBackend(Shipout):
                     emitted_descendant = True
                     yield event
         if not emitted_descendant and owner is not None:
-            yield ("line", _LineEvent(owner=owner, baseline=int(baseline)))
+            yield ("line", _LineEvent(owner=owner, baseline=int(baseline), box=box))
 
     def _walk_vlist(self, box, v=0):
         items = getattr(box, "list", None) or ()
@@ -380,7 +428,9 @@ class DocxBackend(Shipout):
             kind = event[0]
             if kind == "line":
                 line = event[1]
-                line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
+                line_runs = self._runs_from_line_box(line.box)
+                if not line_runs:
+                    line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
                 if not line_runs:
                     continue
                 if current is None or line.owner is not current.owner:
@@ -413,6 +463,80 @@ class DocxBackend(Shipout):
         if current is not None:
             yield current
 
+    def _runs_from_line_box(self, box):
+        if not self._can_use_box_runs(box):
+            return []
+        return self._normalize_runs(self._runs_from_box(box))
+
+    def _runs_from_box(self, box):
+        items = getattr(box, "list", None) or ()
+        glue_state = self._glue_state(box)
+        runs = []
+        for index, node in enumerate(items):
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                text = self._glyph_text(node)
+                if text:
+                    runs.append(_TextRun(text, getattr(node, "font", None)))
+                continue
+            if node_type == nd.NODE_TYPE.GLUE:
+                if not self._glue_is_text_space(items, index):
+                    continue
+                amount = self._effective_glue_amount(node, box, glue_state)
+                if amount <= 0:
+                    continue
+                font = self._space_font(runs, items, index)
+                nominal_width = self._space_width(font)
+                delta = amount - nominal_width
+                runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
+                continue
+            if node_type == nd.NODE_TYPE.DISC:
+                runs.extend(self._runs_from_box(node))
+                continue
+        return runs
+
+    @staticmethod
+    def _can_use_box_runs(box):
+        items = getattr(box, "list", None) or ()
+        for node in items:
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.MATH):
+                return False
+        return True
+
+    def _glue_is_text_space(self, items, index):
+        return self._has_text_before(items, index) and self._has_text_after(items, index)
+
+    @staticmethod
+    def _has_text_before(items, index):
+        for node in reversed(items[:index]):
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                return True
+            if node_type == nd.NODE_TYPE.DISC:
+                return True
+        return False
+
+    @staticmethod
+    def _has_text_after(items, index):
+        for node in items[index + 1:]:
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                return True
+            if node_type == nd.NODE_TYPE.DISC:
+                return True
+        return False
+
+    def _space_font(self, runs, items, index):
+        for run in reversed(runs):
+            if run.font is not None and not run.text.isspace():
+                return run.font
+        for node in items[index + 1:]:
+            font = getattr(node, "font", None)
+            if font is not None:
+                return font
+        return None
+
     def _emit_paragraph(self, document, spec):
         para = document.add_paragraph()
         fmt = para.paragraph_format
@@ -434,6 +558,7 @@ class DocxBackend(Shipout):
             for chunk in line_runs:
                 run = para.add_run(chunk.text)
                 self._apply_run_font(run, chunk.font)
+                self._apply_run_spacing(run, chunk.spacing_twips)
         return para
 
     def _build_document(self):

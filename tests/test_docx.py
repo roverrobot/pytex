@@ -153,7 +153,35 @@ def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     assert 'w:lineRule="exact"' in xml
     assert 'w:line="240"' in xml
     assert 'w:after="0"' in xml
-    assert 'Alpha beta' in xml and 'Gamma delta' in xml
+    assert "<w:spacing" in xml
+    document = Document(io.BytesIO(data))
+    assert [p.text for p in document.paragraphs] == ["Alpha beta\nGamma delta"]
+
+
+def test_docx_backend_lets_word_handle_text_kerning(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+    line = _FakeHBox(
+        [
+            nd.CharNode("A", font),
+            nd.Kern(Dimen(-1), automatic=True),
+            nd.CharNode("V", font),
+        ],
+        para,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert 'w:kern w:val="20"' in xml
+    assert 'w:spacing w:val="-20"' not in xml
+    document = Document(io.BytesIO(data))
+    assert [p.text for p in document.paragraphs] == ["AV"]
 
 
 def test_docx_backend_handles_horizontally_shifted_nested_vlists(parser):

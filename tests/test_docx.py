@@ -79,6 +79,7 @@ class _FakeMathBackend(_FakeBackend):
         return True
 
 
+
 class _FakeFont(txfont.Font):
     def __init__(self, name="Fake Roman", size=10):
         super().__init__(_FakeBackend(name), Dimen(size))
@@ -278,7 +279,8 @@ def test_docx_fit_text_spaces_use_nbsp(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'xml:space="preserve"> ' in xml
+    assert 'xml:space="preserve">\u00a0</w:t>' in xml
+    assert 'w:spacing w:val="140"' in xml
 
 
 def test_docx_nested_hbox_uses_inline_textbox(parser):
@@ -313,7 +315,7 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<w:fitText" not in xml
+    assert "<w:fitText" in xml
     assert 'style="width:40.0000pt;height:9.7500pt"' in xml
     assert re.search(r"<w:rPr><w:noProof/><w:position w:val=\"-\d+\"/></w:rPr><w:pict>", xml)
     assert '<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="180"/>' in xml
@@ -369,13 +371,15 @@ def test_docx_inline_math_uses_inline_textbox(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<w:fitText" not in xml
+    assert "<w:fitText" in xml
     assert 'style="width:22.0000pt;height:7.7500pt"' in xml
     assert "<m:oMath>" in xml
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
     assert "<m:t>y</m:t>" in xml
     assert xml.count('w:spacing w:val="-40"') >= 2
+    fit_ids = set(re.findall(r"<w:fitText w:id=\"(\d+)\" w:val=\"\d+\"/>", xml))
+    assert len(fit_ids) == 2
 
 
 def test_docx_inline_math_preserves_tex_spacing_inside_omml(parser):

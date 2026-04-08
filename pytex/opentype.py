@@ -308,6 +308,31 @@ class OpenTypeBackend(FontBackend):
         self._x_height = self._scaled(getattr(self.font["hhea"], "ascent", 0)) / 2
         return self._x_height
 
+    @staticmethod
+    def _mathRecordValue(value):
+        if value is None:
+            return None
+        return getattr(value, "Value", value)
+
+    def hasMathTable(self):
+        return self.font.get("MATH") is not None
+
+    def mathConstants(self):
+        table = self.font.get("MATH")
+        if table is None:
+            return None
+        return getattr(getattr(table, "table", None), "MathConstants", None)
+
+    def mathConstant(self, name: str, default: float = 0.0, *, scale: bool = True):
+        constants = self.mathConstants()
+        if constants is None:
+            return default
+        value = self._mathRecordValue(getattr(constants, name, None))
+        if value is None:
+            return default
+        value = float(value)
+        return self._scaled(value) if scale else value
+
     @property
     def fontdimen(self):
         if self._fontdimen is not None:

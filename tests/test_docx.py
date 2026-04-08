@@ -1,16 +1,17 @@
 import io
 import re
 import zipfile
-from types import SimpleNamespace
 
 from docx import Document
 import pytest
 
 from pytex import docx
+from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
 from pytex.dimen import Dimen
+from pytex.font_backend import GlyphInfo
 from pytex.glue import Glue
 from pytex.parser import Parser
 from pytex.token import CATCODE
@@ -41,15 +42,45 @@ def parser(tmp_path, monkeypatch):
 class _FakeBackend:
     def __init__(self, name="Fake Roman"):
         self.name = name
-
-
-class _FakeFont:
-    def __init__(self, name="Fake Roman", size=10):
-        self.backend = _FakeBackend(name)
-        self.at = Dimen(size)
+        self.kind = "fake"
+        self.fontdimen = [0.0, 0.5, 0.0, 0.0, 0.7, 1.0, 0.0]
 
     def glyphInfo(self, char):
-        return SimpleNamespace(char=char, width=0.5, height=0.7, depth=0.2, italic=0)
+        return GlyphInfo(char=char, width=0.5, height=0.7, depth=0.2, italic=0)
+
+    def fallbackGlyphInfo(self, char):
+        return self.glyphInfo(char)
+
+    def hasChar(self, char):
+        return True
+
+
+class _FakeMathBackend(_FakeBackend):
+    kind = "opentype"
+
+    def __init__(self, name="Fake Math OTF"):
+        super().__init__(name)
+
+    def docxMathFontdimen(self, family):
+        if family == 2:
+            return [0.0] * 22
+        if family == 3:
+            return [0.0] * 13
+        return [0.0] * 7
+
+    def glyphInfo(self, char):
+        return GlyphInfo(char=char, width=0.5, height=0.7, depth=0.2, italic=0)
+
+    def fallbackGlyphInfo(self, char):
+        return self.glyphInfo(char)
+
+    def hasChar(self, char):
+        return True
+
+
+class _FakeFont(txfont.Font):
+    def __init__(self, name="Fake Roman", size=10):
+        super().__init__(_FakeBackend(name), Dimen(size))
 
 
 
@@ -113,6 +144,44 @@ def _display_math_owner(*fields):
     owner = mmode.DisplayMathNode()
     owner.list.extend(fields)
     return owner
+
+
+def _inline_math_owner(*fields):
+    owner = mmode.InlineMathNode(nodes=list(fields))
+    return owner
+
+
+def test_docx_module_installs_math_font_array_wrappers(parser):
+    assert isinstance(parser.textfont, docx._DocxMathFontArray)
+    assert isinstance(parser.scriptfont, docx._DocxMathFontArray)
+    assert isinstance(parser.scriptscriptfont, docx._DocxMathFontArray)
+    assert parser.builtin["\\textfont"].domain is parser.textfont
+    assert parser.builtin["\\scriptfont"].domain is parser.scriptfont
+    assert parser.builtin["\\scriptscriptfont"].domain is parser.scriptscriptfont
+
+
+def test_docx_math_font_wrapper_translates_tex_slot_to_unicode_char(parser, monkeypatch):
+    monkeypatch.setattr(docx, "_resolve_parser_docx_math_backend", lambda _parser: _FakeMathBackend())
+    original = _FakeFont(name="cmsy10", size=10)
+    original.fontchar["skewchar"] = 60
+    parser.textfont[2] = original
+
+    wrapped = parser.textfont[2]
+    assert isinstance(wrapped, docx._DocxMathFont)
+    assert len(wrapped.param) == 22
+    assert wrapped.fontchar["skewchar"] == 60
+
+    node = wrapped[chr(0x73)]
+    assert node.char == "∫"
+    assert node.char_info.char == "∫"
+
+
+def test_docx_extension_math_font_wrapper_uses_extension_params(parser, monkeypatch):
+    monkeypatch.setattr(docx, "_resolve_parser_docx_math_backend", lambda _parser: _FakeMathBackend())
+    parser.textfont[3] = _FakeFont(name="cmex10", size=10)
+    wrapped = parser.textfont[3]
+    assert isinstance(wrapped, docx._DocxMathFont)
+    assert len(wrapped.param) == 13
 
 
 
@@ -249,6 +318,254 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     assert '<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="180"/>' in xml
     assert re.search(r"<v:textbox[^>]*>.*?<w:t>1</w:t>.*?</v:textbox>", xml, re.S)
     assert "<w:t>Figure</w:t>" in xml
+
+
+def test_docx_inline_math_uses_inline_textbox(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+    parser.layout["mathsurround"] = Dimen(3)
+
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
+    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
+    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_y.nucleus = _math_symbol("y")
+    inline = _inline_math_owner(atom_x, atom_plus, atom_y)
+
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen(3)
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen(3)
+
+    math_x = _FakeHBox([], atom_x, width=8, height=6, depth=1)
+    math_plus = _FakeHBox([], atom_plus, width=6, height=6, depth=1)
+    math_y = _FakeHBox([], atom_y, width=8, height=6, depth=1)
+    line = _FakeHBox(
+        [
+            nd.CharNode("A", font),
+            on,
+            math_x,
+            math_plus,
+            math_y,
+            off,
+            nd.CharNode("B", font),
+        ],
+        para,
+        width=80,
+        height=7,
+        depth=2,
+        rightmost_value=40,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<w:fitText" not in xml
+    assert 'style="width:22.0000pt;height:7.7500pt"' in xml
+    assert "<m:oMath>" in xml
+    assert "<m:t>x</m:t>" in xml
+    assert "<m:t>+</m:t>" in xml
+    assert "<m:t>y</m:t>" in xml
+    assert xml.count('w:spacing w:val="-40"') >= 2
+
+
+def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
+    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
+    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_y.nucleus = _math_symbol("y")
+    inline = _inline_math_owner(atom_x, atom_plus, atom_y)
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen(0)
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen(0)
+
+    line = _FakeHBox(
+        [
+            nd.CharNode("A", font),
+            on,
+            nd.CharNode("x", font),
+            nd.CharNode("+", font),
+            nd.CharNode("y", font),
+            off,
+            nd.CharNode("B", font),
+        ],
+        para,
+        width=80,
+        height=7,
+        depth=2,
+        rightmost_value=40,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<m:oMath>" in xml
+    assert "<m:t>x</m:t>" in xml
+    assert "<m:t>+</m:t>" in xml
+    assert "<m:t>y</m:t>" in xml
+
+
+def test_docx_inline_math_keeps_line_fragments_separate(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    parser.layout["mathsurround"] = Dimen(3)
+
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
+    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
+    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_y.nucleus = _math_symbol("y")
+    inline = _inline_math_owner(atom_x, atom_plus, atom_y)
+
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen(3)
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen(3)
+
+    line1 = _FakeHBox(
+        [on, _FakeHBox([], atom_x, width=8, height=6, depth=1), _FakeHBox([], atom_plus, width=6, height=6, depth=1)],
+        para,
+        width=60,
+        height=7,
+        depth=2,
+        rightmost_value=20,
+    )
+    line2 = _FakeHBox(
+        [_FakeHBox([], atom_y, width=8, height=6, depth=1), off],
+        para,
+        width=60,
+        height=7,
+        depth=2,
+        rightmost_value=10,
+    )
+    page = _page_box(parser, [line1, nd.Glue(Glue(Dimen(12)), "\\baselineskip"), line2])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert 'style="width:14.0000pt;height:7.7500pt"' in xml
+    assert 'style="width:8.0000pt;height:7.7500pt"' in xml
+    assert xml.count("<m:oMath>") == 2
+    assert "<m:t>x</m:t>" in xml
+    assert "<m:t>+</m:t>" in xml
+    assert "<m:t>y</m:t>" in xml
+    assert xml.count('xml:space="preserve"> </w:t>') >= 2
+
+
+def test_docx_inline_math_ignores_penalty_owned_atom_duplicates(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+
+    atom_eq = mmode.Atom(mmode.ATOM_TYPE.REL)
+    atom_eq.nucleus = _math_symbol("=", mmode.ATOM_TYPE.REL)
+    inline = _inline_math_owner(atom_eq)
+
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen(0)
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen(0)
+
+    penalty = nd.Penalty(0)
+    penalty.source = atom_eq
+    line = _FakeHBox(
+        [
+            nd.CharNode("A", font),
+            on,
+            nd.CharNode("=", font),
+            penalty,
+            off,
+            nd.CharNode("B", font),
+        ],
+        para,
+        width=60,
+        height=7,
+        depth=2,
+        rightmost_value=20,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert xml.count("<m:t>=</m:t>") == 1
+
+
+def test_docx_sets_default_math_font_in_settings(parser, monkeypatch):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    monkeypatch.setattr(backend, "_resolve_docx_math_font", lambda: "STIX Two Math")
+
+    para = pg.Paragraph(parser, indent=False)
+    line = _line_box(parser, "Hello", para)
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/settings.xml").decode("utf-8")
+    assert '<m:mathFont m:val="STIX Two Math"/>' in xml
+
+
+def test_docx_math_operator_text_uses_normal_style(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    atom = mmode.Op()
+    body = mmode.Subformula()
+    body.list.extend([_math_symbol("s"), _math_symbol("i"), _math_symbol("n")])
+    atom.nucleus = body
+    inline = _inline_math_owner(atom)
+
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen(0)
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen(0)
+    math_box = _FakeHBox([], atom, width=10, height=6, depth=1)
+    line = _FakeHBox([on, math_box, off], pg.Paragraph(parser, indent=False), width=30, height=7, depth=2, rightmost_value=10)
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<m:nor/>" in xml
+    assert "<m:t>s</m:t>" in xml
+    assert "<m:t>i</m:t>" in xml
+    assert "<m:t>n</m:t>" in xml
 
 
 def test_docx_backend_emits_text_kerns_as_spacing_hints(parser):

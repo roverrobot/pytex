@@ -13,17 +13,26 @@ from docx.oxml.ns import qn
 from docx.shared import Pt
 
 from pytex import box as bx
+from pytex import font as txfont
 from pytex import html_reflow as html_math
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
 from pytex.dimen import Dimen
+from pytex.font_backend import GlyphInfo
 from pytex.module import Module
 from pytex.typeset.shipout import Shipout
 
 _ONE_INCH_PT = 72.0
 _FIT_TEXT_SHORT_LINE_TOLERANCE_PT = 1.0
 _INLINE_TEXTBOX_PAD_PT = 0.75
+_DOCX_MATH_FONT_CANDIDATES = (
+    "Latin Modern Math",
+    "STIX Two Math",
+    "XITS Math",
+    "Libertinus Math",
+    "Cambria Math",
+)
 _MATH_FAMILY_TEXT_OVERRIDES = {
     0: {
         0x3A: ".",
@@ -34,6 +43,263 @@ _MATH_FAMILY_TEXT_OVERRIDES = {
         0x3B: ",",
     },
 }
+
+
+def _docx_math_slot_text(family, code):
+    override = _MATH_FAMILY_TEXT_OVERRIDES.get(family, {}).get(code)
+    if override is not None:
+        return override
+    if family == 0:
+        text = html_math._MATH_OPERATORS_MAP.get(code)
+        if text is not None:
+            return text
+    elif family == 1:
+        text = html_math._MATH_LETTERS_MAP.get(code)
+        if text is not None:
+            return text
+    elif family == 2:
+        text = html_math._MATH_SYMBOLS_MAP.get(code)
+        if text is not None:
+            return text
+    elif family == 3:
+        text = html_math._MATH_LARGE_SYMBOLS_MAP.get(code)
+        if text is not None:
+            return text
+    if 0x20 <= code < 0x7F:
+        return chr(code)
+    return None
+
+
+def _resolve_parser_docx_math_backend(parser):
+    cached = getattr(parser, "_docx_math_backend", None)
+    if cached is not None:
+        return cached
+    try:
+        from pytex import opentype  # noqa: F401
+    except Exception:
+        parser._docx_math_backend = False
+        return None
+    for name in _DOCX_MATH_FONT_CANDIDATES:
+        try:
+            backend = parser.loadFontBackend(name)
+        except Exception:
+            continue
+        if getattr(backend, "kind", None) != "opentype":
+            continue
+        if not getattr(backend, "hasMathTable", lambda: False)():
+            continue
+        parser._docx_math_backend = backend
+        return backend
+    parser._docx_math_backend = False
+    return None
+
+
+def _docx_math_fontdimen(backend, family):
+    provider = getattr(backend, "docxMathFontdimen", None)
+    if callable(provider):
+        params = provider(family)
+        if params is not None:
+            return list(params)
+
+    base = list(getattr(backend, "fontdimen", ()) or ())
+    slant = base[0] if len(base) > 0 else 0.0
+    space = base[1] if len(base) > 1 else 0.0
+    stretch = base[2] if len(base) > 2 else 0.0
+    shrink = base[3] if len(base) > 3 else 0.0
+    x_height = base[4] if len(base) > 4 else 0.0
+    extra = base[6] if len(base) > 6 else shrink
+    quad = 1.0
+
+    def constant(name, default=0.0, scale=True):
+        getter = getattr(backend, "mathConstant", None)
+        if callable(getter):
+            return getter(name, default, scale=scale)
+        return default
+
+    if family == 2:
+        num_display = constant("FractionNumeratorDisplayStyleShiftUp")
+        num_text = constant("FractionNumeratorShiftUp", num_display)
+        denom_display = constant("FractionDenominatorDisplayStyleShiftDown")
+        denom_text = constant("FractionDenominatorShiftDown", denom_display)
+        sup_up = constant("SuperscriptShiftUp")
+        sup_up_cramped = constant("SuperscriptShiftUpCramped", sup_up)
+        sub_down = constant("SubscriptShiftDown")
+        return [
+            slant,
+            space,
+            stretch,
+            shrink,
+            x_height,
+            quad,
+            extra,
+            num_display,
+            num_text,
+            num_text,
+            denom_display,
+            denom_text,
+            sup_up,
+            sup_up,
+            sup_up_cramped,
+            sub_down,
+            sub_down,
+            constant("SuperscriptBaselineDropMax"),
+            constant("SubscriptBaselineDropMin"),
+            constant("DisplayOperatorMinHeight", constant("DelimitedSubFormulaMinHeight")),
+            constant("DelimitedSubFormulaMinHeight"),
+            constant("AxisHeight"),
+        ]
+
+    if family == 3:
+        return [
+            slant,
+            space,
+            stretch,
+            shrink,
+            x_height,
+            quad,
+            extra,
+            constant("FractionRuleThickness"),
+            constant("UpperLimitGapMin"),
+            constant("UpperLimitBaselineRiseMin"),
+            constant("LowerLimitGapMin"),
+            constant("LowerLimitBaselineDropMin"),
+            constant("SpaceAfterScript", constant("FractionRuleThickness")),
+        ]
+
+    return base
+
+
+class _DocxMathFont(txfont.Font):
+    def __init__(self, backend, at, family, template=None):
+        self.family = family
+        self._template = template
+        self.backend = backend
+        self.at = at if isinstance(at, Dimen) else Dimen(at)
+        raw_param = _docx_math_fontdimen(backend, family)
+        self.param = [0] * len(raw_param)
+        if self.param:
+            self.param[0] = Dimen(raw_param[0])
+            for i in range(1, len(raw_param)):
+                self.param[i] = raw_param[i] * self.at
+        self.charnode = {}
+        zero = Dimen()
+        space = self.param[1] if len(self.param) > 1 else zero
+        stretch = self.param[2] if len(self.param) > 2 else zero
+        shrink = self.param[3] if len(self.param) > 3 else zero
+        self.spaceglue = txfont.Glue(
+            space,
+            txfont.Stretchness(stretch, 0),
+            txfont.Stretchness(shrink, 0),
+        )
+        self.fontchar = {"skewchar": 0, "hyphenchar": 0}
+        if template is not None:
+            self.fontchar.update(getattr(template, "fontchar", {}))
+            if getattr(template, "name", None) is not None:
+                self.name = template.name
+
+    def _mapped_char(self, char):
+        if not isinstance(char, str) or len(char) != 1:
+            return None
+        return _docx_math_slot_text(self.family, ord(char))
+
+    def glyphInfo(self, char):
+        mapped = self._mapped_char(char)
+        if mapped is None:
+            return self.backend.glyphInfo(char)
+        return self.backend.glyphInfo(mapped)
+
+    def _charNode(self, char):
+        node = self.charnode.get(char)
+        if node is not None:
+            return node
+        mapped = self._mapped_char(char)
+        char_info = self.glyphInfo(char)
+        if char_info is None:
+            char_info = self.fallbackGlyphInfo(char)
+        if char_info is None:
+            return None
+        node = nd.CharNode(mapped if mapped is not None else char, self, char_info=char_info)
+        self.charnode[char] = node
+        return node
+
+    def glyphInfos(self):
+        seen = set()
+        for code in range(256):
+            mapped = _docx_math_slot_text(self.family, code)
+            if mapped is None or mapped in seen:
+                continue
+            seen.add(mapped)
+            info = self.backend.glyphInfo(mapped)
+            if info is not None:
+                yield info
+
+    def fallbackGlyphInfo(self, char):
+        mapped = self._mapped_char(char)
+        if mapped is None:
+            return self.backend.fallbackGlyphInfo(char)
+        return self.backend.fallbackGlyphInfo(mapped)
+
+    def hasCharCode(self, code: int):
+        try:
+            mapped = _docx_math_slot_text(self.family, code)
+        except ValueError:
+            return False
+        if mapped is None:
+            return False
+        return self.backend.hasChar(mapped)
+
+
+class _DocxMathFontArray(txfont.MathFontArray):
+    __slots__ = ("_backend",)
+
+    def __init__(self, name: str, state=None, default=None):
+        super().__init__(name, state=state, default=default)
+        self._backend = None
+
+    def _mathBackend(self):
+        if self._backend is False:
+            return None
+        if self._backend is not None:
+            return self._backend
+        parser = self.state
+        backend = _resolve_parser_docx_math_backend(parser) if parser is not None else None
+        self._backend = backend if backend is not None else False
+        return backend
+
+    def _wrapMathFont(self, index, value):
+        if index not in (2, 3):
+            return value
+        if not isinstance(value, txfont.Font) or isinstance(value, txfont.NullFont):
+            return value
+        if isinstance(value, _DocxMathFont) and value.family == index:
+            return value
+        backend = self._mathBackend()
+        if backend is None:
+            return value
+        wrapped = _DocxMathFont(backend, value.at, index, template=value)
+        return wrapped
+
+    def __setitem__(self, index, value):
+        super().__setitem__(index, self._wrapMathFont(index, value))
+
+    def setGlobal(self, index, value):
+        super().setGlobal(index, self._wrapMathFont(index, value))
+
+
+def _install_docx_math_font_arrays(parser):
+    for name in ("textfont", "scriptfont", "scriptscriptfont"):
+        current = getattr(parser, name, None)
+        if isinstance(current, _DocxMathFontArray):
+            continue
+        wrapped = _DocxMathFontArray(name, state=parser, default=txfont.nullfont)
+        if current is not None:
+            wrapped.list[:] = list(getattr(current, "list", wrapped.list))
+            wrapped.dict.update(getattr(current, "dict", {}))
+        setattr(parser, name, wrapped)
+        parser.arrays[name] = wrapped
+        accessor = parser.builtin.get("\\" + name)
+        if accessor is not None:
+            accessor.domain = wrapped
 
 
 @dataclass
@@ -48,6 +314,35 @@ class _InlineBoxRun:
     box: object
     chunks: list[object] = field(default_factory=list)
     line_depth: Dimen = field(default_factory=Dimen)
+
+
+@dataclass
+class _InlineMathRun:
+    box: object
+    fields: list[object] = field(default_factory=list)
+    line_depth: Dimen = field(default_factory=Dimen)
+
+
+@dataclass
+class _InlineMathState:
+    in_math: bool = False
+    nodes: list[object] = field(default_factory=list)
+    leading_kern: Dimen = field(default_factory=Dimen)
+    line_depth: Dimen = field(default_factory=Dimen)
+    spacing_font: object | None = None
+
+    def active(self):
+        return self.in_math or bool(self.nodes)
+
+    def has_nodes(self):
+        return bool(self.nodes)
+
+    def clear(self):
+        self.in_math = False
+        self.nodes.clear()
+        self.leading_kern = Dimen()
+        self.line_depth = Dimen()
+        self.spacing_font = None
 
 
 @dataclass
@@ -111,6 +406,7 @@ class DocxBackend(Shipout):
         self.finished = False
         self._captured_pages: list[list[_Glyph]] = []
         self._fit_text_id = 1
+        self._docx_math_font = None
 
     def shipout(self, box):
         if box.width is None:
@@ -160,12 +456,69 @@ class DocxBackend(Shipout):
         return source if isinstance(source, mmode.DisplayMathNode) else None
 
     @staticmethod
+    def _is_math_field(field):
+        return isinstance(
+            field,
+            (
+                mmode.MathSymbol,
+                mmode.MathListHolder,
+                mmode.Subformula,
+                mmode.InlineMathNode,
+                mmode.DisplayMathNode,
+                mmode.Over,
+                mmode.Rad,
+                mmode.Accent,
+                mmode.Atom,
+            ),
+        )
+
+    @staticmethod
     def _pt(value):
         return float(value) if isinstance(value, Dimen) else float(Dimen(value))
 
     @classmethod
     def _length(cls, value):
         return Pt(cls._pt(value))
+
+    @staticmethod
+    def _textbox_style(bottom_anchor=False):
+        parts = [
+            "mso-fit-shape-to-text:f",
+            "mso-fit-text-to-shape:t",
+        ]
+        if bottom_anchor:
+            parts.append("v-text-anchor:bottom")
+        return ";".join(parts)
+
+    def _resolve_docx_math_font(self):
+        if self._docx_math_font is not None:
+            return self._docx_math_font
+        backend = _resolve_parser_docx_math_backend(self.parser)
+        if backend is not None:
+            self._docx_math_font = backend.name
+            return self._docx_math_font
+        self._docx_math_font = ""
+        return self._docx_math_font
+
+    def _configure_math_settings(self, document):
+        font_name = self._resolve_docx_math_font()
+        if not font_name:
+            return
+        settings = document.settings._element
+        for child in list(settings):
+            if child.tag == qn("m:mathPr"):
+                settings.remove(child)
+        escaped_name = escape(font_name, {'"': "&quot;"})
+        settings.append(
+            parse_xml(
+                (
+                    "<m:mathPr "
+                    "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
+                    f"<m:mathFont m:val=\"{escaped_name}\"/>"
+                    "</m:mathPr>"
+                )
+            )
+        )
 
     @staticmethod
     def _nonnegative_dimen(value):
@@ -372,6 +725,9 @@ class DocxBackend(Shipout):
                     run.chunks = self._normalize_runs(run.chunks)
                 merged.append(run)
                 continue
+            if isinstance(run, _InlineMathRun):
+                merged.append(run)
+                continue
             text = run.text
             if not text:
                 continue
@@ -400,7 +756,7 @@ class DocxBackend(Shipout):
     def _redistribute_space_spacing(runs):
         prev_visible = None
         for run in runs:
-            if isinstance(run, _InlineBoxRun):
+            if isinstance(run, (_InlineBoxRun, _InlineMathRun)):
                 prev_visible = run
                 continue
             if not run.text:
@@ -436,6 +792,19 @@ class DocxBackend(Shipout):
     @staticmethod
     def _line_supports_fit_text(runs):
         return all(isinstance(run, _TextRun) for run in runs)
+
+    @classmethod
+    def _line_has_inline_math(cls, box):
+        items = getattr(box, "list", None) or ()
+        for node in items:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.MATH:
+                return True
+            if cls._math_source_field(node) is not None:
+                return True
+            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) and cls._line_has_inline_math(node):
+                return True
+        return False
 
     @classmethod
     def _spacing_twips(cls, delta):
@@ -583,25 +952,29 @@ class DocxBackend(Shipout):
         current = None
         pending_gap = Dimen()
         line_map = self._glyphs_by_baseline(glyphs)
+        paragraph_math_state = None
         for event in self._walk_vlist(page, 0):
             kind = event[0]
             if kind == "line":
                 line = event[1]
-                line_runs = self._runs_from_line_box(line.box)
-                if not line_runs:
-                    line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
-                if not line_runs:
-                    continue
                 if current is None or line.owner is not current.owner:
                     if current is not None:
+                        self._flush_pending_inline_math(current, paragraph_math_state)
                         yield current
                     current = _ParagraphSpec(
                         owner=line.owner,
                         space_before=self._nonnegative_dimen(pending_gap),
                         first_line_indent=self._paragraph_first_indent(line.owner),
                     )
+                    paragraph_math_state = _InlineMathState()
                 else:
                     current.interline_gaps.append(self._nonnegative_dimen(pending_gap))
+                line_started_in_math = paragraph_math_state.active() if paragraph_math_state is not None else False
+                line_runs = self._runs_from_line_box(line.box, paragraph_math_state)
+                if not line_runs:
+                    line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
+                if not line_runs:
+                    continue
                 current.lines.append(
                     _LineSpec(
                         runs=line_runs,
@@ -613,6 +986,8 @@ class DocxBackend(Shipout):
                                 is_first_line=not current.lines,
                             )
                             if self._line_supports_fit_text(line_runs)
+                            and not line_started_in_math
+                            and not self._line_has_inline_math(line.box)
                             else None
                         ),
                     )
@@ -621,8 +996,10 @@ class DocxBackend(Shipout):
                 continue
             if kind == "display":
                 if current is not None:
+                    self._flush_pending_inline_math(current, paragraph_math_state)
                     yield current
                     current = None
+                    paragraph_math_state = None
                 yield _DisplayMathSpec(
                     owner=event[1],
                     box=event[2],
@@ -636,15 +1013,20 @@ class DocxBackend(Shipout):
                 node = event[1]
                 amount = event[2]
                 if current is not None and kind == "glue" and getattr(node, "name", None) == "parskip":
+                    self._flush_pending_inline_math(current, paragraph_math_state)
                     yield current
                     current = None
+                    paragraph_math_state = None
                 pending_gap += amount
                 continue
             if current is not None:
+                self._flush_pending_inline_math(current, paragraph_math_state)
                 yield current
                 current = None
+                paragraph_math_state = None
                 pending_gap = Dimen()
         if current is not None:
+            self._flush_pending_inline_math(current, paragraph_math_state)
             yield current
 
     @staticmethod
@@ -682,10 +1064,11 @@ class DocxBackend(Shipout):
             return symbol.char
         return None
 
-    def _math_run_xml(self, text):
+    def _math_run_xml(self, text, normal=False):
         if not text:
             return ""
-        return f"<m:r><m:t{self._xml_space_attr(text)}>{escape(text)}</m:t></m:r>"
+        rpr = "<m:rPr><m:nor/></m:rPr>" if normal else ""
+        return f"<m:r>{rpr}<m:t{self._xml_space_attr(text)}>{escape(text)}</m:t></m:r>"
 
     def _flatten_math_text(self, field):
         if field is None:
@@ -721,8 +1104,8 @@ class DocxBackend(Shipout):
             return self._flatten_box_text(getattr(field, "nucleus", None))
         return ""
 
-    def _omml_group_xml(self, fields):
-        return "".join(self._omml_field_xml(field) for field in fields if field is not None)
+    def _omml_group_xml(self, fields, normal=False):
+        return "".join(self._omml_field_xml(field, normal=normal) for field in fields if field is not None)
 
     def _omml_script_xml(self, atom, base_xml):
         sub = getattr(atom, "sub", None)
@@ -762,27 +1145,28 @@ class DocxBackend(Shipout):
         return "" if text is None else text
 
     def _omml_atom_xml(self, atom):
+        operator_text = isinstance(atom, mmode.Op) and not isinstance(getattr(atom, "nucleus", None), mmode.MathSymbol)
         boundary = atom._boundaryInfo() if hasattr(atom, "_boundaryInfo") else None
         if boundary is not None:
             left_delim, right_delim, body_items = boundary
             base_xml = (
-                self._math_run_xml(self._delimiter_text(left_delim))
-                + self._omml_group_xml(body_items)
-                + self._math_run_xml(self._delimiter_text(right_delim))
+                self._math_run_xml(self._delimiter_text(left_delim), normal=operator_text)
+                + self._omml_group_xml(body_items, normal=operator_text)
+                + self._math_run_xml(self._delimiter_text(right_delim), normal=operator_text)
             )
         else:
-            base_xml = self._omml_field_xml(getattr(atom, "nucleus", None))
+            base_xml = self._omml_field_xml(getattr(atom, "nucleus", None), normal=operator_text)
         if getattr(atom, "left", None) is not None:
-            base_xml = self._math_run_xml(self._delimiter_text(atom.left)) + base_xml
+            base_xml = self._math_run_xml(self._delimiter_text(atom.left), normal=operator_text) + base_xml
         if getattr(atom, "right", None) is not None:
-            base_xml += self._math_run_xml(self._delimiter_text(atom.right))
+            base_xml += self._math_run_xml(self._delimiter_text(atom.right), normal=operator_text)
         return self._omml_script_xml(atom, base_xml)
 
-    def _omml_field_xml(self, field):
+    def _omml_field_xml(self, field, normal=False):
         if field is None or isinstance(field, mmode.StyleNode):
             return ""
         if isinstance(field, str):
-            return self._math_run_xml(field)
+            return self._math_run_xml(field, normal=normal)
         node_type = getattr(field, "node_type", None)
         if node_type in (
             nd.NODE_TYPE.WHATSIT,
@@ -792,9 +1176,9 @@ class DocxBackend(Shipout):
         ):
             return ""
         if isinstance(field, mmode.MathSymbol):
-            return self._math_run_xml(self._math_symbol_text(field))
+            return self._math_run_xml(self._math_symbol_text(field), normal=normal)
         if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
-            return self._omml_group_xml(getattr(field, "list", ()))
+            return self._omml_group_xml(getattr(field, "list", ()), normal=normal)
         if isinstance(field, mmode.Over):
             num, den, _bar, _thickness = field.nucleus
             frac_xml = (
@@ -806,9 +1190,9 @@ class DocxBackend(Shipout):
             if getattr(field, "delims", None) is not None:
                 left_delim, right_delim = field.delims
                 frac_xml = (
-                    self._math_run_xml(self._delimiter_text(left_delim))
+                    self._math_run_xml(self._delimiter_text(left_delim), normal=normal)
                     + frac_xml
-                    + self._math_run_xml(self._delimiter_text(right_delim))
+                    + self._math_run_xml(self._delimiter_text(right_delim), normal=normal)
                 )
             return self._omml_script_xml(field, frac_xml)
         if isinstance(field, mmode.Rad):
@@ -836,7 +1220,7 @@ class DocxBackend(Shipout):
         if isinstance(field, mmode.Atom):
             return self._omml_atom_xml(field)
         if isinstance(field, mmode.Box):
-            return self._math_run_xml(self._flatten_box_text(getattr(field, "nucleus", None)))
+            return self._math_run_xml(self._flatten_box_text(getattr(field, "nucleus", None)), normal=normal)
         return ""
 
     def _flatten_box_text(self, box):
@@ -884,7 +1268,7 @@ class DocxBackend(Shipout):
                 "<w:rPr><w:noProof/></w:rPr>"
                 "<w:pict>"
                 f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:{height:.4f}pt\">"
-                f"<v:textbox inset=\"0,0,0,0\" style=\"mso-fit-text-to-shape:t\">{content}</v:textbox>"
+                f"<v:textbox inset=\"0,0,0,0\" style=\"{self._textbox_style()}\">{content}</v:textbox>"
                 "<w10:wrap type=\"none\"/>"
                 "</v:rect>"
                 "</w:pict>"
@@ -906,7 +1290,7 @@ class DocxBackend(Shipout):
                 "<w:rPr><w:noProof/></w:rPr>"
                 "<w:pict>"
                 f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:1.0000pt\">"
-                "<v:textbox inset=\"0,0,0,0\" style=\"mso-fit-text-to-shape:t\"><w:txbxContent><w:p/></w:txbxContent></v:textbox>"
+                f"<v:textbox inset=\"0,0,0,0\" style=\"{self._textbox_style()}\"><w:txbxContent><w:p/></w:txbxContent></v:textbox>"
                 "<w10:wrap type=\"none\"/>"
                 "</v:rect>"
                 "</w:pict>"
@@ -973,21 +1357,50 @@ class DocxBackend(Shipout):
             )
         )
 
-    def _runs_from_line_box(self, box):
+    def _runs_from_line_box(self, box, math_state=None):
         if not self._can_use_box_runs(box):
             return []
-        return self._normalize_runs(self._runs_from_box(box))
+        runs = self._runs_from_box(box, math_state)
+        if math_state is not None and math_state.has_nodes():
+            runs.extend(self._finalize_inline_math_state(math_state, keep_open=True))
+        return self._normalize_runs(runs)
 
-    def _runs_from_box(self, box):
+    def _runs_from_box(self, box, math_state=None):
         items = getattr(box, "list", None) or ()
         glue_state = self._glue_state(box)
         runs = []
-        for index, node in enumerate(items):
+        if math_state is None:
+            math_state = _InlineMathState()
+        index = 0
+        while index < len(items):
+            node = items[index]
             node_type = getattr(node, "node_type", None)
+            if math_state.in_math:
+                if node_type == nd.NODE_TYPE.MATH and not node.on:
+                    math_state.in_math = False
+                    runs.extend(self._finalize_inline_math_state(math_state, node.kern))
+                    index += 1
+                    continue
+                math_state.nodes.append(node)
+                math_state.line_depth = max(math_state.line_depth, Dimen(getattr(box, "depth", 0)))
+                index += 1
+                continue
+            if node_type == nd.NODE_TYPE.MATH:
+                if node.on:
+                    math_state.in_math = True
+                    math_state.leading_kern = Dimen(getattr(node, "kern", 0))
+                    math_state.line_depth = Dimen(getattr(box, "depth", 0))
+                    if math_state.spacing_font is None:
+                        math_state.spacing_font = self._space_font(runs, items, index)
+                elif node.kern != 0:
+                    self._append_explicit_spacing_run(runs, node.kern, self._space_font(runs, items, index))
+                index += 1
+                continue
             if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 text = self._glyph_text(node)
                 if text:
                     runs.append(_TextRun(text, getattr(node, "font", None)))
+                index += 1
                 continue
             if node_type == nd.NODE_TYPE.HLIST:
                 child_runs = self._runs_from_box(node)
@@ -999,34 +1412,51 @@ class DocxBackend(Shipout):
                             Dimen(getattr(box, "depth", 0)),
                         )
                     )
+                    index += 1
                     continue
                 width = Dimen(getattr(node, "width", 0))
                 if width > 0:
                     self._append_box_spacing_run(runs, width, items, index)
+                index += 1
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
                 if not self._glue_is_text_space(items, index):
+                    index += 1
                     continue
                 amount = self._effective_glue_amount(node, box, glue_state)
                 if amount <= 0:
+                    index += 1
                     continue
                 font = self._space_font(runs, items, index)
                 nominal_width = self._space_width(font)
                 delta = amount - nominal_width
                 runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
+                index += 1
                 continue
             if node_type == nd.NODE_TYPE.KERN:
                 if not self._kern_is_text_kern(items, index):
+                    index += 1
                     continue
                 self._apply_text_kern(runs, node.kern)
+                index += 1
                 continue
             if node_type == nd.NODE_TYPE.DISC:
                 runs.extend(self._runs_from_box(node))
+                index += 1
                 continue
+            index += 1
         return runs
 
     def _append_box_spacing_run(self, runs, width, items, index):
         font = self._space_font(runs, items, index)
+        nominal_width = self._space_width(font)
+        delta = int(width) - nominal_width
+        runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
+
+    def _append_explicit_spacing_run(self, runs, width, font):
+        width = Dimen(width)
+        if width <= 0:
+            return
         nominal_width = self._space_width(font)
         delta = int(width) - nominal_width
         runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
@@ -1036,9 +1466,11 @@ class DocxBackend(Shipout):
         items = getattr(box, "list", None) or ()
         for node in items:
             node_type = getattr(node, "node_type", None)
-            if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.MATH):
-                return False
-            if node_type == nd.NODE_TYPE.HLIST and not cls._can_use_box_runs(node):
+            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                if cls._math_source_field(node) is not None:
+                    continue
+                if node_type == nd.NODE_TYPE.HLIST and cls._can_use_box_runs(node):
+                    continue
                 return False
         return True
 
@@ -1100,6 +1532,11 @@ class DocxBackend(Shipout):
                 if font is not None:
                     return font
                 continue
+            if isinstance(run, _InlineMathRun):
+                font = self._first_font(run.box)
+                if font is not None:
+                    return font
+                continue
             if run.font is not None and not run.text.isspace():
                 return run.font
         for node in items[index + 1:]:
@@ -1118,6 +1555,131 @@ class DocxBackend(Shipout):
             if font is not None:
                 return font
         return None
+
+    @staticmethod
+    def _math_source_field(node):
+        source = getattr(node, "source", None)
+        seen = set()
+        while source is not None and not isinstance(source, (list, tuple)):
+            key = id(source)
+            if key in seen:
+                break
+            seen.add(key)
+            if DocxBackend._is_math_field(source):
+                return source
+            source = getattr(source, "source", None)
+        return None
+
+    def _fragment_math_fields(self, nodes):
+        fields = []
+        seen = set()
+        for node in nodes:
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.WHATSIT):
+                continue
+            field = self._math_source_field(node)
+            if field is not None and not isinstance(field, mmode.InlineMathNode):
+                key = id(field)
+                if key not in seen:
+                    seen.add(key)
+                    fields.append(field)
+                continue
+            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                text = self._glyph_text(node)
+                if text:
+                    fields.append(text)
+                continue
+            if node_type == nd.NODE_TYPE.GLUE:
+                fields.append(" ")
+                continue
+            children = getattr(node, "list", None) or ()
+            if children:
+                for child in self._fragment_math_fields(children):
+                    if not isinstance(child, str):
+                        key = id(child)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                    fields.append(child)
+        return fields
+
+    def _inline_math_box(self, nodes):
+        hbox = bx.HBox(self.parser, None, None)
+        hbox.list[:] = list(nodes)
+        width = Dimen()
+        height = Dimen()
+        depth = Dimen()
+        for node in nodes:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                width += Dimen(getattr(getattr(node, "glue", None), "dimen", 0))
+                continue
+            if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+                width += Dimen(getattr(node, "kern", 0))
+                continue
+            if node_type == nd.NODE_TYPE.DISC:
+                width += Dimen(getattr(node, "replace_width", 0))
+                for child in getattr(node, "replace", ()) or ():
+                    child_height = getattr(child, "height", None)
+                    child_depth = getattr(child, "depth", None)
+                    if child_height is not None:
+                        height = max(height, Dimen(child_height))
+                    if child_depth is not None:
+                        depth = max(depth, Dimen(child_depth))
+                continue
+            node_width = getattr(node, "width", None)
+            if node_width is None:
+                continue
+            shifted = Dimen(getattr(node, "shifted", 0))
+            width += Dimen(node_width)
+            height = max(height, Dimen(getattr(node, "height", 0)) - shifted)
+            depth = max(depth, Dimen(getattr(node, "depth", 0)) + shifted)
+        hbox.width = width
+        hbox.height = height
+        hbox.depth = depth
+        hbox._packed = hbox
+        return hbox
+
+    def _finalize_inline_math_state(self, state, trailing_kern=Dimen(), keep_open=False):
+        if not state.active():
+            return []
+        nodes = list(state.nodes)
+        line_depth = Dimen(state.line_depth)
+        leading_kern = Dimen(state.leading_kern)
+        spacing_font = state.spacing_font
+        state.nodes.clear()
+        state.leading_kern = Dimen()
+        state.line_depth = Dimen()
+        if not keep_open:
+            state.in_math = False
+            state.spacing_font = None
+        if not nodes:
+            runs = []
+            self._append_explicit_spacing_run(runs, leading_kern, spacing_font)
+            self._append_explicit_spacing_run(runs, trailing_kern, spacing_font)
+            return runs
+        box = self._inline_math_box(nodes)
+        font = spacing_font or self._first_font(box)
+        fields = self._fragment_math_fields(nodes)
+        runs = []
+        self._append_explicit_spacing_run(runs, leading_kern, font)
+        runs.append(
+            _InlineMathRun(
+                box=box,
+                fields=fields,
+                line_depth=line_depth,
+            )
+        )
+        self._append_explicit_spacing_run(runs, trailing_kern, font)
+        return runs
+
+    def _flush_pending_inline_math(self, spec, math_state):
+        if spec is None or not spec.lines or math_state is None:
+            return
+        if math_state.has_nodes():
+            spec.lines[-1].runs.extend(self._finalize_inline_math_state(math_state))
+            spec.lines[-1].fit_text_twips = None
+        math_state.clear()
 
     def _chunk_text(self, chunk):
         if isinstance(chunk, _TextRun):
@@ -1181,29 +1743,68 @@ class DocxBackend(Shipout):
         )
         return f"<w:txbxContent><w:p>{ppr}{run}</w:p></w:txbxContent>"
 
-    def _inline_box_run_xml(self, box_run):
-        box = box_run.box
+    def _inline_math_content_xml(self, math_run):
+        box = math_run.box
+        inner = self._omml_group_xml(math_run.fields)
+        line_height = Dimen(getattr(box, "height", 0) + getattr(box, "depth", 0))
+        line_twips = self._fit_text_twips(line_height)
+        ppr = (
+            "<w:pPr>"
+            f"<w:spacing w:before=\"0\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
+            "</w:pPr>"
+        )
+        if inner:
+            return f"<w:txbxContent><w:p>{ppr}<m:oMath>{inner}</m:oMath></w:p></w:txbxContent>"
+        text = self._flatten_box_text(box)
+        if not text:
+            return "<w:txbxContent><w:p/></w:txbxContent>"
+        run = (
+            "<w:r>"
+            f"{self._raw_run_properties_xml(font=self._first_font(box), no_proof=True)}"
+            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+            "</w:r>"
+        )
+        return f"<w:txbxContent><w:p>{ppr}{run}</w:p></w:txbxContent>"
+
+    def _inline_textbox_run_xml(self, content, box, line_depth=None):
         width = max(self._pt(getattr(box, "width", 0)), 1.0)
-        total_height = max(self._pt(getattr(box, "height", 0) + getattr(box, "depth", 0) + Dimen(_INLINE_TEXTBOX_PAD_PT)), 1.0)
-        depth = self._pt(getattr(box_run, "line_depth", 0))
-        position = -int(round(depth * 0.6)) if depth else None
-        content = self._inline_box_content_xml(box_run)
+        total_height = max(
+            self._pt(getattr(box, "height", 0) + getattr(box, "depth", 0) + Dimen(_INLINE_TEXTBOX_PAD_PT)),
+            1.0,
+        )
+        own_depth = self._pt(getattr(box, "depth", 0) + Dimen(_INLINE_TEXTBOX_PAD_PT))
+        position = -int(round(own_depth * 2.0)) if own_depth else None
         return parse_xml(
             (
                 "<w:r "
                 "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
                 "xmlns:v=\"urn:schemas-microsoft-com:vml\" "
                 "xmlns:o=\"urn:schemas-microsoft-com:office:office\" "
-                "xmlns:w10=\"urn:schemas-microsoft-com:office:word\">"
+                "xmlns:w10=\"urn:schemas-microsoft-com:office:word\" "
+                "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
                 f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
                 "<w:pict>"
                 f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:{total_height:.4f}pt\">"
-                f"<v:textbox inset=\"0,0,0,0\" style=\"mso-fit-text-to-shape:t;v-text-anchor:bottom\">{content}</v:textbox>"
+                f"<v:textbox inset=\"0,0,0,0\" style=\"{self._textbox_style(bottom_anchor=True)}\">{content}</v:textbox>"
                 "<w10:wrap type=\"none\"/>"
                 "</v:rect>"
                 "</w:pict>"
                 "</w:r>"
             )
+        )
+
+    def _inline_box_run_xml(self, box_run):
+        return self._inline_textbox_run_xml(
+            self._inline_box_content_xml(box_run),
+            box_run.box,
+            line_depth=getattr(box_run, "line_depth", 0),
+        )
+
+    def _inline_math_run_xml(self, math_run):
+        return self._inline_textbox_run_xml(
+            self._inline_math_content_xml(math_run),
+            math_run.box,
+            line_depth=getattr(math_run, "line_depth", 0),
         )
 
     def _emit_paragraph(self, document, spec):
@@ -1231,6 +1832,9 @@ class DocxBackend(Shipout):
             for chunk in line_runs:
                 if isinstance(chunk, _InlineBoxRun):
                     para._p.append(self._inline_box_run_xml(chunk))
+                    continue
+                if isinstance(chunk, _InlineMathRun):
+                    para._p.append(self._inline_math_run_xml(chunk))
                     continue
                 text = chunk.text
                 if text.isspace():
@@ -1266,6 +1870,7 @@ class DocxBackend(Shipout):
 
     def _build_document(self):
         document = Document()
+        self._configure_math_settings(document)
         if not self.pages:
             return document
         if len(self.pages) > 1:
@@ -1299,6 +1904,7 @@ class DocxBackend(Shipout):
 
 
 def init(parser):
+    _install_docx_math_font_arrays(parser)
     parser.shipout = DocxBackend(parser)
 
 

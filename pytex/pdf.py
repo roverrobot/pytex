@@ -12,6 +12,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import EmbeddedType1Face, Font as ReportLabFont, registerFont, registerTypeFace
 from reportlab.pdfbase.ttfonts import TTFont as ReportLabTTFont
 from reportlab.pdfgen import canvas as reportlab_canvas
+from reportlab.lib.rl_accel import fp_str
 
 from pytex import node as nd
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, UNITS
@@ -486,11 +487,33 @@ class PDFBackend(Shipout):
         self.h = 0 if h is None else int(h)
         self.v = 0 if v is None else int(v)
 
+    def _draw_raw_8bit_char(self, char, x, y, size):
+        font_name = self.current_font_name
+        if font_name is None:
+            return False
+        font = pdfmetrics.getFont(font_name)
+        if getattr(font, "_dynamicFont", False) or getattr(font, "_multiByte", False):
+            return False
+        code = ord(char)
+        if code < 0 or code > 0xFF:
+            return False
+        internal_name = self.canvas._doc.getInternalFontName(font_name)
+        escaped = self.canvas._escape(bytes((code,)))
+        self.canvas.addLiteral(
+            f"BT 1 0 0 1 {fp_str(x)} {fp_str(y)} Tm {internal_name} {fp_str(size)} Tf {fp_str(size * 1.2)} TL ({escaped}) Tj T* ET"
+        )
+        return True
+
     def set_char(self, node):
         self._warn_reportlab_non_bmp(node.char)
         x = self._x(self.h)
         y = self._page_y(self.v)
-        self.canvas.drawString(x, y, node.char)
+        if getattr(getattr(self.current_font, "backend", None), "kind", None) == "tfm" and self._draw_raw_8bit_char(
+            node.char, x, y, float(self.current_font.at)
+        ):
+            pass
+        else:
+            self.canvas.drawString(x, y, node.char)
         if self._active_annotations:
             self._grow_annotation_rect(*self._annotation_font_box(x, y, self._pt(node.width)))
 

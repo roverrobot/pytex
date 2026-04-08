@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 
 from docx import Document
-from docx.enum.text import WD_BREAK, WD_LINE_SPACING
+from docx.enum.text import WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
@@ -19,6 +19,8 @@ from pytex.module import Module
 from pytex.typeset.shipout import Shipout
 
 _ONE_INCH_PT = 72.0
+_FIT_TEXT_FUDGE_PT = 0.5
+_FIT_TEXT_SHORT_LINE_TOLERANCE_PT = 1.0
 
 
 @dataclass
@@ -40,10 +42,17 @@ class _Glyph:
 @dataclass
 class _ParagraphSpec:
     owner: object | None
-    lines: list[list[_TextRun]] = field(default_factory=list)
+    lines: list[object] = field(default_factory=list)
     interline_gaps: list[Dimen] = field(default_factory=list)
     space_before: Dimen = field(default_factory=Dimen)
     first_line_indent: Dimen = field(default_factory=Dimen)
+
+
+@dataclass
+class _LineSpec:
+    runs: list[_TextRun]
+    box: object | None = None
+    fit_text_twips: int | None = None
 
 
 @dataclass
@@ -74,6 +83,7 @@ class DocxBackend(Shipout):
         self.file = None
         self.finished = False
         self._captured_pages: list[list[_Glyph]] = []
+        self._fit_text_id = 1
 
     def shipout(self, box):
         if box.width is None:
@@ -239,6 +249,9 @@ class DocxBackend(Shipout):
         return getattr(backend, "name", None)
 
     def _apply_run_font(self, run, font):
+        self._apply_run_font_with_options(run, font, allow_word_kerning=True)
+
+    def _apply_run_font_with_options(self, run, font, allow_word_kerning=True):
         if font is None:
             return
         name = self._font_name(font)
@@ -247,7 +260,8 @@ class DocxBackend(Shipout):
         at = getattr(font, "at", None)
         if at is not None:
             run.font.size = self._length(at)
-            self._apply_run_kerning(run, at)
+            if allow_word_kerning:
+                self._apply_run_kerning(run, at)
 
     @classmethod
     def _apply_run_kerning(cls, run, size):
@@ -260,6 +274,17 @@ class DocxBackend(Shipout):
             kern = OxmlElement("w:kern")
             rPr.append(kern)
         kern.set(qn("w:val"), str(half_points))
+
+    def _apply_run_fit_text(self, run, fit_text_twips, fit_text_id):
+        if fit_text_twips is None or fit_text_twips <= 0:
+            return
+        rPr = run._r.get_or_add_rPr()
+        fit_text = rPr.find(qn("w:fitText"))
+        if fit_text is None:
+            fit_text = OxmlElement("w:fitText")
+            rPr.append(fit_text)
+        fit_text.set(qn("w:id"), str(int(fit_text_id)))
+        fit_text.set(qn("w:val"), str(int(fit_text_twips)))
 
     @staticmethod
     def _space_width(font):
@@ -320,12 +345,50 @@ class DocxBackend(Shipout):
                 merged.append(_TextRun(text, run.font, run.spacing_twips))
         return merged
 
+    def _fit_text_runs(self, runs):
+        merged = []
+        for run in runs:
+            text = run.text
+            if not text:
+                continue
+            if (
+                merged
+                and merged[-1].font is run.font
+                and merged[-1].spacing_twips == run.spacing_twips
+            ):
+                merged[-1].text += text
+            else:
+                merged.append(_TextRun(text, run.font, run.spacing_twips))
+        return merged
+
     @classmethod
     def _spacing_twips(cls, delta):
         if not delta:
             return 0
         pt = cls._pt(Dimen(integer=int(delta)))
         return int(round(pt * 20))
+
+    @classmethod
+    def _fit_text_twips(cls, width):
+        base = cls._pt(width)
+        twips = int(round((base + _FIT_TEXT_FUDGE_PT) * 20))
+        return max(0, twips)
+
+    @classmethod
+    def _fit_text_for_line(cls, box, first_line_indent=Dimen(), is_first_line=False):
+        width = Dimen(getattr(box, "width", 0))
+        content_right = Dimen(width)
+        if hasattr(box, "rightmost"):
+            content_right = Dimen(box.rightmost())
+        indent = Dimen(first_line_indent) if is_first_line else Dimen()
+        target_width = width - indent
+        content_width = content_right - indent
+        if target_width <= 0 or content_width <= 0:
+            return None
+        tolerance = Dimen(_FIT_TEXT_SHORT_LINE_TOLERANCE_PT)
+        if content_width < target_width - tolerance:
+            return None
+        return cls._fit_text_twips(target_width)
 
     @staticmethod
     def _apply_run_spacing(run, spacing_twips):
@@ -443,7 +506,17 @@ class DocxBackend(Shipout):
                     )
                 else:
                     current.interline_gaps.append(self._nonnegative_dimen(pending_gap))
-                current.lines.append(line_runs)
+                current.lines.append(
+                    _LineSpec(
+                        runs=line_runs,
+                        box=line.box,
+                        fit_text_twips=self._fit_text_for_line(
+                            line.box,
+                            first_line_indent=current.first_line_indent,
+                            is_first_line=not current.lines,
+                        ),
+                    )
+                )
                 pending_gap = Dimen()
                 continue
             if kind == "penalty":
@@ -490,6 +563,11 @@ class DocxBackend(Shipout):
                 delta = amount - nominal_width
                 runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
                 continue
+            if node_type == nd.NODE_TYPE.KERN:
+                if not self._kern_is_text_kern(items, index):
+                    continue
+                self._apply_text_kern(runs, int(node.kern))
+                continue
             if node_type == nd.NODE_TYPE.DISC:
                 runs.extend(self._runs_from_box(node))
                 continue
@@ -506,6 +584,29 @@ class DocxBackend(Shipout):
 
     def _glue_is_text_space(self, items, index):
         return self._has_text_before(items, index) and self._has_text_after(items, index)
+
+    @staticmethod
+    def _kern_is_text_kern(items, index):
+        if index <= 0 or index + 1 >= len(items):
+            return False
+        prev = items[index - 1]
+        nxt = items[index + 1]
+        prev_type = getattr(prev, "node_type", None)
+        next_type = getattr(nxt, "node_type", None)
+        text_types = (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC)
+        return prev_type in text_types and next_type in text_types
+
+    @staticmethod
+    def _apply_text_kern(runs, amount):
+        if amount == 0:
+            return
+        spacing = DocxBackend._spacing_twips(amount)
+        if spacing == 0:
+            return
+        for run in reversed(runs):
+            if run.text and not run.text.isspace():
+                run.spacing_twips += spacing
+                return
 
     @staticmethod
     def _has_text_before(items, index):
@@ -550,15 +651,23 @@ class DocxBackend(Shipout):
             fmt.line_spacing = self._length(self._nonnegative_dimen(spec.interline_gaps[0]))
         if spec.first_line_indent != 0:
             fmt.first_line_indent = self._length(self._nonnegative_dimen(spec.first_line_indent))
-        first = True
-        for line_runs in spec.lines:
-            if not first:
-                para.add_run().add_break(WD_BREAK.LINE)
-            first = False
+        for line_spec in spec.lines:
+            fit_text_id = self._fit_text_id
+            self._fit_text_id += 1
+            line_runs = (
+                self._fit_text_runs(line_spec.runs)
+                if line_spec.fit_text_twips is not None
+                else line_spec.runs
+            )
             for chunk in line_runs:
                 run = para.add_run(chunk.text)
-                self._apply_run_font(run, chunk.font)
+                self._apply_run_font_with_options(
+                    run,
+                    chunk.font,
+                    allow_word_kerning=False,
+                )
                 self._apply_run_spacing(run, chunk.spacing_twips)
+                self._apply_run_fit_text(run, line_spec.fit_text_twips, fit_text_id)
         return para
 
     def _build_document(self):

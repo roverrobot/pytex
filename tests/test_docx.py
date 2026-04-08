@@ -54,12 +54,16 @@ class _FakeFont:
 class _FakeHBox:
     node_type = nd.NODE_TYPE.HLIST
 
-    def __init__(self, items, source, width=50, height=7, depth=2):
+    def __init__(self, items, source, width=50, height=7, depth=2, rightmost_value=None):
         self.list = items
         self.source = source
         self.width = Dimen(width)
         self.height = Dimen(height)
         self.depth = Dimen(depth)
+        self._rightmost_value = Dimen(width) if rightmost_value is None else Dimen(rightmost_value)
+
+    def rightmost(self):
+        return self._rightmost_value
 
 
 class _FakeVBox:
@@ -123,7 +127,7 @@ def test_docx_backend_preserves_tex_line_breaks(parser):
 
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
     assert [p.text for p in document.paragraphs] == [
-        "Hello world\nAgain soon",
+        "Hello worldAgain soon",
         "Second paragraph",
     ]
 
@@ -153,12 +157,14 @@ def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     assert 'w:lineRule="exact"' in xml
     assert 'w:line="240"' in xml
     assert 'w:after="0"' in xml
-    assert "<w:spacing" in xml
+    assert 'w:fitText w:id="1" w:val="1010"' in xml
+    assert 'w:fitText w:id="2" w:val="1010"' in xml
+    assert "<w:kern" not in xml
     document = Document(io.BytesIO(data))
-    assert [p.text for p in document.paragraphs] == ["Alpha beta\nGamma delta"]
+    assert [p.text for p in document.paragraphs] == ["Alpha betaGamma delta"]
 
 
-def test_docx_backend_lets_word_handle_text_kerning(parser):
+def test_docx_backend_emits_text_kerns_as_spacing_hints(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -178,10 +184,39 @@ def test_docx_backend_lets_word_handle_text_kerning(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'w:kern w:val="20"' in xml
-    assert 'w:spacing w:val="-20"' not in xml
+    assert 'w:fitText w:id="1" w:val="1010"' in xml
+    assert 'w:spacing w:val="-20"' in xml
+    assert "<w:kern" not in xml
     document = Document(io.BytesIO(data))
     assert [p.text for p in document.paragraphs] == ["AV"]
+
+
+def test_docx_backend_skips_fit_text_for_short_lines(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.CharNode("b", _FakeFont()),
+            nd.CharNode("o", _FakeFont()),
+            nd.CharNode("x", _FakeFont()),
+            nd.CharNode("e", _FakeFont()),
+            nd.CharNode("s", _FakeFont()),
+        ],
+        para,
+        width=100,
+        rightmost_value=40,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<w:fitText" not in xml
+    document = Document(io.BytesIO(data))
+    assert [p.text for p in document.paragraphs] == ["boxes"]
 
 
 def test_docx_backend_handles_horizontally_shifted_nested_vlists(parser):

@@ -24,6 +24,10 @@ from pytex.module import Module
 from pytex.typeset.shipout import Shipout
 
 _ONE_INCH_PT = 72.0
+_DOCX_POINTS_PER_TEX_POINT_NUM = 7200
+_DOCX_POINTS_PER_TEX_POINT_DEN = 7227
+_DOCX_TWIPS_PER_TEX_POINT_NUM = 144000
+_DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
 _FIT_TEXT_SHORT_LINE_TOLERANCE_PT = 1.0
 _INLINE_TEXTBOX_PAD_PT = 0.75
 _DOCX_MATH_FONT_CANDIDATES = (
@@ -486,7 +490,12 @@ class DocxBackend(Shipout):
 
     @staticmethod
     def _pt(value):
-        return float(value) if isinstance(value, Dimen) else float(Dimen(value))
+        scaled = int(value) if isinstance(value, Dimen) else int(Dimen(value))
+        return (
+            scaled
+            * _DOCX_POINTS_PER_TEX_POINT_NUM
+            / (_DOCX_POINTS_PER_TEX_POINT_DEN * Dimen.scale)
+        )
 
     @classmethod
     def _length(cls, value):
@@ -672,7 +681,14 @@ class DocxBackend(Shipout):
 
     @classmethod
     def _font_half_points(cls, size):
-        return int(cls._pt(size) * 2)
+        scaled = int(size) if isinstance(size, Dimen) else int(Dimen(size))
+        return max(
+            0,
+            Dimen._round_div(
+                scaled * _DOCX_POINTS_PER_TEX_POINT_NUM * 2,
+                _DOCX_POINTS_PER_TEX_POINT_DEN * Dimen.scale,
+            ),
+        )
 
     @classmethod
     def _apply_run_kerning(cls, run, size):
@@ -816,16 +832,30 @@ class DocxBackend(Shipout):
         if not delta:
             return 0
         value = int(delta)
-        return Dimen._trunc_div(value * 20, Dimen.scale)
+        return Dimen._round_div(
+            value * _DOCX_TWIPS_PER_TEX_POINT_NUM,
+            _DOCX_TWIPS_PER_TEX_POINT_DEN * Dimen.scale,
+        )
 
     @classmethod
     def _fit_text_twips(cls, width):
         value = int(width)
-        return max(0, Dimen._trunc_div(value * 20, Dimen.scale))
+        return max(
+            0,
+            Dimen._round_div(
+                value * _DOCX_TWIPS_PER_TEX_POINT_NUM,
+                _DOCX_TWIPS_PER_TEX_POINT_DEN * Dimen.scale,
+            ),
+        )
 
     @classmethod
     def _twips_to_dimen(cls, twips):
-        return Dimen(float(twips) / 20.0)
+        return Dimen(
+            integer=Dimen._round_div(
+                int(twips) * _DOCX_TWIPS_PER_TEX_POINT_DEN * Dimen.scale,
+                _DOCX_TWIPS_PER_TEX_POINT_NUM,
+            )
+        )
 
     @classmethod
     def _fit_text_for_line(cls, box, first_line_indent=Dimen(), is_first_line=False):

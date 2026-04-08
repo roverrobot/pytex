@@ -242,11 +242,11 @@ def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert 'w:lineRule="exact"' in xml
-    assert 'w:line="240"' in xml
+    assert 'w:line="239"' in xml
     assert 'w:after="0"' in xml
     assert 'w:jc w:val="both"' in xml
-    assert 'w:fitText w:id="1" w:val="1000"' in xml
-    assert 'w:fitText w:id="2" w:val="1000"' in xml
+    assert 'w:fitText w:id="1" w:val="996"' in xml
+    assert 'w:fitText w:id="2" w:val="996"' in xml
     assert "<w:kern" not in xml
     document = Document(io.BytesIO(data))
     assert _paragraph_texts(document) == ["Alpha betaGamma delta"]
@@ -280,7 +280,7 @@ def test_docx_fit_text_spaces_use_nbsp(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert 'xml:space="preserve">\u00a0</w:t>' in xml
-    assert 'w:spacing w:val="140"' in xml
+    assert 'w:spacing w:val="139"' in xml
 
 
 def test_docx_nested_hbox_uses_inline_textbox(parser):
@@ -316,9 +316,9 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert "<w:fitText" in xml
-    assert 'style="width:40.0000pt;height:9.7500pt"' in xml
+    assert 'style="width:39.8506pt;height:9.7136pt"' in xml
     assert re.search(r"<w:rPr><w:noProof/><w:position w:val=\"-\d+\"/></w:rPr><w:pict>", xml)
-    assert '<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="180"/>' in xml
+    assert '<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="179"/>' in xml
     assert re.search(r"<v:textbox[^>]*>.*?<w:t>1</w:t>.*?</v:textbox>", xml, re.S)
     assert "<w:t>Figure</w:t>" in xml
 
@@ -372,7 +372,7 @@ def test_docx_inline_math_uses_inline_textbox(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert "<w:fitText" in xml
-    assert 'style="width:22.0000pt;height:7.7500pt"' in xml
+    assert 'style="width:21.9178pt;height:7.7210pt"' in xml
     assert "<m:oMath>" in xml
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
@@ -544,8 +544,8 @@ def test_docx_inline_math_keeps_line_fragments_separate(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'style="width:14.0000pt;height:7.7500pt"' in xml
-    assert 'style="width:8.0000pt;height:7.7500pt"' in xml
+    assert 'style="width:13.9477pt;height:7.7210pt"' in xml
+    assert 'style="width:7.9701pt;height:7.7210pt"' in xml
     assert xml.count("<m:oMath>") == 2
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
@@ -664,7 +664,7 @@ def test_docx_backend_emits_text_kerns_as_spacing_hints(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert 'w:jc w:val="both"' in xml
-    assert 'w:fitText w:id="1" w:val="1000"' in xml
+    assert 'w:fitText w:id="1" w:val="996"' in xml
     assert 'w:spacing w:val="-20"' in xml
     assert "<w:kern" not in xml
     document = Document(io.BytesIO(data))
@@ -745,8 +745,8 @@ def test_docx_backend_emits_display_math_textbox(parser):
     assert "m:oMathPara" in xml
     assert "mso-fit-text-to-shape:t" in xml
     assert "v:textbox" in xml
-    assert 'style="width:40.0000pt;height:12.0000pt"' in xml
-    assert 'style="width:15.0000pt;height:1.0000pt"' in xml
+    assert 'style="width:39.8506pt;height:11.9552pt"' in xml
+    assert 'style="width:14.9440pt;height:1.0000pt"' in xml
     assert "<m:t>a</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
     assert "<m:t>b</m:t>" in xml
@@ -837,12 +837,12 @@ def test_docx_display_math_emits_eqno_as_separate_box(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'style="width:40.0000pt;height:22.0000pt"' in xml
-    assert 'style="width:15.0000pt;height:17.0000pt"' in xml
+    assert 'style="width:39.8506pt;height:21.9178pt"' in xml
+    assert 'style="width:14.9440pt;height:16.9365pt"' in xml
     assert xml.count("<m:oMathPara>") == 2
     assert '<w:tab/>' in xml
     assert 'w:val="right"' in xml
-    assert 'w:pos="2300"' in xml
+    assert 'w:pos="2291"' in xml
     assert "<m:t>1</m:t>" in xml
 
 

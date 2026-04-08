@@ -1,4 +1,5 @@
 import io
+import re
 import zipfile
 from types import SimpleNamespace
 
@@ -100,6 +101,10 @@ def _docx_bytes(parser, backend):
     return parser.resolver.in_memory_files["texput.docx"].content
 
 
+def _paragraph_texts(document):
+    return [p.text.replace("\u00A0", " ") for p in document.paragraphs]
+
+
 def _math_symbol(ch, atom_type=mmode.ATOM_TYPE.ORD, fam=0):
     return mmode.MathSymbol((atom_type.value << 12) | (fam << 8) | ord(ch), -1)
 
@@ -137,7 +142,7 @@ def test_docx_backend_preserves_tex_line_breaks(parser):
     backend.shipout(page)
 
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert [p.text for p in document.paragraphs] == [
+    assert _paragraph_texts(document) == [
         "Hello worldAgain soon",
         "Second paragraph",
     ]
@@ -173,7 +178,77 @@ def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     assert 'w:fitText w:id="2" w:val="1000"' in xml
     assert "<w:kern" not in xml
     document = Document(io.BytesIO(data))
-    assert [p.text for p in document.paragraphs] == ["Alpha betaGamma delta"]
+    assert _paragraph_texts(document) == ["Alpha betaGamma delta"]
+
+
+def test_docx_fit_text_spaces_use_nbsp(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+    line = _FakeHBox(
+        [
+            nd.CharNode("1", font),
+            nd.Glue(Glue(Dimen(12)), None),
+            nd.CharNode("F", font),
+            nd.CharNode("i", font),
+            nd.CharNode("g", font),
+            nd.CharNode("u", font),
+            nd.CharNode("r", font),
+            nd.CharNode("e", font),
+        ],
+        para,
+        width=50,
+        rightmost_value=50,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert 'xml:space="preserve"> ' in xml
+
+
+def test_docx_nested_hbox_uses_inline_textbox(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+    section_box = _FakeHBox(
+        [nd.CharNode("1", font)],
+        para,
+        width=40,
+        rightmost_value=10,
+    )
+    line = _FakeHBox(
+        [
+            section_box,
+            nd.CharNode("F", font),
+            nd.CharNode("i", font),
+            nd.CharNode("g", font),
+            nd.CharNode("u", font),
+            nd.CharNode("r", font),
+            nd.CharNode("e", font),
+        ],
+        para,
+        width=200,
+        rightmost_value=40,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<w:fitText" not in xml
+    assert 'style="width:40.0000pt;height:9.7500pt"' in xml
+    assert re.search(r"<w:rPr><w:noProof/><w:position w:val=\"-\d+\"/></w:rPr><w:pict>", xml)
+    assert '<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="180"/>' in xml
+    assert re.search(r"<v:textbox[^>]*>.*?<w:t>1</w:t>.*?</v:textbox>", xml, re.S)
+    assert "<w:t>Figure</w:t>" in xml
 
 
 def test_docx_backend_emits_text_kerns_as_spacing_hints(parser):
@@ -244,7 +319,7 @@ def test_docx_backend_handles_horizontally_shifted_nested_vlists(parser):
     backend.shipout(page)
 
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert [p.text for p in document.paragraphs] == ["Shifted text"]
+    assert _paragraph_texts(document) == ["Shifted text"]
 
 
 def test_docx_backend_emits_display_math_textbox(parser):

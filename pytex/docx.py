@@ -23,6 +23,7 @@ from pytex.typeset.shipout import Shipout
 
 _ONE_INCH_PT = 72.0
 _FIT_TEXT_SHORT_LINE_TOLERANCE_PT = 1.0
+_INLINE_TEXTBOX_PAD_PT = 0.75
 _MATH_FAMILY_TEXT_OVERRIDES = {
     0: {
         0x3A: ".",
@@ -40,6 +41,13 @@ class _TextRun:
     text: str
     font: object | None
     spacing_twips: int = 0
+
+
+@dataclass
+class _InlineBoxRun:
+    box: object
+    chunks: list[object] = field(default_factory=list)
+    line_depth: Dimen = field(default_factory=Dimen)
 
 
 @dataclass
@@ -62,7 +70,7 @@ class _ParagraphSpec:
 
 @dataclass
 class _LineSpec:
-    runs: list[_TextRun]
+    runs: list[object]
     box: object | None = None
     fit_text_twips: int | None = None
 
@@ -288,8 +296,12 @@ class DocxBackend(Shipout):
                 self._apply_run_kerning(run, at)
 
     @classmethod
+    def _font_half_points(cls, size):
+        return int(cls._pt(size) * 2)
+
+    @classmethod
     def _apply_run_kerning(cls, run, size):
-        half_points = int(round(cls._pt(size) * 2))
+        half_points = cls._font_half_points(size)
         if half_points <= 0:
             return
         rPr = run._r.get_or_add_rPr()
@@ -355,28 +367,64 @@ class DocxBackend(Shipout):
     def _normalize_runs(self, runs):
         merged = []
         for run in runs:
+            if isinstance(run, _InlineBoxRun):
+                if run.chunks:
+                    run.chunks = self._normalize_runs(run.chunks)
+                merged.append(run)
+                continue
             text = run.text
             if not text:
                 continue
-            if text.isspace() and merged and merged[-1].text.isspace():
+            if (
+                text.isspace()
+                and merged
+                and isinstance(merged[-1], _TextRun)
+                and merged[-1].text.isspace()
+            ):
                 prev = merged[-1]
                 prev.spacing_twips = self._collapsed_space_spacing(prev, run)
                 prev.text = " "
                 continue
-            if merged and merged[-1].font is run.font and merged[-1].spacing_twips == run.spacing_twips:
+            if (
+                merged
+                and isinstance(merged[-1], _TextRun)
+                and merged[-1].font is run.font
+                and merged[-1].spacing_twips == run.spacing_twips
+            ):
                 merged[-1].text += text
             else:
                 merged.append(_TextRun(text, run.font, run.spacing_twips))
-        return merged
+        return self._redistribute_space_spacing(merged)
+
+    @staticmethod
+    def _redistribute_space_spacing(runs):
+        prev_visible = None
+        for run in runs:
+            if isinstance(run, _InlineBoxRun):
+                prev_visible = run
+                continue
+            if not run.text:
+                continue
+            if run.text.isspace():
+                if run.spacing_twips and isinstance(prev_visible, _TextRun):
+                    prev_visible.spacing_twips += run.spacing_twips
+                    run.spacing_twips = 0
+                continue
+            prev_visible = run
+        return runs
 
     def _fit_text_runs(self, runs):
         merged = []
         for run in runs:
+            if not isinstance(run, _TextRun):
+                merged.append(run)
+                continue
             text = run.text
             if not text:
                 continue
             if (
                 merged
+                and isinstance(merged[-1], _TextRun)
                 and merged[-1].font is run.font
                 and merged[-1].spacing_twips == run.spacing_twips
             ):
@@ -385,16 +433,20 @@ class DocxBackend(Shipout):
                 merged.append(_TextRun(text, run.font, run.spacing_twips))
         return merged
 
+    @staticmethod
+    def _line_supports_fit_text(runs):
+        return all(isinstance(run, _TextRun) for run in runs)
+
     @classmethod
     def _spacing_twips(cls, delta):
         if not delta:
             return 0
-        value = int(delta) if isinstance(delta, Dimen) else int(Dimen(delta))
+        value = int(delta)
         return Dimen._trunc_div(value * 20, Dimen.scale)
 
     @classmethod
     def _fit_text_twips(cls, width):
-        value = int(width) if isinstance(width, Dimen) else int(Dimen(width))
+        value = int(width)
         return max(0, Dimen._trunc_div(value * 20, Dimen.scale))
 
     @classmethod
@@ -462,6 +514,9 @@ class DocxBackend(Shipout):
         if display_owner is not None and getattr(box, "display", False):
             yield ("display", display_owner, box)
             return
+        if owner is not None and self._box_has_direct_inline_content(box):
+            yield ("line", _LineEvent(owner=owner, baseline=int(baseline), box=box))
+            return
         items = getattr(box, "list", None) or ()
         emitted_descendant = False
         for node in items:
@@ -479,6 +534,20 @@ class DocxBackend(Shipout):
                     yield event
         if not emitted_descendant and owner is not None:
             yield ("line", _LineEvent(owner=owner, baseline=int(baseline), box=box))
+
+    @staticmethod
+    def _box_has_direct_inline_content(box):
+        items = getattr(box, "list", None) or ()
+        inline_types = {
+            nd.NODE_TYPE.CHAR,
+            nd.NODE_TYPE.LIGATURE,
+            nd.NODE_TYPE.DISC,
+            nd.NODE_TYPE.GLUE,
+            nd.NODE_TYPE.KERN,
+            nd.NODE_TYPE.PENALTY,
+            nd.NODE_TYPE.MATH,
+        }
+        return any(getattr(node, "node_type", None) in inline_types for node in items)
 
     def _walk_vlist(self, box, v=0):
         items = getattr(box, "list", None) or ()
@@ -537,10 +606,14 @@ class DocxBackend(Shipout):
                     _LineSpec(
                         runs=line_runs,
                         box=line.box,
-                        fit_text_twips=self._fit_text_for_line(
-                            line.box,
-                            first_line_indent=current.first_line_indent,
-                            is_first_line=not current.lines,
+                        fit_text_twips=(
+                            self._fit_text_for_line(
+                                line.box,
+                                first_line_indent=current.first_line_indent,
+                                is_first_line=not current.lines,
+                            )
+                            if self._line_supports_fit_text(line_runs)
+                            else None
                         ),
                     )
                 )
@@ -916,6 +989,21 @@ class DocxBackend(Shipout):
                 if text:
                     runs.append(_TextRun(text, getattr(node, "font", None)))
                 continue
+            if node_type == nd.NODE_TYPE.HLIST:
+                child_runs = self._runs_from_box(node)
+                if child_runs:
+                    runs.append(
+                        _InlineBoxRun(
+                            node,
+                            self._normalize_runs(child_runs),
+                            Dimen(getattr(box, "depth", 0)),
+                        )
+                    )
+                    continue
+                width = Dimen(getattr(node, "width", 0))
+                if width > 0:
+                    self._append_box_spacing_run(runs, width, items, index)
+                continue
             if node_type == nd.NODE_TYPE.GLUE:
                 if not self._glue_is_text_space(items, index):
                     continue
@@ -937,12 +1025,20 @@ class DocxBackend(Shipout):
                 continue
         return runs
 
-    @staticmethod
-    def _can_use_box_runs(box):
+    def _append_box_spacing_run(self, runs, width, items, index):
+        font = self._space_font(runs, items, index)
+        nominal_width = self._space_width(font)
+        delta = int(width) - nominal_width
+        runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
+
+    @classmethod
+    def _can_use_box_runs(cls, box):
         items = getattr(box, "list", None) or ()
         for node in items:
             node_type = getattr(node, "node_type", None)
-            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.MATH):
+            if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.MATH):
+                return False
+            if node_type == nd.NODE_TYPE.HLIST and not cls._can_use_box_runs(node):
                 return False
         return True
 
@@ -950,15 +1046,24 @@ class DocxBackend(Shipout):
         return self._has_text_before(items, index) and self._has_text_after(items, index)
 
     @staticmethod
+    def _node_has_inline_text(node):
+        node_type = getattr(node, "node_type", None)
+        if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC):
+            return True
+        if node_type != nd.NODE_TYPE.HLIST:
+            return False
+        for child in getattr(node, "list", None) or ():
+            if DocxBackend._node_has_inline_text(child):
+                return True
+        return False
+
+    @staticmethod
     def _kern_is_text_kern(items, index):
         if index <= 0 or index + 1 >= len(items):
             return False
         prev = items[index - 1]
         nxt = items[index + 1]
-        prev_type = getattr(prev, "node_type", None)
-        next_type = getattr(nxt, "node_type", None)
-        text_types = (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC)
-        return prev_type in text_types and next_type in text_types
+        return DocxBackend._node_has_inline_text(prev) and DocxBackend._node_has_inline_text(nxt)
 
     @staticmethod
     def _apply_text_kern(runs, amount):
@@ -968,39 +1073,138 @@ class DocxBackend(Shipout):
         if spacing == 0:
             return
         for run in reversed(runs):
+            if isinstance(run, _InlineBoxRun):
+                return
             if run.text and not run.text.isspace():
                 run.spacing_twips += spacing
                 return
 
-    @staticmethod
-    def _has_text_before(items, index):
+    @classmethod
+    def _has_text_before(cls, items, index):
         for node in reversed(items[:index]):
-            node_type = getattr(node, "node_type", None)
-            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                return True
-            if node_type == nd.NODE_TYPE.DISC:
+            if cls._node_has_inline_text(node):
                 return True
         return False
 
-    @staticmethod
-    def _has_text_after(items, index):
+    @classmethod
+    def _has_text_after(cls, items, index):
         for node in items[index + 1:]:
-            node_type = getattr(node, "node_type", None)
-            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                return True
-            if node_type == nd.NODE_TYPE.DISC:
+            if cls._node_has_inline_text(node):
                 return True
         return False
 
     def _space_font(self, runs, items, index):
         for run in reversed(runs):
+            if isinstance(run, _InlineBoxRun):
+                font = self._first_font(run.box)
+                if font is not None:
+                    return font
+                continue
             if run.font is not None and not run.text.isspace():
                 return run.font
         for node in items[index + 1:]:
-            font = getattr(node, "font", None)
+            font = self._first_font(node)
             if font is not None:
                 return font
         return None
+
+    @classmethod
+    def _first_font(cls, node):
+        font = getattr(node, "font", None)
+        if font is not None:
+            return font
+        for child in getattr(node, "list", None) or ():
+            font = cls._first_font(child)
+            if font is not None:
+                return font
+        return None
+
+    def _chunk_text(self, chunk):
+        if isinstance(chunk, _TextRun):
+            return chunk.text
+        if isinstance(chunk, _InlineBoxRun):
+            return self._flatten_box_text(chunk.box)
+        return ""
+
+    def _inline_box_text(self, box_run):
+        text = "".join(self._chunk_text(chunk) for chunk in box_run.chunks)
+        return text or self._flatten_box_text(box_run.box)
+
+    def _raw_run_properties_xml(
+        self,
+        font=None,
+        spacing_twips=0,
+        allow_word_kerning=False,
+        no_proof=False,
+        position_half_points=None,
+    ):
+        parts = []
+        if no_proof:
+            parts.append("<w:noProof/>")
+        name = self._font_name(font)
+        if name:
+            escaped_name = escape(name, {'"': "&quot;"})
+            parts.append(f"<w:rFonts w:ascii=\"{escaped_name}\" w:hAnsi=\"{escaped_name}\"/>")
+        at = getattr(font, "at", None)
+        if at is not None:
+            half_points = self._font_half_points(at)
+            if half_points > 0:
+                parts.append(f"<w:sz w:val=\"{half_points}\"/>")
+                if allow_word_kerning:
+                    parts.append(f"<w:kern w:val=\"{half_points}\"/>")
+        if spacing_twips:
+            parts.append(f"<w:spacing w:val=\"{int(spacing_twips)}\"/>")
+        if position_half_points:
+            parts.append(f"<w:position w:val=\"{int(position_half_points)}\"/>")
+        if not parts:
+            return ""
+        return f"<w:rPr>{''.join(parts)}</w:rPr>"
+
+    def _inline_box_content_xml(self, box_run):
+        text = self._inline_box_text(box_run)
+        if not text:
+            return "<w:txbxContent><w:p/></w:txbxContent>"
+        font = self._first_font(box_run.box)
+        line_height = Dimen(getattr(box_run.box, "height", 0) + getattr(box_run.box, "depth", 0))
+        line_twips = self._fit_text_twips(line_height)
+        text = "\u00A0" * len(text) if text.isspace() else text
+        run = (
+            "<w:r>"
+            f"{self._raw_run_properties_xml(font=font, no_proof=True)}"
+            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+            "</w:r>"
+        )
+        ppr = (
+            "<w:pPr>"
+            f"<w:spacing w:before=\"0\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
+            "</w:pPr>"
+        )
+        return f"<w:txbxContent><w:p>{ppr}{run}</w:p></w:txbxContent>"
+
+    def _inline_box_run_xml(self, box_run):
+        box = box_run.box
+        width = max(self._pt(getattr(box, "width", 0)), 1.0)
+        total_height = max(self._pt(getattr(box, "height", 0) + getattr(box, "depth", 0) + Dimen(_INLINE_TEXTBOX_PAD_PT)), 1.0)
+        depth = self._pt(getattr(box_run, "line_depth", 0))
+        position = -int(round(depth * 0.6)) if depth else None
+        content = self._inline_box_content_xml(box_run)
+        return parse_xml(
+            (
+                "<w:r "
+                "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
+                "xmlns:v=\"urn:schemas-microsoft-com:vml\" "
+                "xmlns:o=\"urn:schemas-microsoft-com:office:office\" "
+                "xmlns:w10=\"urn:schemas-microsoft-com:office:word\">"
+                f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
+                "<w:pict>"
+                f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:{total_height:.4f}pt\">"
+                f"<v:textbox inset=\"0,0,0,0\" style=\"mso-fit-text-to-shape:t;v-text-anchor:bottom\">{content}</v:textbox>"
+                "<w10:wrap type=\"none\"/>"
+                "</v:rect>"
+                "</w:pict>"
+                "</w:r>"
+            )
+        )
 
     def _emit_paragraph(self, document, spec):
         para = document.add_paragraph()
@@ -1025,7 +1229,13 @@ class DocxBackend(Shipout):
                 else line_spec.runs
             )
             for chunk in line_runs:
-                run = para.add_run(chunk.text)
+                if isinstance(chunk, _InlineBoxRun):
+                    para._p.append(self._inline_box_run_xml(chunk))
+                    continue
+                text = chunk.text
+                if text.isspace():
+                    text = "\u00A0" * len(text)
+                run = para.add_run(text)
                 self._apply_run_font_with_options(
                     run,
                     chunk.font,

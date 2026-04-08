@@ -360,9 +360,9 @@ def test_docx_display_math_emits_eqno_as_separate_box(parser):
     eqno.list.append(atom_1)
     display.eqno = (eqno, False)
 
-    formula_box = _FakeHBox([], None, width=40, height=9, depth=3)
+    formula_box = _FakeHBox([], None, width=40, height=14, depth=8)
     eqno_box = _FakeHBox([], None, width=15, height=9, depth=3)
-    box = _FakeHBox([formula_box, nd.Kern(Dimen(60)), eqno_box], display, width=115, height=9, depth=3)
+    box = _FakeHBox([formula_box, nd.Kern(Dimen(60)), eqno_box], display, width=115, height=14, depth=8)
     box.display = True
     page = _page_box(parser, [box])
     backend.shipout(page)
@@ -370,10 +370,12 @@ def test_docx_display_math_emits_eqno_as_separate_box(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'style="width:40.0000pt;height:12.0000pt"' in xml
-    assert 'style="width:60.0000pt;height:1.0000pt"' in xml
-    assert 'style="width:15.0000pt;height:12.0000pt"' in xml
+    assert 'style="width:40.0000pt;height:22.0000pt"' in xml
+    assert 'style="width:15.0000pt;height:17.0000pt"' in xml
     assert xml.count("<m:oMathPara>") == 2
+    assert '<w:tab/>' in xml
+    assert 'w:val="right"' in xml
+    assert 'w:pos="2300"' in xml
     assert "<m:t>1</m:t>" in xml
 
 

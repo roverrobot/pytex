@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Pt
@@ -794,9 +794,11 @@ class DocxBackend(Shipout):
         )
         return f"<w:txbxContent>{body}</w:txbxContent>"
 
-    def _display_math_run_xml(self, fields, box):
+    def _display_math_run_xml(self, fields, box, line_depth=None):
         width = max(self._pt(getattr(box, "width", 0)), 1.0)
-        height = max(self._pt(getattr(box, "height", 0) + getattr(box, "depth", 0)), 1.0)
+        if line_depth is None:
+            line_depth = getattr(box, "depth", 0)
+        height = max(self._pt(getattr(box, "height", 0) + line_depth), 1.0)
         content = self._display_math_content_xml(fields, box)
         return parse_xml(
             (
@@ -884,10 +886,19 @@ class DocxBackend(Shipout):
             segments.append(("math", Dimen(getattr(last_box, "width", 0)), getattr(spec.owner, "list", ()), last_box))
             return segments
         segments.append(("math", Dimen(getattr(first_box, "width", 0)), getattr(spec.owner, "list", ()), first_box))
-        if gap != 0:
-            segments.append(("spacer", gap, None, None))
+        segments.append(("tab", Dimen(getattr(spec.box, "width", 0)) + shifted, None, None))
         segments.append(("eqno", Dimen(getattr(last_box, "width", 0)), getattr(eqno_holder, "list", ()), last_box))
         return segments
+
+    @staticmethod
+    def _display_tab_run_xml():
+        return parse_xml(
+            (
+                "<w:r xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
+                "<w:tab/>"
+                "</w:r>"
+            )
+        )
 
     def _runs_from_line_box(self, box):
         if not self._can_use_box_runs(box):
@@ -1030,11 +1041,15 @@ class DocxBackend(Shipout):
         fmt.alignment = WD_ALIGN_PARAGRAPH.LEFT
         fmt.space_before = self._length(self._nonnegative_dimen(spec.space_before))
         fmt.space_after = Pt(0)
+        line_depth = getattr(spec.box, "depth", 0)
         for kind, width, fields, box in self._display_math_segments(spec):
             if kind == "spacer":
                 run_xml = self._display_spacer_run_xml(width)
+            elif kind == "tab":
+                fmt.tab_stops.add_tab_stop(self._length(width), alignment=WD_TAB_ALIGNMENT.RIGHT)
+                run_xml = self._display_tab_run_xml()
             else:
-                run_xml = self._display_math_run_xml(fields, box)
+                run_xml = self._display_math_run_xml(fields, box, line_depth=line_depth)
             if run_xml is not None:
                 para._p.append(run_xml)
         return para

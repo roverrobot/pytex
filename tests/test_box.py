@@ -739,6 +739,12 @@ def test_unvbox(box):
     assert box.box[1] is None
 
 
+def test_unvbox_preserves_existing_paragraph_ownership(cmr10):
+    cmr10.parse("\\setbox1=\\vbox{\\noindent A B\\par}\\unvbox1")
+    top = cmr10.lists[-1]
+    assert _source_nodes(top, paragraph.Paragraph)
+
+
 def test_accent_nochar(cmr10):
     cmr10.parse("\\accent65 \\uppercase{1}")
     top = cmr10.lists[-1]

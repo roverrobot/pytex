@@ -368,8 +368,7 @@ class DocxBackend(Shipout):
                 v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
                 continue
             if node_type == nd.NODE_TYPE.VLIST:
-                shifted = int(getattr(node, "shifted", 0))
-                yield from self._walk_vlist(node, v + shifted)
+                yield from self._walk_vlist(node, v)
                 v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
                 continue
 

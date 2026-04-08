@@ -805,7 +805,8 @@ class UnBox(Command):
             raise ValueError("expecting an hbox", parser.input.position())
         nodes = box.list
         for node in nodes:
-            node.source = box
+            if getattr(node, "source", None) is None:
+                node.source = box
         if top.type == LISTTYPE.VERTICAL:
             top.extend(nodes, add_interline=False)
         else:

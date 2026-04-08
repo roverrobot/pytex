@@ -154,3 +154,18 @@ def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     assert 'w:line="240"' in xml
     assert 'w:after="0"' in xml
     assert 'Alpha beta' in xml and 'Gamma delta' in xml
+
+
+def test_docx_backend_handles_horizontally_shifted_nested_vlists(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    line = _line_box(parser, "Shifted text", para)
+    inner = _FakeVBox([line], width=80, height=20, depth=0)
+    inner.shifted = Dimen(25)
+    page = _page_box(parser, [inner])
+    backend.shipout(page)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert [p.text for p in document.paragraphs] == ["Shifted text"]

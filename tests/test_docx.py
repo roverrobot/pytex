@@ -1,6 +1,7 @@
 import io
 import re
 import zipfile
+from types import SimpleNamespace
 
 from docx import Document
 import pytest
@@ -12,7 +13,7 @@ from pytex import node as nd
 from pytex import paragraph as pg
 from pytex.dimen import Dimen
 from pytex.font_backend import GlyphInfo
-from pytex.glue import Glue
+from pytex.glue import Glue, Stretchness
 from pytex.parser import Parser
 from pytex.token import CATCODE
 
@@ -375,6 +376,76 @@ def test_docx_inline_math_uses_inline_textbox(parser):
     assert "<m:t>+</m:t>" in xml
     assert "<m:t>y</m:t>" in xml
     assert xml.count('w:spacing w:val="-40"') >= 2
+
+
+def test_docx_inline_math_preserves_tex_spacing_inside_omml(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_y.nucleus = _math_symbol("y")
+    inline = _inline_math_owner(atom_x, atom_y)
+
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen()
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen()
+
+    math_x = _FakeHBox([], atom_x, width=8, height=6, depth=1)
+    space = nd.Kern(Dimen(2))
+    math_y = _FakeHBox([], atom_y, width=8, height=6, depth=1)
+    line = _FakeHBox(
+        [
+            on,
+            math_x,
+            space,
+            math_y,
+            off,
+        ],
+        para,
+        width=40,
+        height=7,
+        depth=2,
+        rightmost_value=18,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<m:t>x</m:t>" in xml
+    assert "<m:t>y</m:t>" in xml
+    assert any(space_char in xml for space_char in ("\u2009", "\u205F", "\u200A", "\u2005", "\u2004"))
+
+
+def test_docx_inline_math_uses_realized_glue_width_from_line_box(parser):
+    backend = docx.DocxBackend(parser)
+
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_y.nucleus = _math_symbol("y")
+
+    glue = nd.Glue(Glue(Dimen(2), Stretchness(Dimen(2), 0), Stretchness(Dimen(), 0)), None)
+    line = _FakeHBox([_FakeHBox([], atom_x, width=8, height=6, depth=1), glue, _FakeHBox([], atom_y, width=8, height=6, depth=1)], None)
+    line.glue_ratio = (1, 1, 1)
+    line.natural = SimpleNamespace(
+        stretch=Stretchness(Dimen(2), 0),
+        shrink=Stretchness(Dimen(), 0),
+    )
+
+    fields = backend._fragment_math_fields(line.list, line)
+    spaces = [field for field in fields if isinstance(field, docx._MathSpacing)]
+    assert spaces
+    assert spaces[0].amount == Dimen(4)
 
 
 def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):

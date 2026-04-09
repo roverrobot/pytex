@@ -12,7 +12,11 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import EmbeddedType1Face, Font as ReportLabFont, registerFont, registerTypeFace
 from reportlab.pdfbase.ttfonts import TTFont as ReportLabTTFont
 from reportlab.pdfgen import canvas as reportlab_canvas
+from reportlab.graphics import renderPDF
+from reportlab.graphics.shapes import Drawing
+from reportlab.lib import colors
 from reportlab.lib.rl_accel import fp_str
+from fontTools.pens.reportLabPen import ReportLabPen
 
 from pytex import node as nd
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, UNITS
@@ -504,6 +508,46 @@ class PDFBackend(Shipout):
         )
         return True
 
+    def _reportlab_fill_color(self):
+        space, values = self._current_color
+        vals = tuple(float(v) for v in (values or ()))
+        if space == "gray":
+            return colors.Color(vals[0], vals[0], vals[0])
+        if space == "rgb":
+            return colors.Color(*vals)
+        if space == "cmyk":
+            return colors.CMYKColor(*vals)
+        return colors.black
+
+    def _draw_opentype_glyph_outline(self, node, x, y):
+        backend = getattr(self.current_font, "backend", None)
+        glyph_name = getattr(node.char_info, "glyph_name", None)
+        glyph_set = getattr(backend, "_glyph_set", None)
+        if glyph_name is None or glyph_set is None:
+            return False
+        glyph = glyph_set.get(glyph_name)
+        if glyph is None:
+            return False
+        # If the node's Unicode character already maps to the selected glyph,
+        # normal text drawing is preferable. Outline fallback is for variant-only
+        # glyphs that have no usable cmap entry.
+        mapped = getattr(backend, "_glyphName", lambda _char: None)(node.char)
+        if mapped == glyph_name and ord(node.char) < 0xF0000:
+            return False
+        path = ReportLabPen(glyph_set).path
+        glyph.draw(ReportLabPen(glyph_set, path))
+        drawing = Drawing(0, 0)
+        path.strokeColor = None
+        path.fillColor = self._reportlab_fill_color()
+        drawing.add(path)
+        scale = float(getattr(self.current_font, "at", 10.0) or 10.0) / float(getattr(backend, "units_per_em", 1000) or 1000)
+        self.canvas.saveState()
+        self.canvas.translate(x, y)
+        self.canvas.scale(scale, scale)
+        renderPDF.draw(drawing, self.canvas, 0, 0)
+        self.canvas.restoreState()
+        return True
+
     def set_char(self, node):
         self._warn_reportlab_non_bmp(node.char)
         x = self._x(self.h)
@@ -511,6 +555,8 @@ class PDFBackend(Shipout):
         if getattr(getattr(self.current_font, "backend", None), "kind", None) == "tfm" and self._draw_raw_8bit_char(
             node.char, x, y, float(self.current_font.at)
         ):
+            pass
+        elif self._draw_opentype_glyph_outline(node, x, y):
             pass
         else:
             self.canvas.drawString(x, y, node.char)

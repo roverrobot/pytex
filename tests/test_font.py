@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pytex import opentype
 from pytex import texlive
@@ -95,6 +97,23 @@ def test_read_system_opentype_font_name(parser, monkeypatch):
     assert font.backend.name == "LM Roman 10 Regular"
     assert font.backend.path == path
     assert float(font["A"].width) > 7.0
+
+
+def test_opentype_math_variants_populate_next_larger_and_assembly(parser):
+    path = Path(__file__).resolve().parents[1] / ".cache" / "fonts" / "STIXTwoMath-input.ttf"
+    try:
+        backend = parser.loadFontBackend(str(path))
+    except FileNotFoundError:
+        pytest.skip("STIXTwoMath input TTF not available")
+    info = backend.glyphInfo("∫")
+    assert info is not None
+    assert info.next_larger is not None
+    larger = backend.glyphInfo(info.next_larger)
+    assert larger is not None
+    assert float(larger.height + larger.depth) > float(info.height + info.depth)
+    assert info.assembly is not None
+    assert info.assembly.top is not None
+    assert info.assembly.repeat is not None
 
 
 def test_missing_character_is_logged_and_omitted(cmr10):

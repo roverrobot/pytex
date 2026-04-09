@@ -31,7 +31,11 @@ _DOCX_TWIPS_PER_TEX_POINT_NUM = 144000
 _DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
 _FIT_TEXT_SHORT_LINE_TOLERANCE_PT = 1.0
 _INLINE_TEXTBOX_PAD_PT = 0.75
+_LOCAL_STIX_TTF = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", ".cache", "fonts", "STIXTwoMath-input.ttf")
+)
 _DOCX_MATH_FONT_CANDIDATES = (
+    _LOCAL_STIX_TTF,
     "Latin Modern Math",
     "STIX Two Math",
     "XITS Math",
@@ -68,6 +72,9 @@ def _docx_math_slot_text(family, code):
             return text
     elif family == 3:
         text = html_math._MATH_LARGE_SYMBOLS_MAP.get(code)
+        if text is not None:
+            return text
+        text = html_math._MATH_SYMBOLS_MAP.get(code)
         if text is not None:
             return text
     if 0x20 <= code < 0x7F:
@@ -393,6 +400,7 @@ class _LineEvent:
 class _DisplayMathSpec:
     owner: object
     box: object
+    page: object | None = None
     space_before: Dimen = field(default_factory=Dimen)
 
 
@@ -1154,6 +1162,7 @@ class DocxBackend(Shipout):
                 yield _DisplayMathSpec(
                     owner=event[1],
                     box=event[2],
+                    page=page,
                     space_before=self._nonnegative_dimen(pending_gap),
                 )
                 pending_gap = Dimen()
@@ -1211,6 +1220,9 @@ class DocxBackend(Shipout):
             text = html_math._MATH_LARGE_SYMBOLS_MAP.get(code)
             if text is not None:
                 return text
+            text = html_math._MATH_SYMBOLS_MAP.get(code)
+            if text is not None:
+                return text
         if self._printable_char(symbol.char):
             return symbol.char
         return None
@@ -1255,10 +1267,14 @@ class DocxBackend(Shipout):
             return self._flatten_box_text(getattr(field, "nucleus", None))
         return ""
 
-    def _omml_group_xml(self, fields, normal=False):
-        return "".join(self._omml_field_xml(field, normal=normal) for field in fields if field is not None)
+    def _omml_group_xml(self, fields, normal=False, display_style=False):
+        return "".join(
+            self._omml_field_xml(field, normal=normal, display_style=display_style)
+            for field in fields
+            if field is not None
+        )
 
-    def _omml_script_xml(self, atom, base_xml):
+    def _omml_script_xml(self, atom, base_xml, display_style=False):
         sub = getattr(atom, "sub", None)
         sup = getattr(atom, "sup", None)
         if sub is None and sup is None:
@@ -1268,21 +1284,21 @@ class DocxBackend(Shipout):
             return (
                 "<m:sSubSup>"
                 f"<m:e>{base}</m:e>"
-                f"<m:sub>{self._omml_field_xml(sub)}</m:sub>"
-                f"<m:sup>{self._omml_field_xml(sup)}</m:sup>"
+                f"<m:sub>{self._omml_field_xml(sub, display_style=display_style)}</m:sub>"
+                f"<m:sup>{self._omml_field_xml(sup, display_style=display_style)}</m:sup>"
                 "</m:sSubSup>"
             )
         if sub is not None:
             return (
                 "<m:sSub>"
                 f"<m:e>{base}</m:e>"
-                f"<m:sub>{self._omml_field_xml(sub)}</m:sub>"
+                f"<m:sub>{self._omml_field_xml(sub, display_style=display_style)}</m:sub>"
                 "</m:sSub>"
             )
         return (
             "<m:sSup>"
             f"<m:e>{base}</m:e>"
-            f"<m:sup>{self._omml_field_xml(sup)}</m:sup>"
+            f"<m:sup>{self._omml_field_xml(sup, display_style=display_style)}</m:sup>"
             "</m:sSup>"
         )
 
@@ -1295,25 +1311,63 @@ class DocxBackend(Shipout):
         text = self._math_symbol_text(symbol)
         return "" if text is None else text
 
-    def _omml_atom_xml(self, atom):
+    def _omml_op_xml(self, atom):
+        symbol = getattr(atom, "nucleus", None)
+        if not isinstance(symbol, mmode.MathSymbol):
+            return None
+        op_text = self._math_symbol_text(symbol)
+        if not op_text:
+            return None
+        op_text_attr = escape(op_text, {'"': "&quot;"})
+        style = getattr(atom, "typeset_style", None)
+        if style is None or style.style != mmode.MATH_STYLE.D:
+            return None
+        use_limits = atom._rule13UseLimits(style)
+        pieces = [
+            "<m:nary>",
+            "<m:naryPr>",
+            f"<m:chr m:val=\"{op_text_attr}\"/>",
+            f"<m:limLoc m:val=\"{'undOvr' if use_limits else 'subSup'}\"/>",
+            "<m:grow m:val=\"1\"/>",
+            "</m:naryPr>",
+        ]
+        sub = getattr(atom, "sub", None)
+        sup = getattr(atom, "sup", None)
+        if sub is not None:
+            pieces.append(f"<m:sub>{self._omml_field_xml(sub)}</m:sub>")
+        if sup is not None:
+            pieces.append(f"<m:sup>{self._omml_field_xml(sup)}</m:sup>")
+        pieces.append("<m:e><m:r><m:t xml:space=\"preserve\">&#160;</m:t></m:r></m:e>")
+        pieces.append("</m:nary>")
+        return "".join(pieces)
+
+    def _omml_atom_xml(self, atom, display_style=False):
+        if isinstance(atom, mmode.Op):
+            nary_xml = self._omml_op_xml(atom)
+            if nary_xml:
+                return nary_xml
         operator_text = isinstance(atom, mmode.Op) and not isinstance(getattr(atom, "nucleus", None), mmode.MathSymbol)
         boundary = atom._boundaryInfo() if hasattr(atom, "_boundaryInfo") else None
         if boundary is not None:
             left_delim, right_delim, body_items = boundary
             base_xml = (
                 self._math_run_xml(self._delimiter_text(left_delim), normal=operator_text)
-                + self._omml_group_xml(body_items, normal=operator_text)
+                + self._omml_group_xml(body_items, normal=operator_text, display_style=display_style)
                 + self._math_run_xml(self._delimiter_text(right_delim), normal=operator_text)
             )
         else:
-            base_xml = self._omml_field_xml(getattr(atom, "nucleus", None), normal=operator_text)
+            base_xml = self._omml_field_xml(
+                getattr(atom, "nucleus", None),
+                normal=operator_text,
+                display_style=display_style,
+            )
         if getattr(atom, "left", None) is not None:
             base_xml = self._math_run_xml(self._delimiter_text(atom.left), normal=operator_text) + base_xml
         if getattr(atom, "right", None) is not None:
             base_xml += self._math_run_xml(self._delimiter_text(atom.right), normal=operator_text)
-        return self._omml_script_xml(atom, base_xml)
+        return self._omml_script_xml(atom, base_xml, display_style=display_style)
 
-    def _omml_field_xml(self, field, normal=False):
+    def _omml_field_xml(self, field, normal=False, display_style=False):
         if field is None or isinstance(field, mmode.StyleNode):
             return ""
         if isinstance(field, str):
@@ -1329,13 +1383,13 @@ class DocxBackend(Shipout):
         if isinstance(field, mmode.MathSymbol):
             return self._math_run_xml(self._math_symbol_text(field), normal=normal)
         if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
-            return self._omml_group_xml(getattr(field, "list", ()), normal=normal)
+            return self._omml_group_xml(getattr(field, "list", ()), normal=normal, display_style=display_style)
         if isinstance(field, mmode.Over):
             num, den, _bar, _thickness = field.nucleus
             frac_xml = (
                 "<m:f>"
-                f"<m:num>{self._omml_group_xml(getattr(num, 'list', ()))}</m:num>"
-                f"<m:den>{self._omml_group_xml(getattr(den, 'list', ()))}</m:den>"
+                f"<m:num>{self._omml_group_xml(getattr(num, 'list', ()), display_style=display_style)}</m:num>"
+                f"<m:den>{self._omml_group_xml(getattr(den, 'list', ()), display_style=display_style)}</m:den>"
                 "</m:f>"
             )
             if getattr(field, "delims", None) is not None:
@@ -1345,18 +1399,18 @@ class DocxBackend(Shipout):
                     + frac_xml
                     + self._math_run_xml(self._delimiter_text(right_delim), normal=normal)
                 )
-            return self._omml_script_xml(field, frac_xml)
+            return self._omml_script_xml(field, frac_xml, display_style=display_style)
         if isinstance(field, mmode.Rad):
             base_xml = (
                 "<m:rad>"
                 "<m:radPr><m:degHide m:val=\"1\"/></m:radPr>"
-                f"<m:e>{self._omml_field_xml(field.oprand)}</m:e>"
+                f"<m:e>{self._omml_field_xml(field.oprand, display_style=display_style)}</m:e>"
                 "</m:rad>"
             )
-            return self._omml_script_xml(field, base_xml)
+            return self._omml_script_xml(field, base_xml, display_style=display_style)
         if isinstance(field, mmode.Accent):
             accent = getattr(field, "accent", None)
-            base_xml = self._omml_field_xml(field.base)
+            base_xml = self._omml_field_xml(field.base, display_style=display_style)
             if not base_xml:
                 return ""
             if accent is not None:
@@ -1367,9 +1421,9 @@ class DocxBackend(Shipout):
                     f"<m:e>{base_xml}</m:e>"
                     "</m:acc>"
                 )
-            return self._omml_script_xml(field, base_xml)
+            return self._omml_script_xml(field, base_xml, display_style=display_style)
         if isinstance(field, mmode.Atom):
-            return self._omml_atom_xml(field)
+            return self._omml_atom_xml(field, display_style=display_style)
         if isinstance(field, mmode.Box):
             return self._math_run_xml(self._flatten_box_text(getattr(field, "nucleus", None)), normal=normal)
         return ""
@@ -1387,27 +1441,52 @@ class DocxBackend(Shipout):
                 parts.append(self._flatten_box_text(node))
         return "".join(parts)
 
-    def _display_math_content_xml(self, fields, box):
+    def _display_math_content_xml(self, fields, box, line_depth=None, total_height=None):
+        effective_depth = Dimen(getattr(box, "depth", 0))
+        if line_depth is not None and line_depth > effective_depth:
+            effective_depth = Dimen(line_depth)
+        total_height = Dimen(total_height) if total_height is not None else Dimen(getattr(box, "height", 0)) + effective_depth
+        line_twips = max(self._spacing_twips(total_height), 1)
+        ppr = (
+            "<w:pPr>"
+            f"<w:spacing w:before=\"0\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
+            "</w:pPr>"
+        )
         inner = self._omml_group_xml(fields)
+        prefix = ""
+        first_field = next((field for field in fields if field is not None), None)
+        if (
+            isinstance(first_field, mmode.Op)
+            and isinstance(getattr(first_field, "nucleus", None), mmode.MathSymbol)
+            and getattr(getattr(first_field, "typeset_style", None), "style", None) == mmode.MATH_STYLE.D
+        ):
+            prefix = (
+                "<w:r>"
+                "<w:rPr><w:noProof/><w:vanish/></w:rPr>"
+                "<w:t xml:space=\"preserve\"> </w:t>"
+                "</w:r>"
+            )
         if inner:
-            body = f"<w:p><m:oMathPara><m:oMath>{inner}</m:oMath></m:oMathPara></w:p>"
+            body = f"<w:p>{ppr}{prefix}<m:oMathPara><m:oMath>{inner}</m:oMath></m:oMathPara></w:p>"
             return f"<w:txbxContent>{body}</w:txbxContent>"
         text = self._flatten_box_text(box)
         if not text:
             return "<w:txbxContent><w:p/></w:txbxContent>"
         body = (
-            "<w:p><w:r><w:rPr><w:noProof/></w:rPr>"
+            f"<w:p>{ppr}<w:r><w:rPr><w:noProof/></w:rPr>"
             f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
             "</w:r></w:p>"
         )
         return f"<w:txbxContent>{body}</w:txbxContent>"
 
-    def _display_math_run_xml(self, fields, box, line_depth=None):
+    def _display_math_run_xml(self, fields, box, line_depth=None, total_height=None):
         width = max(self._pt(getattr(box, "width", 0)), 1.0)
-        if line_depth is None:
-            line_depth = getattr(box, "depth", 0)
-        height = max(self._pt(getattr(box, "height", 0) + line_depth), 1.0)
-        content = self._display_math_content_xml(fields, box)
+        effective_depth = Dimen(getattr(box, "depth", 0))
+        if line_depth is not None and line_depth > effective_depth:
+            effective_depth = Dimen(line_depth)
+        total_height = Dimen(total_height) if total_height is not None else Dimen(getattr(box, "height", 0)) + effective_depth
+        height = max(self._pt(total_height), 1.0)
+        content = self._display_math_content_xml(fields, box, line_depth=effective_depth, total_height=total_height)
         return parse_xml(
             (
                 "<w:r "
@@ -2049,6 +2128,7 @@ class DocxBackend(Shipout):
         fmt.space_before = self._length(self._nonnegative_dimen(spec.space_before))
         fmt.space_after = Pt(0)
         line_depth = getattr(spec.box, "depth", 0)
+        math_total_height = Dimen(getattr(spec.box, "height", 0)) + Dimen(getattr(spec.box, "depth", 0))
         for kind, width, fields, box in self._display_math_segments(spec):
             if kind == "spacer":
                 run_xml = self._display_spacer_run_xml(width)
@@ -2056,7 +2136,12 @@ class DocxBackend(Shipout):
                 fmt.tab_stops.add_tab_stop(self._length(width), alignment=WD_TAB_ALIGNMENT.RIGHT)
                 run_xml = self._display_tab_run_xml()
             else:
-                run_xml = self._display_math_run_xml(fields, box, line_depth=line_depth)
+                run_xml = self._display_math_run_xml(
+                    fields,
+                    box,
+                    line_depth=line_depth,
+                    total_height=math_total_height if kind == "math" else None,
+                )
             if run_xml is not None:
                 para._p.append(run_xml)
         return para

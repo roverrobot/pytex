@@ -33,6 +33,8 @@ class GlyphInfo:
     height: float
     depth: float
     italic: float = 0
+    glyph_name: str | None = None
+    glyph_id: int | None = None
     program: dict[int, object] | None = None
     next_larger: str | None = None
     assembly: GlyphAssembly | None = None

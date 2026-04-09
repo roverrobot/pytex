@@ -13,7 +13,13 @@ from typing import Optional
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTCollection, TTFont, TTLibError, TTLibFileIsCollectionError
 
-from pytex.font_backend import FontBackend, GlyphInfo, registerBackend
+from pytex.font_backend import (
+    FontBackend,
+    GlyphAssembly,
+    GlyphAssemblyPart,
+    GlyphInfo,
+    registerBackend,
+)
 from pytex.module import Module
 
 
@@ -31,8 +37,17 @@ class OpenTypeBackend(FontBackend):
         self.font_number = font_number
         self.units_per_em = font["head"].unitsPerEm
         self._cmap = font.getBestCmap() or {}
+        self._reverse_cmap = {}
+        for codepoint, glyph_name in self._cmap.items():
+            current = self._reverse_cmap.get(glyph_name)
+            if current is None or codepoint < current:
+                self._reverse_cmap[glyph_name] = codepoint
         self._glyph_set = font.getGlyphSet()
         self._glyph_info = {}
+        self._synthetic_chars = {}
+        self._synthetic_glyphs = {}
+        self._next_synthetic_codepoint = 0xF0000
+        self._variant_info = None
         self._fontdimen = None
         self._x_height = None
 
@@ -226,7 +241,112 @@ class OpenTypeBackend(FontBackend):
         return value / self.units_per_em
 
     def _glyphName(self, char: str):
+        glyph_name = self._synthetic_glyphs.get(char)
+        if glyph_name is not None:
+            return glyph_name
         return self._cmap.get(ord(char))
+
+    def _charForGlyphName(self, glyph_name: str):
+        codepoint = self._reverse_cmap.get(glyph_name)
+        if codepoint is not None:
+            return chr(codepoint)
+        char = self._synthetic_chars.get(glyph_name)
+        if char is not None:
+            return char
+        if self._next_synthetic_codepoint > 0x10FFFD:
+            raise ValueError("out of synthetic code points for OpenType math variants")
+        char = chr(self._next_synthetic_codepoint)
+        self._next_synthetic_codepoint += 1
+        self._synthetic_chars[glyph_name] = char
+        self._synthetic_glyphs[char] = glyph_name
+        return char
+
+    def _variantAssembly(self, construction):
+        assembly = getattr(construction, "GlyphAssembly", None)
+        if assembly is None:
+            return None
+        parts = []
+        top = None
+        middle = None
+        bottom = None
+        repeat = None
+        records = list(getattr(assembly, "PartRecords", ()) or ())
+        for index, part in enumerate(records):
+            glyph_char = self._charForGlyphName(part.glyph)
+            codepoint = ord(glyph_char)
+            extender = bool(getattr(part, "PartFlags", 0))
+            parts.append(
+                GlyphAssemblyPart(
+                    glyph=glyph_char,
+                    start_connector=self._scaled(getattr(part, "StartConnectorLength", 0)),
+                    end_connector=self._scaled(getattr(part, "EndConnectorLength", 0)),
+                    full_advance=self._scaled(getattr(part, "FullAdvance", 0)),
+                    extender=extender,
+                )
+            )
+            if extender:
+                repeat = codepoint
+                continue
+            if top is None:
+                top = codepoint
+            elif middle is None and index != len(records) - 1:
+                middle = codepoint
+            else:
+                bottom = codepoint
+        return GlyphAssembly(
+            parts=parts,
+            top=top,
+            middle=middle,
+            bottom=bottom,
+            repeat=repeat,
+            vertical=True,
+            italic=0,
+            min_connector_overlap=self._scaled(getattr(self.font["MATH"].table.MathVariants, "MinConnectorOverlap", 0)),
+        )
+
+    def _buildVariantInfo(self):
+        info = {}
+        table = self.font.get("MATH")
+        if table is None:
+            return info
+        variants = getattr(table.table, "MathVariants", None)
+        if variants is None:
+            return info
+        for coverage_name, construction_name, vertical in (
+            ("VertGlyphCoverage", "VertGlyphConstruction", True),
+            ("HorizGlyphCoverage", "HorizGlyphConstruction", False),
+        ):
+            coverage = getattr(variants, coverage_name, None)
+            constructions = getattr(variants, construction_name, None)
+            if coverage is None or constructions is None:
+                continue
+            glyphs = list(getattr(coverage, "glyphs", ()) or ())
+            for index, _base_glyph in enumerate(glyphs):
+                construction = constructions[index]
+                records = list(getattr(construction, "MathGlyphVariantRecord", ()) or ())
+                assembly = self._variantAssembly(construction)
+                for rec_index, record in enumerate(records):
+                    glyph_name = record.VariantGlyph
+                    entry = info.setdefault(glyph_name, {"next_larger": None, "assembly": None})
+                    if rec_index + 1 < len(records):
+                        entry["next_larger"] = self._charForGlyphName(records[rec_index + 1].VariantGlyph)
+                    if assembly is not None and entry["assembly"] is None:
+                        entry["assembly"] = GlyphAssembly(
+                            parts=assembly.parts,
+                            top=assembly.top,
+                            middle=assembly.middle,
+                            bottom=assembly.bottom,
+                            repeat=assembly.repeat,
+                            vertical=vertical,
+                            italic=assembly.italic,
+                            min_connector_overlap=assembly.min_connector_overlap,
+                        )
+        return info
+
+    def _variantInfo(self, glyph_name: str):
+        if self._variant_info is None:
+            self._variant_info = self._buildVariantInfo()
+        return self._variant_info.get(glyph_name)
 
     def _glyphBounds(self, glyph_name):
         glyph = self._glyph_set[glyph_name]
@@ -247,15 +367,18 @@ class OpenTypeBackend(FontBackend):
             _, y_min, _, y_max = bounds
             height = max(0, y_max)
             depth = max(0, -y_min)
+        variant = self._variantInfo(glyph_name) or {}
         info = GlyphInfo(
             char=char,
             width=self._scaled(advance),
             height=self._scaled(height),
             depth=self._scaled(depth),
             italic=0,
+            glyph_name=glyph_name,
+            glyph_id=self.font.getGlyphID(glyph_name),
             program=None,
-            next_larger=None,
-            assembly=None,
+            next_larger=variant.get("next_larger"),
+            assembly=variant.get("assembly"),
         )
         self._glyph_info[char] = info
         return info
@@ -282,6 +405,8 @@ class OpenTypeBackend(FontBackend):
             height=0,
             depth=0,
             italic=0,
+            glyph_name=self._glyphName(char),
+            glyph_id=self.font.getGlyphID(self._glyphName(char)) if self._glyphName(char) is not None else None,
             program=None,
             next_larger=None,
             assembly=None,

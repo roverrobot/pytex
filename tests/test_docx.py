@@ -214,7 +214,7 @@ def test_docx_backend_preserves_tex_line_breaks(parser):
 
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
     assert _paragraph_texts(document) == [
-        "Hello worldAgain soon",
+        "Hello world\nAgain soon",
         "Second paragraph",
     ]
 
@@ -245,11 +245,11 @@ def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     assert 'w:line="239"' in xml
     assert 'w:after="0"' in xml
     assert 'w:jc w:val="both"' in xml
-    assert 'w:fitText w:id="1" w:val="996"' in xml
-    assert 'w:fitText w:id="2" w:val="996"' in xml
+    assert "<w:fitText" not in xml
+    assert "<w:br/>" in xml
     assert "<w:kern" not in xml
     document = Document(io.BytesIO(data))
-    assert _paragraph_texts(document) == ["Alpha betaGamma delta"]
+    assert _paragraph_texts(document) == ["Alpha beta\nGamma delta"]
 
 
 def test_docx_fit_text_spaces_use_nbsp(parser):
@@ -321,6 +321,36 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     assert '<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="179"/>' in xml
     assert re.search(r"<v:textbox[^>]*>.*?<w:t>1</w:t>.*?</v:textbox>", xml, re.S)
     assert "<w:t>Figure</w:t>" in xml
+
+
+def test_docx_does_not_double_apply_first_line_indent_when_line_starts_with_indent_box(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=True)
+    font = _FakeFont()
+    indent_width = docx.DocxBackend._paragraph_first_indent(para)
+    shipped_indent = _FakeHBox([], None, width=indent_width, height=0, depth=0)
+    line = _FakeHBox(
+        [
+            shipped_indent,
+            nd.CharNode("T", font),
+            nd.CharNode("e", font),
+            nd.CharNode("x", font),
+            nd.CharNode("t", font),
+        ],
+        para,
+        width=120,
+        rightmost_value=40,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<w:ind" not in xml
+    assert "<w:t>Text</w:t>" in xml
 
 
 def test_docx_inline_math_uses_inline_textbox(parser):
@@ -712,7 +742,7 @@ def test_docx_backend_emits_text_kerns_as_spacing_hints(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert 'w:jc w:val="both"' in xml
-    assert 'w:fitText w:id="1" w:val="996"' in xml
+    assert "<w:fitText" not in xml
     assert 'w:spacing w:val="-20"' in xml
     assert "<w:kern" not in xml
     document = Document(io.BytesIO(data))

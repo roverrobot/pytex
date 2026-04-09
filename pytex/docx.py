@@ -29,7 +29,6 @@ _DOCX_POINTS_PER_TEX_POINT_NUM = 7200
 _DOCX_POINTS_PER_TEX_POINT_DEN = 7227
 _DOCX_TWIPS_PER_TEX_POINT_NUM = 144000
 _DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
-_FIT_TEXT_SHORT_LINE_TOLERANCE_PT = 1.0
 _INLINE_TEXTBOX_PAD_PT = 0.75
 _LOCAL_STIX_TTF = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", ".cache", "fonts", "STIXTwoMath-input.ttf")
@@ -379,14 +378,12 @@ class _ParagraphSpec:
 class _LineSpec:
     runs: list[object]
     box: object | None = None
-    fit_text_twips: int | None = None
     segments: list[object] = field(default_factory=list)
 
 
 @dataclass
 class _LineSegment:
     runs: list[object]
-    fit_text_twips: int | None = None
 
 
 @dataclass
@@ -425,7 +422,6 @@ class DocxBackend(Shipout):
         self.file = None
         self.finished = False
         self._captured_pages: list[list[_Glyph]] = []
-        self._fit_text_id = 1
         self._docx_math_font = None
 
     def shipout(self, box):
@@ -737,17 +733,6 @@ class DocxBackend(Shipout):
             rPr.append(kern)
         kern.set(qn("w:val"), str(half_points))
 
-    def _apply_run_fit_text(self, run, fit_text_twips, fit_text_id):
-        if fit_text_twips is None or fit_text_twips <= 0:
-            return
-        rPr = run._r.get_or_add_rPr()
-        fit_text = rPr.find(qn("w:fitText"))
-        if fit_text is None:
-            fit_text = OxmlElement("w:fitText")
-            rPr.append(fit_text)
-        fit_text.set(qn("w:id"), str(int(fit_text_id)))
-        fit_text.set(qn("w:val"), str(int(fit_text_twips)))
-
     @staticmethod
     def _space_width(font):
         if font is None:
@@ -825,43 +810,6 @@ class DocxBackend(Shipout):
                 merged.append(_TextRun(text, run.font, run.spacing_twips))
         return merged
 
-    def _fit_text_runs(self, runs):
-        merged = []
-        for run in runs:
-            if not isinstance(run, _TextRun):
-                merged.append(run)
-                continue
-            text = run.text
-            if not text:
-                continue
-            if (
-                merged
-                and isinstance(merged[-1], _TextRun)
-                and merged[-1].font is run.font
-                and merged[-1].spacing_twips == run.spacing_twips
-            ):
-                merged[-1].text += text
-            else:
-                merged.append(_TextRun(text, run.font, run.spacing_twips))
-        return merged
-
-    @staticmethod
-    def _line_supports_fit_text(runs):
-        return all(isinstance(run, _TextRun) for run in runs)
-
-    @classmethod
-    def _line_has_inline_math(cls, box):
-        items = getattr(box, "list", None) or ()
-        for node in items:
-            node_type = getattr(node, "node_type", None)
-            if node_type == nd.NODE_TYPE.MATH:
-                return True
-            if cls._math_source_field(node) is not None:
-                return True
-            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) and cls._line_has_inline_math(node):
-                return True
-        return False
-
     @classmethod
     def _spacing_twips(cls, delta):
         if not delta:
@@ -883,86 +831,6 @@ class DocxBackend(Shipout):
             ),
         )
 
-    @classmethod
-    def _twips_to_dimen(cls, twips):
-        return Dimen(
-            integer=Dimen._round_div(
-                int(twips) * _DOCX_TWIPS_PER_TEX_POINT_DEN * Dimen.scale,
-                _DOCX_TWIPS_PER_TEX_POINT_NUM,
-            )
-        )
-
-    @classmethod
-    def _fit_text_for_line(cls, box, first_line_indent=Dimen(), is_first_line=False):
-        width = Dimen(getattr(box, "width", 0))
-        content_right = Dimen(width)
-        if hasattr(box, "rightmost"):
-            content_right = Dimen(box.rightmost())
-        indent = Dimen(first_line_indent) if is_first_line else Dimen()
-        target_width = width - indent
-        content_width = content_right - indent
-        if target_width <= 0 or content_width <= 0:
-            return None
-        tolerance = Dimen(_FIT_TEXT_SHORT_LINE_TOLERANCE_PT)
-        if content_width < target_width - tolerance:
-            return None
-        return cls._fit_text_twips(target_width)
-
-    def _text_run_width(self, run):
-        if not isinstance(run, _TextRun) or not run.text:
-            return Dimen()
-        font = run.font
-        at = getattr(font, "at", None)
-        total = Dimen()
-        if font is not None and at is not None:
-            for char in run.text:
-                try:
-                    info = font.glyphInfo(char)
-                except Exception:
-                    info = None
-                if info is None:
-                    continue
-                total += Dimen(integer=int(info.width * at))
-        if run.spacing_twips:
-            total += self._twips_to_dimen(run.spacing_twips)
-        return total
-
-    def _run_width(self, run):
-        if isinstance(run, _TextRun):
-            return self._text_run_width(run)
-        if isinstance(run, (_InlineBoxRun, _InlineMathRun)):
-            return Dimen(getattr(run.box, "width", 0))
-        return Dimen()
-
-    def _leading_segment_fit(self, runs, box, first_line_indent=Dimen(), is_first_line=False):
-        first_inline = None
-        for index, run in enumerate(runs):
-            if isinstance(run, (_InlineBoxRun, _InlineMathRun)):
-                first_inline = index
-                break
-        if first_inline is None or first_inline <= 0:
-            return None
-        if any(not isinstance(run, _TextRun) for run in runs[:first_inline]):
-            return None
-        content_right = Dimen(getattr(box, "width", 0))
-        if hasattr(box, "rightmost"):
-            content_right = Dimen(box.rightmost())
-        if is_first_line and first_line_indent != 0:
-            content_right -= Dimen(first_line_indent)
-        suffix_width = Dimen()
-        for run in runs[first_inline:]:
-            suffix_width += self._run_width(run)
-        target_width = content_right - suffix_width
-        if target_width <= 0:
-            return None
-        current_width = Dimen()
-        for run in runs[:first_inline]:
-            current_width += self._run_width(run)
-        tolerance = Dimen(_FIT_TEXT_SHORT_LINE_TOLERANCE_PT)
-        if abs(float(target_width - current_width)) < float(tolerance):
-            return None
-        return first_inline, self._fit_text_twips(target_width)
-
     @staticmethod
     def _line_has_fixed_segments(runs):
         return any(isinstance(run, (_InlineBoxRun, _InlineMathRun)) for run in runs)
@@ -977,11 +845,7 @@ class DocxBackend(Shipout):
             nonlocal text_runs
             if not text_runs:
                 return
-            segments.append(
-                _LineSegment(
-                    runs=self._fit_text_runs(text_runs),
-                )
-            )
+            segments.append(_LineSegment(runs=list(text_runs)))
             text_runs = []
 
         for run in runs:
@@ -1027,6 +891,22 @@ class DocxBackend(Shipout):
         if isinstance(first, bx.IndentBox):
             return Dimen(first.width)
         return Dimen()
+
+    @staticmethod
+    def _line_starts_with_indent_box(line_box, indent_width):
+        if indent_width <= 0:
+            return False
+        items = getattr(line_box, "list", None) or ()
+        for node in items:
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
+                continue
+            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                width = Dimen(getattr(node, "width", 0))
+                if width == indent_width and not DocxBackend._node_has_inline_text(node):
+                    return True
+            return False
+        return False
 
     def _walk_hlist(self, box, baseline):
         """
@@ -1120,15 +1000,17 @@ class DocxBackend(Shipout):
                     if current is not None:
                         self._flush_pending_inline_math(current, paragraph_math_state)
                         yield current
+                    first_line_indent = self._paragraph_first_indent(line.owner)
+                    if self._line_starts_with_indent_box(line.box, first_line_indent):
+                        first_line_indent = Dimen()
                     current = _ParagraphSpec(
                         owner=line.owner,
                         space_before=self._nonnegative_dimen(pending_gap),
-                        first_line_indent=self._paragraph_first_indent(line.owner),
+                        first_line_indent=first_line_indent,
                     )
                     paragraph_math_state = _InlineMathState()
                 else:
                     current.interline_gaps.append(self._nonnegative_dimen(pending_gap))
-                line_started_in_math = paragraph_math_state.active() if paragraph_math_state is not None else False
                 line_runs = self._runs_from_line_box(line.box, paragraph_math_state)
                 if not line_runs:
                     line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
@@ -1139,17 +1021,6 @@ class DocxBackend(Shipout):
                     _LineSpec(
                         runs=line_runs,
                         box=line.box,
-                        fit_text_twips=(
-                            self._fit_text_for_line(
-                                line.box,
-                                first_line_indent=current.first_line_indent,
-                                is_first_line=not current.lines,
-                            )
-                            if self._line_supports_fit_text(line_runs)
-                            and not line_started_in_math
-                            and not self._line_has_inline_math(line.box)
-                            else None
-                        ),
                         segments=line_segments,
                     )
                 )
@@ -1579,6 +1450,16 @@ class DocxBackend(Shipout):
             )
         )
 
+    @staticmethod
+    def _line_break_run_xml():
+        return parse_xml(
+            (
+                "<w:r xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
+                "<w:br/>"
+                "</w:r>"
+            )
+        )
+
     def _runs_from_line_box(self, box, math_state=None):
         if not self._can_use_box_runs(box):
             return []
@@ -1901,7 +1782,6 @@ class DocxBackend(Shipout):
             return
         if math_state.has_nodes():
             spec.lines[-1].runs.extend(self._finalize_inline_math_state(math_state, line_box=spec.lines[-1].box))
-            spec.lines[-1].fit_text_twips = None
         math_state.clear()
 
     def _chunk_text(self, chunk):
@@ -2042,16 +1922,7 @@ class DocxBackend(Shipout):
         for line_index, line_spec in enumerate(spec.lines):
             if line_spec.segments:
                 for segment in line_spec.segments:
-                    segment_fit_id = None
-                    if segment.fit_text_twips is not None:
-                        segment_fit_id = self._fit_text_id
-                        self._fit_text_id += 1
-                    segment_runs = (
-                        self._fit_text_runs(segment.runs)
-                        if segment.fit_text_twips is not None
-                        else segment.runs
-                    )
-                    for chunk in segment_runs:
+                    for chunk in segment.runs:
                         if isinstance(chunk, _InlineBoxRun):
                             para._p.append(self._inline_box_run_xml(chunk))
                             continue
@@ -2068,31 +1939,10 @@ class DocxBackend(Shipout):
                             allow_word_kerning=False,
                         )
                         self._apply_run_spacing(run, chunk.spacing_twips)
-                        self._apply_run_fit_text(run, segment.fit_text_twips, segment_fit_id)
+                if line_index + 1 < len(spec.lines):
+                    para._p.append(self._line_break_run_xml())
                 continue
-            fit_text_id = self._fit_text_id
-            self._fit_text_id += 1
-            line_runs = (
-                self._fit_text_runs(line_spec.runs)
-                if line_spec.fit_text_twips is not None
-                else line_spec.runs
-            )
-            leading_fit = None
-            if line_spec.fit_text_twips is None and line_spec.box is not None:
-                leading_fit = self._leading_segment_fit(
-                    line_runs,
-                    line_spec.box,
-                    first_line_indent=spec.first_line_indent,
-                    is_first_line=(line_index == 0),
-                )
-            leading_fit_id = None
-            leading_fit_limit = None
-            leading_fit_twips = None
-            if leading_fit is not None:
-                leading_fit_limit, leading_fit_twips = leading_fit
-                leading_fit_id = self._fit_text_id
-                self._fit_text_id += 1
-            for run_index, chunk in enumerate(line_runs):
+            for chunk in line_spec.runs:
                 if isinstance(chunk, _InlineBoxRun):
                     para._p.append(self._inline_box_run_xml(chunk))
                     continue
@@ -2109,13 +1959,8 @@ class DocxBackend(Shipout):
                     allow_word_kerning=False,
                 )
                 self._apply_run_spacing(run, chunk.spacing_twips)
-                self._apply_run_fit_text(run, line_spec.fit_text_twips, fit_text_id)
-                if (
-                    leading_fit_id is not None
-                    and run_index < leading_fit_limit
-                    and isinstance(chunk, _TextRun)
-                ):
-                    self._apply_run_fit_text(run, leading_fit_twips, leading_fit_id)
+            if line_index + 1 < len(spec.lines):
+                para._p.append(self._line_break_run_xml())
         return para
 
     def _emit_display_math(self, document, spec):

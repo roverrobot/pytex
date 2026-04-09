@@ -683,6 +683,14 @@ class DocxBackend(Shipout):
         section.page_width = self._length(self._nonnegative_dimen(page_width))
         section.page_height = self._length(self._nonnegative_dimen(page_height))
 
+    def _initial_page_top_offset(self, page):
+        vsize = Dimen(self.parser.layout["vsize"])
+        box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
+        text_height = vsize if vsize > 0 else box_height
+        if box_height <= text_height:
+            return Dimen()
+        return box_height - text_height
+
     @staticmethod
     def _glyph_text(node):
         if getattr(node, "node_type", None) == nd.NODE_TYPE.LIGATURE:
@@ -1111,9 +1119,23 @@ class DocxBackend(Shipout):
     def _page_flow_specs(self, page, glyphs):
         current = None
         pending_gap = Dimen()
+        first_flow_emitted = False
+        initial_top_offset = self._initial_page_top_offset(page)
         line_map = self._glyphs_by_baseline(glyphs)
         paragraph_math_state = None
         emitted_alignments = set()
+
+        def consume_space_before():
+            nonlocal pending_gap, first_flow_emitted
+            gap = pending_gap
+            if not first_flow_emitted and initial_top_offset > 0:
+                gap = gap - initial_top_offset
+                if gap < 0:
+                    gap = Dimen()
+            pending_gap = Dimen()
+            first_flow_emitted = True
+            return self._nonnegative_dimen(gap)
+
         for event in self._walk_vlist(page, 0):
             kind = event[0]
             if kind == "line":
@@ -1139,7 +1161,7 @@ class DocxBackend(Shipout):
                         owner=owner,
                         box=alignment_info[1],
                         display=is_math_alignment,
-                        space_before=self._nonnegative_dimen(pending_gap),
+                        space_before=consume_space_before(),
                         leading_indent=self._nonnegative_dimen(alignment_info[2]),
                     )
                     emitted_alignments.add(owner_key)
@@ -1154,7 +1176,7 @@ class DocxBackend(Shipout):
                         first_line_indent = Dimen()
                     current = _ParagraphSpec(
                         owner=line.owner,
-                        space_before=self._nonnegative_dimen(pending_gap),
+                        space_before=consume_space_before(),
                         first_line_indent=first_line_indent,
                     )
                     paragraph_math_state = _InlineMathState()
@@ -1185,7 +1207,7 @@ class DocxBackend(Shipout):
                     owner=event[1],
                     box=event[2],
                     page=page,
-                    space_before=self._nonnegative_dimen(pending_gap),
+                    space_before=consume_space_before(),
                 )
                 pending_gap = Dimen()
                 continue
@@ -1204,7 +1226,7 @@ class DocxBackend(Shipout):
                     owner=owner,
                     box=event[3] if len(event) > 3 else None,
                     display=bool(event[2]) or self._alignment_is_math(owner),
-                    space_before=self._nonnegative_dimen(pending_gap),
+                    space_before=consume_space_before(),
                 )
                 emitted_alignments.add(owner_key)
                 pending_gap = Dimen()

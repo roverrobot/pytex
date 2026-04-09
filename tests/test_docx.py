@@ -7,6 +7,7 @@ from docx import Document
 import pytest
 
 from pytex import docx
+from pytex import align
 from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
@@ -153,6 +154,13 @@ def _inline_math_owner(*fields):
     return owner
 
 
+def _alignment_cell(parser, text, width=20, font=None):
+    font = _FakeFont() if font is None else font
+    box = _FakeHBox([nd.CharNode(ch, font) for ch in text], None, width=width, height=7, depth=2, rightmost_value=width)
+    box.span = 1
+    return box
+
+
 def test_docx_module_installs_math_font_array_wrappers(parser):
     assert isinstance(parser.textfont, docx._DocxMathFontArray)
     assert isinstance(parser.scriptfont, docx._DocxMathFontArray)
@@ -217,6 +225,74 @@ def test_docx_backend_preserves_tex_line_breaks(parser):
         "Hello world\nAgain soon",
         "Second paragraph",
     ]
+
+
+def test_docx_renders_halign_as_table(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0)), Glue(Dimen(0))]
+    row1 = align.Row()
+    row2 = align.Row()
+    row1.cells = [_alignment_cell(parser, "a", width=15), _alignment_cell(parser, "b", width=18)]
+    row2.cells = [_alignment_cell(parser, "c", width=15), _alignment_cell(parser, "d", width=18)]
+    owner.rows = [row1, row2]
+
+    rowbox1 = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
+    rowbox2 = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
+    page = _page_box(parser, [rowbox1, rowbox2])
+    backend.shipout(page)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert len(document.tables) == 1
+    table = document.tables[0]
+    assert table.cell(0, 0).text == "a"
+    assert table.cell(0, 1).text == "b"
+    assert table.cell(1, 0).text == "c"
+    assert table.cell(1, 1).text == "d"
+
+
+def test_docx_promotes_wrapped_alignment_line_to_table(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0))]
+    row = align.Row()
+    row.cells = [_alignment_cell(parser, "1", width=15), _alignment_cell(parser, "2", width=18)]
+    owner.rows = [row]
+
+    rowbox = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
+    wrapper = _FakeHBox([rowbox], None, width=33, height=8, depth=2, rightmost_value=33)
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox([wrapper], para, width=80, height=8, depth=2, rightmost_value=33)
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert len(document.tables) == 1
+    assert document.tables[0].cell(0, 0).text == "1"
+    assert document.tables[0].cell(0, 1).text == "2"
+
+
+def test_docx_renders_display_alignment_as_table(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0))]
+    row = align.Row()
+    row.cells = [_alignment_cell(parser, "x", width=15)]
+    owner.rows = [row]
+    display = align.MAlignment(owner, list=[])
+
+    page = _page_box(parser, [display])
+    backend.shipout(page)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert len(document.tables) == 1
+    assert document.tables[0].cell(0, 0).text == "x"
 
 
 

@@ -7,11 +7,13 @@ from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
 from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Pt
 
+from pytex import align
 from pytex import box as bx
 from pytex import font as txfont
 from pytex import html_reflow as html_math
@@ -402,15 +404,22 @@ class _DisplayMathSpec:
     space_before: Dimen = field(default_factory=Dimen)
 
 
+@dataclass
+class _AlignmentSpec:
+    owner: object
+    space_before: Dimen = field(default_factory=Dimen)
+    display: bool = False
+
+
 class DocxBackend(Shipout):
     """
     Very small proof-of-concept DOCX backend.
 
     Scope intentionally stays narrow:
     - single-page documents
-    - pure text only
     - TeX controls both paragraph and line breaks
-    - page semantics, math, alignments, images, specials, etc. are ignored
+    - paragraphs, basic alignments, and inline/display math are supported
+    - images, specials, and broader page semantics remain intentionally narrow
 
     The backend reconstructs TeX paragraphs from shipped line boxes, emits one
     Word paragraph per TeX paragraph, inserts explicit line breaks between TeX
@@ -471,6 +480,65 @@ class DocxBackend(Shipout):
     def _display_math_owner(node):
         source = getattr(node, "source", None)
         return source if isinstance(source, mmode.DisplayMathNode) else None
+
+    @staticmethod
+    def _alignment_owner(node):
+        source = getattr(node, "source", None)
+        return source if isinstance(source, align.HAlignment) else None
+
+    @staticmethod
+    def _display_alignment_owner(node):
+        if isinstance(node, align.MAlignment) and isinstance(getattr(node, "source", None), align.HAlignment):
+            return node.source
+        return None
+
+    @staticmethod
+    def _node_belongs_to_alignment(node, owner):
+        source = getattr(node, "source", None)
+        if source is owner:
+            return True
+        return source in getattr(owner, "rows", ())
+
+    def _descendant_alignment_owner(self, node):
+        direct = self._alignment_owner(node)
+        if direct is not None:
+            return direct
+        display = self._display_alignment_owner(node)
+        if display is not None:
+            return display
+        owners = set()
+        for child in getattr(node, "list", None) or ():
+            if getattr(child, "node_type", None) not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                continue
+            owner = self._descendant_alignment_owner(child)
+            if owner is not None:
+                owners.add(owner)
+        if len(owners) == 1:
+            return next(iter(owners))
+        return None
+
+    def _line_alignment_owner(self, box):
+        candidate = None
+        for node in getattr(box, "list", None) or ():
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
+                continue
+            if node_type == nd.NODE_TYPE.MATH:
+                continue
+            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC):
+                return None
+            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                owner = self._descendant_alignment_owner(node)
+                if owner is None:
+                    return None
+                if candidate is None:
+                    candidate = owner
+                    continue
+                if candidate is not owner:
+                    return None
+                continue
+            return None
+        return candidate
 
     @staticmethod
     def _is_math_field(field):
@@ -987,22 +1055,40 @@ class DocxBackend(Shipout):
         items = getattr(box, "list", None) or ()
         glue_state = self._glue_state(box)
         v = int(v)
+        active_alignment = None
         for node in items:
+            if active_alignment is not None and not self._node_belongs_to_alignment(node, active_alignment):
+                active_alignment = None
             node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.ALIGNMENT:
+                owner = self._display_alignment_owner(node)
+                if owner is not None:
+                    yield ("alignment", owner, True)
+                continue
             if node_type == nd.NODE_TYPE.GLUE:
                 amount = self._effective_glue_amount(node, box, glue_state)
-                yield ("glue", node, Dimen(integer=amount))
+                if active_alignment is None:
+                    yield ("glue", node, Dimen(integer=amount))
                 v += amount
                 continue
             if node_type == nd.NODE_TYPE.KERN:
                 amount = int(node.kern)
-                yield ("kern", node, Dimen(integer=amount))
+                if active_alignment is None:
+                    yield ("kern", node, Dimen(integer=amount))
                 v += amount
                 continue
             if node_type == nd.NODE_TYPE.PENALTY:
-                yield ("penalty", node)
+                if active_alignment is None:
+                    yield ("penalty", node)
                 continue
             if node_type == nd.NODE_TYPE.HLIST:
+                owner = self._alignment_owner(node)
+                if owner is not None:
+                    if active_alignment is None:
+                        yield ("alignment", owner, False)
+                        active_alignment = owner
+                    v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
+                    continue
                 shifted = int(getattr(node, "shifted", 0))
                 baseline = v + int(getattr(node, "height", 0))
                 yield from self._walk_hlist(node, baseline)
@@ -1022,6 +1108,20 @@ class DocxBackend(Shipout):
             kind = event[0]
             if kind == "line":
                 line = event[1]
+                alignment_owner = self._line_alignment_owner(line.box)
+                if alignment_owner is not None:
+                    if current is not None:
+                        self._flush_pending_inline_math(current, paragraph_math_state)
+                        yield current
+                        current = None
+                        paragraph_math_state = None
+                    yield _AlignmentSpec(
+                        owner=alignment_owner,
+                        display=False,
+                        space_before=self._nonnegative_dimen(pending_gap),
+                    )
+                    pending_gap = Dimen()
+                    continue
                 if current is None or line.owner is not current.owner:
                     if current is not None:
                         self._flush_pending_inline_math(current, paragraph_math_state)
@@ -1062,6 +1162,19 @@ class DocxBackend(Shipout):
                     owner=event[1],
                     box=event[2],
                     page=page,
+                    space_before=self._nonnegative_dimen(pending_gap),
+                )
+                pending_gap = Dimen()
+                continue
+            if kind == "alignment":
+                if current is not None:
+                    self._flush_pending_inline_math(current, paragraph_math_state)
+                    yield current
+                    current = None
+                    paragraph_math_state = None
+                yield _AlignmentSpec(
+                    owner=event[1],
+                    display=bool(event[2]),
                     space_before=self._nonnegative_dimen(pending_gap),
                 )
                 pending_gap = Dimen()
@@ -1974,6 +2087,23 @@ class DocxBackend(Shipout):
             anchor="bottom",
         )
 
+    def _append_run_chunks(self, para, chunks):
+        for chunk in chunks:
+            if isinstance(chunk, _InlineBoxRun):
+                para._p.append(self._inline_box_run_xml(chunk))
+                continue
+            if isinstance(chunk, _InlineMathRun):
+                para._p.append(self._inline_math_run_xml(chunk))
+                continue
+            text = chunk.text
+            run = para.add_run(text)
+            self._apply_run_font_with_options(
+                run,
+                chunk.font,
+                allow_word_kerning=False,
+            )
+            self._apply_run_spacing(run, chunk.spacing_twips)
+
     def _emit_paragraph(self, document, spec):
         para = document.add_paragraph()
         fmt = para.paragraph_format
@@ -1991,39 +2121,11 @@ class DocxBackend(Shipout):
         for line_index, line_spec in enumerate(spec.lines):
             if line_spec.segments:
                 for segment in line_spec.segments:
-                    for chunk in segment.runs:
-                        if isinstance(chunk, _InlineBoxRun):
-                            para._p.append(self._inline_box_run_xml(chunk))
-                            continue
-                        if isinstance(chunk, _InlineMathRun):
-                            para._p.append(self._inline_math_run_xml(chunk))
-                            continue
-                        text = chunk.text
-                        run = para.add_run(text)
-                        self._apply_run_font_with_options(
-                            run,
-                            chunk.font,
-                            allow_word_kerning=False,
-                        )
-                        self._apply_run_spacing(run, chunk.spacing_twips)
+                    self._append_run_chunks(para, segment.runs)
                 if line_index + 1 < len(spec.lines):
                     para._p.append(self._line_break_run_xml())
                 continue
-            for chunk in line_spec.runs:
-                if isinstance(chunk, _InlineBoxRun):
-                    para._p.append(self._inline_box_run_xml(chunk))
-                    continue
-                if isinstance(chunk, _InlineMathRun):
-                    para._p.append(self._inline_math_run_xml(chunk))
-                    continue
-                text = chunk.text
-                run = para.add_run(text)
-                self._apply_run_font_with_options(
-                    run,
-                    chunk.font,
-                    allow_word_kerning=False,
-                )
-                self._apply_run_spacing(run, chunk.spacing_twips)
+            self._append_run_chunks(para, line_spec.runs)
             if line_index + 1 < len(spec.lines):
                 para._p.append(self._line_break_run_xml())
         return para
@@ -2055,6 +2157,59 @@ class DocxBackend(Shipout):
                 para._p.append(run_xml)
         return para
 
+    def _alignment_entries(self, owner):
+        rows, widths, _ = owner._collectEntries(self.parser)
+        return rows, widths
+
+    def _populate_table_cell(self, cell, box):
+        para = cell.paragraphs[0]
+        fmt = para.paragraph_format
+        fmt.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        fmt.space_before = Pt(0)
+        fmt.space_after = Pt(0)
+        runs = self._runs_from_line_box(box, _InlineMathState()) or self._runs_from_box(box, _InlineMathState())
+        if runs:
+            segments = self._segment_mixed_line_runs(runs)
+            if segments:
+                for segment in segments:
+                    self._append_run_chunks(para, segment.runs)
+            else:
+                self._append_run_chunks(para, runs)
+            return
+        text = self._flatten_box_text(box)
+        if text:
+            para.add_run(text)
+
+    def _emit_alignment(self, document, spec):
+        rows, widths = self._alignment_entries(spec.owner)
+        if not rows or not widths:
+            return None
+        if spec.space_before > 0:
+            spacer = document.add_paragraph()
+            spacer.paragraph_format.space_before = self._length(self._nonnegative_dimen(spec.space_before))
+            spacer.paragraph_format.space_after = Pt(0)
+        table = document.add_table(rows=len(rows), cols=len(widths))
+        table.alignment = WD_TABLE_ALIGNMENT.LEFT
+        table.autofit = False
+        for index, width in enumerate(widths):
+            table.columns[index].width = self._length(width)
+        for row_index, (_, entries) in enumerate(rows):
+            row_cells = table.rows[row_index].cells
+            occupied = set()
+            for entry in entries:
+                start = entry["start"]
+                span = entry["span"]
+                target = row_cells[start]
+                if span > 1:
+                    target = target.merge(row_cells[start + span - 1])
+                occupied.update(range(start, start + span))
+                self._populate_table_cell(target, entry["cell"])
+            for col_index, target in enumerate(row_cells):
+                if col_index in occupied:
+                    continue
+                target.text = ""
+        return table
+
     def _build_document(self):
         document = Document()
         self._configure_math_settings(document)
@@ -2076,6 +2231,8 @@ class DocxBackend(Shipout):
                 self._emit_paragraph(document, spec)
             elif isinstance(spec, _DisplayMathSpec):
                 self._emit_display_math(document, spec)
+            elif isinstance(spec, _AlignmentSpec):
+                self._emit_alignment(document, spec)
         return document
 
     def close(self):

@@ -30,6 +30,7 @@ _DOCX_POINTS_PER_TEX_POINT_DEN = 7227
 _DOCX_TWIPS_PER_TEX_POINT_NUM = 144000
 _DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
 _INLINE_TEXTBOX_PAD_PT = 0.75
+_DOCX_DEFAULT_TEXT_FONT = "Times New Roman"
 _LOCAL_STIX_TTF = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", ".cache", "fonts", "STIXTwoMath-input.ttf")
 )
@@ -505,7 +506,7 @@ class DocxBackend(Shipout):
     def _textbox_style(anchor=None):
         parts = [
             "mso-fit-shape-to-text:f",
-            "mso-fit-text-to-shape:t",
+            "mso-fit-text-to-shape:f",
         ]
         if anchor == "bottom":
             parts.append("v-text-anchor:bottom")
@@ -687,13 +688,33 @@ class DocxBackend(Shipout):
         return glyphs
 
     @staticmethod
-    def _font_name(font):
+    def _docx_font_style(font):
+        backend = getattr(font, "backend", None)
+        name = (getattr(backend, "name", None) or "").lower()
+        bold = any(tag in name for tag in ("bx", "bold", "semibold", "demibold"))
+        italic = any(tag in name for tag in ("it", "italic", "sl", "oblique"))
+        return bold, italic
+
+    @staticmethod
+    def _docx_usable_font_name(name):
+        if not name:
+            return False
+        if os.sep in name or "/" in name or "\\" in name:
+            return False
+        lowered = name.lower()
+        return not lowered.endswith((".ttf", ".otf", ".ttc", ".otc"))
+
+    @classmethod
+    def _font_name(cls, font):
         if font is None:
             return None
         backend = getattr(font, "backend", None)
         if backend is None:
             return None
-        return getattr(backend, "name", None)
+        name = getattr(backend, "name", None)
+        if getattr(backend, "kind", None) == "opentype" and cls._docx_usable_font_name(name):
+            return name
+        return _DOCX_DEFAULT_TEXT_FONT
 
     def _apply_run_font(self, run, font):
         self._apply_run_font_with_options(run, font, allow_word_kerning=True)
@@ -704,6 +725,11 @@ class DocxBackend(Shipout):
         name = self._font_name(font)
         if name:
             run.font.name = name
+        bold, italic = self._docx_font_style(font)
+        if bold:
+            run.bold = True
+        if italic:
+            run.italic = True
         at = getattr(font, "at", None)
         if at is not None:
             run.font.size = self._length(at)
@@ -1795,6 +1821,24 @@ class DocxBackend(Shipout):
         text = "".join(self._chunk_text(chunk) for chunk in box_run.chunks)
         return text or self._flatten_box_text(box_run.box)
 
+    @staticmethod
+    def _font_line_measure(font):
+        at = getattr(font, "at", None)
+        return Dimen(at) if at is not None else Dimen()
+
+    def _inline_chunk_line_measure(self, chunk):
+        if isinstance(chunk, _TextRun):
+            return self._font_line_measure(chunk.font)
+        if isinstance(chunk, (_InlineBoxRun, _InlineMathRun)):
+            return Dimen(getattr(chunk.box, "height", 0) + getattr(chunk.box, "depth", 0))
+        return Dimen()
+
+    def _inline_box_line_measure(self, box_run):
+        required = Dimen(getattr(box_run.box, "height", 0) + getattr(box_run.box, "depth", 0))
+        for chunk in box_run.chunks:
+            required = max(required, self._inline_chunk_line_measure(chunk))
+        return required
+
     def _raw_run_properties_xml(
         self,
         font=None,
@@ -1810,6 +1854,12 @@ class DocxBackend(Shipout):
         if name:
             escaped_name = escape(name, {'"': "&quot;"})
             parts.append(f"<w:rFonts w:ascii=\"{escaped_name}\" w:hAnsi=\"{escaped_name}\"/>")
+        if font is not None:
+            bold, italic = self._docx_font_style(font)
+            if bold:
+                parts.append("<w:b/>")
+            if italic:
+                parts.append("<w:i/>")
         at = getattr(font, "at", None)
         if at is not None:
             half_points = self._font_half_points(at)
@@ -1830,29 +1880,33 @@ class DocxBackend(Shipout):
         if not text:
             return "<w:txbxContent><w:p/></w:txbxContent>"
         font = self._first_font(box_run.box)
-        line_height = Dimen(getattr(box_run.box, "height", 0) + getattr(box_run.box, "depth", 0))
+        line_height = self._inline_box_line_measure(box_run)
         line_twips = self._fit_text_twips(line_height)
+        depth_half_points = int(round(self._pt(getattr(box_run.box, "depth", 0)) * 2.0))
         text = "\u00A0" * len(text) if text.isspace() else text
         run = (
             "<w:r>"
-            f"{self._raw_run_properties_xml(font=font, no_proof=True)}"
+            f"{self._raw_run_properties_xml(font=font, no_proof=True, position_half_points=depth_half_points)}"
             f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
             "</w:r>"
         )
         ppr = (
             "<w:pPr>"
             f"<w:spacing w:before=\"0\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
+            "<w:textAlignment w:val=\"baseline\"/>"
             "</w:pPr>"
         )
         return f"<w:txbxContent><w:p>{ppr}{run}</w:p></w:txbxContent>"
 
-    def _inline_textbox_run_xml(self, content, box, line_depth=None):
+    def _inline_textbox_run_xml(self, content, box, line_depth=None, anchor="bottom"):
         width = max(self._pt(getattr(box, "width", 0)), 1.0)
+        depth = Dimen(getattr(box, "depth", 0))
+        extra_pad = Dimen(_INLINE_TEXTBOX_PAD_PT) if depth > 0 else Dimen()
         total_height = max(
-            self._pt(getattr(box, "height", 0) + getattr(box, "depth", 0) + Dimen(_INLINE_TEXTBOX_PAD_PT)),
+            self._pt(getattr(box, "height", 0) + depth + extra_pad),
             1.0,
         )
-        own_depth = self._pt(getattr(box, "depth", 0) + Dimen(_INLINE_TEXTBOX_PAD_PT))
+        own_depth = self._pt(depth)
         position = -int(round(own_depth * 2.0)) if own_depth else None
         return parse_xml(
             (
@@ -1863,16 +1917,30 @@ class DocxBackend(Shipout):
                 "xmlns:w10=\"urn:schemas-microsoft-com:office:word\" "
                 "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
                 f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
-                f"{self._vml_textbox_xml(content, width, total_height, anchor='bottom')}"
+                f"{self._vml_textbox_xml(content, width, total_height, anchor=anchor)}"
                 "</w:r>"
             )
         )
 
     def _inline_box_run_xml(self, box_run):
+        line_measure = self._inline_box_line_measure(box_run)
+        original_height = Dimen(getattr(box_run.box, "height", 0))
+        original_depth = Dimen(getattr(box_run.box, "depth", 0))
+        tex_total = original_height + original_depth
+        adjusted_box = box_run.box
+        if line_measure > tex_total:
+            adjusted_box = bx.HBox(self.parser, None, None)
+            adjusted_box.list[:] = list(getattr(box_run.box, "list", ()) or ())
+            adjusted_box.width = Dimen(getattr(box_run.box, "width", 0))
+            adjusted_box.height = original_height
+            adjusted_box.depth = max(original_depth, line_measure - original_height)
+            adjusted_box.source = getattr(box_run.box, "source", None)
+            adjusted_box._packed = adjusted_box
         return self._inline_textbox_run_xml(
             self._inline_box_content_xml(box_run),
-            box_run.box,
+            adjusted_box,
             line_depth=getattr(box_run, "line_depth", 0),
+            anchor="top",
         )
 
     def _inline_math_content_xml(self, math_run):
@@ -1903,6 +1971,7 @@ class DocxBackend(Shipout):
             self._inline_math_content_xml(math_run),
             math_run.box,
             line_depth=getattr(math_run, "line_depth", 0),
+            anchor="bottom",
         )
 
     def _emit_paragraph(self, document, spec):

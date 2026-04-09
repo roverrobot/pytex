@@ -288,11 +288,12 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     parser.shipout = backend
 
     para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
+    font = _FakeFont(name="cmbx12", size=17.28)
     section_box = _FakeHBox(
         [nd.CharNode("1", font)],
         para,
         width=40,
+        depth=0,
         rightmost_value=10,
     )
     line = _FakeHBox(
@@ -316,9 +317,16 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert "<w:fitText" not in xml
-    assert 'style="width:39.8506pt;height:9.7136pt"' in xml
-    assert re.search(r"<w:rPr><w:noProof/><w:position w:val=\"-\d+\"/></w:rPr><w:pict>", xml)
-    assert '<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="179"/>' in xml
+    m = re.search(r'style="width:39\.8506pt;height:([0-9.]+)pt"', xml)
+    assert m is not None
+    assert float(m.group(1)) > 6.9738
+    assert "v-text-anchor:top" in xml
+    assert "<w:noProof/>" in xml
+    assert "<w:pict>" in xml
+    assert re.search(r'<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="34\d"/>', xml)
+    assert '<w:textAlignment w:val="baseline"/>' in xml
+    assert 'w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"' in xml
+    assert "<w:b/>" in xml
     assert re.search(r"<v:textbox[^>]*>.*?<w:t>1</w:t>.*?</v:textbox>", xml, re.S)
     assert "<w:t>Figure</w:t>" in xml
 
@@ -821,7 +829,7 @@ def test_docx_backend_emits_display_math_textbox(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert "m:oMathPara" in xml
-    assert "mso-fit-text-to-shape:t" in xml
+    assert "mso-fit-text-to-shape:f" in xml
     assert "v:textbox" in xml
     assert "v-text-anchor:top" in xml
     assert 'style="width:39.8506pt;height:11.9552pt"' in xml

@@ -448,6 +448,9 @@ def test_docx_inline_math_uses_realized_glue_width_from_line_box(parser):
     fields = backend._fragment_math_fields(line.list, line)
     assert fields == [atom_x, atom_y]
 
+    box = backend._inline_math_box(line.list, line_box=line)
+    assert box.width == Dimen(20)
+
 
 def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):
     backend = docx.DocxBackend(parser)

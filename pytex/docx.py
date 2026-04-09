@@ -1508,7 +1508,7 @@ class DocxBackend(Shipout):
             return []
         runs = self._runs_from_box(box, math_state)
         if math_state is not None and math_state.has_nodes():
-            runs.extend(self._finalize_inline_math_state(math_state, keep_open=True))
+            runs.extend(self._finalize_inline_math_state(math_state, keep_open=True, line_box=box))
         return self._normalize_runs(runs)
 
     def _runs_from_box(self, box, math_state=None):
@@ -1524,7 +1524,7 @@ class DocxBackend(Shipout):
             if math_state.in_math:
                 if node_type == nd.NODE_TYPE.MATH and not node.on:
                     math_state.in_math = False
-                    runs.extend(self._finalize_inline_math_state(math_state, node.kern))
+                    runs.extend(self._finalize_inline_math_state(math_state, node.kern, line_box=box))
                     index += 1
                     continue
                 math_state.nodes.append(node)
@@ -1748,17 +1748,18 @@ class DocxBackend(Shipout):
                     fields.append(child)
         return fields
 
-    def _inline_math_box(self, nodes):
+    def _inline_math_box(self, nodes, line_box=None):
         hbox = bx.HBox(self.parser, None, None)
         hbox.list[:] = list(nodes)
         width = Dimen()
         height = Dimen()
         depth = Dimen()
-        glue_state = self._glue_state(hbox)
+        source_box = line_box if line_box is not None else hbox
+        glue_state = self._glue_state(source_box)
         for node in nodes:
             node_type = getattr(node, "node_type", None)
             if node_type == nd.NODE_TYPE.GLUE:
-                width += Dimen(integer=self._effective_glue_amount(node, hbox, glue_state))
+                width += Dimen(integer=self._effective_glue_amount(node, source_box, glue_state))
                 continue
             if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
                 width += Dimen(getattr(node, "kern", 0))
@@ -1786,7 +1787,7 @@ class DocxBackend(Shipout):
         hbox._packed = hbox
         return hbox
 
-    def _finalize_inline_math_state(self, state, trailing_kern=Dimen(), keep_open=False):
+    def _finalize_inline_math_state(self, state, trailing_kern=Dimen(), keep_open=False, line_box=None):
         if not state.active():
             return []
         nodes = list(state.nodes)
@@ -1804,7 +1805,7 @@ class DocxBackend(Shipout):
             self._append_explicit_spacing_run(runs, leading_kern, spacing_font)
             self._append_explicit_spacing_run(runs, trailing_kern, spacing_font)
             return runs
-        box = self._inline_math_box(nodes)
+        box = self._inline_math_box(nodes, line_box=line_box)
         font = spacing_font or self._first_font(box)
         fields = self._fragment_math_fields(nodes, box)
         runs = []
@@ -1823,7 +1824,7 @@ class DocxBackend(Shipout):
         if spec is None or not spec.lines or math_state is None:
             return
         if math_state.has_nodes():
-            spec.lines[-1].runs.extend(self._finalize_inline_math_state(math_state))
+            spec.lines[-1].runs.extend(self._finalize_inline_math_state(math_state, line_box=spec.lines[-1].box))
             spec.lines[-1].fit_text_twips = None
         math_state.clear()
 

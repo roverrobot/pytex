@@ -640,9 +640,31 @@ class DocxBackend(Shipout):
         value = value if isinstance(value, Dimen) else Dimen(value)
         return value if value >= 0 else Dimen()
 
+    def _named_dimen(self, name):
+        try:
+            entry = self.parser.equitable.get(name)
+        except Exception:
+            return None
+        if entry is None:
+            return None
+        accessor = getattr(entry, "value", None)
+        if accessor is None:
+            return None
+        try:
+            target = accessor.getTarget(self.parser)
+            value = target.get()
+        except Exception:
+            return None
+        try:
+            return Dimen(value)
+        except Exception:
+            return None
+
     def _tex_page_size(self, page):
         origin_x = _ONE_INCH_TEX + Dimen(self.parser.layout["hoffset"])
         origin_y = _ONE_INCH_TEX + Dimen(self.parser.layout["voffset"])
+        width = self._named_dimen("\\paperwidth")
+        height = self._named_dimen("\\paperheight")
         try:
             width_param = self.parser.parameters["pdfpagewidth"]
         except Exception:
@@ -651,8 +673,10 @@ class DocxBackend(Shipout):
             height_param = self.parser.parameters["pdfpageheight"]
         except Exception:
             height_param = None
-        width = Dimen(width_param) if width_param is not None else Dimen()
-        height = Dimen(height_param) if height_param is not None else Dimen()
+        if width is None or width <= 0:
+            width = Dimen(width_param) if width_param is not None else Dimen()
+        if height is None or height <= 0:
+            height = Dimen(height_param) if height_param is not None else Dimen()
         box_width = Dimen(getattr(page, "width", 0))
         box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
         if width <= 0:
@@ -661,21 +685,120 @@ class DocxBackend(Shipout):
             height = box_height + 2 * origin_y
         return width, height, origin_x, origin_y
 
-    def _configure_section(self, section, page):
+    def _locate_box_in_hlist(self, box, target, x_left, baseline):
+        items = getattr(box, "list", None) or ()
+        glue_state = self._glue_state(box)
+        h = Dimen(x_left)
+        baseline = Dimen(baseline)
+        for node in items:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                h += Dimen(integer=self._effective_glue_amount(node, box, glue_state))
+                continue
+            if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+                h += Dimen(getattr(node, "kern", 0))
+                continue
+            if node_type == nd.NODE_TYPE.DISC:
+                h += Dimen(getattr(node, "replace_width", 0))
+                continue
+            if node_type == nd.NODE_TYPE.HLIST:
+                child_x = Dimen(h)
+                child_baseline = baseline + Dimen(getattr(node, "shifted", 0))
+                child_top = child_baseline - Dimen(getattr(node, "height", 0))
+                if node is target:
+                    return child_x, child_top
+                located = self._locate_box_in_hlist(node, target, child_x, child_baseline)
+                if located is not None:
+                    return located
+                h += Dimen(getattr(node, "width", 0))
+                continue
+            if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                child_x = Dimen(h)
+                child_top = baseline + Dimen(getattr(node, "shifted", 0)) - Dimen(getattr(node, "height", 0))
+                if node is target:
+                    return child_x, child_top
+                located = self._locate_box_in_vlist(node, target, child_x, child_top)
+                if located is not None:
+                    return located
+                h += Dimen(getattr(node, "width", 0))
+                continue
+            h += Dimen(getattr(node, "width", 0))
+        return None
+
+    def _locate_box_in_vlist(self, box, target, x_left, top):
+        if box is target:
+            return Dimen(x_left), Dimen(top)
+        items = getattr(box, "list", None) or ()
+        glue_state = self._glue_state(box)
+        v = Dimen(top)
+        x_left = Dimen(x_left)
+        for node in items:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                v += Dimen(integer=self._effective_glue_amount(node, box, glue_state))
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                v += Dimen(getattr(node, "kern", 0))
+                continue
+            if node_type == nd.NODE_TYPE.HLIST:
+                child_x = x_left + Dimen(getattr(node, "shifted", 0))
+                child_top = Dimen(v)
+                if node is target:
+                    return child_x, child_top
+                child_baseline = child_top + Dimen(getattr(node, "height", 0))
+                located = self._locate_box_in_hlist(node, target, child_x, child_baseline)
+                if located is not None:
+                    return located
+                v += Dimen(getattr(node, "height", 0) + getattr(node, "depth", 0))
+                continue
+            if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                child_x = x_left + Dimen(getattr(node, "shifted", 0))
+                child_top = Dimen(v)
+                if node is target:
+                    return child_x, child_top
+                located = self._locate_box_in_vlist(node, target, child_x, child_top)
+                if located is not None:
+                    return located
+                v += Dimen(getattr(node, "height", 0) + getattr(node, "depth", 0))
+                continue
+        return None
+
+    def _structural_body_geometry(self, page):
+        slot = self._find_structural_body_slot(page)
+        if slot is None:
+            return None
+        _parent, _index, body = slot
+        located = self._locate_box_in_vlist(page, body, Dimen(), Dimen())
+        if located is None:
+            return None
+        body_left, body_top = located
+        body_width = Dimen(getattr(body, "width", 0))
+        body_height = Dimen(getattr(body, "height", 0) + getattr(body, "depth", 0))
+        if body_width <= 0 or body_height <= 0:
+            return None
+        return body_left, body_top, body_width, body_height
+
+    def _configure_section(self, section, page, page_index=0):
         hsize = Dimen(self.parser.layout["hsize"])
         vsize = Dimen(self.parser.layout["vsize"])
         page_width, page_height, origin_x, origin_y = self._tex_page_size(page)
         box_width = Dimen(getattr(page, "width", 0))
         box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
 
-        text_width = hsize if hsize > 0 else box_width
-        text_height = vsize if vsize > 0 else box_height
+        body_geometry = self._structural_body_geometry(page)
+        if body_geometry is not None:
+            body_left, body_top, text_width, text_height = body_geometry
+            left_margin = self._nonnegative_dimen(origin_x + body_left)
+            top_margin = self._nonnegative_dimen(origin_y + body_top)
+        else:
+            text_width_cmd = self._named_dimen("\\textwidth")
+            text_width = text_width_cmd if text_width_cmd is not None and text_width_cmd > 0 else (hsize if hsize > 0 else box_width)
+            text_height = vsize if vsize > 0 else box_height
 
-        inner_left = box_width - text_width if box_width > text_width else Dimen()
-        inner_top = box_height - text_height if box_height > text_height else Dimen()
-
-        left_margin = self._nonnegative_dimen(origin_x + inner_left)
-        top_margin = self._nonnegative_dimen(origin_y + inner_top)
+            side_name = "\\evensidemargin" if page_index % 2 == 1 else "\\oddsidemargin"
+            side_margin = self._named_dimen(side_name)
+            left_margin = self._nonnegative_dimen(origin_x + (side_margin if side_margin is not None else Dimen()))
+            top_margin = self._nonnegative_dimen(origin_y)
         right_margin = self._nonnegative_dimen(page_width - left_margin - text_width)
         bottom_margin = self._nonnegative_dimen(page_height - top_margin - text_height)
 
@@ -685,6 +808,11 @@ class DocxBackend(Shipout):
         section.bottom_margin = self._length(bottom_margin)
         section.page_width = self._length(self._nonnegative_dimen(page_width))
         section.page_height = self._length(self._nonnegative_dimen(page_height))
+        header_distance, footer_distance = self._header_footer_distances(page)
+        if header_distance is not None:
+            section.header_distance = self._length(header_distance)
+        if footer_distance is not None:
+            section.footer_distance = self._length(footer_distance)
 
     def _initial_page_top_offset(self, page):
         vsize = Dimen(self.parser.layout["vsize"])
@@ -720,9 +848,51 @@ class DocxBackend(Shipout):
         top_slop = self._top_region_boundary_slop()
         if bottom < text_top - top_slop:
             return "header"
-        if top > text_bottom:
+        if top >= text_bottom:
             return "footer"
         return "body"
+
+    def _header_footer_distances(self, page):
+        _page_width, page_height, _origin_x, _origin_y = self._tex_page_size(page)
+        body_geometry = self._structural_body_geometry(page)
+        text_top, text_bottom = self._page_text_vertical_bounds(page)
+        region_map = self._page_region_map(page)
+
+        header_baselines = []
+        footer_baselines = []
+        for event in self._walk_vlist(page, 0):
+            if event[0] != "line":
+                continue
+            line = event[1]
+            line_top, line_bottom = self._line_vertical_bounds(line)
+            region = region_map.get(
+                id(line.box),
+                self._flow_region_from_bounds(line_top, line_bottom, text_top, text_bottom),
+            )
+            if region == "header":
+                header_baselines.append(Dimen(integer=int(line.baseline)))
+            elif region == "footer":
+                footer_baselines.append(Dimen(integer=int(line.baseline)))
+
+        header_distance = None
+        footer_distance = None
+        if body_geometry is not None:
+            _body_left, body_top, _text_width, text_height = body_geometry
+            body_bottom = body_top + text_height
+            if header_baselines:
+                # Measure directly from shipped page geometry:
+                # distance from body top to the lowest header baseline.
+                header_distance = self._nonnegative_dimen(body_top - max(header_baselines))
+            if footer_baselines:
+                # Mirror for footer: distance from body bottom to highest footer baseline.
+                footer_distance = self._nonnegative_dimen(min(footer_baselines) - body_bottom)
+
+        # Fallbacks when structural body geometry is unavailable.
+        if header_distance is None and header_baselines:
+            header_distance = self._nonnegative_dimen(min(header_baselines))
+        if footer_distance is None and footer_baselines:
+            footer_distance = self._nonnegative_dimen(page_height - max(footer_baselines))
+        return header_distance, footer_distance
 
     @staticmethod
     def _line_vertical_bounds(line):
@@ -754,6 +924,55 @@ class DocxBackend(Shipout):
             self._mark_region_subtree(child, region, mapping)
 
     def _find_structural_body_slot(self, root):
+        explicit = self._find_structural_body_slot_by_page_partition(root)
+        if explicit is not None:
+            return explicit
+        return self._find_structural_body_slot_by_vsize(root)
+
+    def _find_structural_body_slot_by_page_partition(self, root):
+        """
+        Prefer the shipped-page structure:
+        header(vlist) + glue + glue + body(vlist) + footer...
+        """
+        best = None
+        target_h = int(Dimen(self.parser.layout["vsize"]))
+
+        def walk(node, depth=0):
+            nonlocal best
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.VLIST:
+                for child in getattr(node, "list", None) or ():
+                    if self._is_box_node(child):
+                        walk(child, depth + 1)
+                return
+
+            items = list(getattr(node, "list", None) or ())
+            if len(items) >= 4:
+                a, b, c, d = items[0], items[1], items[2], items[3]
+                if (
+                    getattr(a, "node_type", None) == nd.NODE_TYPE.VLIST
+                    and getattr(b, "node_type", None) == nd.NODE_TYPE.GLUE
+                    and getattr(c, "node_type", None) == nd.NODE_TYPE.GLUE
+                    and getattr(d, "node_type", None) == nd.NODE_TYPE.VLIST
+                ):
+                    body_h = int(getattr(d, "height", 0) + getattr(d, "depth", 0))
+                    if target_h > 0:
+                        penalty = abs(body_h - target_h)
+                    else:
+                        penalty = 0
+                    score = (depth, -penalty)
+                    if best is None or score > best[0]:
+                        best = (score, node, 3, d)
+            for child in items:
+                if self._is_box_node(child):
+                    walk(child, depth + 1)
+
+        walk(root)
+        if best is None:
+            return None
+        _score, parent, index, body = best
+        return parent, index, body
+
+    def _find_structural_body_slot_by_vsize(self, root):
         target_h = int(Dimen(self.parser.layout["vsize"]))
         target_w = int(Dimen(self.parser.layout["hsize"]))
         if target_h <= 0:
@@ -1824,12 +2043,35 @@ class DocxBackend(Shipout):
             )
         )
 
+    def _unwrap_passthrough_hlist(self, box):
+        current = box
+        while getattr(current, "node_type", None) == nd.NODE_TYPE.HLIST:
+            items = list(getattr(current, "list", None) or ())
+            if self._box_has_direct_inline_content(current):
+                break
+            if len(items) != 1:
+                break
+            child = items[0]
+            if getattr(child, "node_type", None) != nd.NODE_TYPE.HLIST:
+                break
+            if Dimen(getattr(current, "shifted", 0)) != 0:
+                break
+            if Dimen(getattr(current, "width", 0)) != Dimen(getattr(child, "width", 0)):
+                break
+            if Dimen(getattr(current, "height", 0)) != Dimen(getattr(child, "height", 0)):
+                break
+            if Dimen(getattr(current, "depth", 0)) != Dimen(getattr(child, "depth", 0)):
+                break
+            current = child
+        return current
+
     def _runs_from_line_box(self, box, math_state=None):
-        if not self._can_use_box_runs(box):
+        target = self._unwrap_passthrough_hlist(box)
+        if not self._can_use_box_runs(target):
             return []
-        runs = self._runs_from_box(box, math_state)
+        runs = self._runs_from_box(target, math_state)
         if math_state is not None and math_state.has_nodes():
-            runs.extend(self._finalize_inline_math_state(math_state, keep_open=True, line_box=box))
+            runs.extend(self._finalize_inline_math_state(math_state, keep_open=True, line_box=target))
         return self._normalize_runs(runs)
 
     def _runs_from_box(self, box, math_state=None):
@@ -1872,6 +2114,19 @@ class DocxBackend(Shipout):
             if node_type == nd.NODE_TYPE.HLIST:
                 child_runs = self._runs_from_box(node)
                 if child_runs:
+                    child_items = list(getattr(node, "list", None) or ())
+                    if (
+                        not self._box_has_direct_inline_content(node)
+                        and len(child_items) == 1
+                        and getattr(child_items[0], "node_type", None) == nd.NODE_TYPE.HLIST
+                        and Dimen(getattr(node, "width", 0)) == Dimen(getattr(child_items[0], "width", 0))
+                        and Dimen(getattr(node, "height", 0)) == Dimen(getattr(child_items[0], "height", 0))
+                        and Dimen(getattr(node, "depth", 0)) == Dimen(getattr(child_items[0], "depth", 0))
+                        and Dimen(getattr(node, "shifted", 0)) == 0
+                    ):
+                        runs.extend(child_runs)
+                        index += 1
+                        continue
                     runs.append(
                         _InlineBoxRun(
                             node,
@@ -1882,7 +2137,10 @@ class DocxBackend(Shipout):
                     index += 1
                     continue
                 width = Dimen(getattr(node, "width", 0))
-                if width > 0:
+                # Treat empty structural hboxes as inline spacing only when
+                # they sit between text on the same line. Leading/trailing
+                # layout wrappers belong to paragraph geometry, not glyph runs.
+                if width > 0 and self._has_text_before(items, index) and self._has_text_after(items, index):
                     self._append_box_spacing_run(runs, width, items, index)
                 index += 1
                 continue
@@ -2922,12 +3180,12 @@ class DocxBackend(Shipout):
         section.header.is_linked_to_previous = False
         self._clear_story_content(section.header)
         if header_specs:
-            self._emit_specs(section.header, header_specs, page, normalize_first=True)
+            self._emit_specs(section.header, header_specs, page, normalize_first=False)
 
         section.footer.is_linked_to_previous = False
         self._clear_story_content(section.footer)
         if footer_specs:
-            self._emit_specs(section.footer, footer_specs, page, normalize_first=True)
+            self._emit_specs(section.footer, footer_specs, page, normalize_first=False)
 
     def _build_document(self):
         document = Document()
@@ -2950,7 +3208,7 @@ class DocxBackend(Shipout):
                 section = document.sections[0]
             else:
                 section = document.add_section(WD_SECTION_START.NEW_PAGE)
-            self._configure_section(section, page)
+            self._configure_section(section, page, page_index=page_index)
 
             body_specs, header_specs, footer_specs = self._split_region_specs(flow_specs)
             self._emit_specs(document, body_specs, page)

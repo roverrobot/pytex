@@ -229,6 +229,36 @@ def test_docx_backend_preserves_tex_line_breaks(parser):
     ]
 
 
+def test_docx_ignores_leading_empty_hbox_in_line_runs(parser):
+    backend = docx.DocxBackend(parser)
+    font = _FakeFont()
+    lead = _FakeHBox([], None, width=12, height=0, depth=0, rightmost_value=12)
+    line = _FakeHBox(
+        [lead, nd.CharNode("A", font), lead, nd.CharNode("B", font)],
+        None,
+        width=40,
+        height=7,
+        depth=2,
+    )
+
+    runs = backend._runs_from_line_box(line, docx._InlineMathState())
+    text = "".join(getattr(run, "text", "") for run in runs)
+
+    assert text == "A B"
+
+
+def test_docx_unwraps_passthrough_hlist_for_text_runs(parser):
+    backend = docx.DocxBackend(parser)
+    font = _FakeFont()
+    inner = _FakeHBox([nd.CharNode("A", font), nd.CharNode("B", font)], None, width=20, height=7, depth=2)
+    outer = _FakeHBox([inner], None, width=20, height=7, depth=2)
+
+    runs = backend._runs_from_line_box(outer, docx._InlineMathState())
+
+    assert "".join(getattr(run, "text", "") for run in runs) == "AB"
+    assert not any(isinstance(run, docx._InlineBoxRun) for run in runs)
+
+
 def test_docx_renders_halign_as_table(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
@@ -1140,7 +1170,68 @@ def test_docx_section_uses_pdf_page_size_and_tex_origin(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert '<w:pgSz w:w="9963" w:h="13948"/>' in xml
-    assert '<w:pgMar w:top="2636" w:right="3741" w:bottom="5335" w:left="2237"' in xml
+    page_width = Dimen(500)
+    page_height = Dimen(700)
+    origin = Dimen(72.27)
+    text_width = Dimen(200)
+    text_height = Dimen(300)
+    left = docx.DocxBackend._fit_text_twips(origin)
+    top = docx.DocxBackend._fit_text_twips(origin)
+    right = docx.DocxBackend._fit_text_twips(page_width - origin - text_width)
+    bottom = docx.DocxBackend._fit_text_twips(page_height - origin - text_height)
+    assert f'<w:pgMar w:top="{top}" w:right="{right}" w:bottom="{bottom}" w:left="{left}"' in xml
+
+
+def test_docx_section_uses_structural_body_geometry_when_present(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    parser.layout["hsize"] = Dimen(200)
+    parser.layout["vsize"] = Dimen(300)
+    parser.parameters["pdfpagewidth"] = Dimen(500)
+    parser.parameters["pdfpageheight"] = Dimen(700)
+
+    font = _FakeFont()
+    header_line = _FakeHBox([nd.CharNode("H", font)], None, width=200, height=7, depth=2)
+    header = _FakeVBox([header_line], width=200, height=12, depth=0)
+    body = _FakeVBox([], width=200, height=300, depth=0)
+    footer = _FakeHBox([nd.CharNode("F", font)], None, width=200, height=8, depth=0)
+    inner = _FakeVBox(
+        [
+            header,
+            nd.Glue(Glue(Dimen(17)), None),
+            nd.Glue(Glue(Dimen(25)), "\\headsep"),
+            body,
+            nd.Glue(Glue(Dimen(30)), "\\footskip"),
+            footer,
+        ],
+        width=200,
+        height=392,
+        depth=0,
+    )
+    page = _FakeVBox([inner], width=200, height=392, depth=0)
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+
+    page_width = Dimen(500)
+    page_height = Dimen(700)
+    origin = Dimen(72.27)
+    text_width = Dimen(200)
+    text_height = Dimen(300)
+    body_top = Dimen(12 + 17 + 25)
+    left = docx.DocxBackend._fit_text_twips(origin)
+    top = docx.DocxBackend._fit_text_twips(origin + body_top)
+    right = docx.DocxBackend._fit_text_twips(page_width - origin - text_width)
+    bottom = docx.DocxBackend._fit_text_twips(page_height - (origin + body_top) - text_height)
+    measured_header, measured_footer = backend._header_footer_distances(page)
+    header_distance = docx.DocxBackend._fit_text_twips(measured_header)
+    footer_distance = docx.DocxBackend._fit_text_twips(measured_footer)
+    assert (
+        f'<w:pgMar w:top="{top}" w:right="{right}" w:bottom="{bottom}" '
+        f'w:left="{left}" w:header="{header_distance}" w:footer="{footer_distance}"'
+    ) in xml
 
 
 def test_docx_supports_multiple_shipped_pages(parser):

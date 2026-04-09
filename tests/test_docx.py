@@ -252,7 +252,7 @@ def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     assert _paragraph_texts(document) == ["Alpha beta\nGamma delta"]
 
 
-def test_docx_fit_text_spaces_use_nbsp(parser):
+def test_docx_text_spaces_use_preserved_spaces(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -279,7 +279,7 @@ def test_docx_fit_text_spaces_use_nbsp(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'xml:space="preserve">\u00a0</w:t>' in xml
+    assert 'xml:space="preserve"> </w:t>' in xml
     assert 'w:spacing w:val="139"' in xml
 
 
@@ -636,7 +636,7 @@ def test_docx_inline_math_keeps_line_fragments_separate(parser):
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
     assert "<m:t>y</m:t>" in xml
-    assert xml.count('xml:space="preserve"> </w:t>') >= 2
+    assert xml.count('xml:space="preserve"> </w:t>') >= 2
 
 
 def test_docx_inline_math_ignores_penalty_owned_atom_duplicates(parser):

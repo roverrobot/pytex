@@ -1999,8 +1999,6 @@ class DocxBackend(Shipout):
                             para._p.append(self._inline_math_run_xml(chunk))
                             continue
                         text = chunk.text
-                        if text.isspace():
-                            text = "\u00A0" * len(text)
                         run = para.add_run(text)
                         self._apply_run_font_with_options(
                             run,
@@ -2019,8 +2017,6 @@ class DocxBackend(Shipout):
                     para._p.append(self._inline_math_run_xml(chunk))
                     continue
                 text = chunk.text
-                if text.isspace():
-                    text = "\u00A0" * len(text)
                 run = para.add_run(text)
                 self._apply_run_font_with_options(
                     run,

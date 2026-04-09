@@ -142,6 +142,10 @@ class FileResolver:
                     "extensions": ["pdf"],
                     "binary": True,
                 },
+                "docx": {
+                    "extensions": ["docx"],
+                    "binary": True,
+                },
             },
             "source": {
                 "tex": {

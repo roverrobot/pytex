@@ -28,7 +28,7 @@ argparser.add_argument(
     "-o",
     "--output",
     default="pdf",
-    choices=["dvi", "pdf", "html-reflow"],
+    choices=["dvi", "pdf", "html-reflow", "docx"],
     help="shipout output format. Relative output paths are derived from the jobname in the project directory.",
 )
 argparser.add_argument(
@@ -60,6 +60,8 @@ if args.format != "initex":
         import pytex.pdf
     elif args.output == "html-reflow":
         from pytex import html_reflow as html_reflow_backend
+    elif args.output == "docx":
+        from pytex import docx
 
 parser = Parser(project_dir=args.project_dir)
 if html_reflow_backend is not None:

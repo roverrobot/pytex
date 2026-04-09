@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
 from docx import Document
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
@@ -407,6 +407,7 @@ class _DisplayMathSpec:
 @dataclass
 class _AlignmentSpec:
     owner: object
+    box: object | None = None
     space_before: Dimen = field(default_factory=Dimen)
     display: bool = False
 
@@ -499,25 +500,25 @@ class DocxBackend(Shipout):
             return True
         return source in getattr(owner, "rows", ())
 
-    def _descendant_alignment_owner(self, node):
+    def _descendant_alignment_info(self, node):
         direct = self._alignment_owner(node)
         if direct is not None:
-            return direct
+            return direct, node
         display = self._display_alignment_owner(node)
         if display is not None:
-            return display
-        owners = set()
+            return display, node
+        owners = {}
         for child in getattr(node, "list", None) or ():
             if getattr(child, "node_type", None) not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
                 continue
-            owner = self._descendant_alignment_owner(child)
-            if owner is not None:
-                owners.add(owner)
+            info = self._descendant_alignment_info(child)
+            if info is not None:
+                owners[id(info[0])] = info
         if len(owners) == 1:
-            return next(iter(owners))
+            return next(iter(owners.values()))
         return None
 
-    def _line_alignment_owner(self, box):
+    def _line_alignment_info(self, box):
         candidate = None
         for node in getattr(box, "list", None) or ():
             node_type = getattr(node, "node_type", None)
@@ -528,13 +529,13 @@ class DocxBackend(Shipout):
             if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC):
                 return None
             if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
-                owner = self._descendant_alignment_owner(node)
-                if owner is None:
+                info = self._descendant_alignment_info(node)
+                if info is None:
                     return None
                 if candidate is None:
-                    candidate = owner
+                    candidate = info
                     continue
-                if candidate is not owner:
+                if candidate[0] is not info[0]:
                     return None
                 continue
             return None
@@ -1063,7 +1064,7 @@ class DocxBackend(Shipout):
             if node_type == nd.NODE_TYPE.ALIGNMENT:
                 owner = self._display_alignment_owner(node)
                 if owner is not None:
-                    yield ("alignment", owner, True)
+                    yield ("alignment", owner, True, node)
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
                 amount = self._effective_glue_amount(node, box, glue_state)
@@ -1085,7 +1086,7 @@ class DocxBackend(Shipout):
                 owner = self._alignment_owner(node)
                 if owner is not None:
                     if active_alignment is None:
-                        yield ("alignment", owner, False)
+                        yield ("alignment", owner, False, node)
                         active_alignment = owner
                     v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
                     continue
@@ -1108,15 +1109,16 @@ class DocxBackend(Shipout):
             kind = event[0]
             if kind == "line":
                 line = event[1]
-                alignment_owner = self._line_alignment_owner(line.box)
-                if alignment_owner is not None:
+                alignment_info = self._line_alignment_info(line.box)
+                if alignment_info is not None:
                     if current is not None:
                         self._flush_pending_inline_math(current, paragraph_math_state)
                         yield current
                         current = None
                         paragraph_math_state = None
                     yield _AlignmentSpec(
-                        owner=alignment_owner,
+                        owner=alignment_info[0],
+                        box=alignment_info[1],
                         display=False,
                         space_before=self._nonnegative_dimen(pending_gap),
                     )
@@ -1174,6 +1176,7 @@ class DocxBackend(Shipout):
                     paragraph_math_state = None
                 yield _AlignmentSpec(
                     owner=event[1],
+                    box=event[3] if len(event) > 3 else None,
                     display=bool(event[2]),
                     space_before=self._nonnegative_dimen(pending_gap),
                 )
@@ -2158,15 +2161,88 @@ class DocxBackend(Shipout):
         return para
 
     def _alignment_entries(self, owner):
-        rows, widths, _ = owner._collectEntries(self.parser)
-        return rows, widths
+        rows, widths, tabskips = owner._collectEntries(self.parser)
+        return rows, widths, tabskips
+
+    def _alignment_row_layout(self, node, owner):
+        items = getattr(node, "list", None) or ()
+        row_boxes = []
+        row_gaps = []
+        pending_gap = Dimen()
+        glue_state = self._glue_state(node) if getattr(node, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) else None
+        for child in items:
+            node_type = getattr(child, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                if glue_state is not None:
+                    amount = self._effective_glue_amount(child, node, glue_state)
+                else:
+                    amount = int(getattr(getattr(child, "glue", None), "dimen", 0))
+                pending_gap += Dimen(integer=amount)
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                pending_gap += Dimen(getattr(child, "kern", 0))
+                continue
+            owner_match = self._node_belongs_to_alignment(child, owner)
+            if owner_match:
+                row_boxes.append(child)
+                row_gaps.append(pending_gap)
+                pending_gap = Dimen()
+                continue
+        if len(row_boxes) == len(getattr(owner, "rows", ())):
+            return row_boxes, row_gaps
+        for child in items:
+            if getattr(child, "node_type", None) not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                continue
+            found = self._alignment_row_layout(child, owner)
+            if found is not None:
+                return found
+        return None
+
+    @staticmethod
+    def _clear_cell(cell):
+        tc = cell._tc
+        for child in list(tc):
+            if child.tag != qn("w:tcPr"):
+                tc.remove(child)
+        tc.append(parse_xml("<w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>"))
+
+    @staticmethod
+    def _set_table_cell_margins_zero(table):
+        tbl_pr = table._tbl.tblPr
+        tbl_cell_mar = tbl_pr.find(qn("w:tblCellMar"))
+        if tbl_cell_mar is None:
+            tbl_cell_mar = OxmlElement("w:tblCellMar")
+            tbl_pr.append(tbl_cell_mar)
+        for side in ("top", "left", "bottom", "right"):
+            child = tbl_cell_mar.find(qn(f"w:{side}"))
+            if child is None:
+                child = OxmlElement(f"w:{side}")
+                tbl_cell_mar.append(child)
+            child.set(qn("w:w"), "0")
+            child.set(qn("w:type"), "dxa")
+
+    @classmethod
+    def _set_table_cell_width(cls, cell, width):
+        tc_pr = cell._tc.get_or_add_tcPr()
+        tc_w = tc_pr.find(qn("w:tcW"))
+        if tc_w is None:
+            tc_w = OxmlElement("w:tcW")
+            tc_pr.append(tc_w)
+        tc_w.set(qn("w:type"), "dxa")
+        tc_w.set(qn("w:w"), str(cls._fit_text_twips(width)))
 
     def _populate_table_cell(self, cell, box):
+        self._clear_cell(cell)
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.BOTTOM
         para = cell.paragraphs[0]
         fmt = para.paragraph_format
         fmt.alignment = WD_ALIGN_PARAGRAPH.LEFT
         fmt.space_before = Pt(0)
         fmt.space_after = Pt(0)
+        total_height = Dimen(getattr(box, "height", 0) + getattr(box, "depth", 0))
+        if total_height > 0:
+            fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+            fmt.line_spacing = self._length(total_height)
         runs = self._runs_from_line_box(box, _InlineMathState()) or self._runs_from_box(box, _InlineMathState())
         if runs:
             segments = self._segment_mixed_line_runs(runs)
@@ -2181,33 +2257,63 @@ class DocxBackend(Shipout):
             para.add_run(text)
 
     def _emit_alignment(self, document, spec):
-        rows, widths = self._alignment_entries(spec.owner)
+        rows, widths, tabskips = self._alignment_entries(spec.owner)
         if not rows or not widths:
             return None
-        if spec.space_before > 0:
-            spacer = document.add_paragraph()
-            spacer.paragraph_format.space_before = self._length(self._nonnegative_dimen(spec.space_before))
-            spacer.paragraph_format.space_after = Pt(0)
-        table = document.add_table(rows=len(rows), cols=len(widths))
+        row_layout = self._alignment_row_layout(spec.box, spec.owner) if spec.box is not None else None
+        block_gap = self._nonnegative_dimen(spec.space_before)
+        effective_widths = []
+        for index, width in enumerate(widths):
+            effective_widths.append(self._nonnegative_dimen(getattr(tabskips[index], "dimen", 0)))
+            effective_widths.append(width)
+        effective_widths.append(self._nonnegative_dimen(getattr(tabskips[len(widths)], "dimen", 0)))
+        table = document.add_table(rows=len(rows), cols=len(effective_widths))
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
         table.autofit = False
-        for index, width in enumerate(widths):
+        self._set_table_cell_margins_zero(table)
+        for index, width in enumerate(effective_widths):
             table.columns[index].width = self._length(width)
+        for row in table.rows:
+            for index, cell in enumerate(row.cells):
+                self._set_table_cell_width(cell, effective_widths[index])
         for row_index, (_, entries) in enumerate(rows):
-            row_cells = table.rows[row_index].cells
+            row = table.rows[row_index]
+            row_cells = row.cells
+            gap_before = Dimen()
+            if row_layout is not None:
+                row_boxes, row_gaps = row_layout
+                row_height = Dimen(getattr(row_boxes[row_index], "height", 0) + getattr(row_boxes[row_index], "depth", 0))
+                gap_before = row_gaps[row_index]
+            else:
+                row_height = Dimen()
+                for entry in entries:
+                        row_height = max(
+                            row_height,
+                            Dimen(getattr(entry["cell"], "height", 0) + getattr(entry["cell"], "depth", 0)),
+                        )
+            if row_index == 0:
+                gap_before += block_gap
+            if row_height > 0:
+                row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+                row.height = self._length(row_height + self._nonnegative_dimen(gap_before))
             occupied = set()
             for entry in entries:
-                start = entry["start"]
+                start = 2 * entry["start"] + 1
                 span = entry["span"]
+                end = 2 * (entry["start"] + span - 1) + 1
                 target = row_cells[start]
-                if span > 1:
-                    target = target.merge(row_cells[start + span - 1])
-                occupied.update(range(start, start + span))
+                if end > start:
+                    target = target.merge(row_cells[end])
+                merged_width = Dimen()
+                for index in range(start, end + 1):
+                    merged_width += effective_widths[index]
+                self._set_table_cell_width(target, merged_width)
+                occupied.update(range(start, end + 1))
                 self._populate_table_cell(target, entry["cell"])
             for col_index, target in enumerate(row_cells):
                 if col_index in occupied:
                     continue
-                target.text = ""
+                self._clear_cell(target)
         return table
 
     def _build_document(self):

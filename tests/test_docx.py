@@ -247,10 +247,10 @@ def test_docx_renders_halign_as_table(parser):
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
     assert len(document.tables) == 1
     table = document.tables[0]
-    assert table.cell(0, 0).text == "a"
-    assert table.cell(0, 1).text == "b"
-    assert table.cell(1, 0).text == "c"
-    assert table.cell(1, 1).text == "d"
+    assert table.cell(0, 1).text == "a"
+    assert table.cell(0, 3).text == "b"
+    assert table.cell(1, 1).text == "c"
+    assert table.cell(1, 3).text == "d"
 
 
 def test_docx_promotes_wrapped_alignment_line_to_table(parser):
@@ -272,8 +272,8 @@ def test_docx_promotes_wrapped_alignment_line_to_table(parser):
 
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
     assert len(document.tables) == 1
-    assert document.tables[0].cell(0, 0).text == "1"
-    assert document.tables[0].cell(0, 1).text == "2"
+    assert document.tables[0].cell(0, 1).text == "1"
+    assert document.tables[0].cell(0, 3).text == "2"
 
 
 def test_docx_renders_display_alignment_as_table(parser):
@@ -292,7 +292,7 @@ def test_docx_renders_display_alignment_as_table(parser):
 
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
     assert len(document.tables) == 1
-    assert document.tables[0].cell(0, 0).text == "x"
+    assert document.tables[0].cell(0, 1).text == "x"
 
 
 

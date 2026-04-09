@@ -708,7 +708,9 @@ def test_unhbox_enters_horizontal_mode_from_vmode(box):
     top = box.lists[-1]
     assert top.type == lists.LISTTYPE.VERTICAL
     assert box.box[0] is None
-    assert _source_nodes(top, paragraph.Paragraph)
+    paras = _source_nodes(top, paragraph.Paragraph)
+    assert paras
+    assert paras[0].indent is True
 
 
 def test_unvbox_wrongbox(box):

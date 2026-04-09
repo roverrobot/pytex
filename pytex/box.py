@@ -780,10 +780,12 @@ class UnBox(Command):
         if (not self.vertical) and top.type == LISTTYPE.VERTICAL:
             # Horizontal unboxing commands in vertical mode start a paragraph.
             # This is required for \leavevmode, which LaTeX defines as
-            # \unhbox\voidb@x.
+            # \unhbox\voidb@x. TeX enters ordinary unrestricted horizontal mode
+            # here, so the new paragraph keeps the usual indentation unless a
+            # caller has already suppressed it with \noindent.
             if parser.current_token is not None:
                 parser.input.unread(parser.current_token)
-            parser.newParagraph(indent=False)
+            parser.newParagraph()
             return
         index = parser.readInteger()
         if index < 0:

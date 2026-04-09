@@ -1113,24 +1113,31 @@ class DocxBackend(Shipout):
         pending_gap = Dimen()
         line_map = self._glyphs_by_baseline(glyphs)
         paragraph_math_state = None
+        emitted_alignments = set()
         for event in self._walk_vlist(page, 0):
             kind = event[0]
             if kind == "line":
                 line = event[1]
                 alignment_info = self._line_alignment_info(line.box)
                 if alignment_info is not None:
+                    owner = alignment_info[0]
+                    owner_key = id(owner)
+                    if owner_key in emitted_alignments:
+                        pending_gap = Dimen()
+                        continue
                     if current is not None:
                         self._flush_pending_inline_math(current, paragraph_math_state)
                         yield current
                         current = None
                         paragraph_math_state = None
                     yield _AlignmentSpec(
-                        owner=alignment_info[0],
+                        owner=owner,
                         box=alignment_info[1],
-                        display=False,
+                        display=self._alignment_is_math(owner),
                         space_before=self._nonnegative_dimen(pending_gap),
                         leading_indent=self._nonnegative_dimen(alignment_info[2]),
                     )
+                    emitted_alignments.add(owner_key)
                     pending_gap = Dimen()
                     continue
                 if current is None or line.owner is not current.owner:
@@ -1178,17 +1185,23 @@ class DocxBackend(Shipout):
                 pending_gap = Dimen()
                 continue
             if kind == "alignment":
+                owner = event[1]
+                owner_key = id(owner)
+                if owner_key in emitted_alignments:
+                    pending_gap = Dimen()
+                    continue
                 if current is not None:
                     self._flush_pending_inline_math(current, paragraph_math_state)
                     yield current
                     current = None
                     paragraph_math_state = None
                 yield _AlignmentSpec(
-                    owner=event[1],
+                    owner=owner,
                     box=event[3] if len(event) > 3 else None,
-                    display=bool(event[2]),
+                    display=bool(event[2]) or self._alignment_is_math(owner),
                     space_before=self._nonnegative_dimen(pending_gap),
                 )
+                emitted_alignments.add(owner_key)
                 pending_gap = Dimen()
                 continue
             if kind == "penalty":
@@ -2173,6 +2186,52 @@ class DocxBackend(Shipout):
         rows, widths, tabskips = owner._collectEntries(self.parser)
         return rows, widths, tabskips
 
+    @staticmethod
+    def _alignment_cell_raw_nodes(cell):
+        raw = getattr(cell, "raw", None)
+        if raw is not None:
+            return raw
+        return getattr(cell, "list", ()) or ()
+
+    def _alignment_is_math(self, owner):
+        for row in getattr(owner, "rows", ()):
+            for cell in getattr(row, "cells", ()):
+                raw_nodes = self._alignment_cell_raw_nodes(cell)
+                fields = self._fragment_math_fields(raw_nodes)
+                if any(not isinstance(field, str) for field in fields):
+                    return True
+        return False
+
+    @classmethod
+    def _is_alignment_tag_cell(cls, cell):
+        raw = list(cls._alignment_cell_raw_nodes(cell))
+        if not raw:
+            return False
+        if getattr(raw[0], "node_type", None) != nd.NODE_TYPE.KERN:
+            return False
+        non_kern = [node for node in raw if getattr(node, "node_type", None) != nd.NODE_TYPE.KERN]
+        if len(non_kern) > 1:
+            return False
+        for node in raw[:-len(non_kern) or None]:
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.KERN:
+                return False
+        return True
+
+    def _alignment_tag_text(self, cell):
+        raw = list(self._alignment_cell_raw_nodes(cell))
+        non_kern = [node for node in raw if getattr(node, "node_type", None) != nd.NODE_TYPE.KERN]
+        if not non_kern:
+            return ""
+        fields = self._fragment_math_fields(non_kern)
+        text = "".join(self._flatten_math_text(field) for field in fields).strip()
+        if text:
+            return text
+        node = non_kern[0]
+        node_type = getattr(node, "node_type", None)
+        if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            return self._glyph_text(node)
+        return self._flatten_box_text(node).strip()
+
     def _box_inline_layout(self, box):
         items = getattr(box, "list", None) or ()
         if not items:
@@ -2338,6 +2397,46 @@ class DocxBackend(Shipout):
         if text:
             para.add_run(text)
 
+    def _populate_display_alignment_math_cell(self, cell, box):
+        self._clear_cell(cell)
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        para = cell.paragraphs[0]
+        fmt = para.paragraph_format
+        alignment, left_indent, right_indent = self._box_inline_layout(box)
+        fmt.alignment = alignment
+        fmt.left_indent = self._length(left_indent)
+        fmt.right_indent = self._length(right_indent)
+        fmt.space_before = Pt(0)
+        fmt.space_after = Pt(0)
+        if self._is_alignment_tag_cell(box):
+            text = self._alignment_tag_text(box)
+            if not text:
+                return False
+            run = para.add_run(text)
+            self._apply_run_font_with_options(
+                run,
+                self._first_font(box),
+                allow_word_kerning=False,
+            )
+            return True
+        raw_nodes = self._alignment_cell_raw_nodes(box)
+        fields = self._fragment_math_fields(raw_nodes)
+        if not fields or not any(not isinstance(field, str) for field in fields):
+            return False
+        inner = self._omml_group_xml(fields, display_style=True)
+        if not inner:
+            return False
+        para._p.append(
+            parse_xml(
+                (
+                    "<m:oMath xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
+                    f"{inner}"
+                    "</m:oMath>"
+                )
+            )
+        )
+        return True
+
     def _emit_alignment(self, document, spec):
         rows, widths, tabskips = self._alignment_entries(spec.owner)
         if not rows or not widths:
@@ -2392,6 +2491,8 @@ class DocxBackend(Shipout):
                     merged_width += effective_widths[index]
                 self._set_table_cell_width(target, merged_width)
                 occupied.update(range(start, end + 1))
+                if spec.display and self._populate_display_alignment_math_cell(target, entry["cell"]):
+                    continue
                 self._populate_table_cell(target, entry["cell"], line_measure=row_height)
             for col_index, target in enumerate(row_cells):
                 if col_index in occupied:

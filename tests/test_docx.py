@@ -324,6 +324,80 @@ def test_docx_renders_display_alignment_as_table(parser):
     assert document.tables[0].cell(0, 1).text == "x"
 
 
+def test_docx_deduplicates_repeated_wrapped_alignment_owner(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0)), Glue(Dimen(0))]
+    row1 = align.Row()
+    row1.cells = [_alignment_cell(parser, "a", width=15), _alignment_cell(parser, "b", width=18)]
+    row2 = align.Row()
+    row2.cells = [_alignment_cell(parser, "c", width=15), _alignment_cell(parser, "d", width=18)]
+    owner.rows = [row1, row2]
+
+    rowbox1 = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
+    rowbox2 = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
+    wrap1 = _FakeHBox([rowbox1], None, width=33, height=8, depth=2, rightmost_value=33)
+    wrap2 = _FakeHBox([rowbox2], None, width=33, height=8, depth=2, rightmost_value=33)
+    para = pg.Paragraph(parser, indent=False)
+    line1 = _FakeHBox([wrap1], para, width=80, height=8, depth=2, rightmost_value=33)
+    line2 = _FakeHBox([wrap2], para, width=80, height=8, depth=2, rightmost_value=33)
+    page = _page_box(parser, [line1, line2])
+    backend.shipout(page)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert len(document.tables) == 1
+
+
+def test_docx_display_alignment_emits_omml_fraction_and_tag(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0)), Glue(Dimen(0)), Glue(Dimen(0))]
+    row = align.Row()
+
+    num = mmode.MathListHolder([_math_symbol("d"), _math_symbol("x")])
+    den = mmode.MathListHolder([_math_symbol("d"), _math_symbol("t")])
+    frac = mmode.Over(num, den, True, None)
+    frac_atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    frac_atom.nucleus = mmode.Subformula()
+    frac_atom.nucleus.list = [frac]
+
+    lhs_math = _FakeHBox([], frac_atom, width=16, height=12, depth=4, rightmost_value=16)
+    lhs_cell = _FakeHBox([lhs_math], None, width=16, height=12, depth=4, rightmost_value=16)
+    lhs_cell.raw = [lhs_math]
+    lhs_cell.span = 1
+
+    rhs_atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    rhs_atom.nucleus = mmode.Subformula()
+    rhs_atom.nucleus.list = [_math_symbol("x")]
+    rhs_math = _FakeHBox([], rhs_atom, width=8, height=8, depth=2, rightmost_value=8)
+    rhs_cell = _FakeHBox([rhs_math], None, width=8, height=8, depth=2, rightmost_value=8)
+    rhs_cell.raw = [rhs_math]
+    rhs_cell.span = 1
+
+    font = _FakeFont()
+    tag_box = _FakeHBox([nd.CharNode("(", font), nd.CharNode("2", font), nd.CharNode(")", font)], None, width=6, height=7, depth=2, rightmost_value=6)
+    tag_cell = _FakeHBox([tag_box], None, width=6, height=7, depth=2, rightmost_value=6)
+    tag_cell.raw = [nd.Kern(1), nd.Kern(1), tag_box]
+    tag_cell.span = 1
+
+    row.cells = [lhs_cell, rhs_cell, tag_cell]
+    owner.rows = [row]
+
+    document = Document()
+    backend._emit_alignment(document, docx._AlignmentSpec(owner=owner, display=True))
+    out = io.BytesIO()
+    document.save(out)
+    out.seek(0)
+    with zipfile.ZipFile(out) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+    assert "<m:f>" in xml
+    assert "(2)" in xml
+
+
 
 def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     backend = docx.DocxBackend(parser)

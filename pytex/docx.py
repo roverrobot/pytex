@@ -417,6 +417,16 @@ class _AlignmentSpec:
     region: str = "body"
 
 
+@dataclass
+class _StructuralBodySlot:
+    parent: object | None
+    index: int
+    body: object
+    left: Dimen = field(default_factory=Dimen)
+    top: Dimen = field(default_factory=Dimen)
+    path: list[tuple[object, int]] = field(default_factory=list)
+
+
 class DocxBackend(Shipout):
     """
     Very small proof-of-concept DOCX backend.
@@ -767,11 +777,8 @@ class DocxBackend(Shipout):
         slot = self._find_structural_body_slot(page)
         if slot is None:
             return None
-        _parent, _index, body = slot
-        located = self._locate_box_in_vlist(page, body, Dimen(), Dimen())
-        if located is None:
-            return None
-        body_left, body_top = located
+        body = slot.body
+        body_left, body_top = slot.left, slot.top
         body_width = Dimen(getattr(body, "width", 0))
         body_height = Dimen(getattr(body, "height", 0) + getattr(body, "depth", 0))
         if body_width <= 0 or body_height <= 0:
@@ -815,6 +822,9 @@ class DocxBackend(Shipout):
             section.footer_distance = self._length(footer_distance)
 
     def _initial_page_top_offset(self, page):
+        body_geometry = self._structural_body_geometry(page)
+        if body_geometry is not None:
+            return self._nonnegative_dimen(body_geometry[1])
         vsize = Dimen(self.parser.layout["vsize"])
         box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
         text_height = vsize if vsize > 0 else box_height
@@ -832,6 +842,10 @@ class DocxBackend(Shipout):
         return Dimen(topskip)
 
     def _page_text_vertical_bounds(self, page):
+        body_geometry = self._structural_body_geometry(page)
+        if body_geometry is not None:
+            _left, top, _width, height = body_geometry
+            return int(top), int(top + height)
         vsize = Dimen(self.parser.layout["vsize"])
         box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
         text_height = vsize if vsize > 0 else box_height
@@ -853,8 +867,7 @@ class DocxBackend(Shipout):
         return "body"
 
     def _header_footer_distances(self, page):
-        _page_width, page_height, _origin_x, _origin_y = self._tex_page_size(page)
-        body_geometry = self._structural_body_geometry(page)
+        _page_width, page_height, _origin_x, origin_y = self._tex_page_size(page)
         text_top, text_bottom = self._page_text_vertical_bounds(page)
         region_map = self._page_region_map(page)
 
@@ -876,22 +889,13 @@ class DocxBackend(Shipout):
 
         header_distance = None
         footer_distance = None
-        if body_geometry is not None:
-            _body_left, body_top, _text_width, text_height = body_geometry
-            body_bottom = body_top + text_height
-            if header_baselines:
-                # Measure directly from shipped page geometry:
-                # distance from body top to the lowest header baseline.
-                header_distance = self._nonnegative_dimen(body_top - max(header_baselines))
-            if footer_baselines:
-                # Mirror for footer: distance from body bottom to highest footer baseline.
-                footer_distance = self._nonnegative_dimen(min(footer_baselines) - body_bottom)
-
-        # Fallbacks when structural body geometry is unavailable.
-        if header_distance is None and header_baselines:
-            header_distance = self._nonnegative_dimen(min(header_baselines))
-        if footer_distance is None and footer_baselines:
-            footer_distance = self._nonnegative_dimen(page_height - max(footer_baselines))
+        if header_baselines:
+            # Distance from physical page top to the lowest header baseline.
+            # Uses only walked shipout geometry plus TeX origin shift.
+            header_distance = self._nonnegative_dimen(origin_y + max(header_baselines))
+        if footer_baselines:
+            # Distance from physical page bottom to the lowest footer baseline.
+            footer_distance = self._nonnegative_dimen(page_height - (origin_y + max(footer_baselines)))
         return header_distance, footer_distance
 
     @staticmethod
@@ -905,6 +909,90 @@ class DocxBackend(Shipout):
         node_type = getattr(node, "node_type", None)
         return node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT)
 
+    @staticmethod
+    def _normalize_glue_name(name):
+        if name is None:
+            return ""
+        return str(name).lstrip("\\").lower()
+
+    def _is_topskip_glue(self, node):
+        if getattr(node, "node_type", None) != nd.NODE_TYPE.GLUE:
+            return False
+        return "topskip" in self._normalize_glue_name(getattr(node, "name", None))
+
+    def _box_has_direct_topskip(self, node):
+        if getattr(node, "node_type", None) != nd.NODE_TYPE.VLIST:
+            return False
+        for child in getattr(node, "list", None) or ():
+            if self._is_topskip_glue(child):
+                return True
+        return False
+
+    def _subtree_has_topskip(self, node, memo=None):
+        if memo is None:
+            memo = {}
+        key = id(node)
+        cached = memo.get(key)
+        if cached is not None:
+            return cached
+        if self._is_topskip_glue(node):
+            memo[key] = True
+            return True
+        for child in getattr(node, "list", None) or ():
+            if self._subtree_has_topskip(child, memo):
+                memo[key] = True
+                return True
+        memo[key] = False
+        return False
+
+    def _iter_box_children_with_positions(self, box, left, top):
+        node_type = getattr(box, "node_type", None)
+        left = Dimen(left)
+        top = Dimen(top)
+        if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+            items = getattr(box, "list", None) or ()
+            glue_state = self._glue_state(box)
+            v = Dimen(top)
+            x = Dimen(left)
+            for index, node in enumerate(items):
+                child_type = getattr(node, "node_type", None)
+                if child_type == nd.NODE_TYPE.GLUE:
+                    v += Dimen(integer=self._effective_glue_amount(node, box, glue_state))
+                    continue
+                if child_type == nd.NODE_TYPE.KERN:
+                    v += Dimen(getattr(node, "kern", 0))
+                    continue
+                if child_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                    continue
+                child_left = x + Dimen(getattr(node, "shifted", 0))
+                child_top = Dimen(v)
+                yield index, node, child_left, child_top
+                v += Dimen(getattr(node, "height", 0) + getattr(node, "depth", 0))
+            return
+        if node_type != nd.NODE_TYPE.HLIST:
+            return
+        items = getattr(box, "list", None) or ()
+        glue_state = self._glue_state(box)
+        h = Dimen(left)
+        baseline = top + Dimen(getattr(box, "height", 0))
+        for index, node in enumerate(items):
+            child_type = getattr(node, "node_type", None)
+            if child_type == nd.NODE_TYPE.GLUE:
+                h += Dimen(integer=self._effective_glue_amount(node, box, glue_state))
+                continue
+            if child_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+                h += Dimen(getattr(node, "kern", 0))
+                continue
+            if child_type == nd.NODE_TYPE.DISC:
+                h += Dimen(getattr(node, "replace_width", 0))
+                continue
+            width = Dimen(getattr(node, "width", 0))
+            if child_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                child_left = Dimen(h)
+                child_top = baseline + Dimen(getattr(node, "shifted", 0)) - Dimen(getattr(node, "height", 0))
+                yield index, node, child_left, child_top
+            h += width
+
     def _subtree_has_flow_content(self, node):
         node_type = getattr(node, "node_type", None)
         if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.ALIGNMENT):
@@ -916,18 +1004,88 @@ class DocxBackend(Shipout):
                 return True
         return False
 
-    def _mark_region_subtree(self, node, region, mapping):
+    def _mark_region_subtree(self, node, region, mapping, allow_override=True):
         if not self._is_box_node(node):
             return
-        mapping[id(node)] = region
+        key = id(node)
+        if allow_override or mapping.get(key) != "body":
+            mapping[key] = region
         for child in getattr(node, "list", None) or ():
-            self._mark_region_subtree(child, region, mapping)
+            self._mark_region_subtree(child, region, mapping, allow_override=allow_override)
 
     def _find_structural_body_slot(self, root):
+        by_topskip = self._find_structural_body_slot_by_topskip(root)
+        if by_topskip is not None:
+            return by_topskip
         explicit = self._find_structural_body_slot_by_page_partition(root)
         if explicit is not None:
             return explicit
         return self._find_structural_body_slot_by_vsize(root)
+
+    def _find_structural_body_slot_by_topskip(self, root):
+        target_h = int(Dimen(self.parser.layout["vsize"]))
+        target_w = int(Dimen(self.parser.layout["hsize"]))
+        topskip_cache = {}
+
+        def score(node, depth, allow_nested_topskip):
+            direct_topskip = self._box_has_direct_topskip(node)
+            has_topskip = direct_topskip or (
+                allow_nested_topskip and self._subtree_has_topskip(node, topskip_cache)
+            )
+            if not has_topskip:
+                return None
+            has_content = self._subtree_has_flow_content(node)
+            height = int(getattr(node, "height", 0) + getattr(node, "depth", 0))
+            width = int(getattr(node, "width", 0))
+            height_penalty = abs(height - target_h) if target_h > 0 else 0
+            width_penalty = abs(width - target_w) if target_w > 0 else 0
+            content_penalty = 0 if has_content else 1_000_000
+            return (
+                1 if direct_topskip else 0,
+                1 if has_content else 0,
+                depth,
+                -(height_penalty + width_penalty + content_penalty),
+            )
+
+        def collect(allow_nested_topskip):
+            best = None
+
+            def walk(box, left, top, path):
+                nonlocal best
+                if not self._is_box_node(box):
+                    return
+                for index, child, child_left, child_top in self._iter_box_children_with_positions(box, left, top):
+                    child_path = path + [(box, index)]
+                    if getattr(child, "node_type", None) == nd.NODE_TYPE.VLIST:
+                        candidate_score = score(child, len(child_path), allow_nested_topskip)
+                        if candidate_score is not None:
+                            slot = _StructuralBodySlot(
+                                parent=box,
+                                index=index,
+                                body=child,
+                                left=child_left,
+                                top=child_top,
+                                path=child_path,
+                            )
+                            if best is None or candidate_score > best[0]:
+                                best = (candidate_score, slot)
+                    walk(child, child_left, child_top, child_path)
+
+            root_score = None
+            if getattr(root, "node_type", None) == nd.NODE_TYPE.VLIST:
+                root_score = score(root, 0, allow_nested_topskip)
+            if root_score is not None:
+                best = (
+                    root_score,
+                    _StructuralBodySlot(parent=None, index=-1, body=root, left=Dimen(), top=Dimen(), path=[]),
+                )
+            walk(root, Dimen(), Dimen(), [])
+            return best[1] if best is not None else None
+
+        slot = collect(False)
+        if slot is not None:
+            return slot
+        return collect(True)
 
     def _find_structural_body_slot_by_page_partition(self, root):
         """
@@ -970,7 +1128,12 @@ class DocxBackend(Shipout):
         if best is None:
             return None
         _score, parent, index, body = best
-        return parent, index, body
+        located = self._locate_box_in_vlist(root, body, Dimen(), Dimen())
+        if located is None:
+            left, top = Dimen(), Dimen()
+        else:
+            left, top = located
+        return _StructuralBodySlot(parent=parent, index=index, body=body, left=left, top=top, path=[(parent, index)])
 
     def _find_structural_body_slot_by_vsize(self, root):
         target_h = int(Dimen(self.parser.layout["vsize"]))
@@ -1009,22 +1172,37 @@ class DocxBackend(Shipout):
         if best is None:
             return None
         _score, parent, index, body = best
-        return parent, index, body
+        located = self._locate_box_in_vlist(root, body, Dimen(), Dimen())
+        if located is None:
+            left, top = Dimen(), Dimen()
+        else:
+            left, top = located
+        return _StructuralBodySlot(parent=parent, index=index, body=body, left=left, top=top, path=[(parent, index)])
 
     def _page_region_map(self, page):
         slot = self._find_structural_body_slot(page)
         mapping = {}
         if slot is None:
             return mapping
-        parent, body_index, body_node = slot
-        siblings = list(getattr(parent, "list", None) or ())
-        self._mark_region_subtree(body_node, "body", mapping)
-        for sibling in siblings[:body_index]:
-            if self._subtree_has_flow_content(sibling):
-                self._mark_region_subtree(sibling, "header", mapping)
-        for sibling in siblings[body_index + 1:]:
-            if self._subtree_has_flow_content(sibling):
-                self._mark_region_subtree(sibling, "footer", mapping)
+        self._mark_region_subtree(slot.body, "body", mapping)
+        for parent, child_index in reversed(slot.path):
+            siblings = list(getattr(parent, "list", None) or ())
+            parent_type = getattr(parent, "node_type", None)
+            if parent_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                for sibling in siblings[:child_index]:
+                    if self._subtree_has_flow_content(sibling):
+                        self._mark_region_subtree(sibling, "header", mapping, allow_override=False)
+                for sibling in siblings[child_index + 1:]:
+                    if self._subtree_has_flow_content(sibling):
+                        self._mark_region_subtree(sibling, "footer", mapping, allow_override=False)
+                continue
+            if parent_type == nd.NODE_TYPE.HLIST:
+                for sibling in siblings[:child_index]:
+                    if self._subtree_has_flow_content(sibling):
+                        self._mark_region_subtree(sibling, "body", mapping, allow_override=False)
+                for sibling in siblings[child_index + 1:]:
+                    if self._subtree_has_flow_content(sibling):
+                        self._mark_region_subtree(sibling, "body", mapping, allow_override=False)
         return mapping
 
     @staticmethod

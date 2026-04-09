@@ -8,6 +8,7 @@ import pytest
 
 from pytex import docx
 from pytex import align
+from pytex import box as bx
 from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
@@ -267,6 +268,30 @@ def test_docx_promotes_wrapped_alignment_line_to_table(parser):
     wrapper = _FakeHBox([rowbox], None, width=33, height=8, depth=2, rightmost_value=33)
     para = pg.Paragraph(parser, indent=False)
     line = _FakeHBox([wrapper], para, width=80, height=8, depth=2, rightmost_value=33)
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert len(document.tables) == 1
+    assert document.tables[0].cell(0, 1).text == "1"
+    assert document.tables[0].cell(0, 3).text == "2"
+
+
+def test_docx_promotes_wrapped_alignment_line_with_leading_indent_box_to_table(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0))]
+    row = align.Row()
+    row.cells = [_alignment_cell(parser, "1", width=15), _alignment_cell(parser, "2", width=18)]
+    owner.rows = [row]
+
+    rowbox = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
+    wrapper = _FakeHBox([rowbox], None, width=33, height=8, depth=2, rightmost_value=33)
+    indent = bx.IndentBox(parser, width=10)
+    para = pg.Paragraph(parser, indent=True)
+    line = _FakeHBox([indent, wrapper], para, width=90, height=8, depth=2, rightmost_value=43)
     page = _page_box(parser, [line])
     backend.shipout(page)
 

@@ -409,6 +409,7 @@ class _AlignmentSpec:
     owner: object
     box: object | None = None
     space_before: Dimen = field(default_factory=Dimen)
+    leading_indent: Dimen = field(default_factory=Dimen)
     display: bool = False
 
 
@@ -520,6 +521,8 @@ class DocxBackend(Shipout):
 
     def _line_alignment_info(self, box):
         candidate = None
+        leading_indent = Dimen()
+        seen_visible = False
         for node in getattr(box, "list", None) or ():
             node_type = getattr(node, "node_type", None)
             if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
@@ -531,9 +534,14 @@ class DocxBackend(Shipout):
             if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
                 info = self._descendant_alignment_info(node)
                 if info is None:
+                    if not self._node_has_inline_text(node):
+                        if not seen_visible:
+                            leading_indent += Dimen(getattr(node, "width", 0))
+                        continue
                     return None
+                seen_visible = True
                 if candidate is None:
-                    candidate = info
+                    candidate = (info[0], info[1], leading_indent)
                     continue
                 if candidate[0] is not info[0]:
                     return None

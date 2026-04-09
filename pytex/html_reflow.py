@@ -1140,6 +1140,37 @@ class HTMLReflowBackend(Shipout):
             return raw
         return getattr(owner, "list", ())
 
+    def _wrapped_alignment_owner(self, node):
+        if isinstance(node, align.HAlignment):
+            return node
+        if isinstance(node, align.MAlignment):
+            source = getattr(node, "source", None)
+            return source if isinstance(source, align.HAlignment) else node
+        return self._find_source_owner(node, (align.HAlignment, align.MAlignment))
+
+    def _paragraph_alignment_owner(self, owner):
+        candidate = None
+        for node in self._owner_raw_nodes(owner):
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.WHATSIT):
+                continue
+            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC):
+                return None
+            wrapped = self._wrapped_alignment_owner(node)
+            if wrapped is None:
+                if self._flatten_text(getattr(node, "list", ())):
+                    return None
+                continue
+            if isinstance(wrapped, align.MAlignment):
+                source = getattr(wrapped, "source", None)
+                wrapped = source if isinstance(source, align.HAlignment) else wrapped
+            if candidate is None:
+                candidate = wrapped
+                continue
+            if candidate is not wrapped:
+                return None
+        return candidate
+
     def _alignment_rows(self, owner, mathml_cells=False):
         rows = []
         for row in getattr(owner, "rows", ()):
@@ -1254,6 +1285,9 @@ class HTMLReflowBackend(Shipout):
 
     def _render_owner(self, owner):
         if isinstance(owner, paragraph.Paragraph):
+            alignment_owner = self._paragraph_alignment_owner(owner)
+            if alignment_owner is not None:
+                return self._render_owner(alignment_owner)
             dominant = self._dominant_font(owner.list)
             children = self._inline_children(self._owner_raw_nodes(owner), dominant)
             if not children:

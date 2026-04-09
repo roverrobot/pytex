@@ -1,6 +1,7 @@
 import re
 
 from pytex import align
+from pytex import paragraph
 from pytex import html_reflow
 from pytex import html_builder
 from pytex import mmode
@@ -310,3 +311,26 @@ def test_html_reflow_renders_alignment_tag_cells_as_eqnos(cmr10):
     html = html_builder.render(html_builder.element("table", backend._alignment_rows(owner, mathml_cells=True)))
     assert 'class="eqno-cell"' in html
     assert "(4)" in html
+
+
+def test_html_reflow_promotes_paragraph_wrapped_alignment_with_indent_box(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    currentfont = cmr10.parameters["currentfont"]
+    owner = align.HAlignment()
+    owner.tabskips = []
+    row = align.Row()
+    cell1 = box.HBox(cmr10, None, 0)
+    cell1.raw = [nd.CharNode("1", currentfont)]
+    cell2 = box.HBox(cmr10, None, 0)
+    cell2.raw = [nd.CharNode("2", currentfont)]
+    row.cells = [cell1, cell2]
+    owner.rows = [row]
+    wrapped = box.HBox(cmr10, None, 0)
+    wrapped.source = owner
+    para = paragraph.Paragraph(cmr10, indent=True)
+    para.raw = [box.IndentBox(cmr10), wrapped]
+    rendered = backend._render_owner(para)
+    html = "".join(html_builder.render(node) for node in rendered)
+    assert "<table" in html
+    assert ">1<" in html
+    assert ">2<" in html

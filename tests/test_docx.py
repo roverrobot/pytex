@@ -1108,6 +1108,53 @@ def test_docx_section_uses_pdf_page_size_and_tex_origin(parser):
     assert '<w:pgMar w:top="2636" w:right="3741" w:bottom="5335" w:left="2237"' in xml
 
 
+def test_docx_flow_regions_split_header_body_footer(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    parser.layout["vsize"] = Dimen(60)
+    font = _FakeFont()
+    header_owner = pg.Paragraph(parser, indent=False)
+    body_owner = pg.Paragraph(parser, indent=False)
+    footer_owner = pg.Paragraph(parser, indent=False)
+
+    header_line = _FakeHBox([nd.CharNode("H", font)], header_owner, width=40, height=7, depth=2)
+    body_line = _FakeHBox([nd.CharNode("B", font)], body_owner, width=40, height=7, depth=2)
+    footer_line = _FakeHBox([nd.CharNode("F", font)], footer_owner, width=40, height=7, depth=2)
+
+    page = _FakeVBox(
+        [
+            header_line,
+            nd.Glue(Glue(Dimen(70)), None),
+            body_line,
+            nd.Glue(Glue(Dimen(60)), None),
+            footer_line,
+        ],
+        width=200,
+        height=120,
+        depth=0,
+    )
+
+    specs = list(backend._page_flow_specs(page, []))
+    assert [getattr(spec, "region", None) for spec in specs] == ["header", "body", "footer"]
+
+
+def test_docx_region_classifier_keeps_first_body_line_out_of_header(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    parser.layout["vsize"] = Dimen(100)
+    parser.layout["topskip"] = Glue(Dimen(10))
+    owner = pg.Paragraph(parser, indent=False)
+    first_line = _FakeHBox([nd.CharNode("A", _FakeFont())], owner, width=40, height=7, depth=2)
+    page = _FakeVBox([first_line], width=200, height=110, depth=0)
+
+    specs = list(backend._page_flow_specs(page, []))
+    assert len(specs) == 1
+    assert isinstance(specs[0], docx._ParagraphSpec)
+    assert specs[0].region == "body"
+
+
 def test_docx_display_math_does_not_use_token_stringification(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend

@@ -375,6 +375,7 @@ class _ParagraphSpec:
     interline_gaps: list[Dimen] = field(default_factory=list)
     space_before: Dimen = field(default_factory=Dimen)
     first_line_indent: Dimen = field(default_factory=Dimen)
+    region: str = "body"
 
 
 @dataclass
@@ -402,6 +403,7 @@ class _DisplayMathSpec:
     box: object
     page: object | None = None
     space_before: Dimen = field(default_factory=Dimen)
+    region: str = "body"
 
 
 @dataclass
@@ -411,6 +413,7 @@ class _AlignmentSpec:
     space_before: Dimen = field(default_factory=Dimen)
     leading_indent: Dimen = field(default_factory=Dimen)
     display: bool = False
+    region: str = "body"
 
 
 class DocxBackend(Shipout):
@@ -690,6 +693,120 @@ class DocxBackend(Shipout):
         if box_height <= text_height:
             return Dimen()
         return box_height - text_height
+
+    def _topskip_dimen(self):
+        try:
+            topskip = self.parser.layout["topskip"]
+        except Exception:
+            return Dimen()
+        if hasattr(topskip, "dimen"):
+            return Dimen(getattr(topskip, "dimen", 0))
+        return Dimen(topskip)
+
+    def _page_text_vertical_bounds(self, page):
+        vsize = Dimen(self.parser.layout["vsize"])
+        box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
+        text_height = vsize if vsize > 0 else box_height
+        inner_top = box_height - text_height if box_height > text_height else Dimen()
+        topskip = self._topskip_dimen()
+        top = int(inner_top - topskip) if inner_top > topskip else 0
+        bottom = int(inner_top + text_height)
+        return top, bottom
+
+    def _top_region_boundary_slop(self):
+        return max(0, int(self._topskip_dimen()))
+
+    def _flow_region_from_bounds(self, top, bottom, text_top, text_bottom):
+        top_slop = self._top_region_boundary_slop()
+        if bottom < text_top - top_slop:
+            return "header"
+        if top > text_bottom:
+            return "footer"
+        return "body"
+
+    @staticmethod
+    def _line_vertical_bounds(line):
+        height = int(getattr(line.box, "height", 0))
+        depth = int(getattr(line.box, "depth", 0))
+        return line.baseline - height, line.baseline + depth
+
+    @staticmethod
+    def _is_box_node(node):
+        node_type = getattr(node, "node_type", None)
+        return node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT)
+
+    def _subtree_has_flow_content(self, node):
+        node_type = getattr(node, "node_type", None)
+        if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.ALIGNMENT):
+            return True
+        if node_type == nd.NODE_TYPE.HLIST and self._display_math_owner(node) is not None:
+            return True
+        for child in getattr(node, "list", None) or ():
+            if self._subtree_has_flow_content(child):
+                return True
+        return False
+
+    def _mark_region_subtree(self, node, region, mapping):
+        if not self._is_box_node(node):
+            return
+        mapping[id(node)] = region
+        for child in getattr(node, "list", None) or ():
+            self._mark_region_subtree(child, region, mapping)
+
+    def _find_structural_body_slot(self, root):
+        target_h = int(Dimen(self.parser.layout["vsize"]))
+        target_w = int(Dimen(self.parser.layout["hsize"]))
+        if target_h <= 0:
+            return None
+
+        best = None
+
+        def walk(node, depth=0):
+            nonlocal best
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.VLIST:
+                for child in getattr(node, "list", None) or ():
+                    if self._is_box_node(child):
+                        walk(child, depth + 1)
+                return
+            items = list(getattr(node, "list", None) or ())
+            for idx, child in enumerate(items):
+                if getattr(child, "node_type", None) != nd.NODE_TYPE.VLIST:
+                    continue
+                child_h = int(getattr(child, "height", 0) + getattr(child, "depth", 0))
+                if child_h != target_h:
+                    continue
+                child_w = int(getattr(child, "width", 0))
+                width_penalty = abs(child_w - target_w) if target_w > 0 and child_w > 0 else 0
+                # Prefer deeper exact-vsize matches with body-like content.
+                content_bonus = 0 if self._subtree_has_flow_content(child) else 1_000_000
+                score = (depth, -(width_penalty + content_bonus))
+                if best is None or score > best[0]:
+                    best = (score, node, idx, child)
+            for child in items:
+                if self._is_box_node(child):
+                    walk(child, depth + 1)
+
+        walk(root)
+        if best is None:
+            return None
+        _score, parent, index, body = best
+        return parent, index, body
+
+    def _page_region_map(self, page):
+        slot = self._find_structural_body_slot(page)
+        mapping = {}
+        if slot is None:
+            return mapping
+        parent, body_index, body_node = slot
+        siblings = list(getattr(parent, "list", None) or ())
+        self._mark_region_subtree(body_node, "body", mapping)
+        for sibling in siblings[:body_index]:
+            if self._subtree_has_flow_content(sibling):
+                self._mark_region_subtree(sibling, "header", mapping)
+        for sibling in siblings[body_index + 1:]:
+            if self._subtree_has_flow_content(sibling):
+                self._mark_region_subtree(sibling, "footer", mapping)
+        return mapping
 
     @staticmethod
     def _glyph_text(node):
@@ -1031,7 +1148,7 @@ class DocxBackend(Shipout):
         owner = self._paragraph_owner(box)
         display_owner = self._display_math_owner(box)
         if display_owner is not None and getattr(box, "display", False):
-            yield ("display", display_owner, box)
+            yield ("display", display_owner, box, int(baseline))
             return
         if owner is not None and self._box_has_direct_inline_content(box):
             yield ("line", _LineEvent(owner=owner, baseline=int(baseline), box=box))
@@ -1080,7 +1197,7 @@ class DocxBackend(Shipout):
             if node_type == nd.NODE_TYPE.ALIGNMENT:
                 owner = self._display_alignment_owner(node)
                 if owner is not None:
-                    yield ("alignment", owner, True, node)
+                    yield ("alignment", owner, True, node, int(v))
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
                 amount = self._effective_glue_amount(node, box, glue_state)
@@ -1102,7 +1219,7 @@ class DocxBackend(Shipout):
                 owner = self._alignment_owner(node)
                 if owner is not None:
                     if active_alignment is None:
-                        yield ("alignment", owner, False, node)
+                        yield ("alignment", owner, False, node, int(v))
                         active_alignment = owner
                     v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
                     continue
@@ -1119,27 +1236,35 @@ class DocxBackend(Shipout):
     def _page_flow_specs(self, page, glyphs):
         current = None
         pending_gap = Dimen()
-        first_flow_emitted = False
+        first_body_emitted = False
         initial_top_offset = self._initial_page_top_offset(page)
+        region_map = self._page_region_map(page)
+        text_top, text_bottom = self._page_text_vertical_bounds(page)
         line_map = self._glyphs_by_baseline(glyphs)
         paragraph_math_state = None
         emitted_alignments = set()
 
-        def consume_space_before():
-            nonlocal pending_gap, first_flow_emitted
+        def consume_space_before(region):
+            nonlocal pending_gap, first_body_emitted
             gap = pending_gap
-            if not first_flow_emitted and initial_top_offset > 0:
+            if region == "body" and not first_body_emitted and initial_top_offset > 0:
                 gap = gap - initial_top_offset
                 if gap < 0:
                     gap = Dimen()
             pending_gap = Dimen()
-            first_flow_emitted = True
+            if region == "body":
+                first_body_emitted = True
             return self._nonnegative_dimen(gap)
 
         for event in self._walk_vlist(page, 0):
             kind = event[0]
             if kind == "line":
                 line = event[1]
+                line_top, line_bottom = self._line_vertical_bounds(line)
+                line_region = region_map.get(
+                    id(line.box),
+                    self._flow_region_from_bounds(line_top, line_bottom, text_top, text_bottom),
+                )
                 alignment_info = self._line_alignment_info(line.box)
                 if alignment_info is not None:
                     owner = alignment_info[0]
@@ -1161,13 +1286,18 @@ class DocxBackend(Shipout):
                         owner=owner,
                         box=alignment_info[1],
                         display=is_math_alignment,
-                        space_before=consume_space_before(),
+                        space_before=consume_space_before(line_region),
                         leading_indent=self._nonnegative_dimen(alignment_info[2]),
+                        region=line_region,
                     )
                     emitted_alignments.add(owner_key)
                     pending_gap = Dimen()
                     continue
-                if current is None or line.owner is not current.owner:
+                if (
+                    current is None
+                    or line.owner is not current.owner
+                    or current.region != line_region
+                ):
                     if current is not None:
                         self._flush_pending_inline_math(current, paragraph_math_state)
                         yield current
@@ -1176,8 +1306,9 @@ class DocxBackend(Shipout):
                         first_line_indent = Dimen()
                     current = _ParagraphSpec(
                         owner=line.owner,
-                        space_before=consume_space_before(),
+                        space_before=consume_space_before(line_region),
                         first_line_indent=first_line_indent,
+                        region=line_region,
                     )
                     paragraph_math_state = _InlineMathState()
                 else:
@@ -1203,11 +1334,21 @@ class DocxBackend(Shipout):
                     yield current
                     current = None
                     paragraph_math_state = None
+                display_box = event[2]
+                display_baseline = int(event[3]) if len(event) > 3 else int(getattr(display_box, "height", 0))
+                display_region = self._flow_region_from_bounds(
+                    display_baseline - int(getattr(display_box, "height", 0)),
+                    display_baseline + int(getattr(display_box, "depth", 0)),
+                    text_top,
+                    text_bottom,
+                )
+                display_region = region_map.get(id(display_box), display_region)
                 yield _DisplayMathSpec(
                     owner=event[1],
-                    box=event[2],
+                    box=display_box,
                     page=page,
-                    space_before=consume_space_before(),
+                    space_before=consume_space_before(display_region),
+                    region=display_region,
                 )
                 pending_gap = Dimen()
                 continue
@@ -1222,11 +1363,18 @@ class DocxBackend(Shipout):
                     yield current
                     current = None
                     paragraph_math_state = None
+                align_box = event[3] if len(event) > 3 else None
+                align_top = int(event[4]) if len(event) > 4 else 0
+                align_bottom = align_top + int(getattr(align_box, "height", 0) + getattr(align_box, "depth", 0))
+                align_region = self._flow_region_from_bounds(align_top, align_bottom, text_top, text_bottom)
+                if align_box is not None:
+                    align_region = region_map.get(id(align_box), align_region)
                 yield _AlignmentSpec(
                     owner=owner,
-                    box=event[3] if len(event) > 3 else None,
+                    box=align_box,
                     display=bool(event[2]) or self._alignment_is_math(owner),
-                    space_before=consume_space_before(),
+                    space_before=consume_space_before(align_region),
+                    region=align_region,
                 )
                 emitted_alignments.add(owner_key)
                 pending_gap = Dimen()
@@ -2453,6 +2601,24 @@ class DocxBackend(Shipout):
         tbl_w.set(qn("w:type"), "dxa")
         tbl_w.set(qn("w:w"), str(cls._fit_text_twips(width)))
 
+    def _text_block_width(self, page=None):
+        hsize = Dimen(self.parser.layout["hsize"])
+        if hsize > 0:
+            return hsize
+        if page is not None:
+            return Dimen(getattr(page, "width", 0))
+        return Dimen(300)
+
+    def _add_table(self, container, rows, cols, page=None):
+        try:
+            return container.add_table(rows=rows, cols=cols)
+        except TypeError:
+            return container.add_table(
+                rows=rows,
+                cols=cols,
+                width=self._length(self._nonnegative_dimen(self._text_block_width(page))),
+            )
+
     @staticmethod
     def _alignment_display_indent(spec):
         if not getattr(spec, "display", False):
@@ -2534,7 +2700,7 @@ class DocxBackend(Shipout):
         )
         return True
 
-    def _emit_alignment(self, document, spec):
+    def _emit_alignment(self, container, spec, page=None):
         rows, widths, tabskips = self._alignment_entries(spec.owner)
         if not rows or not widths:
             return None
@@ -2566,7 +2732,7 @@ class DocxBackend(Shipout):
             effective_widths.append(adjusted_tabskips[index])
             effective_widths.append(width)
         effective_widths.append(adjusted_tabskips[len(adjusted_widths)])
-        table = document.add_table(rows=len(rows), cols=len(effective_widths))
+        table = self._add_table(container, rows=len(rows), cols=len(effective_widths), page=page)
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
         table.autofit = False
         table_indent = self._nonnegative_dimen(spec.leading_indent + self._alignment_display_indent(spec))
@@ -2629,6 +2795,32 @@ class DocxBackend(Shipout):
                 self._clear_cell(target)
         return table
 
+    @staticmethod
+    def _clear_story_content(story):
+        element = getattr(story, "_element", None)
+        if element is None:
+            return
+        for child in list(element):
+            element.remove(child)
+
+    def _emit_spec(self, container, spec, page):
+        if isinstance(spec, _ParagraphSpec) and spec.lines:
+            self._emit_paragraph(container, spec)
+            return
+        if isinstance(spec, _DisplayMathSpec):
+            self._emit_display_math(container, spec)
+            return
+        if isinstance(spec, _AlignmentSpec):
+            self._emit_alignment(container, spec, page=page)
+
+    def _emit_specs(self, container, specs, page, normalize_first=False):
+        for index, spec in enumerate(specs):
+            original = spec.space_before
+            if normalize_first and index == 0:
+                spec.space_before = Dimen()
+            self._emit_spec(container, spec, page)
+            spec.space_before = original
+
     def _build_document(self):
         document = Document()
         self._configure_math_settings(document)
@@ -2645,13 +2837,27 @@ class DocxBackend(Shipout):
                 "the document may have been typeset with nullfont or contain only unsupported content"
             )
         self._configure_section(document, page)
+        body_specs = []
+        header_specs = []
+        footer_specs = []
         for spec in flow_specs:
-            if isinstance(spec, _ParagraphSpec) and spec.lines:
-                self._emit_paragraph(document, spec)
-            elif isinstance(spec, _DisplayMathSpec):
-                self._emit_display_math(document, spec)
-            elif isinstance(spec, _AlignmentSpec):
-                self._emit_alignment(document, spec)
+            region = getattr(spec, "region", "body")
+            if region == "header":
+                header_specs.append(spec)
+            elif region == "footer":
+                footer_specs.append(spec)
+            else:
+                body_specs.append(spec)
+        self._emit_specs(document, body_specs, page)
+        section = document.sections[0]
+        if header_specs:
+            section.header.is_linked_to_previous = False
+            self._clear_story_content(section.header)
+            self._emit_specs(section.header, header_specs, page, normalize_first=True)
+        if footer_specs:
+            section.footer.is_linked_to_previous = False
+            self._clear_story_content(section.footer)
+            self._emit_specs(section.footer, footer_specs, page, normalize_first=True)
         return document
 
     def close(self):

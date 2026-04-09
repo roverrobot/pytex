@@ -381,6 +381,54 @@ def test_docx_inline_math_uses_inline_textbox(parser):
     assert "<w:fitText" not in xml
 
 
+def test_docx_inline_integral_stays_non_nary_without_display_style(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    inline = _inline_math_owner()
+
+    integral = mmode.Op()
+    integral.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.OP.value << 12) | (3 << 8) | 0x73, -1)
+    integral.sub = _inline_math_owner(mmode.Atom(mmode.ATOM_TYPE.ORD))
+    integral.sub.list[0].nucleus = _math_symbol("0")
+    integral.sup = _inline_math_owner(mmode.Atom(mmode.ATOM_TYPE.ORD))
+    integral.sup.list[0].nucleus = _math_symbol("1")
+    integral.typeset_style = mmode.Style(mmode.MATH_STYLE.T)
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen()
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen()
+
+    line = _FakeHBox(
+        [
+            on,
+            _FakeHBox([], integral, width=14, height=8, depth=2),
+            _FakeHBox([], atom_x, width=8, height=6, depth=1),
+            off,
+        ],
+        para,
+        width=40,
+        height=8,
+        depth=2,
+        rightmost_value=22,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<m:oMath>" in xml
+    assert "<m:nary>" not in xml
+    assert "<m:sSubSup>" in xml
+
+
 def test_docx_inline_math_ignores_internal_tex_spacing_in_omml(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
@@ -745,12 +793,47 @@ def test_docx_backend_emits_display_math_textbox(parser):
     assert "m:oMathPara" in xml
     assert "mso-fit-text-to-shape:t" in xml
     assert "v:textbox" in xml
+    assert "v-text-anchor:top" in xml
     assert 'style="width:39.8506pt;height:11.9552pt"' in xml
     assert 'style="width:14.9440pt;height:1.0000pt"' in xml
+    assert '<w:spacing w:before="0" w:after="0"/>' in xml
+    assert 'w:lineRule="exact" w:line="239"' in xml
+    assert '<w:position w:val="-6"/>' in xml
     assert "<m:t>a</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
     assert "<m:t>b</m:t>" in xml
     assert 'w:left="300"' not in xml
+
+
+def test_docx_display_integral_uses_nary_operator_markup(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    integral = mmode.Op()
+    integral.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.OP.value << 12) | (3 << 8) | 0x73, -1)
+    integral.sub = _display_math_owner(mmode.Atom(mmode.ATOM_TYPE.ORD))
+    integral.sub.list[0].nucleus = _math_symbol("0")
+    integral.sup = _display_math_owner(mmode.Atom(mmode.ATOM_TYPE.ORD))
+    integral.sup.list[0].nucleus = _math_symbol("1")
+    integral.typeset_style = mmode.Style(mmode.MATH_STYLE.D)
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+    display = _display_math_owner(integral, atom_x)
+
+    box = _FakeHBox([], display, width=40, height=9, depth=3)
+    box.display = True
+    page = _page_box(parser, [box])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<m:nary>" in xml
+    assert "<m:chr" in xml
+    assert '<m:limLoc m:val="undOvr"/>' in xml
+    assert "<m:t>x</m:t>" in xml
+    assert "&#160;" in xml or "\u00a0" in xml
+    assert "<m:sSubSup>" not in xml
 
 
 def test_docx_section_uses_pdf_page_size_and_tex_origin(parser):
@@ -847,7 +930,7 @@ def test_docx_display_math_emits_eqno_as_separate_box(parser):
     eqno.list.append(atom_1)
     display.eqno = (eqno, False)
 
-    formula_box = _FakeHBox([], None, width=40, height=14, depth=8)
+    formula_box = _FakeHBox([], None, width=40, height=11, depth=3)
     eqno_box = _FakeHBox([], None, width=15, height=9, depth=3)
     box = _FakeHBox([formula_box, nd.Kern(Dimen(60)), eqno_box], display, width=115, height=14, depth=8)
     box.display = True
@@ -864,6 +947,26 @@ def test_docx_display_math_emits_eqno_as_separate_box(parser):
     assert 'w:val="right"' in xml
     assert 'w:pos="2291"' in xml
     assert "<m:t>1</m:t>" in xml
+
+
+def test_docx_display_math_uses_top_level_display_box_height(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom.nucleus = _math_symbol("x")
+    display = _display_math_owner(atom)
+
+    formula_box = _FakeHBox([], None, width=40, height=11, depth=3)
+    box = _FakeHBox([formula_box], display, width=40, height=18, depth=6)
+    box.display = True
+    page = _page_box(parser, [box])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert 'style="width:39.8506pt;height:23.9103pt"' in xml
 
 
 def test_docx_maps_math_operator_period_slot_to_period(parser):

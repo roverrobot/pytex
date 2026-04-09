@@ -506,20 +506,22 @@ class DocxBackend(Shipout):
         return Pt(cls._pt(value))
 
     @staticmethod
-    def _textbox_style(bottom_anchor=False):
+    def _textbox_style(anchor=None):
         parts = [
             "mso-fit-shape-to-text:f",
             "mso-fit-text-to-shape:t",
         ]
-        if bottom_anchor:
+        if anchor == "bottom":
             parts.append("v-text-anchor:bottom")
+        elif anchor == "top":
+            parts.append("v-text-anchor:top")
         return ";".join(parts)
 
-    def _vml_textbox_xml(self, content, width, height, bottom_anchor=False):
+    def _vml_textbox_xml(self, content, width, height, anchor=None):
         return (
             "<w:pict>"
             f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:{height:.4f}pt\">"
-            f"<v:textbox inset=\"0,0,0,0\" style=\"{self._textbox_style(bottom_anchor=bottom_anchor)}\">{content}</v:textbox>"
+            f"<v:textbox inset=\"0,0,0,0\" style=\"{self._textbox_style(anchor=anchor)}\">{content}</v:textbox>"
             "<w10:wrap type=\"none\"/>"
             "</v:rect>"
             "</w:pict>"
@@ -1445,13 +1447,7 @@ class DocxBackend(Shipout):
         effective_depth = Dimen(getattr(box, "depth", 0))
         if line_depth is not None and line_depth > effective_depth:
             effective_depth = Dimen(line_depth)
-        total_height = Dimen(total_height) if total_height is not None else Dimen(getattr(box, "height", 0)) + effective_depth
-        line_twips = max(self._spacing_twips(total_height), 1)
-        ppr = (
-            "<w:pPr>"
-            f"<w:spacing w:before=\"0\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
-            "</w:pPr>"
-        )
+        ppr = "<w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>"
         inner = self._omml_group_xml(fields)
         prefix = ""
         first_field = next((field for field in fields if field is not None), None)
@@ -1486,6 +1482,7 @@ class DocxBackend(Shipout):
             effective_depth = Dimen(line_depth)
         total_height = Dimen(total_height) if total_height is not None else Dimen(getattr(box, "height", 0)) + effective_depth
         height = max(self._pt(total_height), 1.0)
+        position = -int(round(self._pt(effective_depth) * 2.0)) if effective_depth else None
         content = self._display_math_content_xml(fields, box, line_depth=effective_depth, total_height=total_height)
         return parse_xml(
             (
@@ -1495,8 +1492,8 @@ class DocxBackend(Shipout):
                 "xmlns:o=\"urn:schemas-microsoft-com:office:office\" "
                 "xmlns:w10=\"urn:schemas-microsoft-com:office:word\" "
                 "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
-                "<w:rPr><w:noProof/></w:rPr>"
-                f"{self._vml_textbox_xml(content, width, height)}"
+                f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
+                f"{self._vml_textbox_xml(content, width, height, anchor='top')}"
                 "</w:r>"
             )
         )
@@ -1986,7 +1983,7 @@ class DocxBackend(Shipout):
                 "xmlns:w10=\"urn:schemas-microsoft-com:office:word\" "
                 "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
                 f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
-                f"{self._vml_textbox_xml(content, width, total_height, bottom_anchor=True)}"
+                f"{self._vml_textbox_xml(content, width, total_height, anchor='bottom')}"
                 "</w:r>"
             )
         )
@@ -2129,6 +2126,8 @@ class DocxBackend(Shipout):
         fmt.space_after = Pt(0)
         line_depth = getattr(spec.box, "depth", 0)
         math_total_height = Dimen(getattr(spec.box, "height", 0)) + Dimen(getattr(spec.box, "depth", 0))
+        fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+        fmt.line_spacing = self._length(self._nonnegative_dimen(math_total_height))
         for kind, width, fields, box in self._display_math_segments(spec):
             if kind == "spacer":
                 run_xml = self._display_spacer_run_xml(width)

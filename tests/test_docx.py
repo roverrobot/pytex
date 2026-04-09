@@ -1108,6 +1108,25 @@ def test_docx_section_uses_pdf_page_size_and_tex_origin(parser):
     assert '<w:pgMar w:top="2636" w:right="3741" w:bottom="5335" w:left="2237"' in xml
 
 
+def test_docx_supports_multiple_shipped_pages(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para1 = pg.Paragraph(parser, indent=False)
+    para2 = pg.Paragraph(parser, indent=False)
+
+    page1 = _page_box(parser, [_line_box(parser, "Page one body", para1)])
+    page2 = _page_box(parser, [_line_box(parser, "Page two body", para2)])
+    backend.shipout(page1)
+    backend.shipout(page2)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert len(document.sections) == 2
+    text = "\n".join(_paragraph_texts(document))
+    assert "Page one body" in text
+    assert "Page two body" in text
+
+
 def test_docx_flow_regions_split_header_body_footer(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend

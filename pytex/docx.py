@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
 from docx import Document
+from docx.enum.section import WD_SECTION_START
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
@@ -421,7 +422,7 @@ class DocxBackend(Shipout):
     Very small proof-of-concept DOCX backend.
 
     Scope intentionally stays narrow:
-    - single-page documents
+    - page-wise reconstruction from shipped TeX pages
     - TeX controls both paragraph and line breaks
     - paragraphs, basic alignments, and inline/display math are supported
     - images, specials, and broader page semantics remain intentionally narrow
@@ -660,8 +661,7 @@ class DocxBackend(Shipout):
             height = box_height + 2 * origin_y
         return width, height, origin_x, origin_y
 
-    def _configure_section(self, document, page):
-        section = document.sections[0]
+    def _configure_section(self, section, page):
         hsize = Dimen(self.parser.layout["hsize"])
         vsize = Dimen(self.parser.layout["vsize"])
         page_width, page_height, origin_x, origin_y = self._tex_page_size(page)
@@ -2821,22 +2821,8 @@ class DocxBackend(Shipout):
             self._emit_spec(container, spec, page)
             spec.space_before = original
 
-    def _build_document(self):
-        document = Document()
-        self._configure_math_settings(document)
-        if not self.pages:
-            return document
-        if len(self.pages) > 1:
-            raise NotImplementedError("DOCX proof-of-concept backend only supports a single shipped page")
-        page = self.pages[0]
-        glyphs = self._captured_pages[0] if self._captured_pages else []
-        flow_specs = list(self._page_flow_specs(page, glyphs))
-        if not glyphs and not flow_specs and any(getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST for node in getattr(page, "list", ())):
-            raise ValueError(
-                "DOCX backend captured no text glyphs from the shipped page; "
-                "the document may have been typeset with nullfont or contain only unsupported content"
-            )
-        self._configure_section(document, page)
+    @staticmethod
+    def _split_region_specs(flow_specs):
         body_specs = []
         header_specs = []
         footer_specs = []
@@ -2848,16 +2834,45 @@ class DocxBackend(Shipout):
                 footer_specs.append(spec)
             else:
                 body_specs.append(spec)
-        self._emit_specs(document, body_specs, page)
-        section = document.sections[0]
+        return body_specs, header_specs, footer_specs
+
+    def _emit_section_header_footer(self, section, header_specs, footer_specs, page):
+        section.header.is_linked_to_previous = False
+        self._clear_story_content(section.header)
         if header_specs:
-            section.header.is_linked_to_previous = False
-            self._clear_story_content(section.header)
             self._emit_specs(section.header, header_specs, page, normalize_first=True)
+
+        section.footer.is_linked_to_previous = False
+        self._clear_story_content(section.footer)
         if footer_specs:
-            section.footer.is_linked_to_previous = False
-            self._clear_story_content(section.footer)
             self._emit_specs(section.footer, footer_specs, page, normalize_first=True)
+
+    def _build_document(self):
+        document = Document()
+        self._configure_math_settings(document)
+        if not self.pages:
+            return document
+        for page_index, page in enumerate(self.pages):
+            glyphs = self._captured_pages[page_index] if page_index < len(self._captured_pages) else []
+            flow_specs = list(self._page_flow_specs(page, glyphs))
+            if not glyphs and not flow_specs and any(
+                getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST
+                for node in getattr(page, "list", ())
+            ):
+                raise ValueError(
+                    f"DOCX backend captured no text glyphs from shipped page {page_index + 1}; "
+                    "the document may have been typeset with nullfont or contain only unsupported content"
+                )
+
+            if page_index == 0:
+                section = document.sections[0]
+            else:
+                section = document.add_section(WD_SECTION_START.NEW_PAGE)
+            self._configure_section(section, page)
+
+            body_specs, header_specs, footer_specs = self._split_region_specs(flow_specs)
+            self._emit_specs(document, body_specs, page)
+            self._emit_section_header_footer(section, header_specs, footer_specs, page)
         return document
 
     def close(self):

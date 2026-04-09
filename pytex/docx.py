@@ -1129,6 +1129,7 @@ class DocxBackend(Shipout):
                         box=alignment_info[1],
                         display=False,
                         space_before=self._nonnegative_dimen(pending_gap),
+                        leading_indent=self._nonnegative_dimen(alignment_info[2]),
                     )
                     pending_gap = Dimen()
                     continue
@@ -2290,6 +2291,21 @@ class DocxBackend(Shipout):
         tc_w.set(qn("w:type"), "dxa")
         tc_w.set(qn("w:w"), str(cls._fit_text_twips(width)))
 
+    @classmethod
+    def _set_table_indent(cls, table, indent):
+        tbl_pr = table._tbl.tblPr
+        tbl_ind = tbl_pr.find(qn("w:tblInd"))
+        twips = cls._fit_text_twips(indent)
+        if twips <= 0:
+            if tbl_ind is not None:
+                tbl_pr.remove(tbl_ind)
+            return
+        if tbl_ind is None:
+            tbl_ind = OxmlElement("w:tblInd")
+            tbl_pr.append(tbl_ind)
+        tbl_ind.set(qn("w:type"), "dxa")
+        tbl_ind.set(qn("w:w"), str(twips))
+
     def _populate_table_cell(self, cell, box, line_measure=None):
         self._clear_cell(cell)
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.BOTTOM
@@ -2336,6 +2352,7 @@ class DocxBackend(Shipout):
         table = document.add_table(rows=len(rows), cols=len(effective_widths))
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
         table.autofit = False
+        self._set_table_indent(table, self._nonnegative_dimen(spec.leading_indent))
         self._set_table_cell_margins_zero(table)
         for index, width in enumerate(effective_widths):
             table.columns[index].width = self._length(width)

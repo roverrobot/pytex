@@ -8,6 +8,7 @@ from pytex import mmode
 from pytex import node as nd
 from pytex import box
 from pytex import texlive
+from pytex.dimen import Dimen
 
 
 def _normalize(text):
@@ -328,9 +329,10 @@ def test_html_reflow_promotes_paragraph_wrapped_alignment_with_indent_box(cmr10)
     wrapped = box.HBox(cmr10, None, 0)
     wrapped.source = owner
     para = paragraph.Paragraph(cmr10, indent=True)
-    para.raw = [box.IndentBox(cmr10), wrapped]
+    para.raw = [box.IndentBox(cmr10, width=Dimen(12)), wrapped]
     rendered = backend._render_owner(para)
     html = "".join(html_builder.render(node) for node in rendered)
     assert "<table" in html
+    assert 'style="margin-left:' in html
     assert ">1<" in html
     assert ">2<" in html

@@ -4,6 +4,7 @@ import zipfile
 from types import SimpleNamespace
 
 from docx import Document
+from docx.oxml.ns import qn
 import pytest
 
 from pytex import docx
@@ -289,7 +290,7 @@ def test_docx_promotes_wrapped_alignment_line_with_leading_indent_box_to_table(p
 
     rowbox = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
     wrapper = _FakeHBox([rowbox], None, width=33, height=8, depth=2, rightmost_value=33)
-    indent = bx.IndentBox(parser, width=10)
+    indent = bx.IndentBox(parser, width=Dimen(12))
     para = pg.Paragraph(parser, indent=True)
     line = _FakeHBox([indent, wrapper], para, width=90, height=8, depth=2, rightmost_value=43)
     page = _page_box(parser, [line])
@@ -299,6 +300,9 @@ def test_docx_promotes_wrapped_alignment_line_with_leading_indent_box_to_table(p
     assert len(document.tables) == 1
     assert document.tables[0].cell(0, 1).text == "1"
     assert document.tables[0].cell(0, 3).text == "2"
+    tbl_ind = document.tables[0]._tbl.tblPr.find(qn("w:tblInd"))
+    assert tbl_ind is not None
+    assert int(tbl_ind.get(qn("w:w"))) == docx.DocxBackend._fit_text_twips(Dimen(12))
 
 
 def test_docx_renders_display_alignment_as_table(parser):

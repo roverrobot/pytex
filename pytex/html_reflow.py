@@ -11,6 +11,7 @@ from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph
 from pytex import vmode
+from pytex.dimen import Dimen
 from pytex.html_builder import element, render
 from pytex.module import Module
 from pytex.typeset.shipout import Shipout
@@ -195,6 +196,9 @@ _MATH_LARGE_SYMBOLS_MAP = {
     0x57: "⋁",
     0x60: "∐",
 }
+
+_CSS_POINTS_PER_TEX_POINT_NUM = 7200
+_CSS_POINTS_PER_TEX_POINT_DEN = 7227
 
 
 class HTMLReflowBackend(Shipout):
@@ -1140,6 +1144,10 @@ class HTMLReflowBackend(Shipout):
             return raw
         return getattr(owner, "list", ())
 
+    @staticmethod
+    def _node_width(node):
+        return Dimen(getattr(node, "width", 0))
+
     def _wrapped_alignment_owner(self, node):
         if isinstance(node, align.HAlignment):
             return node
@@ -1148,8 +1156,10 @@ class HTMLReflowBackend(Shipout):
             return source if isinstance(source, align.HAlignment) else node
         return self._find_source_owner(node, (align.HAlignment, align.MAlignment))
 
-    def _paragraph_alignment_owner(self, owner):
+    def _paragraph_alignment_info(self, owner):
         candidate = None
+        leading_indent = Dimen()
+        seen_visible = False
         for node in self._owner_raw_nodes(owner):
             node_type = getattr(node, "node_type", None)
             if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.WHATSIT):
@@ -1160,16 +1170,30 @@ class HTMLReflowBackend(Shipout):
             if wrapped is None:
                 if self._flatten_text(getattr(node, "list", ())):
                     return None
+                if not seen_visible:
+                    leading_indent += self._node_width(node)
                 continue
             if isinstance(wrapped, align.MAlignment):
                 source = getattr(wrapped, "source", None)
                 wrapped = source if isinstance(source, align.HAlignment) else wrapped
+            seen_visible = True
             if candidate is None:
                 candidate = wrapped
                 continue
             if candidate is not wrapped:
                 return None
-        return candidate
+        if candidate is None:
+            return None
+        return candidate, leading_indent
+
+    @staticmethod
+    def _css_points(value):
+        scaled = int(value) if isinstance(value, Dimen) else int(Dimen(value))
+        return (
+            scaled
+            * _CSS_POINTS_PER_TEX_POINT_NUM
+            / (_CSS_POINTS_PER_TEX_POINT_DEN * Dimen.scale)
+        )
 
     def _alignment_rows(self, owner, mathml_cells=False):
         rows = []
@@ -1285,9 +1309,16 @@ class HTMLReflowBackend(Shipout):
 
     def _render_owner(self, owner):
         if isinstance(owner, paragraph.Paragraph):
-            alignment_owner = self._paragraph_alignment_owner(owner)
-            if alignment_owner is not None:
-                return self._render_owner(alignment_owner)
+            alignment_info = self._paragraph_alignment_info(owner)
+            if alignment_info is not None:
+                alignment_owner, leading_indent = alignment_info
+                rows = self._alignment_rows(alignment_owner)
+                if rows:
+                    attrs = {"class_": "alignment"}
+                    if leading_indent > 0:
+                        attrs["style"] = f"margin-left:{self._css_points(leading_indent):.4f}pt"
+                    return [element("table", rows, **attrs)]
+                return []
             dominant = self._dominant_font(owner.list)
             children = self._inline_children(self._owner_raw_nodes(owner), dominant)
             if not children:

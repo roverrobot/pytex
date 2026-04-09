@@ -405,6 +405,34 @@ def test_docx_display_alignment_emits_omml_fraction_and_tag(parser):
     assert "<w:jc w:val=\"right\"/>" in xml
 
 
+def test_docx_display_alignment_applies_box_shifted_to_table_indent(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0))]
+    row = align.Row()
+    row.cells = [_alignment_cell(parser, "x", width=15)]
+    owner.rows = [row]
+
+    shifted_box = _FakeHBox([], owner, width=15, height=8, depth=2, rightmost_value=15)
+    shifted_box.shifted = Dimen(9)
+    spec = docx._AlignmentSpec(owner=owner, box=shifted_box, display=True, leading_indent=Dimen(7))
+
+    document = Document()
+    backend._emit_alignment(document, spec)
+    out = io.BytesIO()
+    document.save(out)
+    out.seek(0)
+    with zipfile.ZipFile(out) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+
+    tbl_ind = re.search(r"<w:tblInd w:type=\"dxa\" w:w=\"(\d+)\"/>", xml)
+    assert tbl_ind is not None
+    expected = docx.DocxBackend._fit_text_twips(Dimen(16))
+    assert int(tbl_ind.group(1)) == expected
+
+
 
 def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     backend = docx.DocxBackend(parser)

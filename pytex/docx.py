@@ -1121,6 +1121,7 @@ class DocxBackend(Shipout):
                 alignment_info = self._line_alignment_info(line.box)
                 if alignment_info is not None:
                     owner = alignment_info[0]
+                    is_math_alignment = self._alignment_is_math(owner)
                     owner_key = id(owner)
                     if owner_key in emitted_alignments:
                         pending_gap = Dimen()
@@ -1130,10 +1131,14 @@ class DocxBackend(Shipout):
                         yield current
                         current = None
                         paragraph_math_state = None
+                    # Prefer the explicit display-alignment node event (`kind == "alignment"`),
+                    # which carries full container geometry for amsmath align-like displays.
+                    if is_math_alignment:
+                        continue
                     yield _AlignmentSpec(
                         owner=owner,
                         box=alignment_info[1],
-                        display=self._alignment_is_math(owner),
+                        display=is_math_alignment,
                         space_before=self._nonnegative_dimen(pending_gap),
                         leading_indent=self._nonnegative_dimen(alignment_info[2]),
                     )
@@ -2416,6 +2421,22 @@ class DocxBackend(Shipout):
         tbl_ind.set(qn("w:type"), "dxa")
         tbl_ind.set(qn("w:w"), str(twips))
 
+    @classmethod
+    def _set_table_width(cls, table, width):
+        tbl_pr = table._tbl.tblPr
+        tbl_w = tbl_pr.find(qn("w:tblW"))
+        if tbl_w is None:
+            tbl_w = OxmlElement("w:tblW")
+            tbl_pr.insert(0, tbl_w)
+        tbl_w.set(qn("w:type"), "dxa")
+        tbl_w.set(qn("w:w"), str(cls._fit_text_twips(width)))
+
+    @staticmethod
+    def _alignment_display_indent(spec):
+        if not getattr(spec, "display", False):
+            return Dimen()
+        return Dimen(getattr(getattr(spec, "box", None), "shifted", 0))
+
     def _populate_table_cell(self, cell, box, line_measure=None):
         self._clear_cell(cell)
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.BOTTOM
@@ -2505,6 +2526,10 @@ class DocxBackend(Shipout):
                 span = entry["span"]
                 if span != 1 or start < 0 or start >= len(adjusted_widths):
                     continue
+                if spec.display and self._is_alignment_tag_cell(entry["cell"]):
+                    # TeX keeps display eqno cells at nominal zero width and positions
+                    # the visible tag against surrounding tabskip glue.
+                    continue
                 visible_width = self._alignment_cell_visible_width(entry["cell"])
                 if visible_width <= adjusted_widths[start]:
                     continue
@@ -2522,7 +2547,8 @@ class DocxBackend(Shipout):
         table = document.add_table(rows=len(rows), cols=len(effective_widths))
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
         table.autofit = False
-        self._set_table_indent(table, self._nonnegative_dimen(spec.leading_indent))
+        table_indent = self._nonnegative_dimen(spec.leading_indent + self._alignment_display_indent(spec))
+        self._set_table_indent(table, table_indent)
         self._set_table_cell_margins_zero(table)
         for index, width in enumerate(effective_widths):
             table.columns[index].width = self._length(width)
@@ -2554,6 +2580,16 @@ class DocxBackend(Shipout):
                 start = 2 * entry["start"] + 1
                 span = entry["span"]
                 end = 2 * (entry["start"] + span - 1) + 1
+                if spec.display and span == 1 and self._is_alignment_tag_cell(entry["cell"]):
+                    # For zero-width eqno columns, render the visible label in the
+                    # preceding tabskip column so the right edge matches TeX anchor.
+                    gap_col = start - 1
+                    if gap_col >= 0 and effective_widths[gap_col] > 0:
+                        gap_target = row_cells[gap_col]
+                        self._set_table_cell_width(gap_target, effective_widths[gap_col])
+                        occupied.add(gap_col)
+                        self._populate_display_alignment_math_cell(gap_target, entry["cell"])
+                        continue
                 target = row_cells[start]
                 if end > start:
                     target = target.merge(row_cells[end])

@@ -101,6 +101,8 @@ def test_read_system_opentype_font_name(parser, monkeypatch):
 
 def test_opentype_math_variants_populate_next_larger_and_assembly(parser):
     path = Path(__file__).resolve().parents[1] / ".cache" / "fonts" / "STIXTwoMath-input.ttf"
+    if not path.exists():
+        pytest.skip("STIXTwoMath input TTF not available")
     try:
         backend = parser.loadFontBackend(str(path))
     except FileNotFoundError:

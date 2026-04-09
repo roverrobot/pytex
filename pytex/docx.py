@@ -2164,6 +2164,57 @@ class DocxBackend(Shipout):
         rows, widths, tabskips = owner._collectEntries(self.parser)
         return rows, widths, tabskips
 
+    def _box_inline_layout(self, box):
+        items = getattr(box, "list", None) or ()
+        if not items:
+            return WD_ALIGN_PARAGRAPH.LEFT, Dimen(), Dimen()
+        glue_state = self._glue_state(box)
+
+        def node_width(node):
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                return Dimen(integer=self._effective_glue_amount(node, box, glue_state))
+            if node_type == nd.NODE_TYPE.KERN:
+                return Dimen(getattr(node, "kern", 0))
+            if node_type == nd.NODE_TYPE.RULE:
+                return Dimen(getattr(node, "width", 0))
+            if node_type == nd.NODE_TYPE.DISC:
+                return Dimen(getattr(node, "replace_width", 0))
+            return Dimen(getattr(node, "width", 0))
+
+        def has_fill(node):
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.GLUE:
+                return False
+            stretch = getattr(getattr(node, "glue", None), "stretch", None)
+            return getattr(stretch, "factor", 0) != 0
+
+        start = 0
+        end = len(items) - 1
+        while start <= end and not self._node_has_inline_text(items[start]):
+            start += 1
+        while end >= start and not self._node_has_inline_text(items[end]):
+            end -= 1
+        if start > end:
+            return WD_ALIGN_PARAGRAPH.LEFT, Dimen(), Dimen()
+
+        left_indent = Dimen()
+        right_indent = Dimen()
+        left_fill = False
+        right_fill = False
+        for node in items[:start]:
+            left_indent += node_width(node)
+            left_fill = left_fill or has_fill(node)
+        for node in items[end + 1:]:
+            right_indent += node_width(node)
+            right_fill = right_fill or has_fill(node)
+        if left_fill and right_fill:
+            alignment = WD_ALIGN_PARAGRAPH.CENTER
+        elif left_fill:
+            alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        else:
+            alignment = WD_ALIGN_PARAGRAPH.LEFT
+        return alignment, self._nonnegative_dimen(left_indent), self._nonnegative_dimen(right_indent)
+
     def _alignment_row_layout(self, node, owner):
         items = getattr(node, "list", None) or ()
         row_boxes = []
@@ -2231,15 +2282,22 @@ class DocxBackend(Shipout):
         tc_w.set(qn("w:type"), "dxa")
         tc_w.set(qn("w:w"), str(cls._fit_text_twips(width)))
 
-    def _populate_table_cell(self, cell, box):
+    def _populate_table_cell(self, cell, box, line_measure=None):
         self._clear_cell(cell)
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.BOTTOM
         para = cell.paragraphs[0]
         fmt = para.paragraph_format
-        fmt.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        alignment, left_indent, right_indent = self._box_inline_layout(box)
+        fmt.alignment = alignment
+        fmt.left_indent = self._length(left_indent)
+        fmt.right_indent = self._length(right_indent)
         fmt.space_before = Pt(0)
         fmt.space_after = Pt(0)
-        total_height = Dimen(getattr(box, "height", 0) + getattr(box, "depth", 0))
+        total_height = (
+            self._nonnegative_dimen(line_measure)
+            if line_measure is not None
+            else Dimen(getattr(box, "height", 0) + getattr(box, "depth", 0))
+        )
         if total_height > 0:
             fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
             fmt.line_spacing = self._length(total_height)
@@ -2309,7 +2367,7 @@ class DocxBackend(Shipout):
                     merged_width += effective_widths[index]
                 self._set_table_cell_width(target, merged_width)
                 occupied.update(range(start, end + 1))
-                self._populate_table_cell(target, entry["cell"])
+                self._populate_table_cell(target, entry["cell"], line_measure=row_height)
             for col_index, target in enumerate(row_cells):
                 if col_index in occupied:
                     continue

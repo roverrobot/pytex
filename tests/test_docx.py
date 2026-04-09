@@ -434,6 +434,41 @@ def test_docx_display_alignment_applies_box_shifted_to_table_indent(parser):
 
 
 
+def test_docx_alignment_tabskip_uses_realized_glue_order(parser):
+    backend = docx.DocxBackend(parser)
+
+    owner = align.HAlignment()
+    tabskip = Glue(Dimen(0), Stretchness(Dimen(1), 2), Stretchness(Dimen(), 0))
+    owner.tabskips = [tabskip, tabskip, tabskip]
+    row = align.Row()
+    row.cells = [_alignment_cell(parser, "a", width=15), _alignment_cell(parser, "b", width=18)]
+    owner.rows = [row]
+
+    row_box = _FakeHBox(
+        [
+            nd.Glue(tabskip, "\\tabskip"),
+            row.cells[0],
+            nd.Glue(tabskip, "\\tabskip"),
+            row.cells[1],
+            nd.Glue(tabskip, "\\tabskip"),
+        ],
+        owner,
+        width=33,
+        height=8,
+        depth=2,
+        rightmost_value=33,
+    )
+    row_box.glue_ratio = (1, 1, 1)
+    row_box.natural = SimpleNamespace(
+        stretch=Stretchness(Dimen(3), 2),
+        shrink=Stretchness(Dimen(), 0),
+    )
+
+    realized = backend._alignment_effective_tabskips(owner.tabskips, ([row_box], [Dimen()]))
+    one_pt = int(Dimen(1))
+    assert [int(value) for value in realized] == [one_pt, one_pt, one_pt]
+
+
 def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
@@ -1125,6 +1160,70 @@ def test_docx_supports_multiple_shipped_pages(parser):
     text = "\n".join(_paragraph_texts(document))
     assert "Page one body" in text
     assert "Page two body" in text
+
+
+def test_docx_emits_ownerless_inline_lines(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    line = _FakeHBox([nd.CharNode("1", _FakeFont())], None, width=20, height=7, depth=2, rightmost_value=20)
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert "1" in "\n".join(_paragraph_texts(document))
+
+
+def test_docx_ownerless_single_line_honors_fill_glue_as_center_alignment(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    font = _FakeFont()
+    center_glue = Glue(Dimen(0), Stretchness(Dimen(1), 1), Stretchness(Dimen(), 0))
+    line = _FakeHBox(
+        [
+            nd.Glue(center_glue, None),
+            nd.CharNode("1", font),
+            nd.Glue(center_glue, None),
+        ],
+        None,
+        width=200,
+        height=8,
+        depth=2,
+        rightmost_value=200,
+    )
+    line.glue_ratio = (1, 198, 2)
+    line.natural = SimpleNamespace(
+        stretch=Stretchness(Dimen(2), 1),
+        shrink=Stretchness(Dimen(), 0),
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<w:jc w:val=\"center\"/>" in xml
+    assert "<w:t>1</w:t>" in xml
+
+
+def test_docx_ownerless_nested_hboxes_stay_on_single_line(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    font = _FakeFont()
+    left = _FakeHBox([nd.CharNode("A", font)], None, width=10, height=7, depth=2, rightmost_value=10)
+    right = _FakeHBox([nd.CharNode("B", font)], None, width=10, height=7, depth=2, rightmost_value=10)
+    outer = _FakeHBox([left, right], None, width=20, height=7, depth=2, rightmost_value=20)
+    page = _page_box(parser, [outer])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert ">A<" in xml
+    assert ">B<" in xml
+    assert "<w:br/>" not in xml
 
 
 def test_docx_flow_regions_split_header_body_footer(parser):

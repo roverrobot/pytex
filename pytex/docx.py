@@ -1150,10 +1150,15 @@ class DocxBackend(Shipout):
         if display_owner is not None and getattr(box, "display", False):
             yield ("display", display_owner, box, int(baseline))
             return
-        if owner is not None and self._box_has_direct_inline_content(box):
+        items = getattr(box, "list", None) or ()
+        has_inline = self._box_has_direct_inline_content(box)
+        has_inline_tree = self._node_has_inline_text(box)
+        has_vlist_child = any(getattr(node, "node_type", None) == nd.NODE_TYPE.VLIST for node in items)
+        # Treat inline-text hbox wrappers (including ownerless \box/\copy material)
+        # as atomic lines when they don't carry nested vertical structure.
+        if has_inline_tree and not has_vlist_child:
             yield ("line", _LineEvent(owner=owner, baseline=int(baseline), box=box))
             return
-        items = getattr(box, "list", None) or ()
         emitted_descendant = False
         for node in items:
             node_type = getattr(node, "node_type", None)
@@ -1168,7 +1173,9 @@ class DocxBackend(Shipout):
                 for event in self._walk_vlist(node, child_top):
                     emitted_descendant = True
                     yield event
-        if not emitted_descendant and owner is not None:
+        # Keep paragraph-owner wrappers (which may contain nested line boxes only)
+        # and ownerless inline headline/footline boxes as standalone lines.
+        if not emitted_descendant and (owner is not None or has_inline or has_inline_tree):
             yield ("line", _LineEvent(owner=owner, baseline=int(baseline), box=box))
 
     @staticmethod
@@ -1317,6 +1324,8 @@ class DocxBackend(Shipout):
                 if not line_runs:
                     line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
                 if not line_runs:
+                    line_runs = self._runs_from_box(line.box, paragraph_math_state)
+                if not line_runs:
                     continue
                 line_segments = self._segment_mixed_line_runs(line_runs)
                 current.lines.append(
@@ -1404,6 +1413,20 @@ class DocxBackend(Shipout):
     @staticmethod
     def _xml_space_attr(text):
         return ' xml:space="preserve"' if text[:1].isspace() or text[-1:].isspace() else ""
+
+    @staticmethod
+    def _xml_safe_text(text):
+        if not text:
+            return ""
+        out = []
+        for ch in text:
+            code = ord(ch)
+            if ch in ("\t", "\n", "\r"):
+                out.append(ch)
+                continue
+            if 0x20 <= code <= 0xD7FF or 0xE000 <= code <= 0xFFFD or 0x10000 <= code <= 0x10FFFF:
+                out.append(ch)
+        return "".join(out)
 
     @staticmethod
     def _printable_char(char):
@@ -1730,12 +1753,13 @@ class DocxBackend(Shipout):
             )
         )
 
-    @staticmethod
-    def _display_item_width(node):
+    def _display_item_width(self, node, box=None, glue_state=None):
         node_type = getattr(node, "node_type", None)
         if node_type == nd.NODE_TYPE.KERN:
             return Dimen(getattr(node, "kern", 0))
         if node_type == nd.NODE_TYPE.GLUE:
+            if box is not None and hasattr(box, "glue_ratio"):
+                return Dimen(integer=self._effective_glue_amount(node, box, glue_state))
             return Dimen(getattr(getattr(node, "glue", None), "dimen", 0))
         width = getattr(node, "width", None)
         if width is not None:
@@ -1748,6 +1772,7 @@ class DocxBackend(Shipout):
         if shifted != 0:
             segments.append(("spacer", shifted, None, None))
         items = list(getattr(spec.box, "list", ()) or ())
+        glue_state = self._glue_state(spec.box)
         box_items = [
             (index, item)
             for index, item in enumerate(items)
@@ -1767,7 +1792,7 @@ class DocxBackend(Shipout):
         last_index, last_box = box_items[-1]
         gap = Dimen()
         for item in items[first_index + 1:last_index]:
-            gap += self._display_item_width(item)
+            gap += self._display_item_width(item, box=spec.box, glue_state=glue_state)
         if left:
             segments.append(("eqno", Dimen(getattr(first_box, "width", 0)), getattr(eqno_holder, "list", ()), first_box))
             if gap != 0:
@@ -2196,6 +2221,20 @@ class DocxBackend(Shipout):
         line_height = self._inline_box_line_measure(box_run)
         line_twips = self._fit_text_twips(line_height)
         depth_half_points = int(round(self._pt(getattr(box_run.box, "depth", 0)) * 2.0))
+        alignment, left_indent, right_indent = self._box_inline_layout(box_run.box)
+        jc = "left"
+        if alignment == WD_ALIGN_PARAGRAPH.CENTER:
+            jc = "center"
+        elif alignment == WD_ALIGN_PARAGRAPH.RIGHT:
+            jc = "right"
+        ind_parts = []
+        left_twips = self._fit_text_twips(left_indent)
+        right_twips = self._fit_text_twips(right_indent)
+        if left_twips > 0:
+            ind_parts.append(f"w:left=\"{left_twips}\"")
+        if right_twips > 0:
+            ind_parts.append(f"w:right=\"{right_twips}\"")
+        ind_xml = f"<w:ind {' '.join(ind_parts)}/>" if ind_parts else ""
         text = "\u00A0" * len(text) if text.isspace() else text
         run = (
             "<w:r>"
@@ -2206,6 +2245,8 @@ class DocxBackend(Shipout):
         ppr = (
             "<w:pPr>"
             f"<w:spacing w:before=\"0\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
+            f"<w:jc w:val=\"{jc}\"/>"
+            f"{ind_xml}"
             "<w:textAlignment w:val=\"baseline\"/>"
             "</w:pPr>"
         )
@@ -2295,7 +2336,9 @@ class DocxBackend(Shipout):
             if isinstance(chunk, _InlineMathRun):
                 para._p.append(self._inline_math_run_xml(chunk))
                 continue
-            text = chunk.text
+            text = self._xml_safe_text(chunk.text)
+            if not text:
+                continue
             run = para.add_run(text)
             self._apply_run_font_with_options(
                 run,
@@ -2318,6 +2361,13 @@ class DocxBackend(Shipout):
             fmt.line_spacing = self._length(self._nonnegative_dimen(spec.interline_gaps[0]))
         if spec.first_line_indent != 0:
             fmt.first_line_indent = self._length(self._nonnegative_dimen(spec.first_line_indent))
+        # Ownerless single-line paragraphs (header/footer and standalone \box/\copy
+        # material) should honor TeX leading/trailing glue as paragraph layout.
+        if spec.owner is None and len(spec.lines) == 1 and spec.lines[0].box is not None:
+            alignment, left_indent, right_indent = self._box_inline_layout(spec.lines[0].box)
+            fmt.alignment = alignment
+            fmt.left_indent = self._length(left_indent)
+            fmt.right_indent = self._length(right_indent)
         for line_index, line_spec in enumerate(spec.lines):
             if line_spec.segments:
                 for segment in line_spec.segments:
@@ -2543,6 +2593,38 @@ class DocxBackend(Shipout):
                 return found
         return None
 
+    def _alignment_effective_tabskips(self, tabskips, row_layout):
+        natural = [self._nonnegative_dimen(getattr(skip, "dimen", 0)) for skip in tabskips]
+        if row_layout is None:
+            return natural
+        row_boxes, _row_gaps = row_layout
+        measured = [None] * len(natural)
+        for row_box in row_boxes:
+            values = []
+            glue_state = self._glue_state(row_box)
+            for node in getattr(row_box, "list", None) or ():
+                if getattr(node, "node_type", None) != nd.NODE_TYPE.GLUE:
+                    continue
+                if getattr(node, "name", None) != "\\tabskip":
+                    continue
+                if glue_state is not None:
+                    amount = self._effective_glue_amount(node, row_box, glue_state)
+                else:
+                    amount = int(getattr(getattr(node, "glue", None), "dimen", 0))
+                values.append(self._nonnegative_dimen(Dimen(integer=amount)))
+            if len(values) != len(natural):
+                continue
+            for index, value in enumerate(values):
+                current = measured[index]
+                if current is None or value > current:
+                    measured[index] = value
+        if not any(value is not None for value in measured):
+            return natural
+        return [
+            measured[index] if measured[index] is not None else natural[index]
+            for index in range(len(natural))
+        ]
+
     @staticmethod
     def _clear_cell(cell):
         tc = cell._tc
@@ -2707,7 +2789,7 @@ class DocxBackend(Shipout):
         row_layout = self._alignment_row_layout(spec.box, spec.owner) if spec.box is not None else None
         block_gap = self._nonnegative_dimen(spec.space_before)
         adjusted_widths = [Dimen(width) for width in widths]
-        adjusted_tabskips = [self._nonnegative_dimen(getattr(skip, "dimen", 0)) for skip in tabskips]
+        adjusted_tabskips = self._alignment_effective_tabskips(tabskips, row_layout)
         for _row, entries in rows:
             for entry in entries:
                 start = entry["start"]

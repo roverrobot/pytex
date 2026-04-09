@@ -22,6 +22,7 @@ mathfont = mm.mathfont
 mathsigma = mm.mathsigma
 mathlayout = mm.mathlayout
 _drop_redundant_wrapper = mm._drop_redundant_wrapper
+_label_box_tree = mm._label_box_tree
 AtomState = mm.AtomState
 
 
@@ -34,6 +35,25 @@ def _coerceAtomState(parser, context):
         atom_type=getattr(context, "atom_type", None),
         text_symbol=getattr(context, "text_symbol", False),
     )
+
+
+def _label_atom_tree(node, atom):
+    if node is None or atom is None:
+        return node
+    if getattr(node, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+        node.source = atom
+    return node
+
+
+def _label_math_cache(nodes, holder):
+    if holder is None:
+        return nodes
+    for node in nodes:
+        node_type = getattr(node, "node_type", None)
+        if node_type not in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE) and getattr(node, "source", None) is None:
+            node.source = holder
+        _label_box_tree(node, holder)
+    return nodes
 
 
 class _AtomWrapper:
@@ -532,6 +552,7 @@ class MathTypesetter:
         if context is None:
             packed.append(atom)
             return packed
+        atom.typeset_style = Style(style.style, style.cramped)
         if atom_type is None:
             atom_type = getattr(context, "atom_type", atom.atom_type)
         if text_symbol is not None:
@@ -541,7 +562,12 @@ class MathTypesetter:
         if boundary_info is not None:
             atom.typsetSpace(self.parser, packed, context, style, atom_type)
             left_delim, right_delim, body_items = boundary_info
-            packed.append(atom._typesetBoundaryInner(self.parser, context, style, left_delim, right_delim, body_items))
+            packed.append(
+                _label_atom_tree(
+                    atom._typesetBoundaryInner(self.parser, context, style, left_delim, right_delim, body_items),
+                    atom,
+                )
+            )
             context.prev_atom_type = atom_type
             return packed
         b = atom.assemble(self.parser, context, style)
@@ -560,22 +586,25 @@ class MathTypesetter:
         if atom.left:
             left = atom.left.typeset(self.parser, total, context, style, axis)
             atom.typsetSpace(self.parser, packed, context, style, ATOM_TYPE.OPEN)
+            if getattr(left, "source", None) is None:
+                left.source = atom.left
             packed.append(left)
             context.prev_atom_type = ATOM_TYPE.OPEN
             atom.typsetSpace(self.parser, packed, context, style, atom_type)
         else:
             atom.typsetSpace(self.parser, packed, context, style, atom_type)
         if atom.left is not None or atom.right is not None:
-            if getattr(b, "source", None) is None:
-                b.source = atom
-            packed.append(b)
+            packed.append(_label_atom_tree(b, atom))
         else:
             for n in b.list:
+                _label_atom_tree(n, atom)
                 packed.append(n)
         context.prev_atom_type = atom_type
         if atom.right:
             right = atom.right.typeset(self.parser, total, context, style, axis)
             atom.typsetSpace(self.parser, packed, context, style, ATOM_TYPE.CLOSE)
+            if getattr(right, "source", None) is None:
+                right.source = atom.right
             packed.append(right)
             context.prev_atom_type = ATOM_TYPE.CLOSE
         return packed
@@ -596,7 +625,7 @@ class MathTypesetter:
     def typesetHolder(self, holder, packed, context, style):
         hbox = box.HBox(self.parser, None, None)
         self.typesetNodes(holder, hbox.list, context, style)
-        packed.append(_drop_redundant_wrapper(hbox.typeset(self.parser), allow_char=True))
+        packed.append(_label_box_tree(_drop_redundant_wrapper(hbox.typeset(self.parser), allow_char=True), holder))
 
     def typesetSubformula(self, holder, packed, context, style):
         self.typesetHolder(holder, packed, context, style)
@@ -611,9 +640,7 @@ class MathTypesetter:
         math_shift = nd.MathShift(False)
         math_shift.kern = Dimen(self.parser.layout["mathsurround"])
         cache.append(math_shift)
-        for node in cache:
-            if getattr(node, "source", None) is None:
-                node.source = holder
+        _label_math_cache(cache, holder)
         packed.extend(cache)
 
     def typesetDisplayMath(self, holder, packed):
@@ -710,6 +737,5 @@ class MathTypesetter:
         else:
             cache.append(nd.Penalty(parser.layout["postdisplaypenalty"]))
             cache.append(gb)
-        for n in cache:
-            n.source = holder
+        _label_math_cache(cache, holder)
         packed.extend(cache)

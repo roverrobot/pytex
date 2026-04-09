@@ -134,6 +134,18 @@ def _drop_redundant_wrapper(box_node, allow_char):
     return child
 
 
+def _label_box_tree(node, source):
+    """
+    Label one top-level HBox/VBox with ``source`` when ownership is absent.
+    """
+    if node is None or source is None:
+        return node
+    node_type = getattr(node, "node_type", None)
+    if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST) and getattr(node, "source", None) is None:
+        node.source = source
+    return node
+
+
 class MList(lists.List):
     """
     a math list
@@ -376,8 +388,7 @@ class Atom(nd.Node):
         out = box.HBox(parser, None, None)
         out.list[:] = [left_box, body, right_box]
         out = out.typeset(parser)
-        out.source = self
-        return out
+        return _label_box_tree(out, self)
     
     """
     An array holding the spaces between the previous atom (rows) and the current item (columns)
@@ -501,6 +512,7 @@ class Atom(nd.Node):
             x.width += mathlayout(parser, "scriptspace")
             if hasattr(x, "to"):
                 x.to = x.width
+            _label_box_tree(x, field)
             return x
         local = AtomState(parser)
         if isinstance(field, Atom):
@@ -516,8 +528,8 @@ class Atom(nd.Node):
         x.width += mathlayout(parser, "scriptspace")
         if hasattr(x, "to"):
             x.to = x.width
-        if field is not None and getattr(x, "source", None) is None:
-            x.source = field
+        if field is not None:
+            _label_box_tree(x, field)
         return x
 
     def rule18c(self, parser, x, context, style, u):
@@ -638,9 +650,7 @@ class Atom(nd.Node):
             self.typesetScripts(parser, b.list, context, style, delta)
         self._attach_scripts = True
         out = b.typeset(parser)
-        if getattr(out, "source", None) is None:
-            out.source = self
-        return out
+        return _label_box_tree(out, self)
 
     @staticmethod
     def overbar(parser, b, k, t):
@@ -842,9 +852,7 @@ class Op(Atom):
             b.list.append(y)
             self.typesetScripts(parser, b.list, context, style, delta)
         out = b.typeset(parser)
-        if getattr(out, "source", None) is None:
-            out.source = self
-        return out
+        return _label_box_tree(out, self)
 
 
 class MathSymbol(serialization.Serializable):
@@ -894,8 +902,7 @@ class Box(Atom):
         # Box atoms carry a prebuilt box nucleus.
         typeset = getattr(self.nucleus, "typeset", None)
         out = self.nucleus if typeset is None else typeset(parser)
-        if getattr(out, "source", None) is None:
-            out.source = self
+        _label_box_tree(out, self)
         packed.append(out)
         return Dimen()
 
@@ -1390,8 +1397,7 @@ class Rad(Atom):
         out = box.HBox(parser, None, 0)
         out.list[:] = [y, Atom.overbar(parser, x, clr, y.height)]
         out = out.typeset(parser)
-        if getattr(out, "source", None) is None:
-            out.source = self
+        _label_box_tree(out, self)
         packed.append(out)
         return Dimen()
 
@@ -1621,8 +1627,7 @@ class Over(Atom):
         wrapped = box.HBox(parser, None, 0)
         wrapped.list[:] = [left_box, out, right_box]
         wrapped = wrapped.typeset(parser)
-        if getattr(wrapped, "source", None) is None:
-            wrapped.source = self
+        _label_box_tree(wrapped, self)
         packed.append(wrapped)
         return Dimen()
 

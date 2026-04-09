@@ -178,6 +178,30 @@ def test_mlist_typeset_inline(math):
     assert packed[-1].kern == math.layout["mathsurround"]
 
 
+def test_inline_math_typeset_does_not_require_char_atom_sources(math):
+    math.parse("$a+b$")
+    mlist = _inline_math_node(math.lists[-1])
+    packed = []
+    _typeset_inline_math(math, mlist, packed)
+    chars = [n for n in packed[1:-1] if getattr(n, "node_type", None) == nd.NODE_TYPE.CHAR]
+    assert chars
+    assert not any(isinstance(getattr(n, "source", None), mmode.InlineMathNode) for n in chars)
+
+
+def test_inline_math_typeset_labels_wrapping_boxes_with_atom_sources(math):
+    math.parse("$a_b$")
+    mlist = _inline_math_node(math.lists[-1])
+    packed = []
+    _typeset_inline_math(math, mlist, packed)
+    boxes = [
+        n
+        for n in packed[1:-1]
+        if getattr(n, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+    ]
+    assert boxes
+    assert any(isinstance(getattr(n, "source", None), mmode.Atom) for n in boxes)
+
+
 def test_leading_superscript_uses_empty_subformula_nucleus(math):
     math.parse("$^a$")
     node = _inline_math_node(math.lists[-1]).list[0]
@@ -1333,6 +1357,16 @@ def test_mathstyle(math, cmd, style):
     assert node.style.style == style
     assert not node.style.cramped
     math.parse("$")
+
+
+def test_typeset_math_records_effective_atom_style(math):
+    math.parse("\\mathchardef\\SUM=\"1350")
+    math.parse("a$\\displaystyle \\SUM_0^1$b")
+    holder = _inline_math_node(math.lists[-1])
+    op = next(node for node in holder.list if isinstance(node, mmode.Op))
+    _typeset_math_nodes(math, holder, [], inline_context(math), mmode.Style(mmode.MATH_STYLE.T))
+    assert op.typeset_style.style == mmode.MATH_STYLE.D
+    assert not op.typeset_style.cramped
 
 
 @pytest.mark.parametrize("src, up_style, up_cramped, down_style, down_cramped", [

@@ -315,7 +315,7 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<w:fitText" in xml
+    assert "<w:fitText" not in xml
     assert 'style="width:39.8506pt;height:9.7136pt"' in xml
     assert re.search(r"<w:rPr><w:noProof/><w:position w:val=\"-\d+\"/></w:rPr><w:pict>", xml)
     assert '<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="179"/>' in xml
@@ -371,18 +371,17 @@ def test_docx_inline_math_uses_inline_textbox(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<w:fitText" in xml
+    assert "<w:fitText" not in xml
     assert 'style="width:21.9178pt;height:7.7210pt"' in xml
     assert "<m:oMath>" in xml
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
     assert "<m:t>y</m:t>" in xml
     assert xml.count('w:spacing w:val="-40"') >= 2
-    fit_ids = set(re.findall(r"<w:fitText w:id=\"(\d+)\" w:val=\"\d+\"/>", xml))
-    assert len(fit_ids) == 2
+    assert "<w:fitText" not in xml
 
 
-def test_docx_inline_math_preserves_tex_spacing_inside_omml(parser):
+def test_docx_inline_math_ignores_internal_tex_spacing_in_omml(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -427,7 +426,7 @@ def test_docx_inline_math_preserves_tex_spacing_inside_omml(parser):
         xml = zf.read("word/document.xml").decode("utf-8")
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>y</m:t>" in xml
-    assert any(space_char in xml for space_char in ("\u2009", "\u205F", "\u200A", "\u2005", "\u2004"))
+    assert not any(space_char in xml for space_char in ("\u2009", "\u205F", "\u200A", "\u2005", "\u2004"))
 
 
 def test_docx_inline_math_uses_realized_glue_width_from_line_box(parser):
@@ -447,9 +446,7 @@ def test_docx_inline_math_uses_realized_glue_width_from_line_box(parser):
     )
 
     fields = backend._fragment_math_fields(line.list, line)
-    spaces = [field for field in fields if isinstance(field, docx._MathSpacing)]
-    assert spaces
-    assert spaces[0].amount == Dimen(4)
+    assert fields == [atom_x, atom_y]
 
 
 def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):

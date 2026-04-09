@@ -314,11 +314,6 @@ class _TextRun:
 
 
 @dataclass
-class _MathSpacing:
-    amount: Dimen
-
-
-@dataclass
 class _InlineBoxRun:
     box: object
     chunks: list[object] = field(default_factory=list)
@@ -937,25 +932,21 @@ class DocxBackend(Shipout):
             return []
         segments = []
         text_runs = []
-        text_width = Dimen()
 
         def flush_text():
-            nonlocal text_runs, text_width
+            nonlocal text_runs
             if not text_runs:
                 return
             segments.append(
                 _LineSegment(
                     runs=self._fit_text_runs(text_runs),
-                    fit_text_twips=self._fit_text_twips(text_width) if text_width > 0 else None,
                 )
             )
             text_runs = []
-            text_width = Dimen()
 
         for run in runs:
             if isinstance(run, _TextRun):
                 text_runs.append(run)
-                text_width += self._run_width(run)
                 continue
             flush_text()
             segments.append(_LineSegment(runs=[run]))
@@ -1200,47 +1191,11 @@ class DocxBackend(Shipout):
         rpr = "<m:rPr><m:nor/></m:rPr>" if normal else ""
         return f"<m:r>{rpr}<m:t{self._xml_space_attr(text)}>{escape(text)}</m:t></m:r>"
 
-    def _math_spacing_text(self, amount):
-        amount = Dimen(amount)
-        if amount <= 0:
-            return ""
-        font = self.parser.textfont[2] if getattr(self.parser, "textfont", None) is not None else None
-        quad = Dimen(getattr(font, "param", [0, 0, 0, 0, 0, Dimen(10)])[5]) if font is not None and len(getattr(font, "param", ())) > 5 else Dimen(10)
-        if quad <= 0:
-            quad = Dimen(10)
-        ratio = float(amount) / float(quad)
-        spaces = [
-            ("\u2003", 1.0),           # em space
-            ("\u2002", 0.5),           # en space
-            ("\u2004", 1.0 / 3.0),     # three-per-em
-            ("\u2005", 0.25),          # four-per-em
-            ("\u205F", 4.0 / 18.0),    # medium mathematical space
-            ("\u2009", 1.0 / 6.0),     # thin space
-            ("\u200A", 0.1),           # hair space
-        ]
-        out = []
-        remaining = ratio
-        for char, width in spaces:
-            if remaining < width * 0.9:
-                continue
-            count = int(remaining / width)
-            if count <= 0:
-                continue
-            out.append(char * count)
-            remaining -= width * count
-        if not out:
-            return "\u200A"
-        if remaining > 0.04:
-            out.append("\u200A")
-        return "".join(out)
-
     def _flatten_math_text(self, field):
         if field is None:
             return ""
         if isinstance(field, str):
             return field
-        if isinstance(field, _MathSpacing):
-            return self._math_spacing_text(field.amount)
         if isinstance(field, mmode.MathSymbol):
             return self._math_symbol_text(field) or ""
         if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
@@ -1333,18 +1288,14 @@ class DocxBackend(Shipout):
             return ""
         if isinstance(field, str):
             return self._math_run_xml(field, normal=normal)
-        if isinstance(field, _MathSpacing):
-            return self._math_run_xml(self._math_spacing_text(field.amount), normal=normal)
         node_type = getattr(field, "node_type", None)
         if node_type in (
             nd.NODE_TYPE.WHATSIT,
             nd.NODE_TYPE.PENALTY,
         ):
             return ""
-        if node_type == nd.NODE_TYPE.GLUE:
-            return self._math_run_xml(self._math_spacing_text(getattr(getattr(field, "glue", None), "dimen", 0)), normal=normal)
-        if node_type == nd.NODE_TYPE.KERN:
-            return self._math_run_xml(self._math_spacing_text(getattr(field, "kern", 0)), normal=normal)
+        if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
+            return ""
         if isinstance(field, mmode.MathSymbol):
             return self._math_run_xml(self._math_symbol_text(field), normal=normal)
         if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
@@ -1738,23 +1689,11 @@ class DocxBackend(Shipout):
     def _fragment_math_fields(self, nodes, box=None):
         fields = []
         seen = set()
-        glue_state = self._glue_state(box) if box is not None else None
         for node in nodes:
             node_type = getattr(node, "node_type", None)
             if node_type in (nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.WHATSIT):
                 continue
-            if node_type == nd.NODE_TYPE.GLUE:
-                if box is not None:
-                    amount = Dimen(integer=self._effective_glue_amount(node, box, glue_state))
-                else:
-                    amount = Dimen(getattr(getattr(node, "glue", None), "dimen", 0))
-                if amount > 0:
-                    fields.append(_MathSpacing(amount))
-                continue
-            if node_type == nd.NODE_TYPE.KERN:
-                amount = Dimen(getattr(node, "kern", 0))
-                if amount > 0:
-                    fields.append(_MathSpacing(amount))
+            if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
                 continue
             field = self._math_source_field(node)
             if field is not None and not isinstance(field, mmode.InlineMathNode):
@@ -1771,7 +1710,7 @@ class DocxBackend(Shipout):
             children = getattr(node, "list", None) or ()
             if children:
                 for child in self._fragment_math_fields(children, box=node):
-                    if not isinstance(child, (str, _MathSpacing)):
+                    if not isinstance(child, str):
                         key = id(child)
                         if key in seen:
                             continue

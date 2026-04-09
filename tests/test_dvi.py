@@ -7,6 +7,7 @@ from pytex import opentype
 from pytex import resolver
 from pytex import texlive
 from pytex.token import CATCODE
+from pytex.typeset.shipout import Shipout
 
 
 def _find_subsequence(data: bytes, needle: bytes) -> int:
@@ -110,6 +111,50 @@ def test_dvi_hlist_rule_emits_depth_offset(cmr10, tmp_path):
         160, 255, 254, 0, 0,  # down4 -2pt
     ))
     assert _find_subsequence(data, sequence) != -1
+
+
+def test_shipout_restores_baseline_after_hlist_rule_in_alignment(cmr10):
+    class TraceShipout(Shipout):
+        def __init__(self, parser):
+            super().__init__(parser)
+            self.positions = []
+
+        def open(self):
+            pass
+
+        def close(self):
+            pass
+
+        def begin_page(self, box):
+            pass
+
+        def end_page(self, box):
+            pass
+
+        def define_font(self, font):
+            pass
+
+        def select_font(self, font):
+            pass
+
+        def move_to(self, h, v):
+            self.h = int(h)
+            self.v = int(v)
+
+        def set_char(self, node):
+            if node.char in {"1", "2", "3", "a", "b", "c"}:
+                self.positions.append((node.char, self.v))
+
+        def set_rule(self, node, box, move):
+            pass
+
+    cmr10.shipout = TraceShipout(cmr10)
+    cmr10.parse("\\shipout\\vbox{\\tabskip=1em\\halign{#&#&#\\cr 1&2&3\\cr a&b&c\\cr}}")
+    cmr10.end()
+    first_row = {char: v for char, v in cmr10.shipout.positions[:3]}
+    second_row = {char: v for char, v in cmr10.shipout.positions[3:6]}
+    assert first_row["1"] == first_row["2"] == first_row["3"]
+    assert second_row["a"] == second_row["b"] == second_row["c"]
 
 
 def test_dvi_shipout_accepts_binary_file_handle(parser):

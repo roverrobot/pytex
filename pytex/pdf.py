@@ -575,6 +575,8 @@ class PDFBackend(Shipout):
             width = int(node.width)
             height = int(box.height) if running(node.height) else int(node.height)
             depth = int(box.depth) if running(node.depth) else int(node.depth)
+        if width <= 0 or height + depth <= 0:
+            return
         total_height = self._pt(height + depth)
         x = self._x(self.h)
         y = self._page_y(self.v) - total_height

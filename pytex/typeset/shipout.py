@@ -140,12 +140,16 @@ class Shipout:
         # Preserve the current DVI-compatible rule placement semantics. In
         # horizontal lists, the current point for a rule is lowered by its
         # depth; in vertical lists, the current point is used as-is.
+        orig_h = self.h
+        orig_v = self.v
         if box.node_type == nd.NODE_TYPE.HLIST:
             depth = int(box.depth) if int(node.depth) <= int(NEG_MAX_DIMEN) else int(node.depth)
-            self.move_to(self.h, self.v + depth)
+            self.move_to(orig_h, orig_v + depth)
         else:
-            self.move_to(self.h, self.v)
+            self.move_to(orig_h, orig_v)
         self.set_rule(node, box, move)
+        self.h = orig_h
+        self.v = orig_v
         if box.node_type == nd.NODE_TYPE.HLIST:
             if move:
                 self.h += int(node.width)

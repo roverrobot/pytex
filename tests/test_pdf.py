@@ -115,6 +115,15 @@ def test_pdf_dvipdfm_color_special_is_emitted(cmr10, tmp_path):
     assert b"1 0 0 rg" in data
 
 
+def test_pdf_skips_zero_width_rules(cmr10, tmp_path):
+    out = tmp_path / "pdf-zero-rule"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse(r"\shipout\vbox{\hbox{\vrule width0pt height 10pt depth 2pt a}}", jobname="pdf-zero-rule")
+    cmr10.end()
+    _page, text = _page_content_text(str(out) + ".pdf")
+    assert re.search(r"\b0(?:\\.0+)? 12(?:\\.0+)? re\\b", text) is None
+
+
 def test_pdf_ignored_multiline_special_is_sanitized(cmr10, tmp_path):
     out = tmp_path / "pdf-special"
     cmr10.shipout = pdf.PDFBackend(cmr10, str(out))

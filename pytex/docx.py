@@ -24,6 +24,7 @@ from pytex.module import Module
 from pytex.typeset.shipout import Shipout
 
 _ONE_INCH_PT = 72.0
+_ONE_INCH_TEX = Dimen(72.27)
 _DOCX_POINTS_PER_TEX_POINT_NUM = 7200
 _DOCX_POINTS_PER_TEX_POINT_DEN = 7227
 _DOCX_TWIPS_PER_TEX_POINT_NUM = 144000
@@ -551,23 +552,52 @@ class DocxBackend(Shipout):
         value = value if isinstance(value, Dimen) else Dimen(value)
         return value if value >= 0 else Dimen()
 
+    def _tex_page_size(self, page):
+        origin_x = _ONE_INCH_TEX + Dimen(self.parser.layout["hoffset"])
+        origin_y = _ONE_INCH_TEX + Dimen(self.parser.layout["voffset"])
+        try:
+            width_param = self.parser.parameters["pdfpagewidth"]
+        except Exception:
+            width_param = None
+        try:
+            height_param = self.parser.parameters["pdfpageheight"]
+        except Exception:
+            height_param = None
+        width = Dimen(width_param) if width_param is not None else Dimen()
+        height = Dimen(height_param) if height_param is not None else Dimen()
+        box_width = Dimen(getattr(page, "width", 0))
+        box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
+        if width <= 0:
+            width = box_width + 2 * origin_x
+        if height <= 0:
+            height = box_height + 2 * origin_y
+        return width, height, origin_x, origin_y
+
     def _configure_section(self, document, page):
         section = document.sections[0]
-        hsize = self.parser.layout["hsize"]
-        vsize = self.parser.layout["vsize"]
-        left_margin = Pt(_ONE_INCH_PT)
-        right_margin = Pt(_ONE_INCH_PT)
-        top_margin = Pt(_ONE_INCH_PT)
-        bottom_margin = Pt(_ONE_INCH_PT)
-        section.left_margin = left_margin
-        section.right_margin = right_margin
-        section.top_margin = top_margin
-        section.bottom_margin = bottom_margin
-        content_width = max(self._pt(hsize), 144.0)
-        natural_height = self._pt(page.height + page.depth)
-        content_height = max(self._pt(vsize), natural_height, 144.0)
-        section.page_width = Pt(content_width + 2 * _ONE_INCH_PT)
-        section.page_height = Pt(content_height + 2 * _ONE_INCH_PT)
+        hsize = Dimen(self.parser.layout["hsize"])
+        vsize = Dimen(self.parser.layout["vsize"])
+        page_width, page_height, origin_x, origin_y = self._tex_page_size(page)
+        box_width = Dimen(getattr(page, "width", 0))
+        box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
+
+        text_width = hsize if hsize > 0 else box_width
+        text_height = vsize if vsize > 0 else box_height
+
+        inner_left = box_width - text_width if box_width > text_width else Dimen()
+        inner_top = box_height - text_height if box_height > text_height else Dimen()
+
+        left_margin = self._nonnegative_dimen(origin_x + inner_left)
+        top_margin = self._nonnegative_dimen(origin_y + inner_top)
+        right_margin = self._nonnegative_dimen(page_width - left_margin - text_width)
+        bottom_margin = self._nonnegative_dimen(page_height - top_margin - text_height)
+
+        section.left_margin = self._length(left_margin)
+        section.right_margin = self._length(right_margin)
+        section.top_margin = self._length(top_margin)
+        section.bottom_margin = self._length(bottom_margin)
+        section.page_width = self._length(self._nonnegative_dimen(page_width))
+        section.page_height = self._length(self._nonnegative_dimen(page_height))
 
     @staticmethod
     def _glyph_text(node):

@@ -750,6 +750,26 @@ def test_docx_backend_emits_display_math_textbox(parser):
     assert 'w:left="300"' not in xml
 
 
+def test_docx_section_uses_pdf_page_size_and_tex_origin(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    parser.layout["hsize"] = Dimen(200)
+    parser.layout["vsize"] = Dimen(300)
+    parser.parameters["pdfpagewidth"] = Dimen(500)
+    parser.parameters["pdfpageheight"] = Dimen(700)
+
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox([nd.CharNode("A", _FakeFont())], para, width=240, height=360, depth=0, rightmost_value=200)
+    page = _FakeVBox([line], width=240, height=360, depth=0)
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert '<w:pgSz w:w="9963" w:h="13948"/>' in xml
+    assert '<w:pgMar w:top="2636" w:right="3741" w:bottom="5335" w:left="2237"' in xml
+
+
 def test_docx_display_math_does_not_use_token_stringification(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend

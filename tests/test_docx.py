@@ -396,6 +396,13 @@ def test_docx_display_alignment_emits_omml_fraction_and_tag(parser):
         xml = z.read("word/document.xml").decode("utf-8")
     assert "<m:f>" in xml
     assert "(2)" in xml
+    cells = re.findall(r"<w:tc>.*?</w:tc>", xml, flags=re.DOTALL)
+    tag_cell_xml = next((cell for cell in cells if "(2)" in cell), None)
+    assert tag_cell_xml is not None
+    width_match = re.search(r"<w:tcW[^>]*w:w=\"(\d+)\"[^>]*/>", tag_cell_xml)
+    assert width_match is not None
+    assert int(width_match.group(1)) > 0
+    assert "<w:jc w:val=\"right\"/>" in xml
 
 
 

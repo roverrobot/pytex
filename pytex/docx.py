@@ -2232,6 +2232,57 @@ class DocxBackend(Shipout):
             return self._glyph_text(node)
         return self._flatten_box_text(node).strip()
 
+    def _text_run_width(self, text, font):
+        if not text:
+            return Dimen()
+        width = Dimen()
+        fallback = self._space_width(font) if font is not None else Dimen(6)
+        for ch in text:
+            if ch == " ":
+                width += Dimen(self._space_width(font))
+                continue
+            if font is not None:
+                try:
+                    glyph = font[ch]
+                except Exception:
+                    glyph = None
+                if glyph is not None:
+                    width += Dimen(getattr(glyph, "width", 0))
+                    continue
+            width += fallback
+        return width
+
+    @classmethod
+    def _node_visible_width(cls, node):
+        visible = Dimen(getattr(node, "width", 0))
+        rightmost = getattr(node, "rightmost", None)
+        if callable(rightmost):
+            try:
+                visible = max(visible, Dimen(rightmost()))
+            except Exception:
+                pass
+        for child in getattr(node, "list", None) or ():
+            if getattr(child, "node_type", None) == nd.NODE_TYPE.KERN:
+                continue
+            visible = max(visible, cls._node_visible_width(child))
+        return visible
+
+    def _alignment_cell_visible_width(self, cell):
+        width = Dimen(getattr(cell, "width", 0))
+        if width > 0:
+            return width
+        if not self._is_alignment_tag_cell(cell):
+            return width
+        raw = list(self._alignment_cell_raw_nodes(cell))
+        visible = Dimen()
+        for node in raw:
+            if getattr(node, "node_type", None) == nd.NODE_TYPE.KERN:
+                continue
+            visible = max(visible, self._node_visible_width(node))
+        if visible <= 0:
+            visible = self._text_run_width(self._alignment_tag_text(cell), self._first_font(cell))
+        return visible
+
     def _box_inline_layout(self, box):
         items = getattr(box, "list", None) or ()
         if not items:
@@ -2412,6 +2463,9 @@ class DocxBackend(Shipout):
             text = self._alignment_tag_text(box)
             if not text:
                 return False
+            fmt.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            fmt.left_indent = self._length(Dimen())
+            fmt.right_indent = self._length(Dimen())
             run = para.add_run(text)
             self._apply_run_font_with_options(
                 run,
@@ -2443,11 +2497,28 @@ class DocxBackend(Shipout):
             return None
         row_layout = self._alignment_row_layout(spec.box, spec.owner) if spec.box is not None else None
         block_gap = self._nonnegative_dimen(spec.space_before)
+        adjusted_widths = [Dimen(width) for width in widths]
+        adjusted_tabskips = [self._nonnegative_dimen(getattr(skip, "dimen", 0)) for skip in tabskips]
+        for _row, entries in rows:
+            for entry in entries:
+                start = entry["start"]
+                span = entry["span"]
+                if span != 1 or start < 0 or start >= len(adjusted_widths):
+                    continue
+                visible_width = self._alignment_cell_visible_width(entry["cell"])
+                if visible_width <= adjusted_widths[start]:
+                    continue
+                delta = visible_width - adjusted_widths[start]
+                adjusted_widths[start] = visible_width
+                if spec.display and self._is_alignment_tag_cell(entry["cell"]):
+                    gap_index = min(start, len(adjusted_tabskips) - 1)
+                    reduce = min(adjusted_tabskips[gap_index], delta)
+                    adjusted_tabskips[gap_index] -= reduce
         effective_widths = []
-        for index, width in enumerate(widths):
-            effective_widths.append(self._nonnegative_dimen(getattr(tabskips[index], "dimen", 0)))
+        for index, width in enumerate(adjusted_widths):
+            effective_widths.append(adjusted_tabskips[index])
             effective_widths.append(width)
-        effective_widths.append(self._nonnegative_dimen(getattr(tabskips[len(widths)], "dimen", 0)))
+        effective_widths.append(adjusted_tabskips[len(adjusted_widths)])
         table = document.add_table(rows=len(rows), cols=len(effective_widths))
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
         table.autofit = False

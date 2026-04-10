@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import types
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
@@ -34,6 +35,11 @@ _DOCX_TWIPS_PER_TEX_POINT_NUM = 144000
 _DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
 _INLINE_TEXTBOX_PAD_PT = 0.75
 _DOCX_DEFAULT_TEXT_FONT = "Times New Roman"
+_DOCX_TEXT_FONT_CANDIDATES = (
+    _DOCX_DEFAULT_TEXT_FONT,
+    "Cambria",
+    "Calibri",
+)
 _LOCAL_STIX_TTF = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", ".cache", "fonts", "STIXTwoMath-input.ttf")
 )
@@ -299,6 +305,154 @@ class _DocxMathFontArray(txfont.MathFontArray):
 
     def setGlobal(self, index, value):
         super().setGlobal(index, self._wrapMathFont(index, value))
+
+
+class _DocxSubstituteFontBackend:
+    def __init__(self, backend, style_source_name=None):
+        self._backend = backend
+        self.docx_style_source_name = style_source_name
+        self.docx_font_name = getattr(backend, "name", None)
+        self.kind = getattr(backend, "kind", None)
+
+    @property
+    def name(self):
+        return getattr(self._backend, "name", None)
+
+    @property
+    def dvi_name(self):
+        return getattr(self._backend, "dvi_name", None)
+
+    @property
+    def design_size(self):
+        return getattr(self._backend, "design_size", None)
+
+    @property
+    def checksum(self):
+        return getattr(self._backend, "checksum", 0)
+
+    @property
+    def fontdimen(self):
+        return getattr(self._backend, "fontdimen", ())
+
+    def glyphInfo(self, char):
+        return self._backend.glyphInfo(char)
+
+    def glyphInfos(self):
+        return self._backend.glyphInfos()
+
+    def fallbackGlyphInfo(self, char):
+        return self._backend.fallbackGlyphInfo(char)
+
+    def hasChar(self, char):
+        return self._backend.hasChar(char)
+
+    def leftBoundaryProgram(self):
+        return self._backend.leftBoundaryProgram()
+
+    def rightBoundaryChar(self):
+        return self._backend.rightBoundaryChar()
+
+    def __getattr__(self, name):
+        return getattr(self._backend, name)
+
+
+def _resolve_docx_text_backend(parser):
+    cached = getattr(parser, "_docx_text_backend", None)
+    if cached is not None:
+        return cached
+    original = getattr(parser, "_docx_original_loadFontBackend", None) or getattr(parser, "loadFontBackend", None)
+    if original is None:
+        parser._docx_text_backend = False
+        return None
+    for name in _DOCX_TEXT_FONT_CANDIDATES:
+        try:
+            backend = original(name, kind="opentype")
+        except Exception:
+            continue
+        if getattr(backend, "kind", None) != "opentype":
+            continue
+        parser._docx_text_backend = backend
+        return backend
+    parser._docx_text_backend = False
+    return None
+
+
+def _docx_should_substitute_backend(name, kind, backend):
+    if backend is None:
+        return False
+    if getattr(backend, "kind", None) == "opentype":
+        return False
+    if kind not in (None, "tfm"):
+        return False
+    backend_name = (getattr(backend, "name", "") or "").lower()
+    request_name = (name or "").lower()
+    if backend_name == "nullfont" or request_name == "nullfont":
+        return False
+    return True
+
+
+def _docx_substitute_backend(parser, requested_name, kind, backend):
+    if not _docx_should_substitute_backend(requested_name, kind, backend):
+        return backend
+    wrapped = _docx_wrapped_default_backend(
+        parser,
+        getattr(backend, "name", None) or requested_name,
+    )
+    if wrapped is None:
+        return backend
+    return wrapped
+
+
+def _docx_wrapped_default_backend(parser, style_source_name):
+    fallback = _resolve_docx_text_backend(parser)
+    if fallback is None:
+        return None
+    cache = getattr(parser, "_docx_backend_substitution_cache", None)
+    if cache is None:
+        cache = {}
+        parser._docx_backend_substitution_cache = cache
+    style_source = style_source_name or getattr(fallback, "name", None)
+    key = (id(fallback), style_source)
+    wrapped = cache.get(key)
+    if wrapped is None:
+        wrapped = _DocxSubstituteFontBackend(fallback, style_source_name=style_source)
+        cache[key] = wrapped
+    return wrapped
+
+
+def _install_docx_font_substitution(parser):
+    if getattr(parser, "_docx_font_substitution_installed", False):
+        return
+    original = getattr(parser, "loadFontBackend", None)
+    if original is None:
+        return
+
+    parser._docx_original_loadFontBackend = original
+
+    def _load_with_substitution(self, name, kind=None):
+        ext = os.path.splitext(name)[1].lower() if isinstance(name, str) else ""
+        if kind == "opentype" or ext in (".otf", ".ttf", ".ttc", ".otc"):
+            return self._docx_original_loadFontBackend(name, kind=kind)
+
+        if kind == "tfm" or ext == ".tfm":
+            wrapped = _docx_wrapped_default_backend(self, name)
+            if wrapped is not None:
+                return wrapped
+            return self._docx_original_loadFontBackend(name, kind=kind)
+
+        if kind is None and not ext:
+            try:
+                return self._docx_original_loadFontBackend(name, kind="opentype")
+            except Exception:
+                wrapped = _docx_wrapped_default_backend(self, name)
+                if wrapped is not None:
+                    return wrapped
+
+        backend = self._docx_original_loadFontBackend(name, kind=kind)
+        return _docx_substitute_backend(self, name, kind, backend)
+
+    parser.loadFontBackend = types.MethodType(_load_with_substitution, parser)
+    parser._docx_font_substitution_installed = True
 
 
 def _install_docx_math_font_arrays(parser):
@@ -1307,7 +1461,12 @@ class DocxBackend(Shipout):
     @staticmethod
     def _docx_font_style(font):
         backend = getattr(font, "backend", None)
-        name = (getattr(backend, "name", None) or "").lower()
+        source_name = (
+            getattr(backend, "docx_style_source_name", None)
+            or getattr(backend, "name", None)
+            or ""
+        )
+        name = source_name.lower()
         bold = any(tag in name for tag in ("bx", "bold", "semibold", "demibold"))
         italic = any(tag in name for tag in ("it", "italic", "sl", "oblique"))
         return bold, italic
@@ -1328,6 +1487,9 @@ class DocxBackend(Shipout):
         backend = getattr(font, "backend", None)
         if backend is None:
             return None
+        explicit = getattr(backend, "docx_font_name", None)
+        if explicit and cls._docx_usable_font_name(explicit):
+            return explicit
         name = getattr(backend, "name", None)
         if getattr(backend, "kind", None) == "opentype" and cls._docx_usable_font_name(name):
             return name
@@ -4259,6 +4421,7 @@ class DocxBackend(Shipout):
 
 
 def init(parser):
+    _install_docx_font_substitution(parser)
     _install_docx_math_font_arrays(parser)
     parser.shipout = DocxBackend(parser)
 

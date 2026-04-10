@@ -2931,6 +2931,43 @@ class DocxBackend(Shipout):
             required = max(required, self._line_run_line_measure(run))
         return required
 
+    def _inline_box_has_renderable_content(self, box_run):
+        return (
+            Dimen(getattr(box_run.box, "width", 0)) > 0
+            or bool(box_run.chunks)
+            or bool(self._inline_box_multiline_specs(box_run))
+            or bool(self._inline_box_text(box_run))
+        )
+
+    def _inline_box_has_visible_content(self, box_run):
+        if self._inline_box_multiline_specs(box_run):
+            return True
+        text = self._inline_box_text(box_run)
+        return bool(text and text.strip())
+
+    def _run_will_emit(self, run):
+        if isinstance(run, _TextRun):
+            return bool(self._xml_safe_text(run.text))
+        if isinstance(run, _InlineMathRun):
+            return True
+        if isinstance(run, _InlineBoxRun):
+            return self._inline_box_has_renderable_content(run)
+        return False
+
+    def _run_is_visible(self, run):
+        if isinstance(run, _TextRun):
+            text = self._xml_safe_text(run.text)
+            return bool(text and text.strip())
+        if isinstance(run, _InlineMathRun):
+            return True
+        if isinstance(run, _InlineBoxRun):
+            return self._inline_box_has_visible_content(run)
+        return False
+
+    def _line_spec_will_emit(self, line_spec):
+        runs = getattr(line_spec, "runs", ()) or ()
+        return any(self._run_is_visible(run) for run in runs)
+
     def _raw_run_properties_xml(
         self,
         font=None,
@@ -3108,12 +3145,7 @@ class DocxBackend(Shipout):
         )
 
     def _inline_box_run_xml(self, box_run):
-        if (
-            Dimen(getattr(box_run.box, "width", 0)) <= 0
-            and not box_run.chunks
-            and not self._inline_box_multiline_specs(box_run)
-            and not self._inline_box_text(box_run)
-        ):
+        if not self._inline_box_has_renderable_content(box_run):
             return None
         line_measure = self._inline_box_line_measure(box_run)
         original_height = Dimen(getattr(box_run.box, "height", 0))
@@ -3204,6 +3236,8 @@ class DocxBackend(Shipout):
         # H/V boxes used as struts/kerns) require a taller line.
         line_box_height = Dimen()
         for line_spec in spec.lines:
+            if not self._line_spec_will_emit(line_spec):
+                continue
             box = getattr(line_spec, "box", None)
             if box is None:
                 box_required = Dimen()
@@ -3223,16 +3257,18 @@ class DocxBackend(Shipout):
             fmt.alignment = alignment
             fmt.left_indent = self._length(left_indent)
             fmt.right_indent = self._length(right_indent)
-        for line_index, line_spec in enumerate(spec.lines):
+        wrote_line = False
+        for line_spec in spec.lines:
+            if not self._line_spec_will_emit(line_spec):
+                continue
+            if wrote_line:
+                para._p.append(self._line_break_run_xml())
             if line_spec.segments:
                 for segment in line_spec.segments:
                     self._append_run_chunks(para, segment.runs)
-                if line_index + 1 < len(spec.lines):
-                    para._p.append(self._line_break_run_xml())
-                continue
-            self._append_run_chunks(para, line_spec.runs)
-            if line_index + 1 < len(spec.lines):
-                para._p.append(self._line_break_run_xml())
+            else:
+                self._append_run_chunks(para, line_spec.runs)
+            wrote_line = True
         return para
 
     def _emit_display_math(self, document, spec):

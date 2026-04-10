@@ -339,6 +339,14 @@ class _InlineMathRun:
 
 
 @dataclass
+class _InlineBoxLineSpec:
+    runs: list[object]
+    line_height: Dimen = field(default_factory=Dimen)
+    line_depth: Dimen = field(default_factory=Dimen)
+    gap_before: Dimen = field(default_factory=Dimen)
+
+
+@dataclass
 class _InlineMathState:
     in_math: bool = False
     nodes: list[object] = field(default_factory=list)
@@ -2320,12 +2328,33 @@ class DocxBackend(Shipout):
                     )
                     index += 1
                     continue
-                width = Dimen(getattr(node, "width", 0))
-                # Treat empty structural hboxes as inline spacing only when
-                # they sit between text on the same line. Leading/trailing
-                # layout wrappers belong to paragraph geometry, not glyph runs.
-                if width > 0 and self._has_text_before(items, index) and self._has_text_after(items, index):
-                    self._append_box_spacing_run(runs, width, items, index)
+                if self._box_has_extent(node):
+                    runs.append(
+                        _InlineBoxRun(
+                            node,
+                            [],
+                            Dimen(getattr(box, "depth", 0)),
+                        )
+                    )
+                    index += 1
+                    continue
+                index += 1
+                continue
+            if node_type == nd.NODE_TYPE.VLIST:
+                has_payload = (
+                    bool(getattr(node, "list", None))
+                    or Dimen(getattr(node, "width", 0)) > 0
+                    or Dimen(getattr(node, "height", 0)) > 0
+                    or Dimen(getattr(node, "depth", 0)) > 0
+                )
+                if has_payload:
+                    runs.append(
+                        _InlineBoxRun(
+                            node,
+                            [],
+                            Dimen(getattr(box, "depth", 0)),
+                        )
+                    )
                 index += 1
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
@@ -2356,11 +2385,15 @@ class DocxBackend(Shipout):
             index += 1
         return runs
 
-    def _append_box_spacing_run(self, runs, width, items, index):
-        font = self._space_font(runs, items, index)
-        nominal_width = self._space_width(font)
-        delta = int(width) - nominal_width
-        runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
+    @staticmethod
+    def _box_has_extent(node):
+        if getattr(node, "node_type", None) not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            return False
+        return (
+            Dimen(getattr(node, "width", 0)) > 0
+            or Dimen(getattr(node, "height", 0)) > 0
+            or Dimen(getattr(node, "depth", 0)) > 0
+        )
 
     def _append_explicit_spacing_run(self, runs, width, font):
         width = Dimen(width)
@@ -2673,6 +2706,201 @@ class DocxBackend(Shipout):
         return text or self._flatten_box_text(box_run.box)
 
     @staticmethod
+    def _is_text_run_nonempty(run):
+        return isinstance(run, _TextRun) and bool(run.text)
+
+    def _vbox_inline_line_runs(self, box):
+        lines = []
+        for node in getattr(box, "list", None) or ():
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.HLIST:
+                runs = self._runs_from_line_box(node, _InlineMathState())
+                if not runs:
+                    runs = self._runs_from_box(node, _InlineMathState())
+                runs = self._normalize_runs(runs)
+                if runs and any(self._is_text_run_nonempty(run) or isinstance(run, (_InlineBoxRun, _InlineMathRun)) for run in runs):
+                    lines.append(runs)
+                continue
+            if node_type == nd.NODE_TYPE.VLIST:
+                lines.extend(self._vbox_inline_line_runs(node))
+        return lines
+
+    def _vbox_inline_line_boxes(self, box):
+        line_boxes = []
+        for node in getattr(box, "list", None) or ():
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.HLIST:
+                line_boxes.append(node)
+                continue
+            if node_type == nd.NODE_TYPE.VLIST:
+                line_boxes.extend(self._vbox_inline_line_boxes(node))
+        return line_boxes
+
+    def _inline_box_multiline_runs(self, box_run):
+        box = box_run.box
+        node_type = getattr(box, "node_type", None)
+        if node_type == nd.NODE_TYPE.VLIST:
+            return self._vbox_inline_line_runs(box)
+        if node_type != nd.NODE_TYPE.HLIST:
+            return []
+        vchildren = [
+            child
+            for child in getattr(box, "list", None) or ()
+            if getattr(child, "node_type", None) == nd.NODE_TYPE.VLIST
+        ]
+        if not vchildren:
+            return []
+        lines = []
+        for child in vchildren:
+            lines.extend(self._vbox_inline_line_runs(child))
+        return lines
+
+    def _inline_box_multiline_line_measure(self, box_run):
+        box = box_run.box
+        node_type = getattr(box, "node_type", None)
+        line_boxes = []
+        if node_type == nd.NODE_TYPE.VLIST:
+            line_boxes = self._vbox_inline_line_boxes(box)
+        elif node_type == nd.NODE_TYPE.HLIST:
+            for child in getattr(box, "list", None) or ():
+                if getattr(child, "node_type", None) == nd.NODE_TYPE.VLIST:
+                    line_boxes.extend(self._vbox_inline_line_boxes(child))
+        if not line_boxes:
+            return None
+        measure = Dimen()
+        for line_box in line_boxes:
+            measure = max(
+                measure,
+                Dimen(getattr(line_box, "height", 0) + getattr(line_box, "depth", 0)),
+            )
+        return measure if measure > 0 else None
+
+    def _vbox_inline_line_specs(self, box):
+        alignment_specs = self._vbox_inline_alignment_line_specs(box)
+        if alignment_specs:
+            return alignment_specs
+        specs = []
+        pending_gap = Dimen()
+        glue_state = self._glue_state(box)
+        for node in getattr(box, "list", None) or ():
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                pending_gap += Dimen(integer=self._effective_glue_amount(node, box, glue_state))
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                pending_gap += Dimen(getattr(node, "kern", 0))
+                continue
+            if node_type == nd.NODE_TYPE.HLIST:
+                runs = self._runs_from_line_box(node, _InlineMathState())
+                if not runs:
+                    runs = self._runs_from_box(node, _InlineMathState())
+                runs = self._normalize_runs(runs)
+                if not runs:
+                    continue
+                if not any(
+                    self._is_text_run_nonempty(run) or isinstance(run, (_InlineBoxRun, _InlineMathRun))
+                    for run in runs
+                ):
+                    continue
+                specs.append(
+                    _InlineBoxLineSpec(
+                        runs=runs,
+                        line_height=Dimen(getattr(node, "height", 0) + getattr(node, "depth", 0)),
+                        line_depth=Dimen(getattr(node, "depth", 0)),
+                        gap_before=self._nonnegative_dimen(pending_gap),
+                    )
+                )
+                pending_gap = Dimen()
+                continue
+            if node_type == nd.NODE_TYPE.VLIST:
+                child_specs = self._vbox_inline_line_specs(node)
+                if child_specs:
+                    child_specs[0].gap_before = self._nonnegative_dimen(
+                        child_specs[0].gap_before + pending_gap
+                    )
+                    pending_gap = Dimen()
+                    specs.extend(child_specs)
+                continue
+        return specs
+
+    def _vbox_inline_alignment_line_specs(self, box):
+        items = list(getattr(box, "list", None) or ())
+        dominant_owner = None
+        row_count = 0
+        for node in items:
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.HLIST:
+                continue
+            owner = self._alignment_owner(node)
+            if owner is None:
+                continue
+            if dominant_owner is None:
+                dominant_owner = owner
+                row_count = 1
+                continue
+            if owner is dominant_owner:
+                row_count += 1
+        if dominant_owner is None or row_count < 2:
+            return []
+
+        specs = []
+        pending_gap = Dimen()
+        glue_state = self._glue_state(box)
+        for node in items:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                pending_gap += Dimen(integer=self._effective_glue_amount(node, box, glue_state))
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                pending_gap += Dimen(getattr(node, "kern", 0))
+                continue
+            if node_type == nd.NODE_TYPE.RULE:
+                # For now, keep alignment rows faithful and ignore rule thickness;
+                # rules can later map to textbox borders/cell borders.
+                continue
+            if node_type == nd.NODE_TYPE.VLIST:
+                child_specs = self._vbox_inline_alignment_line_specs(node)
+                if child_specs:
+                    child_specs[0].gap_before = self._nonnegative_dimen(
+                        child_specs[0].gap_before + pending_gap
+                    )
+                    pending_gap = Dimen()
+                    specs.extend(child_specs)
+                continue
+            if node_type != nd.NODE_TYPE.HLIST:
+                continue
+            if self._alignment_owner(node) is not dominant_owner:
+                continue
+            runs = self._runs_from_line_box(node, _InlineMathState())
+            if not runs:
+                runs = self._runs_from_box(node, _InlineMathState())
+            runs = self._normalize_runs(runs)
+            if not runs:
+                continue
+            specs.append(
+                _InlineBoxLineSpec(
+                    runs=runs,
+                    line_height=Dimen(getattr(node, "height", 0) + getattr(node, "depth", 0)),
+                    gap_before=self._nonnegative_dimen(pending_gap),
+                )
+            )
+            pending_gap = Dimen()
+        return specs
+
+    def _inline_box_multiline_specs(self, box_run):
+        box = box_run.box
+        node_type = getattr(box, "node_type", None)
+        if node_type == nd.NODE_TYPE.VLIST:
+            return self._vbox_inline_line_specs(box)
+        if node_type != nd.NODE_TYPE.HLIST:
+            return []
+        specs = []
+        for child in getattr(box, "list", None) or ():
+            if getattr(child, "node_type", None) != nd.NODE_TYPE.VLIST:
+                continue
+            specs.extend(self._vbox_inline_line_specs(child))
+        return specs
+
+    @staticmethod
     def _font_line_measure(font):
         at = getattr(font, "at", None)
         return Dimen(at) if at is not None else Dimen()
@@ -2680,7 +2908,9 @@ class DocxBackend(Shipout):
     def _inline_chunk_line_measure(self, chunk):
         if isinstance(chunk, _TextRun):
             return self._font_line_measure(chunk.font)
-        if isinstance(chunk, (_InlineBoxRun, _InlineMathRun)):
+        if isinstance(chunk, _InlineBoxRun):
+            return self._inline_box_line_measure(chunk)
+        if isinstance(chunk, _InlineMathRun):
             return Dimen(getattr(chunk.box, "height", 0) + getattr(chunk.box, "depth", 0))
         return Dimen()
 
@@ -2688,6 +2918,17 @@ class DocxBackend(Shipout):
         required = Dimen(getattr(box_run.box, "height", 0) + getattr(box_run.box, "depth", 0))
         for chunk in box_run.chunks:
             required = max(required, self._inline_chunk_line_measure(chunk))
+        return required
+
+    def _line_run_line_measure(self, run):
+        if isinstance(run, _InlineBoxRun):
+            return self._inline_box_line_measure(run)
+        return self._inline_chunk_line_measure(run)
+
+    def _line_spec_line_measure(self, line_spec):
+        required = Dimen()
+        for run in getattr(line_spec, "runs", ()) or ():
+            required = max(required, self._line_run_line_measure(run))
         return required
 
     def _raw_run_properties_xml(
@@ -2727,12 +2968,8 @@ class DocxBackend(Shipout):
         return f"<w:rPr>{''.join(parts)}</w:rPr>"
 
     def _inline_box_content_xml(self, box_run):
-        text = self._inline_box_text(box_run)
-        if not text:
-            return "<w:txbxContent><w:p/></w:txbxContent>"
         font = self._first_font(box_run.box)
         line_height = self._inline_box_line_measure(box_run)
-        line_twips = self._fit_text_twips(line_height)
         depth_half_points = int(round(self._pt(getattr(box_run.box, "depth", 0)) * 2.0))
         alignment, left_indent, right_indent = self._box_inline_layout(box_run.box)
         jc = "left"
@@ -2748,13 +2985,81 @@ class DocxBackend(Shipout):
         if right_twips > 0:
             ind_parts.append(f"w:right=\"{right_twips}\"")
         ind_xml = f"<w:ind {' '.join(ind_parts)}/>" if ind_parts else ""
-        text = "\u00A0" * len(text) if text.isspace() else text
-        run = (
-            "<w:r>"
-            f"{self._raw_run_properties_xml(font=font, no_proof=True, position_half_points=depth_half_points)}"
-            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
-            "</w:r>"
-        )
+        multiline_specs = self._inline_box_multiline_specs(box_run)
+        if multiline_specs:
+            paragraphs_xml = []
+            for line_spec in multiline_specs:
+                measured = line_spec.line_height if line_spec.line_height > 0 else line_height
+                line_twips = self._fit_text_twips(measured)
+                before_twips = self._fit_text_twips(self._nonnegative_dimen(line_spec.gap_before))
+                line_depth_half_points = int(round(self._pt(line_spec.line_depth) * 2.0)) if line_spec.line_depth > 0 else 0
+                ppr = (
+                    "<w:pPr>"
+                    f"<w:spacing w:before=\"{before_twips}\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
+                    f"<w:jc w:val=\"{jc}\"/>"
+                    f"{ind_xml}"
+                    "<w:textAlignment w:val=\"baseline\"/>"
+                    "</w:pPr>"
+                )
+                runs_xml = []
+                for chunk in line_spec.runs:
+                    if isinstance(chunk, _TextRun):
+                        text = self._xml_safe_text(chunk.text)
+                        if not text:
+                            continue
+                        if text.isspace():
+                            text = "\u00A0" * len(text)
+                        runs_xml.append(
+                            "<w:r>"
+                            f"{self._raw_run_properties_xml(font=chunk.font, spacing_twips=chunk.spacing_twips, no_proof=True, position_half_points=line_depth_half_points)}"
+                            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+                            "</w:r>"
+                        )
+                        continue
+                    if isinstance(chunk, _InlineMathRun):
+                        text = self._xml_safe_text("".join(self._flatten_math_text(field) for field in chunk.fields))
+                        run_font = self._first_font(chunk.box) or self._first_font(box_run.box)
+                        spacing_twips = 0
+                        if text:
+                            target_width = Dimen(getattr(chunk.box, "width", 0))
+                            text_width = self._text_run_width(text, run_font)
+                            spacing_twips = self._spacing_twips(int(target_width - text_width))
+                    elif isinstance(chunk, _InlineBoxRun):
+                        text = self._xml_safe_text(self._inline_box_text(chunk))
+                        run_font = self._first_font(chunk.box) or self._first_font(box_run.box)
+                        spacing_twips = 0
+                        if text:
+                            target_width = Dimen(getattr(chunk.box, "width", 0))
+                            text_width = self._text_run_width(text, run_font)
+                            spacing_twips = self._spacing_twips(int(target_width - text_width))
+                    else:
+                        text = ""
+                        run_font = self._first_font(box_run.box)
+                        spacing_twips = 0
+                    if text:
+                        runs_xml.append(
+                            "<w:r>"
+                            f"{self._raw_run_properties_xml(font=run_font, spacing_twips=spacing_twips, no_proof=True, position_half_points=line_depth_half_points)}"
+                            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+                            "</w:r>"
+                        )
+                paragraphs_xml.append(f"<w:p>{ppr}{''.join(runs_xml)}</w:p>")
+            if not paragraphs_xml:
+                return "<w:txbxContent><w:p/></w:txbxContent>"
+            return f"<w:txbxContent>{''.join(paragraphs_xml)}</w:txbxContent>"
+        runs_xml = []
+        if not multiline_specs:
+            text = self._inline_box_text(box_run)
+            if not text:
+                return "<w:txbxContent><w:p/></w:txbxContent>"
+            text = "\u00A0" * len(text) if text.isspace() else text
+            runs_xml.append(
+                "<w:r>"
+                f"{self._raw_run_properties_xml(font=font, no_proof=True, position_half_points=depth_half_points)}"
+                f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+                "</w:r>"
+            )
+        line_twips = self._fit_text_twips(line_height)
         ppr = (
             "<w:pPr>"
             f"<w:spacing w:before=\"0\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
@@ -2763,7 +3068,7 @@ class DocxBackend(Shipout):
             "<w:textAlignment w:val=\"baseline\"/>"
             "</w:pPr>"
         )
-        return f"<w:txbxContent><w:p>{ppr}{run}</w:p></w:txbxContent>"
+        return f"<w:txbxContent><w:p>{ppr}{''.join(runs_xml)}</w:p></w:txbxContent>"
 
     @staticmethod
     def _textbox_box_width(box):
@@ -2803,6 +3108,13 @@ class DocxBackend(Shipout):
         )
 
     def _inline_box_run_xml(self, box_run):
+        if (
+            Dimen(getattr(box_run.box, "width", 0)) <= 0
+            and not box_run.chunks
+            and not self._inline_box_multiline_specs(box_run)
+            and not self._inline_box_text(box_run)
+        ):
+            return None
         line_measure = self._inline_box_line_measure(box_run)
         original_height = Dimen(getattr(box_run.box, "height", 0))
         original_depth = Dimen(getattr(box_run.box, "depth", 0))
@@ -2857,7 +3169,9 @@ class DocxBackend(Shipout):
     def _append_run_chunks(self, para, chunks):
         for chunk in chunks:
             if isinstance(chunk, _InlineBoxRun):
-                para._p.append(self._inline_box_run_xml(chunk))
+                run_xml = self._inline_box_run_xml(chunk)
+                if run_xml is not None:
+                    para._p.append(run_xml)
                 continue
             if isinstance(chunk, _InlineMathRun):
                 para._p.append(self._inline_math_run_xml(chunk))
@@ -2881,10 +3195,25 @@ class DocxBackend(Shipout):
         fmt.space_after = Pt(0)
         fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
         baseline = self.parser.layout["baselineskip"].dimen
+        line_spacing = None
         if baseline > 0:
-            fmt.line_spacing = self._length(self._nonnegative_dimen(baseline))
+            line_spacing = self._nonnegative_dimen(baseline)
         elif spec.interline_gaps:
-            fmt.line_spacing = self._length(self._nonnegative_dimen(spec.interline_gaps[0]))
+            line_spacing = self._nonnegative_dimen(spec.interline_gaps[0])
+        # Respect TeX line box height when inline carriers (including empty
+        # H/V boxes used as struts/kerns) require a taller line.
+        line_box_height = Dimen()
+        for line_spec in spec.lines:
+            box = getattr(line_spec, "box", None)
+            if box is None:
+                box_required = Dimen()
+            else:
+                box_required = Dimen(getattr(box, "height", 0) + getattr(box, "depth", 0))
+            line_box_height = max(line_box_height, box_required, self._line_spec_line_measure(line_spec))
+        if line_box_height > 0:
+            line_spacing = line_box_height if line_spacing is None else max(line_spacing, line_box_height)
+        if line_spacing is not None:
+            fmt.line_spacing = self._length(line_spacing)
         if spec.first_line_indent != 0:
             fmt.first_line_indent = self._length(self._nonnegative_dimen(spec.first_line_indent))
         # Ownerless single-line paragraphs (header/footer and standalone \box/\copy

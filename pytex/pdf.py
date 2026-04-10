@@ -59,6 +59,7 @@ class PDFBackend(Shipout):
         self.current_font = None
         self.current_font_name = None
         self._font_names = {}
+        self._font_signature_names = {}
         self._font_counter = 0
         self._type1_faces = {}
         self.page_width = 0
@@ -361,18 +362,42 @@ class PDFBackend(Shipout):
 
     def _register_type1(self, font, font_name):
         base = font.backend.name
-        face_info = self._type1_faces.get(base)
+        afm = self._resource_path(self.parser, base + ".afm", "fonts/afm")
+        pfb = self._resource_path(self.parser, base + ".pfb", "fonts/type1")
+        if afm is None or pfb is None:
+            raise ValueError(f"PDF backend could not find companion Type 1 files for {base}")
+        face_key = (os.path.abspath(afm), os.path.abspath(pfb))
+        face_info = self._type1_faces.get(face_key)
         if face_info is None:
-            afm = self._resource_path(self.parser, base + ".afm", "fonts/afm")
-            pfb = self._resource_path(self.parser, base + ".pfb", "fonts/type1")
-            if afm is None or pfb is None:
-                raise ValueError(f"PDF backend could not find companion Type 1 files for {base}")
             face = EmbeddedType1Face(afm, pfb)
             registerTypeFace(face)
             face_info = (face.name, getattr(face, "requiredEncoding", None) or f"rl_dynamic_{face.name}_encoding")
-            self._type1_faces[base] = face_info
+            self._type1_faces[face_key] = face_info
         face_name, encoding = face_info
         registerFont(ReportLabFont(font_name, face_name, encoding))
+
+    def _font_signature(self, font):
+        kind = getattr(font.backend, "kind", None)
+        if kind == "opentype":
+            path = getattr(font.backend, "path", None)
+            if path:
+                return ("opentype", os.path.abspath(path), int(getattr(font.backend, "font_number", 0)))
+            return ("opentype-name", getattr(font.backend, "name", None))
+        if kind == "tfm":
+            base = font.backend.name
+            for resource_name, resource_type in (
+                (base + ".otf", "fonts/opentype"),
+                (base + ".ttf", "fonts/truetype"),
+            ):
+                path = self._resource_path(self.parser, resource_name, resource_type)
+                if path is not None:
+                    return ("tfm-outline", os.path.abspath(path))
+            afm = self._resource_path(self.parser, base + ".afm", "fonts/afm")
+            pfb = self._resource_path(self.parser, base + ".pfb", "fonts/type1")
+            if afm is not None and pfb is not None:
+                return ("tfm-type1", os.path.abspath(afm), os.path.abspath(pfb))
+            return ("tfm-name", base)
+        return ("font", id(font.backend))
 
     def _register_companion_outline(self, font, font_name):
         base = font.backend.name
@@ -390,6 +415,11 @@ class PDFBackend(Shipout):
         name = self._font_names.get(id(font))
         if name is not None:
             return name
+        signature = self._font_signature(font)
+        shared_name = self._font_signature_names.get(signature)
+        if shared_name is not None:
+            self._font_names[id(font)] = shared_name
+            return shared_name
         name = f"PyTeXFont{self._font_counter}"
         self._font_counter += 1
         kind = getattr(font.backend, "kind", None)
@@ -400,6 +430,7 @@ class PDFBackend(Shipout):
         else:
             raise ValueError(f"PDF backend does not support backend kind {kind}")
         self._font_names[id(font)] = name
+        self._font_signature_names[signature] = name
         return name
 
     def _note_ignored(self, message):

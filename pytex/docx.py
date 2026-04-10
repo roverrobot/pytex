@@ -1551,6 +1551,12 @@ class DocxBackend(Shipout):
         has_inline = self._box_has_direct_inline_content(box)
         has_inline_tree = self._node_has_inline_text(box)
         has_vlist_child = any(getattr(node, "node_type", None) == nd.NODE_TYPE.VLIST for node in items)
+        # If this HLIST already carries direct inline material, keep it atomic.
+        # Descending into nested VLISTs in this case tears inline math fractions
+        # into fake paragraph lines.
+        if has_inline:
+            yield ("line", _LineEvent(owner=owner, baseline=int(baseline), box=box))
+            return
         # Treat inline-text hbox wrappers (including ownerless \box/\copy material)
         # as atomic lines when they don't carry nested vertical structure.
         if has_inline_tree and not has_vlist_child:
@@ -1719,9 +1725,9 @@ class DocxBackend(Shipout):
                     current.interline_gaps.append(self._nonnegative_dimen(pending_gap))
                 line_runs = self._runs_from_line_box(line.box, paragraph_math_state)
                 if not line_runs:
-                    line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
-                if not line_runs:
                     line_runs = self._runs_from_box(line.box, paragraph_math_state)
+                if not line_runs:
+                    line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
                 if not line_runs:
                     continue
                 line_segments = self._segment_mixed_line_runs(line_runs)
@@ -2508,21 +2514,40 @@ class DocxBackend(Shipout):
     def _inline_math_box(self, nodes, line_box=None):
         hbox = bx.HBox(self.parser, None, None)
         hbox.list[:] = list(nodes)
-        width = Dimen()
+        cursor = Dimen()
+        rightmost = Dimen()
         height = Dimen()
         depth = Dimen()
         source_box = line_box if line_box is not None else hbox
         glue_state = self._glue_state(source_box)
+
+        def _consume_advance(advance, node=None):
+            nonlocal cursor, rightmost
+            advance = Dimen(advance)
+            extent = advance
+            if node is not None:
+                rightmost_fn = getattr(node, "rightmost", None)
+                if callable(rightmost_fn):
+                    try:
+                        candidate = Dimen(rightmost_fn())
+                    except Exception:
+                        candidate = None
+                    if candidate is not None and candidate > extent:
+                        extent = candidate
+            if cursor + extent > rightmost:
+                rightmost = cursor + extent
+            cursor += advance
+
         for node in nodes:
             node_type = getattr(node, "node_type", None)
             if node_type == nd.NODE_TYPE.GLUE:
-                width += Dimen(integer=self._effective_glue_amount(node, source_box, glue_state))
+                _consume_advance(Dimen(integer=self._effective_glue_amount(node, source_box, glue_state)))
                 continue
             if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
-                width += Dimen(getattr(node, "kern", 0))
+                _consume_advance(Dimen(getattr(node, "kern", 0)))
                 continue
             if node_type == nd.NODE_TYPE.DISC:
-                width += Dimen(getattr(node, "replace_width", 0))
+                _consume_advance(Dimen(getattr(node, "replace_width", 0)))
                 for child in getattr(node, "replace", ()) or ():
                     child_height = getattr(child, "height", None)
                     child_depth = getattr(child, "depth", None)
@@ -2535,14 +2560,66 @@ class DocxBackend(Shipout):
             if node_width is None:
                 continue
             shifted = Dimen(getattr(node, "shifted", 0))
-            width += Dimen(node_width)
+            _consume_advance(Dimen(node_width), node=node)
             height = max(height, Dimen(getattr(node, "height", 0)) - shifted)
             depth = max(depth, Dimen(getattr(node, "depth", 0)) + shifted)
+        width = max(cursor, rightmost)
+        span_width = self._line_node_span_width(line_box, nodes) if line_box is not None else None
+        if span_width is not None and span_width > width:
+            width = span_width
         hbox.width = width
         hbox.height = height
         hbox.depth = depth
         hbox._packed = hbox
         return hbox
+
+    def _line_node_span_width(self, line_box, nodes):
+        if line_box is None or not nodes:
+            return None
+        items = getattr(line_box, "list", None) or ()
+        if not items:
+            return None
+        wanted = {id(node) for node in nodes}
+        glue_state = self._glue_state(line_box)
+        cursor = Dimen()
+        span_start = None
+        span_end = None
+        for node in items:
+            advance, extent = self._line_item_advance_and_extent(node, line_box, glue_state)
+            if id(node) in wanted:
+                if span_start is None:
+                    span_start = Dimen(cursor)
+                node_end = cursor + extent
+                if span_end is None or node_end > span_end:
+                    span_end = node_end
+            cursor += advance
+        if span_start is None or span_end is None:
+            return None
+        span = span_end - span_start
+        return span if span > 0 else Dimen()
+
+    def _line_item_advance_and_extent(self, node, line_box, glue_state):
+        node_type = getattr(node, "node_type", None)
+        if node_type == nd.NODE_TYPE.GLUE:
+            amount = Dimen(integer=self._effective_glue_amount(node, line_box, glue_state))
+            return amount, amount
+        if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+            amount = Dimen(getattr(node, "kern", 0))
+            return amount, amount
+        if node_type == nd.NODE_TYPE.DISC:
+            amount = Dimen(getattr(node, "replace_width", 0))
+            return amount, amount
+        advance = Dimen(getattr(node, "width", 0))
+        extent = advance
+        rightmost_fn = getattr(node, "rightmost", None)
+        if callable(rightmost_fn):
+            try:
+                rightmost = Dimen(rightmost_fn())
+                if rightmost > extent:
+                    extent = rightmost
+            except Exception:
+                pass
+        return advance, extent
 
     def _finalize_inline_math_state(self, state, trailing_kern=Dimen(), keep_open=False, line_box=None):
         if not state.active():
@@ -2688,8 +2765,21 @@ class DocxBackend(Shipout):
         )
         return f"<w:txbxContent><w:p>{ppr}{run}</w:p></w:txbxContent>"
 
+    @staticmethod
+    def _textbox_box_width(box):
+        width = Dimen(getattr(box, "width", 0))
+        rightmost_fn = getattr(box, "rightmost", None)
+        if callable(rightmost_fn):
+            try:
+                rightmost = Dimen(rightmost_fn())
+            except Exception:
+                rightmost = width
+            if rightmost > width:
+                width = rightmost
+        return width
+
     def _inline_textbox_run_xml(self, content, box, line_depth=None, anchor="bottom"):
-        width = max(self._pt(getattr(box, "width", 0)), 1.0)
+        width = max(self._pt(self._textbox_box_width(box)), 1.0)
         depth = Dimen(getattr(box, "depth", 0))
         extra_pad = Dimen(_INLINE_TEXTBOX_PAD_PT) if depth > 0 else Dimen()
         total_height = max(

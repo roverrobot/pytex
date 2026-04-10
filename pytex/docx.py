@@ -2374,34 +2374,26 @@ class DocxBackend(Shipout):
                 index += 1
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
-                if not self._glue_is_text_space(items, index):
-                    # Preserve leading alignment tabskip glue (before first cell)
-                    # as explicit spacing so TeX tabskip survives in row boxes.
-                    if getattr(node, "name", None) == "\\tabskip" and self._has_text_after(items, index):
-                        amount = self._effective_glue_amount(node, box, glue_state)
-                        if amount > 0:
-                            self._append_explicit_spacing_run(
-                                runs,
-                                Dimen(integer=amount),
-                                self._space_font(runs, items, index),
-                            )
-                    index += 1
-                    continue
                 amount = self._effective_glue_amount(node, box, glue_state)
                 if amount <= 0:
                     index += 1
                     continue
                 font = self._space_font(runs, items, index)
-                nominal_width = self._space_width(font)
-                delta = amount - nominal_width
-                runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
+                self._append_explicit_spacing_run(runs, Dimen(integer=amount), font)
                 index += 1
                 continue
             if node_type == nd.NODE_TYPE.KERN:
-                if not self._kern_is_text_kern(items, index):
+                amount = Dimen(getattr(node, "kern", 0))
+                if self._kern_is_text_kern(items, index):
+                    self._apply_text_kern(runs, node.kern)
                     index += 1
                     continue
-                self._apply_text_kern(runs, node.kern)
+                if amount > 0:
+                    self._append_explicit_spacing_run(
+                        runs,
+                        amount,
+                        self._space_font(runs, items, index),
+                    )
                 index += 1
                 continue
             if node_type == nd.NODE_TYPE.DISC:
@@ -3156,32 +3148,32 @@ class DocxBackend(Shipout):
                 "</w:r>"
             )
         if isinstance(chunk, _InlineBoxRun):
-            text = self._xml_safe_text(self._inline_box_text(chunk))
             run_font = self._first_font(chunk.box) or default_font
             target_width = Dimen(getattr(chunk.box, "width", 0))
-            alignment, left_indent, right_indent = self._box_inline_layout(chunk.box)
-            if alignment != WD_ALIGN_PARAGRAPH.LEFT:
-                # Keep center/right boxes as a single run; row paragraph alignment
-                # and run spacing are enough here and avoid nested textboxes.
-                left_indent = Dimen()
-                right_indent = Dimen()
-            content_width = max(Dimen(), target_width - left_indent - right_indent)
+            if chunk.chunks:
+                pieces = []
+                for subchunk in chunk.chunks:
+                    subxml = self._inline_box_chunk_xml(
+                        subchunk,
+                        default_font=run_font,
+                        position_half_points=position_half_points,
+                    )
+                    if subxml:
+                        pieces.append(subxml)
+                if pieces:
+                    return "".join(pieces)
+                return self._explicit_space_run_xml(target_width, run_font, position_half_points)
+            text = self._xml_safe_text(self._inline_box_text(chunk))
             if not text:
                 return self._explicit_space_run_xml(target_width, run_font, position_half_points)
             text_width = self._text_run_width(text, run_font)
-            spacing_twips = self._spacing_twips(int(content_width - text_width))
-            pieces = []
-            if left_indent > 0:
-                pieces.append(self._explicit_space_run_xml(left_indent, run_font, position_half_points))
-            pieces.append(
+            spacing_twips = self._spacing_twips(int(target_width - text_width))
+            return (
                 "<w:r>"
                 f"{self._raw_run_properties_xml(font=run_font, spacing_twips=spacing_twips, no_proof=True, position_half_points=position_half_points)}"
                 f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
                 "</w:r>"
             )
-            if right_indent > 0:
-                pieces.append(self._explicit_space_run_xml(right_indent, run_font, position_half_points))
-            return "".join(pieces)
         return ""
 
     @staticmethod
@@ -3292,6 +3284,8 @@ class DocxBackend(Shipout):
             text = self._xml_safe_text(chunk.text)
             if not text:
                 continue
+            if text.isspace():
+                text = "\u00A0" * len(text)
             run = para.add_run(text)
             self._apply_run_font_with_options(
                 run,
@@ -3304,6 +3298,21 @@ class DocxBackend(Shipout):
         para = document.add_paragraph()
         fmt = para.paragraph_format
         fmt.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        # Derive paragraph alignment from TeX edge glues on each line:
+        # no edge glues on both sides -> justify both sides; otherwise compare
+        # glue orders to choose left/right/center.
+        line_alignments = []
+        for line_spec in spec.lines:
+            if not self._line_spec_will_emit(line_spec):
+                continue
+            box = getattr(line_spec, "box", None)
+            if box is None:
+                continue
+            line_alignments.append(self._line_paragraph_alignment(box))
+        dominant_alignment = None
+        if line_alignments and all(aln == line_alignments[0] for aln in line_alignments):
+            dominant_alignment = line_alignments[0]
+            fmt.alignment = dominant_alignment
         fmt.space_before = self._length(self._nonnegative_dimen(spec.space_before))
         fmt.space_after = Pt(0)
         fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
@@ -3344,11 +3353,32 @@ class DocxBackend(Shipout):
                 continue
             if wrote_line:
                 para._p.append(self._line_break_run_xml())
-            if line_spec.segments:
-                for segment in line_spec.segments:
+            line_runs = list(line_spec.runs)
+            if dominant_alignment is not None:
+                drop_leading = dominant_alignment in (WD_ALIGN_PARAGRAPH.RIGHT, WD_ALIGN_PARAGRAPH.CENTER)
+                drop_trailing = dominant_alignment in (WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.CENTER)
+                while drop_leading and line_runs and isinstance(line_runs[0], _TextRun):
+                    trimmed = line_runs[0].text.lstrip()
+                    if trimmed == line_runs[0].text:
+                        break
+                    if trimmed:
+                        line_runs[0] = _TextRun(trimmed, line_runs[0].font, line_runs[0].spacing_twips)
+                        break
+                    line_runs.pop(0)
+                while drop_trailing and line_runs and isinstance(line_runs[-1], _TextRun):
+                    trimmed = line_runs[-1].text.rstrip()
+                    if trimmed == line_runs[-1].text:
+                        break
+                    if trimmed:
+                        line_runs[-1] = _TextRun(trimmed, line_runs[-1].font, line_runs[-1].spacing_twips)
+                        break
+                    line_runs.pop()
+            segments = self._segment_mixed_line_runs(line_runs)
+            if segments:
+                for segment in segments:
                     self._append_run_chunks(para, segment.runs)
             else:
-                self._append_run_chunks(para, line_spec.runs)
+                self._append_run_chunks(para, line_runs)
             wrote_line = True
         return para
 
@@ -3498,11 +3528,29 @@ class DocxBackend(Shipout):
                 return Dimen(getattr(node, "replace_width", 0))
             return Dimen(getattr(node, "width", 0))
 
-        def has_fill(node):
+        def stretch_order(node):
             if getattr(node, "node_type", None) != nd.NODE_TYPE.GLUE:
-                return False
-            stretch = getattr(getattr(node, "glue", None), "stretch", None)
-            return getattr(stretch, "factor", 0) != 0
+                return None
+            glue = getattr(node, "glue", None)
+            if glue is None:
+                return None
+            stretch = getattr(glue, "stretch", None)
+            if stretch is not None and getattr(stretch, "factor", 0) != 0:
+                return int(getattr(stretch, "order", 0))
+            # Fixed nonzero edge glue still counts as order-0 alignment glue.
+            if Dimen(getattr(glue, "dimen", 0)) != 0:
+                return 0
+            return None
+
+        def edge_order(nodes):
+            order = None
+            for node in nodes:
+                current = stretch_order(node)
+                if current is None:
+                    continue
+                if order is None or current > order:
+                    order = current
+            return order
 
         start = 0
         end = len(items) - 1
@@ -3515,21 +3563,72 @@ class DocxBackend(Shipout):
 
         left_indent = Dimen()
         right_indent = Dimen()
-        left_fill = False
-        right_fill = False
         for node in items[:start]:
             left_indent += node_width(node)
-            left_fill = left_fill or has_fill(node)
         for node in items[end + 1:]:
             right_indent += node_width(node)
-            right_fill = right_fill or has_fill(node)
-        if left_fill and right_fill:
-            alignment = WD_ALIGN_PARAGRAPH.CENTER
-        elif left_fill:
-            alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        else:
+        left_order = edge_order(items[:start])
+        right_order = edge_order(items[end + 1:])
+        if left_order is None:
             alignment = WD_ALIGN_PARAGRAPH.LEFT
+        elif right_order is None:
+            alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        elif left_order > right_order:
+            alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        elif right_order > left_order:
+            alignment = WD_ALIGN_PARAGRAPH.LEFT
+        else:
+            alignment = WD_ALIGN_PARAGRAPH.CENTER
         return alignment, self._nonnegative_dimen(left_indent), self._nonnegative_dimen(right_indent)
+
+    @staticmethod
+    def _edge_glue_order(nodes):
+        has_glue = False
+        order = None
+        for node in nodes:
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.GLUE:
+                continue
+            glue = getattr(node, "glue", None)
+            if glue is None:
+                continue
+            stretch = getattr(glue, "stretch", None)
+            if stretch is not None and getattr(stretch, "factor", 0) != 0:
+                current = int(getattr(stretch, "order", 0))
+            elif Dimen(getattr(glue, "dimen", 0)) != 0:
+                current = 0
+            else:
+                continue
+            has_glue = True
+            if order is None or current > order:
+                order = current
+        return has_glue, order
+
+    def _line_paragraph_alignment(self, box):
+        line_box = self._unwrap_passthrough_hlist(box)
+        items = list(getattr(line_box, "list", None) or ())
+        if not items:
+            return WD_ALIGN_PARAGRAPH.JUSTIFY
+        start = 0
+        end = len(items) - 1
+        while start <= end and not self._node_has_inline_text(items[start]):
+            start += 1
+        while end >= start and not self._node_has_inline_text(items[end]):
+            end -= 1
+        if start > end:
+            return WD_ALIGN_PARAGRAPH.JUSTIFY
+        has_left, left_order = self._edge_glue_order(items[:start])
+        has_right, right_order = self._edge_glue_order(items[end + 1:])
+        if not has_left and not has_right:
+            return WD_ALIGN_PARAGRAPH.JUSTIFY
+        if not has_left:
+            return WD_ALIGN_PARAGRAPH.LEFT
+        if not has_right:
+            return WD_ALIGN_PARAGRAPH.RIGHT
+        if left_order > right_order:
+            return WD_ALIGN_PARAGRAPH.RIGHT
+        if right_order > left_order:
+            return WD_ALIGN_PARAGRAPH.LEFT
+        return WD_ALIGN_PARAGRAPH.CENTER
 
     def _alignment_row_layout(self, node, owner):
         items = getattr(node, "list", None) or ()

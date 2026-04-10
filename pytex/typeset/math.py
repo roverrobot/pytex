@@ -40,10 +40,12 @@ def _coerceAtomState(parser, context):
 def _label_atom_tree(node, atom):
     if node is None or atom is None:
         return node
-    # Atom-level ownership should be authoritative for emitted material.
-    # This keeps nucleus/script fragments from being split across MathSymbol
-    # and Atom sources in downstream backends.
-    node.source = atom
+    node_type = getattr(node, "node_type", None)
+    if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+        node.source = atom
+        return node
+    if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+        return _AtomSourceWrapper(node, atom)
     return node
 
 
@@ -80,6 +82,25 @@ class _AtomWrapper:
 
     def __getattr__(self, name):
         return getattr(self._atom, name)
+
+
+class _AtomSourceWrapper:
+    """
+    Lightweight source carrier for shared leaf nodes (e.g., cached CharNode).
+
+    It exposes the wrapped node's attributes via __getattr__ while keeping
+    atom ownership on this wrapper object.
+    """
+
+    def __init__(self, node, source):
+        self._node = node
+        self.source = source
+
+    def __getattr__(self, name):
+        return getattr(self._node, name)
+
+    def __repr__(self):
+        return repr(self._node)
 
 
 class MathTypesetter:
@@ -595,12 +616,13 @@ class MathTypesetter:
             atom.typsetSpace(self.parser, packed, context, style, atom_type)
         else:
             atom.typsetSpace(self.parser, packed, context, style, atom_type)
-        if atom.left is not None or atom.right is not None:
+        # Keep scripted atoms as single boxed carriers so downstream backends
+        # can consume atom ownership without inspecting char-level internals.
+        if atom.left is not None or atom.right is not None or atom.sub is not None or atom.sup is not None:
             packed.append(_label_atom_tree(b, atom))
         else:
             for n in b.list:
-                _label_atom_tree(n, atom)
-                packed.append(n)
+                packed.append(_label_atom_tree(n, atom))
         context.prev_atom_type = atom_type
         if atom.right:
             right = atom.right.typeset(self.parser, total, context, style, axis)

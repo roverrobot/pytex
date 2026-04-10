@@ -202,6 +202,20 @@ def test_inline_math_typeset_labels_wrapping_boxes_with_atom_sources(math):
     assert any(isinstance(getattr(n, "source", None), mmode.Atom) for n in boxes)
 
 
+def test_inline_math_typeset_wraps_shared_chars_for_atom_sources(math):
+    math.parse("$a+b$")
+    mlist = _inline_math_node(math.lists[-1])
+    packed = []
+    _typeset_inline_math(math, mlist, packed)
+    atom_chars = [
+        n
+        for n in packed[1:-1]
+        if getattr(n, "node_type", None) == nd.NODE_TYPE.CHAR and isinstance(getattr(n, "source", None), mmode.Atom)
+    ]
+    assert atom_chars
+    assert all(not isinstance(n, nd.CharNode) for n in atom_chars)
+
+
 def test_inline_math_subscript_emits_single_atom_source(math):
     math.parse("$N_k$")
     mlist = _inline_math_node(math.lists[-1])

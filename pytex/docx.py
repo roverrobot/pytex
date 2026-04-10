@@ -1886,6 +1886,7 @@ class DocxBackend(Shipout):
         return None
 
     def _math_run_xml(self, text, normal=False):
+        text = self._xml_safe_text(text)
         if not text:
             return ""
         rpr = "<m:rPr><m:nor/></m:rPr>" if normal else ""
@@ -2072,7 +2073,10 @@ class DocxBackend(Shipout):
             if not base_xml:
                 return ""
             if accent is not None:
-                accent_char = escape(accent.char, {'"': "&quot;"})
+                accent_char = self._xml_safe_text(accent.char)
+                if not accent_char:
+                    return self._omml_script_xml(field, base_xml, display_style=display_style)
+                accent_char = escape(accent_char, {'"': "&quot;"})
                 base_xml = (
                     "<m:acc>"
                     f"<m:accPr><m:chr m:val=\"{accent_char}\"/></m:accPr>"
@@ -2121,7 +2125,7 @@ class DocxBackend(Shipout):
         if inner:
             body = f"<w:p>{ppr}{prefix}<m:oMathPara><m:oMath>{inner}</m:oMath></m:oMathPara></w:p>"
             return f"<w:txbxContent>{body}</w:txbxContent>"
-        text = self._flatten_box_text(box)
+        text = self._xml_safe_text(self._flatten_box_text(box))
         if not text:
             return "<w:txbxContent><w:p/></w:txbxContent>"
         body = (
@@ -3256,7 +3260,7 @@ class DocxBackend(Shipout):
         )
         if inner:
             return f"<w:txbxContent><w:p>{ppr}<m:oMath>{inner}</m:oMath></w:p></w:txbxContent>"
-        text = self._flatten_box_text(box)
+        text = self._xml_safe_text(self._flatten_box_text(box))
         if not text:
             return "<w:txbxContent><w:p/></w:txbxContent>"
         run = (

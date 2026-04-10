@@ -3864,11 +3864,22 @@ class DocxBackend(Shipout):
             self._emit_alignment(container, spec, page=page)
 
     def _emit_specs(self, container, specs, page, normalize_first=False):
+        normalized_first_emitted = False
         for index, spec in enumerate(specs):
             original = spec.space_before
-            if normalize_first and index == 0:
+            should_normalize = (
+                normalize_first
+                and not normalized_first_emitted
+                and (
+                    (isinstance(spec, _ParagraphSpec) and bool(spec.lines))
+                    or isinstance(spec, (_DisplayMathSpec, _AlignmentSpec))
+                )
+            )
+            if should_normalize:
                 spec.space_before = Dimen()
             self._emit_spec(container, spec, page)
+            if should_normalize:
+                normalized_first_emitted = True
             spec.space_before = original
 
     @staticmethod
@@ -3890,12 +3901,15 @@ class DocxBackend(Shipout):
         section.header.is_linked_to_previous = False
         self._clear_story_content(section.header)
         if header_specs:
-            self._emit_specs(section.header, header_specs, page, normalize_first=False)
+            # Header/footer stories are already positioned by section distances.
+            # Preserve internal interline spacing, but normalize the first block's
+            # external top gap to avoid reserving extra story height.
+            self._emit_specs(section.header, header_specs, page, normalize_first=True)
 
         section.footer.is_linked_to_previous = False
         self._clear_story_content(section.footer)
         if footer_specs:
-            self._emit_specs(section.footer, footer_specs, page, normalize_first=False)
+            self._emit_specs(section.footer, footer_specs, page, normalize_first=True)
 
     def _build_document(self):
         document = Document()

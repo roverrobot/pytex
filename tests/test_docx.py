@@ -560,6 +560,8 @@ def test_docx_text_spaces_use_preserved_spaces(parser):
         xml = zf.read("word/document.xml").decode("utf-8")
     assert 'xml:space="preserve"> </w:t>' in xml
     assert 'w:spacing w:val="139"' in xml
+    assert 'xml:space="preserve">\u00A0</w:t>' not in xml
+    assert 'xml:space="preserve"> </w:t>' not in xml
 
 
 def test_docx_nested_hbox_uses_inline_textbox(parser):
@@ -920,12 +922,64 @@ def test_docx_inline_math_keeps_line_fragments_separate(parser):
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
     assert "<m:t>y</m:t>" in xml
-    preserved_spaces = (
-        xml.count('xml:space="preserve"> </w:t>')
-        + xml.count('xml:space="preserve">\u00A0</w:t>')
-        + xml.count('xml:space="preserve"> </w:t>')
+    assert xml.count('xml:space="preserve"> </w:t>') >= 1
+    assert 'xml:space="preserve">\u00A0</w:t>' not in xml
+    assert 'xml:space="preserve"> </w:t>' not in xml
+
+
+def test_docx_spaces_after_inline_math_remain_breakable(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+    inline = _inline_math_owner(atom_x)
+
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen(0)
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen(0)
+
+    line = _FakeHBox(
+        [
+            nd.CharNode("T", font),
+            nd.CharNode("h", font),
+            nd.CharNode("e", font),
+            nd.CharNode("n", font),
+            nd.Glue(Glue(Dimen(3)), None),
+            on,
+            _FakeHBox([], atom_x, width=8, height=6, depth=1),
+            off,
+            nd.CharNode(".", font),
+            nd.Glue(Glue(Dimen(3)), None),
+            nd.CharNode("N", font),
+            nd.CharNode("e", font),
+            nd.CharNode("x", font),
+            nd.CharNode("t", font),
+        ],
+        para,
+        width=80,
+        height=7,
+        depth=2,
+        rightmost_value=40,
     )
-    assert preserved_spaces >= 2
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert "<m:oMath>" in xml
+    assert "<w:t>.</w:t>" in xml
+    assert "<w:t>Next</w:t>" in xml
+    assert 'xml:space="preserve"> </w:t>' in xml
+    assert 'xml:space="preserve">\u00A0</w:t>' not in xml
+    assert 'xml:space="preserve"> </w:t>' not in xml
 
 
 def test_docx_inline_math_ignores_penalty_owned_atom_duplicates(parser):

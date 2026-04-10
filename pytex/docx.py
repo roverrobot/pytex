@@ -3334,7 +3334,6 @@ class DocxBackend(Shipout):
                 text = self._inline_box_text(box_run)
                 if not text:
                     return "<w:txbxContent><w:p/></w:txbxContent>"
-                text = "\u00A0" * len(text) if text.isspace() else text
                 runs_xml.append(
                     "<w:r>"
                     f"{self._raw_run_properties_xml(font=font, no_proof=True, position_half_points=depth_half_points)}"
@@ -3361,7 +3360,7 @@ class DocxBackend(Shipout):
         nominal_width = Dimen(integer=self._space_width(font))
         delta = int(width - nominal_width)
         spacing_twips = self._spacing_twips(delta)
-        text = "\u00A0"
+        text = " "
         return (
             "<w:r>"
             f"{self._raw_run_properties_xml(font=font, spacing_twips=spacing_twips, no_proof=True, position_half_points=position_half_points)}"
@@ -3374,8 +3373,6 @@ class DocxBackend(Shipout):
             text = self._xml_safe_text(chunk.text)
             if not text:
                 return ""
-            if text.isspace():
-                text = "\u00A0" * len(text)
             return (
                 "<w:r>"
                 f"{self._raw_run_properties_xml(font=chunk.font or default_font, spacing_twips=chunk.spacing_twips, no_proof=True, position_half_points=position_half_points)}"
@@ -3533,8 +3530,6 @@ class DocxBackend(Shipout):
             text = self._xml_safe_text(chunk.text)
             if not text:
                 continue
-            if text.isspace():
-                text = "\u00A0" * len(text)
             run = para.add_run(text)
             self._apply_run_font_with_options(
                 run,

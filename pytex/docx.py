@@ -1465,6 +1465,15 @@ class DocxBackend(Shipout):
         )
 
     @staticmethod
+    def _clamp_char_spacing_twips(value):
+        value = int(value)
+        if value > 31680:
+            return 31680
+        if value < -31680:
+            return -31680
+        return value
+
+    @staticmethod
     def _line_has_fixed_segments(runs):
         return any(isinstance(run, (_InlineBoxRun, _InlineMathRun)) for run in runs)
 
@@ -1499,7 +1508,10 @@ class DocxBackend(Shipout):
         if spacing is None:
             spacing = OxmlElement("w:spacing")
             rPr.append(spacing)
-        spacing.set(qn("w:val"), str(int(spacing_twips)))
+        spacing.set(
+            qn("w:val"),
+            str(DocxBackend._clamp_char_spacing_twips(spacing_twips)),
+        )
 
     def _collapsed_space_spacing(self, left, right):
         font = left.font or right.font
@@ -2359,6 +2371,16 @@ class DocxBackend(Shipout):
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
                 if not self._glue_is_text_space(items, index):
+                    # Preserve leading alignment tabskip glue (before first cell)
+                    # as explicit spacing so TeX tabskip survives in row boxes.
+                    if getattr(node, "name", None) == "\\tabskip" and self._has_text_after(items, index):
+                        amount = self._effective_glue_amount(node, box, glue_state)
+                        if amount > 0:
+                            self._append_explicit_spacing_run(
+                                runs,
+                                Dimen(integer=amount),
+                                self._space_font(runs, items, index),
+                            )
                     index += 1
                     continue
                 amount = self._effective_glue_amount(node, box, glue_state)
@@ -2880,6 +2902,7 @@ class DocxBackend(Shipout):
                 _InlineBoxLineSpec(
                     runs=runs,
                     line_height=Dimen(getattr(node, "height", 0) + getattr(node, "depth", 0)),
+                    line_depth=Dimen(getattr(node, "depth", 0)),
                     gap_before=self._nonnegative_dimen(pending_gap),
                 )
             )
@@ -3040,62 +3063,41 @@ class DocxBackend(Shipout):
                 )
                 runs_xml = []
                 for chunk in line_spec.runs:
-                    if isinstance(chunk, _TextRun):
-                        text = self._xml_safe_text(chunk.text)
-                        if not text:
-                            continue
-                        if text.isspace():
-                            text = "\u00A0" * len(text)
-                        runs_xml.append(
-                            "<w:r>"
-                            f"{self._raw_run_properties_xml(font=chunk.font, spacing_twips=chunk.spacing_twips, no_proof=True, position_half_points=line_depth_half_points)}"
-                            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
-                            "</w:r>"
-                        )
-                        continue
-                    if isinstance(chunk, _InlineMathRun):
-                        text = self._xml_safe_text("".join(self._flatten_math_text(field) for field in chunk.fields))
-                        run_font = self._first_font(chunk.box) or self._first_font(box_run.box)
-                        spacing_twips = 0
-                        if text:
-                            target_width = Dimen(getattr(chunk.box, "width", 0))
-                            text_width = self._text_run_width(text, run_font)
-                            spacing_twips = self._spacing_twips(int(target_width - text_width))
-                    elif isinstance(chunk, _InlineBoxRun):
-                        text = self._xml_safe_text(self._inline_box_text(chunk))
-                        run_font = self._first_font(chunk.box) or self._first_font(box_run.box)
-                        spacing_twips = 0
-                        if text:
-                            target_width = Dimen(getattr(chunk.box, "width", 0))
-                            text_width = self._text_run_width(text, run_font)
-                            spacing_twips = self._spacing_twips(int(target_width - text_width))
-                    else:
-                        text = ""
-                        run_font = self._first_font(box_run.box)
-                        spacing_twips = 0
-                    if text:
-                        runs_xml.append(
-                            "<w:r>"
-                            f"{self._raw_run_properties_xml(font=run_font, spacing_twips=spacing_twips, no_proof=True, position_half_points=line_depth_half_points)}"
-                            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
-                            "</w:r>"
-                        )
+                    xml = self._inline_box_chunk_xml(
+                        chunk,
+                        default_font=self._first_font(box_run.box),
+                        position_half_points=line_depth_half_points,
+                    )
+                    if xml:
+                        runs_xml.append(xml)
                 paragraphs_xml.append(f"<w:p>{ppr}{''.join(runs_xml)}</w:p>")
             if not paragraphs_xml:
                 return "<w:txbxContent><w:p/></w:txbxContent>"
             return f"<w:txbxContent>{''.join(paragraphs_xml)}</w:txbxContent>"
         runs_xml = []
         if not multiline_specs:
-            text = self._inline_box_text(box_run)
-            if not text:
+            if box_run.chunks:
+                for chunk in box_run.chunks:
+                    xml = self._inline_box_chunk_xml(
+                        chunk,
+                        default_font=font,
+                        position_half_points=depth_half_points,
+                    )
+                    if xml:
+                        runs_xml.append(xml)
+            else:
+                text = self._inline_box_text(box_run)
+                if not text:
+                    return "<w:txbxContent><w:p/></w:txbxContent>"
+                text = "\u00A0" * len(text) if text.isspace() else text
+                runs_xml.append(
+                    "<w:r>"
+                    f"{self._raw_run_properties_xml(font=font, no_proof=True, position_half_points=depth_half_points)}"
+                    f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+                    "</w:r>"
+                )
+            if not runs_xml:
                 return "<w:txbxContent><w:p/></w:txbxContent>"
-            text = "\u00A0" * len(text) if text.isspace() else text
-            runs_xml.append(
-                "<w:r>"
-                f"{self._raw_run_properties_xml(font=font, no_proof=True, position_half_points=depth_half_points)}"
-                f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
-                "</w:r>"
-            )
         line_twips = self._fit_text_twips(line_height)
         ppr = (
             "<w:pPr>"
@@ -3106,6 +3108,77 @@ class DocxBackend(Shipout):
             "</w:pPr>"
         )
         return f"<w:txbxContent><w:p>{ppr}{''.join(runs_xml)}</w:p></w:txbxContent>"
+
+    def _explicit_space_run_xml(self, width, font=None, position_half_points=None):
+        width = Dimen(width)
+        if width <= 0:
+            return ""
+        nominal_width = Dimen(integer=self._space_width(font))
+        delta = int(width - nominal_width)
+        spacing_twips = self._spacing_twips(delta)
+        text = "\u00A0"
+        return (
+            "<w:r>"
+            f"{self._raw_run_properties_xml(font=font, spacing_twips=spacing_twips, no_proof=True, position_half_points=position_half_points)}"
+            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+            "</w:r>"
+        )
+
+    def _inline_box_chunk_xml(self, chunk, default_font=None, position_half_points=None):
+        if isinstance(chunk, _TextRun):
+            text = self._xml_safe_text(chunk.text)
+            if not text:
+                return ""
+            if text.isspace():
+                text = "\u00A0" * len(text)
+            return (
+                "<w:r>"
+                f"{self._raw_run_properties_xml(font=chunk.font or default_font, spacing_twips=chunk.spacing_twips, no_proof=True, position_half_points=position_half_points)}"
+                f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+                "</w:r>"
+            )
+        if isinstance(chunk, _InlineMathRun):
+            text = self._xml_safe_text("".join(self._flatten_math_text(field) for field in chunk.fields))
+            if not text:
+                return ""
+            run_font = self._first_font(chunk.box) or default_font
+            target_width = Dimen(getattr(chunk.box, "width", 0))
+            text_width = self._text_run_width(text, run_font)
+            spacing_twips = self._spacing_twips(int(target_width - text_width))
+            return (
+                "<w:r>"
+                f"{self._raw_run_properties_xml(font=run_font, spacing_twips=spacing_twips, no_proof=True, position_half_points=position_half_points)}"
+                f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+                "</w:r>"
+            )
+        if isinstance(chunk, _InlineBoxRun):
+            text = self._xml_safe_text(self._inline_box_text(chunk))
+            run_font = self._first_font(chunk.box) or default_font
+            target_width = Dimen(getattr(chunk.box, "width", 0))
+            alignment, left_indent, right_indent = self._box_inline_layout(chunk.box)
+            if alignment != WD_ALIGN_PARAGRAPH.LEFT:
+                # Keep center/right boxes as a single run; row paragraph alignment
+                # and run spacing are enough here and avoid nested textboxes.
+                left_indent = Dimen()
+                right_indent = Dimen()
+            content_width = max(Dimen(), target_width - left_indent - right_indent)
+            if not text:
+                return self._explicit_space_run_xml(target_width, run_font, position_half_points)
+            text_width = self._text_run_width(text, run_font)
+            spacing_twips = self._spacing_twips(int(content_width - text_width))
+            pieces = []
+            if left_indent > 0:
+                pieces.append(self._explicit_space_run_xml(left_indent, run_font, position_half_points))
+            pieces.append(
+                "<w:r>"
+                f"{self._raw_run_properties_xml(font=run_font, spacing_twips=spacing_twips, no_proof=True, position_half_points=position_half_points)}"
+                f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
+                "</w:r>"
+            )
+            if right_indent > 0:
+                pieces.append(self._explicit_space_run_xml(right_indent, run_font, position_half_points))
+            return "".join(pieces)
+        return ""
 
     @staticmethod
     def _textbox_box_width(box):
@@ -3123,7 +3196,11 @@ class DocxBackend(Shipout):
     def _inline_textbox_run_xml(self, content, box, line_depth=None, anchor="bottom"):
         width = max(self._pt(self._textbox_box_width(box)), 1.0)
         depth = Dimen(getattr(box, "depth", 0))
-        extra_pad = Dimen(_INLINE_TEXTBOX_PAD_PT) if depth > 0 else Dimen()
+        extra_pad = (
+            Dimen(_INLINE_TEXTBOX_PAD_PT)
+            if depth > 0 and anchor == "bottom"
+            else Dimen()
+        )
         total_height = max(
             self._pt(getattr(box, "height", 0) + depth + extra_pad),
             1.0,
@@ -3352,10 +3429,10 @@ class DocxBackend(Shipout):
         if not text:
             return Dimen()
         width = Dimen()
-        fallback = self._space_width(font) if font is not None else Dimen(6)
+        fallback = Dimen(integer=self._space_width(font)) if font is not None else Dimen(6)
         for ch in text:
             if ch == " ":
-                width += Dimen(self._space_width(font))
+                width += Dimen(integer=self._space_width(font))
                 continue
             if font is not None:
                 try:

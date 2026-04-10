@@ -33,6 +33,8 @@ _DOCX_POINTS_PER_TEX_POINT_NUM = 7200
 _DOCX_POINTS_PER_TEX_POINT_DEN = 7227
 _DOCX_TWIPS_PER_TEX_POINT_NUM = 144000
 _DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
+_DOCX_EMU_PER_TEX_POINT_NUM = 91440000
+_DOCX_EMU_PER_TEX_POINT_DEN = 7227
 _INLINE_TEXTBOX_PAD_PT = 0.75
 _DOCX_DEFAULT_TEXT_FONT = "Times New Roman"
 _DOCX_TEXT_FONT_CANDIDATES = (
@@ -611,6 +613,8 @@ class DocxBackend(Shipout):
         self.finished = False
         self._captured_pages: list[list[_Glyph]] = []
         self._docx_math_font = None
+        self._docx_next_drawing_id = 1
+        self._docx_next_textbox_id = 1
 
     def shipout(self, box):
         if box.width is None:
@@ -765,26 +769,68 @@ class DocxBackend(Shipout):
     def _length(cls, value):
         return Pt(cls._pt(value))
 
-    @staticmethod
-    def _textbox_style(anchor=None):
-        parts = [
-            "mso-fit-shape-to-text:f",
-            "mso-fit-text-to-shape:f",
-        ]
-        if anchor == "bottom":
-            parts.append("v-text-anchor:bottom")
-        elif anchor == "top":
-            parts.append("v-text-anchor:top")
-        return ";".join(parts)
+    @classmethod
+    def _emu(cls, value):
+        scaled = int(value) if isinstance(value, Dimen) else int(Dimen(value))
+        return max(
+            0,
+            Dimen._round_div(
+                scaled * _DOCX_EMU_PER_TEX_POINT_NUM,
+                _DOCX_EMU_PER_TEX_POINT_DEN * Dimen.scale,
+            ),
+        )
 
-    def _vml_textbox_xml(self, content, width, height, anchor=None):
+    @staticmethod
+    def _emu_points(value):
+        return max(0, int(round(float(value) * 12700.0)))
+
+    def _next_docx_drawing_ids(self):
+        drawing_id = self._docx_next_drawing_id
+        textbox_id = self._docx_next_textbox_id
+        self._docx_next_drawing_id += 1
+        self._docx_next_textbox_id += 1
+        return drawing_id, textbox_id
+
+    @staticmethod
+    def _textbox_anchor_value(anchor):
+        if anchor == "bottom":
+            return "b"
+        if anchor == "top":
+            return "t"
+        return "ctr"
+
+    def _drawingml_textbox_xml(self, content, width, height, anchor=None):
+        drawing_id, textbox_id = self._next_docx_drawing_ids()
+        width_emu = max(1, self._emu_points(width))
+        height_emu = max(1, self._emu_points(height))
+        shape_name = escape(f"TextBox {drawing_id}", {'"': "&quot;"})
+        anchor_value = self._textbox_anchor_value(anchor)
         return (
-            "<w:pict>"
-            f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:{height:.4f}pt\">"
-            f"<v:textbox inset=\"0,0,0,0\" style=\"{self._textbox_style(anchor=anchor)}\">{content}</v:textbox>"
-            "<w10:wrap type=\"none\"/>"
-            "</v:rect>"
-            "</w:pict>"
+            "<w:drawing>"
+            f"<wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">"
+            f"<wp:extent cx=\"{width_emu}\" cy=\"{height_emu}\"/>"
+            "<wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>"
+            f"<wp:docPr id=\"{drawing_id}\" name=\"{shape_name}\"/>"
+            "<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"/></wp:cNvGraphicFramePr>"
+            "<a:graphic>"
+            "<a:graphicData uri=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\">"
+            "<wps:wsp>"
+            "<wps:cNvSpPr txBox=\"1\"/>"
+            "<wps:spPr>"
+            f"<a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{width_emu}\" cy=\"{height_emu}\"/></a:xfrm>"
+            "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>"
+            "<a:noFill/>"
+            "<a:ln><a:noFill/></a:ln>"
+            "</wps:spPr>"
+            f"<wps:txbx id=\"{textbox_id}\">{content}</wps:txbx>"
+            f"<wps:bodyPr lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" wrap=\"none\" anchor=\"{anchor_value}\">"
+            "<a:noAutofit/>"
+            "</wps:bodyPr>"
+            "</wps:wsp>"
+            "</a:graphicData>"
+            "</a:graphic>"
+            "</wp:inline>"
+            "</w:drawing>"
         )
 
     def _resolve_docx_math_font(self):
@@ -816,6 +862,19 @@ class DocxBackend(Shipout):
                 )
             )
         )
+
+    def _remove_compatibility_mode(self, document):
+        settings = document.settings._element
+        for child in list(settings):
+            if child.tag != qn("w:compat"):
+                continue
+            for compat_child in list(child):
+                if compat_child.tag != qn("w:compatSetting"):
+                    continue
+                if compat_child.get(qn("w:name")) == "compatibilityMode":
+                    child.remove(compat_child)
+            if len(child) == 0:
+                settings.remove(child)
 
     @staticmethod
     def _nonnegative_dimen(value):
@@ -2326,12 +2385,12 @@ class DocxBackend(Shipout):
             (
                 "<w:r "
                 "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
-                "xmlns:v=\"urn:schemas-microsoft-com:vml\" "
-                "xmlns:o=\"urn:schemas-microsoft-com:office:office\" "
-                "xmlns:w10=\"urn:schemas-microsoft-com:office:word\" "
+                "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" "
+                "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" "
+                "xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\" "
                 "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
                 f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
-                f"{self._vml_textbox_xml(content, width, height, anchor='top')}"
+                f"{self._drawingml_textbox_xml(content, width, height, anchor='top')}"
                 "</w:r>"
             )
         )
@@ -2344,16 +2403,11 @@ class DocxBackend(Shipout):
             (
                 "<w:r "
                 "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
-                "xmlns:v=\"urn:schemas-microsoft-com:vml\" "
-                "xmlns:o=\"urn:schemas-microsoft-com:office:office\" "
-                "xmlns:w10=\"urn:schemas-microsoft-com:office:word\">"
+                "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" "
+                "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" "
+                "xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\">"
                 "<w:rPr><w:noProof/></w:rPr>"
-                "<w:pict>"
-                f"<v:rect stroked=\"f\" filled=\"f\" o:allowincell=\"f\" style=\"width:{width:.4f}pt;height:1.0000pt\">"
-                f"<v:textbox inset=\"0,0,0,0\" style=\"{self._textbox_style()}\"><w:txbxContent><w:p/></w:txbxContent></v:textbox>"
-                "<w10:wrap type=\"none\"/>"
-                "</v:rect>"
-                "</w:pict>"
+                f"{self._drawingml_textbox_xml('<w:txbxContent><w:p/></w:txbxContent>', width, 1.0)}"
                 "</w:r>"
             )
         )
@@ -3402,12 +3456,12 @@ class DocxBackend(Shipout):
             (
                 "<w:r "
                 "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
-                "xmlns:v=\"urn:schemas-microsoft-com:vml\" "
-                "xmlns:o=\"urn:schemas-microsoft-com:office:office\" "
-                "xmlns:w10=\"urn:schemas-microsoft-com:office:word\" "
+                "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" "
+                "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" "
+                "xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\" "
                 "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
                 f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
-                f"{self._vml_textbox_xml(content, width, total_height, anchor=anchor)}"
+                f"{self._drawingml_textbox_xml(content, width, total_height, anchor=anchor)}"
                 "</w:r>"
             )
         )
@@ -4393,6 +4447,7 @@ class DocxBackend(Shipout):
     def _build_document(self):
         document = Document()
         self._configure_math_settings(document)
+        self._remove_compatibility_mode(document)
         if not self.pages:
             return document
         for page_index, page in enumerate(self.pages):

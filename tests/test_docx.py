@@ -596,17 +596,17 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert "<w:fitText" not in xml
-    m = re.search(r'style="width:39\.8506pt;height:([0-9.]+)pt"', xml)
-    assert m is not None
-    assert float(m.group(1)) > 6.9738
-    assert "v-text-anchor:top" in xml
+    assert re.search(r'<wp:extent cx="50610[23]"', xml)
+    assert 'anchor="t"' in xml
     assert "<w:noProof/>" in xml
-    assert "<w:pict>" in xml
+    assert "<w:drawing>" in xml
+    assert "<wp:inline" in xml
+    assert "<wps:wsp>" in xml
     assert re.search(r'<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="34\d"/>', xml)
     assert '<w:textAlignment w:val="baseline"/>' in xml
     assert 'w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"' in xml
     assert "<w:b/>" in xml
-    assert re.search(r"<v:textbox[^>]*>.*?<w:t>1</w:t>.*?</v:textbox>", xml, re.S)
+    assert re.search(r"<wps:txbx[^>]*>.*?<w:t>1</w:t>.*?</wps:txbx>", xml, re.S)
     assert "<w:t>Figure</w:t>" in xml
 
 
@@ -689,7 +689,11 @@ def test_docx_inline_math_uses_inline_textbox(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert "<w:fitText" not in xml
-    assert 'style="width:21.9178pt;height:7.7210pt"' in xml
+    assert f'cx="{backend._emu_points(21.9178)}"' in xml
+    assert f'cy="{backend._emu_points(7.7210)}"' in xml
+    assert "<w:drawing>" in xml
+    assert "<wp:inline" in xml
+    assert "<wps:wsp>" in xml
     assert "<m:oMath>" in xml
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
@@ -909,13 +913,19 @@ def test_docx_inline_math_keeps_line_fragments_separate(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'style="width:13.9477pt;height:7.7210pt"' in xml
-    assert 'style="width:7.9701pt;height:7.7210pt"' in xml
+    assert f'cx="{backend._emu_points(13.9477)}"' in xml
+    assert f'cx="{backend._emu_points(7.9701)}"' in xml
+    assert f'cy="{backend._emu_points(7.7210)}"' in xml
     assert xml.count("<m:oMath>") == 2
     assert "<m:t>x</m:t>" in xml
     assert "<m:t>+</m:t>" in xml
     assert "<m:t>y</m:t>" in xml
-    assert xml.count('xml:space="preserve"> </w:t>') >= 2
+    preserved_spaces = (
+        xml.count('xml:space="preserve"> </w:t>')
+        + xml.count('xml:space="preserve">\u00A0</w:t>')
+        + xml.count('xml:space="preserve"> </w:t>')
+    )
+    assert preserved_spaces >= 2
 
 
 def test_docx_inline_math_ignores_penalty_owned_atom_duplicates(parser):
@@ -976,6 +986,7 @@ def test_docx_sets_default_math_font_in_settings(parser, monkeypatch):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/settings.xml").decode("utf-8")
     assert '<m:mathFont m:val="STIX Two Math"/>' in xml
+    assert "compatibilityMode" not in xml
 
 
 def test_docx_math_operator_text_uses_normal_style(parser):
@@ -1108,11 +1119,13 @@ def test_docx_backend_emits_display_math_textbox(parser):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
     assert "m:oMathPara" in xml
-    assert "mso-fit-text-to-shape:f" in xml
-    assert "v:textbox" in xml
-    assert "v-text-anchor:top" in xml
-    assert 'style="width:39.8506pt;height:11.9552pt"' in xml
-    assert 'style="width:14.9440pt;height:1.0000pt"' in xml
+    assert "<w:drawing>" in xml
+    assert "<wp:inline" in xml
+    assert "<wps:wsp>" in xml
+    assert 'anchor="t"' in xml
+    assert re.search(r'cx="50610[23]"', xml)
+    assert f'cy="{backend._emu_points(11.9552)}"' in xml
+    assert re.search(r'cx="18978[89]"', xml)
     assert '<w:spacing w:before="0" w:after="0"/>' in xml
     assert 'w:lineRule="exact" w:line="239"' in xml
     assert '<w:position w:val="-6"/>' in xml

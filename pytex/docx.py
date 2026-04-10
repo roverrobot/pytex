@@ -1649,6 +1649,12 @@ class DocxBackend(Shipout):
     def _line_has_fixed_segments(runs):
         return any(isinstance(run, (_InlineBoxRun, _InlineMathRun)) for run in runs)
 
+    @staticmethod
+    def _docx_alignment(alignment):
+        if alignment == WD_ALIGN_PARAGRAPH.JUSTIFY:
+            return WD_ALIGN_PARAGRAPH.LEFT
+        return alignment
+
     def _segment_mixed_line_runs(self, runs):
         if not self._line_has_fixed_segments(runs):
             return []
@@ -3486,7 +3492,7 @@ class DocxBackend(Shipout):
     def _emit_paragraph(self, document, spec):
         para = document.add_paragraph()
         fmt = para.paragraph_format
-        fmt.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        fmt.alignment = WD_ALIGN_PARAGRAPH.LEFT
         # Derive paragraph alignment from TeX edge glues on each line:
         # no edge glues on both sides -> justify both sides; otherwise compare
         # glue orders to choose left/right/center.
@@ -3501,7 +3507,7 @@ class DocxBackend(Shipout):
         dominant_alignment = None
         if line_alignments and all(aln == line_alignments[0] for aln in line_alignments):
             dominant_alignment = line_alignments[0]
-            fmt.alignment = dominant_alignment
+            fmt.alignment = self._docx_alignment(dominant_alignment)
         fmt.space_before = self._length(self._nonnegative_dimen(spec.space_before))
         fmt.space_after = Pt(0)
         fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
@@ -3533,7 +3539,7 @@ class DocxBackend(Shipout):
         # material) should honor TeX leading/trailing glue as paragraph layout.
         if spec.owner is None and len(spec.lines) == 1 and spec.lines[0].box is not None:
             alignment, left_indent, right_indent = self._box_inline_layout(spec.lines[0].box)
-            fmt.alignment = alignment
+            fmt.alignment = self._docx_alignment(alignment)
             fmt.left_indent = self._length(left_indent)
             fmt.right_indent = self._length(right_indent)
         wrote_line = False
@@ -3544,7 +3550,10 @@ class DocxBackend(Shipout):
                 para._p.append(self._line_break_run_xml())
             line_runs = list(line_spec.runs)
             if dominant_alignment is not None:
-                line_runs = self._trim_runs_for_alignment(line_runs, dominant_alignment)
+                line_runs = self._trim_runs_for_alignment(
+                    line_runs,
+                    self._docx_alignment(dominant_alignment),
+                )
             segments = self._segment_mixed_line_runs(line_runs)
             if segments:
                 for segment in segments:
@@ -4094,7 +4103,8 @@ class DocxBackend(Shipout):
             right_indent = Dimen()
         else:
             alignment, left_indent, right_indent = self._box_inline_layout(box)
-        fmt.alignment = alignment
+        docx_alignment = self._docx_alignment(alignment)
+        fmt.alignment = docx_alignment
         fmt.left_indent = self._length(left_indent)
         fmt.right_indent = self._length(right_indent)
         fmt.space_before = Pt(0)
@@ -4109,7 +4119,7 @@ class DocxBackend(Shipout):
             fmt.line_spacing = self._length(total_height)
         runs = self._runs_from_line_box(box, _InlineMathState()) or self._runs_from_box(box, _InlineMathState())
         if runs:
-            runs = self._trim_runs_for_alignment(runs, alignment)
+            runs = self._trim_runs_for_alignment(runs, docx_alignment)
             segments = self._segment_mixed_line_runs(runs)
             if segments:
                 for segment in segments:
@@ -4127,7 +4137,7 @@ class DocxBackend(Shipout):
         para = cell.paragraphs[0]
         fmt = para.paragraph_format
         alignment, left_indent, right_indent = self._box_inline_layout(box)
-        fmt.alignment = alignment
+        fmt.alignment = self._docx_alignment(alignment)
         fmt.left_indent = self._length(left_indent)
         fmt.right_indent = self._length(right_indent)
         fmt.space_before = Pt(0)

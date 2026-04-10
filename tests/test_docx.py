@@ -523,7 +523,7 @@ def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
     assert 'w:lineRule="exact"' in xml
     assert 'w:line="239"' in xml
     assert 'w:after="0"' in xml
-    assert 'w:jc w:val="both"' in xml
+    assert 'w:jc w:val="left"' in xml
     assert "<w:fitText" not in xml
     assert "<w:br/>" in xml
     assert "<w:kern" not in xml
@@ -1028,7 +1028,7 @@ def test_docx_backend_emits_text_kerns_as_spacing_hints(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'w:jc w:val="both"' in xml
+    assert 'w:jc w:val="left"' in xml
     assert "<w:fitText" not in xml
     assert 'w:spacing w:val="-20"' in xml
     assert "<w:kern" not in xml

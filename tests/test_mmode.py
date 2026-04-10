@@ -202,6 +202,19 @@ def test_inline_math_typeset_labels_wrapping_boxes_with_atom_sources(math):
     assert any(isinstance(getattr(n, "source", None), mmode.Atom) for n in boxes)
 
 
+def test_inline_math_subscript_emits_single_atom_source(math):
+    math.parse("$N_k$")
+    mlist = _inline_math_node(math.lists[-1])
+    packed = []
+    _typeset_inline_math(math, mlist, packed)
+    atom_ids = {
+        id(getattr(n, "source", None))
+        for n in packed[1:-1]
+        if isinstance(getattr(n, "source", None), mmode.Atom)
+    }
+    assert len(atom_ids) == 1
+
+
 def test_leading_superscript_uses_empty_subformula_nucleus(math):
     math.parse("$^a$")
     node = _inline_math_node(math.lists[-1]).list[0]

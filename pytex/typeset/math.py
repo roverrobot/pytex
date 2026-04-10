@@ -40,8 +40,10 @@ def _coerceAtomState(parser, context):
 def _label_atom_tree(node, atom):
     if node is None or atom is None:
         return node
-    if getattr(node, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-        node.source = atom
+    # Atom-level ownership should be authoritative for emitted material.
+    # This keeps nucleus/script fragments from being split across MathSymbol
+    # and Atom sources in downstream backends.
+    node.source = atom
     return node
 
 

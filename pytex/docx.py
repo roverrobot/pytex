@@ -545,9 +545,19 @@ class DocxBackend(Shipout):
         candidate = None
         leading_indent = Dimen()
         seen_visible = False
+        glue_state = self._glue_state(box)
         for node in getattr(box, "list", None) or ():
             node_type = getattr(node, "node_type", None)
-            if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
+            if node_type == nd.NODE_TYPE.GLUE:
+                if not seen_visible:
+                    amount = self._effective_glue_amount(node, box, glue_state)
+                    leading_indent += Dimen(integer=amount)
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                if not seen_visible:
+                    leading_indent += Dimen(getattr(node, "kern", 0))
+                continue
+            if node_type == nd.NODE_TYPE.PENALTY:
                 continue
             if node_type == nd.NODE_TYPE.MATH:
                 continue
@@ -2450,6 +2460,23 @@ class DocxBackend(Shipout):
         return False
 
     @staticmethod
+    def _node_has_inline_anchor(node):
+        node_type = getattr(node, "node_type", None)
+        if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC, nd.NODE_TYPE.RULE):
+            return True
+        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            if (
+                Dimen(getattr(node, "width", 0)) > 0
+                or Dimen(getattr(node, "height", 0)) > 0
+                or Dimen(getattr(node, "depth", 0)) > 0
+            ):
+                return True
+            for child in getattr(node, "list", None) or ():
+                if DocxBackend._node_has_inline_anchor(child):
+                    return True
+        return False
+
+    @staticmethod
     def _kern_is_text_kern(items, index):
         if index <= 0 or index + 1 >= len(items):
             return False
@@ -3355,24 +3382,7 @@ class DocxBackend(Shipout):
                 para._p.append(self._line_break_run_xml())
             line_runs = list(line_spec.runs)
             if dominant_alignment is not None:
-                drop_leading = dominant_alignment in (WD_ALIGN_PARAGRAPH.RIGHT, WD_ALIGN_PARAGRAPH.CENTER)
-                drop_trailing = dominant_alignment in (WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.CENTER)
-                while drop_leading and line_runs and isinstance(line_runs[0], _TextRun):
-                    trimmed = line_runs[0].text.lstrip()
-                    if trimmed == line_runs[0].text:
-                        break
-                    if trimmed:
-                        line_runs[0] = _TextRun(trimmed, line_runs[0].font, line_runs[0].spacing_twips)
-                        break
-                    line_runs.pop(0)
-                while drop_trailing and line_runs and isinstance(line_runs[-1], _TextRun):
-                    trimmed = line_runs[-1].text.rstrip()
-                    if trimmed == line_runs[-1].text:
-                        break
-                    if trimmed:
-                        line_runs[-1] = _TextRun(trimmed, line_runs[-1].font, line_runs[-1].spacing_twips)
-                        break
-                    line_runs.pop()
+                line_runs = self._trim_runs_for_alignment(line_runs, dominant_alignment)
             segments = self._segment_mixed_line_runs(line_runs)
             if segments:
                 for segment in segments:
@@ -3381,6 +3391,29 @@ class DocxBackend(Shipout):
                 self._append_run_chunks(para, line_runs)
             wrote_line = True
         return para
+
+    @staticmethod
+    def _trim_runs_for_alignment(line_runs, alignment):
+        line_runs = list(line_runs)
+        drop_leading = alignment in (WD_ALIGN_PARAGRAPH.RIGHT, WD_ALIGN_PARAGRAPH.CENTER)
+        drop_trailing = alignment in (WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.CENTER)
+        while drop_leading and line_runs and isinstance(line_runs[0], _TextRun):
+            trimmed = line_runs[0].text.lstrip()
+            if trimmed == line_runs[0].text:
+                break
+            if trimmed:
+                line_runs[0] = _TextRun(trimmed, line_runs[0].font, line_runs[0].spacing_twips)
+                break
+            line_runs.pop(0)
+        while drop_trailing and line_runs and isinstance(line_runs[-1], _TextRun):
+            trimmed = line_runs[-1].text.rstrip()
+            if trimmed == line_runs[-1].text:
+                break
+            if trimmed:
+                line_runs[-1] = _TextRun(trimmed, line_runs[-1].font, line_runs[-1].spacing_twips)
+                break
+            line_runs.pop()
+        return line_runs
 
     def _emit_display_math(self, document, spec):
         para = document.add_paragraph()
@@ -3412,6 +3445,23 @@ class DocxBackend(Shipout):
     def _alignment_entries(self, owner):
         rows, widths, tabskips = owner._collectEntries(self.parser)
         return rows, widths, tabskips
+
+    def _alignment_content_alignment(self, rows):
+        alignments = []
+        for _row, entries in rows:
+            for entry in entries:
+                cell = entry.get("cell")
+                if cell is None:
+                    continue
+                if self._flatten_box_text(cell).strip() == "":
+                    continue
+                alignment, _left, _right = self._box_inline_layout(cell)
+                alignments.append(alignment)
+        if not alignments:
+            return WD_ALIGN_PARAGRAPH.LEFT
+        if all(aln == alignments[0] for aln in alignments):
+            return alignments[0]
+        return WD_ALIGN_PARAGRAPH.LEFT
 
     @staticmethod
     def _alignment_cell_raw_nodes(cell):
@@ -3511,6 +3561,24 @@ class DocxBackend(Shipout):
         return visible
 
     def _box_inline_layout(self, box):
+        if getattr(box, "node_type", None) == nd.NODE_TYPE.HLIST:
+            box = self._unwrap_passthrough_hlist(box)
+        if getattr(box, "node_type", None) == nd.NODE_TYPE.VLIST:
+            alignments = []
+            for node in getattr(box, "list", None) or ():
+                node_type = getattr(node, "node_type", None)
+                if node_type == nd.NODE_TYPE.HLIST:
+                    alignments.append(self._line_paragraph_alignment(node))
+                    continue
+                if node_type == nd.NODE_TYPE.VLIST:
+                    child_alignment, _li, _ri = self._box_inline_layout(node)
+                    alignments.append(child_alignment)
+            if alignments and all(aln == alignments[0] for aln in alignments):
+                alignment = alignments[0]
+                if alignment == WD_ALIGN_PARAGRAPH.JUSTIFY:
+                    alignment = WD_ALIGN_PARAGRAPH.LEFT
+                return alignment, Dimen(), Dimen()
+            return WD_ALIGN_PARAGRAPH.LEFT, Dimen(), Dimen()
         items = getattr(box, "list", None) or ()
         if not items:
             return WD_ALIGN_PARAGRAPH.LEFT, Dimen(), Dimen()
@@ -3552,11 +3620,32 @@ class DocxBackend(Shipout):
                     order = current
             return order
 
+        anchor_indexes = [
+            index for index, node in enumerate(items) if self._node_has_inline_anchor(node)
+        ]
+        if len(anchor_indexes) == 1:
+            anchor_index = anchor_indexes[0]
+            anchor = items[anchor_index]
+            if getattr(anchor, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                child_alignment, child_left, child_right = self._box_inline_layout(anchor)
+                if child_alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
+                    outer_left = Dimen()
+                    outer_right = Dimen()
+                    for node in items[:anchor_index]:
+                        outer_left += node_width(node)
+                    for node in items[anchor_index + 1:]:
+                        outer_right += node_width(node)
+                    return (
+                        child_alignment,
+                        self._nonnegative_dimen(outer_left + child_left),
+                        self._nonnegative_dimen(outer_right + child_right),
+                    )
+
         start = 0
         end = len(items) - 1
-        while start <= end and not self._node_has_inline_text(items[start]):
+        while start <= end and not self._node_has_inline_anchor(items[start]):
             start += 1
-        while end >= start and not self._node_has_inline_text(items[end]):
+        while end >= start and not self._node_has_inline_anchor(items[end]):
             end -= 1
         if start > end:
             return WD_ALIGN_PARAGRAPH.LEFT, Dimen(), Dimen()
@@ -3610,9 +3699,9 @@ class DocxBackend(Shipout):
             return WD_ALIGN_PARAGRAPH.JUSTIFY
         start = 0
         end = len(items) - 1
-        while start <= end and not self._node_has_inline_text(items[start]):
+        while start <= end and not self._node_has_inline_anchor(items[start]):
             start += 1
-        while end >= start and not self._node_has_inline_text(items[end]):
+        while end >= start and not self._node_has_inline_anchor(items[end]):
             end -= 1
         if start > end:
             return WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -3697,6 +3786,56 @@ class DocxBackend(Shipout):
         ]
 
     @staticmethod
+    def _glue_alignment_order(glue):
+        if glue is None:
+            return None
+        stretch = getattr(glue, "stretch", None)
+        if stretch is not None and getattr(stretch, "factor", 0) != 0:
+            return int(getattr(stretch, "order", 0))
+        if Dimen(getattr(glue, "dimen", 0)) != 0:
+            return 0
+        return None
+
+    def _alignment_outer_alignment(self, tabskips):
+        if not tabskips:
+            return WD_ALIGN_PARAGRAPH.LEFT
+        left_order = self._glue_alignment_order(tabskips[0])
+        right_order = self._glue_alignment_order(tabskips[-1])
+        if left_order is None:
+            return WD_ALIGN_PARAGRAPH.LEFT
+        if right_order is None:
+            return WD_ALIGN_PARAGRAPH.RIGHT
+        if left_order > right_order:
+            return WD_ALIGN_PARAGRAPH.RIGHT
+        if right_order > left_order:
+            return WD_ALIGN_PARAGRAPH.LEFT
+        return WD_ALIGN_PARAGRAPH.CENTER
+
+    def _trim_outer_tabskips(self, tabskip_widths, tabskips):
+        if not tabskip_widths:
+            return []
+        trimmed = [self._nonnegative_dimen(width) for width in tabskip_widths]
+        if not tabskips:
+            return trimmed
+        left_order = self._glue_alignment_order(tabskips[0])
+        right_order = self._glue_alignment_order(tabskips[-1])
+        has_left = left_order is not None
+        has_right = right_order is not None
+        if has_left and has_right:
+            if left_order == right_order:
+                trimmed[0] = Dimen()
+                trimmed[-1] = Dimen()
+            elif left_order > right_order:
+                trimmed[0] = Dimen()
+            else:
+                trimmed[-1] = Dimen()
+        elif has_left:
+            trimmed[0] = Dimen()
+        elif has_right:
+            trimmed[-1] = Dimen()
+        return trimmed
+
+    @staticmethod
     def _clear_cell(cell):
         tc = cell._tc
         for child in list(tc):
@@ -3778,12 +3917,21 @@ class DocxBackend(Shipout):
             return Dimen()
         return Dimen(getattr(getattr(spec, "box", None), "shifted", 0))
 
+    @staticmethod
+    def _alignment_box_shift(spec):
+        return Dimen(getattr(getattr(spec, "box", None), "shifted", 0))
+
     def _populate_table_cell(self, cell, box, line_measure=None):
         self._clear_cell(cell)
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.BOTTOM
         para = cell.paragraphs[0]
         fmt = para.paragraph_format
-        alignment, left_indent, right_indent = self._box_inline_layout(box)
+        if getattr(box, "node_type", None) == nd.NODE_TYPE.HLIST:
+            alignment = self._line_paragraph_alignment(box)
+            left_indent = Dimen()
+            right_indent = Dimen()
+        else:
+            alignment, left_indent, right_indent = self._box_inline_layout(box)
         fmt.alignment = alignment
         fmt.left_indent = self._length(left_indent)
         fmt.right_indent = self._length(right_indent)
@@ -3799,6 +3947,7 @@ class DocxBackend(Shipout):
             fmt.line_spacing = self._length(total_height)
         runs = self._runs_from_line_box(box, _InlineMathState()) or self._runs_from_box(box, _InlineMathState())
         if runs:
+            runs = self._trim_runs_for_alignment(runs, alignment)
             segments = self._segment_mixed_line_runs(runs)
             if segments:
                 for segment in segments:
@@ -3853,6 +4002,23 @@ class DocxBackend(Shipout):
         )
         return True
 
+    def _alignment_entry_reboxed_cell(self, spec, entry, adjusted_widths, adjusted_tabskips):
+        start = entry["start"]
+        span = entry["span"]
+        if span <= 0:
+            return entry["cell"]
+        end = start + span - 1
+        target = Dimen()
+        for index in range(start, end + 1):
+            target += adjusted_widths[index]
+        for index in range(start + 1, end + 1):
+            if index < len(adjusted_tabskips):
+                target += adjusted_tabskips[index]
+        try:
+            return spec.owner.reboxEntry(self.parser, entry["cell"], target)
+        except Exception:
+            return entry["cell"]
+
     def _emit_alignment(self, container, spec, page=None):
         rows, widths, tabskips = self._alignment_entries(spec.owner)
         if not rows or not widths:
@@ -3861,6 +4027,8 @@ class DocxBackend(Shipout):
         block_gap = self._nonnegative_dimen(spec.space_before)
         adjusted_widths = [Dimen(width) for width in widths]
         adjusted_tabskips = self._alignment_effective_tabskips(tabskips, row_layout)
+        if not spec.display:
+            adjusted_tabskips = self._trim_outer_tabskips(adjusted_tabskips, tabskips)
         for _row, entries in rows:
             for entry in entries:
                 start = entry["start"]
@@ -3886,9 +4054,35 @@ class DocxBackend(Shipout):
             effective_widths.append(width)
         effective_widths.append(adjusted_tabskips[len(adjusted_widths)])
         table = self._add_table(container, rows=len(rows), cols=len(effective_widths), page=page)
-        table.alignment = WD_TABLE_ALIGNMENT.LEFT
+        table_alignment = WD_TABLE_ALIGNMENT.LEFT
+        if not spec.display:
+            block_alignment = WD_ALIGN_PARAGRAPH.LEFT
+            if spec.box is not None:
+                block_box = self._unwrap_passthrough_hlist(spec.box)
+                block_alignment, _left_indent, _right_indent = self._box_inline_layout(block_box)
+            outer_alignment = self._alignment_outer_alignment(tabskips)
+            content_alignment = self._alignment_content_alignment(rows)
+            if block_alignment == WD_ALIGN_PARAGRAPH.CENTER:
+                table_alignment = WD_TABLE_ALIGNMENT.CENTER
+            elif block_alignment == WD_ALIGN_PARAGRAPH.RIGHT:
+                table_alignment = WD_TABLE_ALIGNMENT.RIGHT
+            elif outer_alignment == WD_ALIGN_PARAGRAPH.CENTER:
+                table_alignment = WD_TABLE_ALIGNMENT.CENTER
+            elif outer_alignment == WD_ALIGN_PARAGRAPH.RIGHT:
+                table_alignment = WD_TABLE_ALIGNMENT.RIGHT
+            elif content_alignment == WD_ALIGN_PARAGRAPH.CENTER:
+                table_alignment = WD_TABLE_ALIGNMENT.CENTER
+            elif content_alignment == WD_ALIGN_PARAGRAPH.RIGHT:
+                table_alignment = WD_TABLE_ALIGNMENT.RIGHT
+        table.alignment = table_alignment
         table.autofit = False
-        table_indent = self._nonnegative_dimen(spec.leading_indent + self._alignment_display_indent(spec))
+        table_indent = self._nonnegative_dimen(
+            spec.leading_indent
+            + self._alignment_box_shift(spec)
+            + self._alignment_display_indent(spec)
+        )
+        if table_alignment != WD_TABLE_ALIGNMENT.LEFT:
+            table_indent = Dimen()
         self._set_table_indent(table, table_indent)
         self._set_table_cell_margins_zero(table)
         for index, width in enumerate(effective_widths):
@@ -3939,9 +4133,19 @@ class DocxBackend(Shipout):
                     merged_width += effective_widths[index]
                 self._set_table_cell_width(target, merged_width)
                 occupied.update(range(start, end + 1))
-                if spec.display and self._populate_display_alignment_math_cell(target, entry["cell"]):
+                cell_box = self._alignment_entry_reboxed_cell(
+                    spec,
+                    entry,
+                    adjusted_widths,
+                    adjusted_tabskips,
+                )
+                if spec.display and self._populate_display_alignment_math_cell(target, cell_box):
                     continue
-                self._populate_table_cell(target, entry["cell"], line_measure=row_height)
+                self._populate_table_cell(
+                    target,
+                    cell_box,
+                    line_measure=row_height,
+                )
             for col_index, target in enumerate(row_cells):
                 if col_index in occupied:
                     continue

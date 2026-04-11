@@ -65,6 +65,38 @@ _MATH_FAMILY_TEXT_OVERRIDES = {
 }
 
 
+def _docx_usable_font_name(name):
+    if not name:
+        return False
+    if os.sep in name or "/" in name or "\\" in name:
+        return False
+    lowered = name.lower()
+    return not lowered.endswith((".ttf", ".otf", ".ttc", ".otc"))
+
+
+def _docx_font_backend_name(backend):
+    explicit = getattr(backend, "docx_font_name", None)
+    if explicit and _docx_usable_font_name(explicit):
+        return explicit
+    name = getattr(backend, "name", None)
+    if _docx_usable_font_name(name):
+        return name
+    font = getattr(backend, "font", None)
+    table = font.get("name") if font is not None else None
+    if table is not None:
+        for name_id in (16, 1, 4, 6):
+            for record in table.names:
+                if record.nameID != name_id:
+                    continue
+                try:
+                    text = record.toUnicode().strip()
+                except Exception:
+                    continue
+                if _docx_usable_font_name(text):
+                    return text
+    return None
+
+
 def _docx_math_slot_text(family, code):
     override = _MATH_FAMILY_TEXT_OVERRIDES.get(family, {}).get(code)
     if override is not None:
@@ -96,6 +128,10 @@ def _docx_math_slot_text(family, code):
 def _resolve_parser_docx_math_backend(parser):
     cached = getattr(parser, "_docx_math_backend", None)
     if cached is not None:
+        if cached is not False:
+            display_name = _docx_font_backend_name(cached)
+            if display_name:
+                cached.docx_font_name = display_name
         return cached
     try:
         from pytex import opentype  # noqa: F401
@@ -111,6 +147,9 @@ def _resolve_parser_docx_math_backend(parser):
             continue
         if not getattr(backend, "hasMathTable", lambda: False)():
             continue
+        display_name = _docx_font_backend_name(backend)
+        if display_name:
+            backend.docx_font_name = display_name
         parser._docx_math_backend = backend
         return backend
     parser._docx_math_backend = False
@@ -849,7 +888,7 @@ class DocxBackend(Shipout):
             return self._docx_math_font
         backend = _resolve_parser_docx_math_backend(self.parser)
         if backend is not None:
-            self._docx_math_font = backend.name
+            self._docx_math_font = _docx_font_backend_name(backend) or ""
             return self._docx_math_font
         self._docx_math_font = ""
         return self._docx_math_font
@@ -1979,13 +2018,10 @@ class DocxBackend(Shipout):
                     if current is not None:
                         self._flush_pending_inline_math(current, paragraph_math_state)
                         yield current
-                    first_line_indent = self._paragraph_first_indent(line.owner)
-                    if self._line_starts_with_indent_box(line.box, first_line_indent):
-                        first_line_indent = Dimen()
                     current = _ParagraphSpec(
                         owner=line.owner,
                         space_before=consume_space_before(line_region),
-                        first_line_indent=first_line_indent,
+                        first_line_indent=Dimen(),
                         region=line_region,
                     )
                     paragraph_math_state = _InlineMathState()
@@ -1998,6 +2034,8 @@ class DocxBackend(Shipout):
                     line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
                 if not line_runs:
                     continue
+                if not current.lines:
+                    line_runs = self._leading_empty_box_to_spacing(line_runs)
                 line_segments = self._segment_mixed_line_runs(line_runs)
                 current.lines.append(
                     _LineSpec(
@@ -2384,7 +2422,7 @@ class DocxBackend(Shipout):
         return f"<w:txbxContent>{body}</w:txbxContent>"
 
     def _display_math_run_xml(self, fields, box, line_depth=None, total_height=None):
-        width = max(self._pt(getattr(box, "width", 0)), 1.0)
+        width = max(self._pt(self._textbox_box_width(box)), 1.0)
         effective_depth = Dimen(getattr(box, "depth", 0))
         if line_depth is not None and line_depth > effective_depth:
             effective_depth = Dimen(line_depth)
@@ -2663,6 +2701,48 @@ class DocxBackend(Shipout):
         nominal_width = self._space_width(font)
         delta = int(width) - nominal_width
         runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
+
+    def _append_nonbreaking_spacing_run(self, runs, width, font):
+        width = Dimen(width)
+        if width <= 0:
+            return
+        nominal_width = self._space_width(font)
+        delta = int(width) - nominal_width
+        runs.append(_TextRun("\u00A0", font, spacing_twips=self._spacing_twips(delta)))
+
+    def _leading_empty_box_to_spacing(self, runs):
+        runs = list(runs)
+        if not runs:
+            return runs
+        first = runs[0]
+        if not isinstance(first, _InlineBoxRun):
+            return runs
+        if first.chunks:
+            return runs
+        if self._inline_box_text(first):
+            return runs
+        width = Dimen(getattr(first.box, "width", 0))
+        if width <= 0:
+            return runs[1:]
+        font = None
+        for run in runs[1:]:
+            if isinstance(run, _TextRun):
+                if run.font is not None and not run.text.isspace():
+                    font = run.font
+                    break
+                continue
+            if isinstance(run, _InlineMathRun):
+                font = self._first_font(run.box)
+                if font is not None:
+                    break
+                continue
+            if isinstance(run, _InlineBoxRun):
+                font = self._first_font(run.box)
+                if font is not None:
+                    break
+        spacing_runs = []
+        self._append_nonbreaking_spacing_run(spacing_runs, width, font)
+        return spacing_runs + runs[1:]
 
     @classmethod
     def _can_use_box_runs(cls, box):
@@ -4247,9 +4327,16 @@ class DocxBackend(Shipout):
             if index < len(adjusted_tabskips):
                 target += adjusted_tabskips[index]
         try:
-            return spec.owner.reboxEntry(self.parser, entry["cell"], target)
+            reboxed = spec.owner.reboxEntry(self.parser, entry["cell"], target)
         except Exception:
             return entry["cell"]
+        original = entry["cell"]
+        original_raw = tuple(self._alignment_cell_raw_nodes(original))
+        if not getattr(reboxed, "raw", None) and original_raw:
+            reboxed.raw = original_raw
+        if getattr(reboxed, "source", None) is None and getattr(original, "source", None) is not None:
+            reboxed.source = original.source
+        return reboxed
 
     def _emit_alignment(self, container, spec, page=None):
         rows, widths, tabskips = self._alignment_entries(spec.owner)

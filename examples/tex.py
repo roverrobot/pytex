@@ -52,12 +52,15 @@ DOCUMENT_METADATA_SNIPPET = "\\DocumentMetadata{backend=dvipdfmx}"
 if args.sort is not None and not args.profile:
     print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
 
+docx = None
 if args.format != "initex":
     # load the selected output backend
     if args.output == "dvi":
         import pytex.dvi
     elif args.output == "pdf":
+        from pytex import docx
         import pytex.pdf
+
     elif args.output == "html-reflow":
         from pytex import html_reflow as html_reflow_backend
     elif args.output == "docx":
@@ -67,6 +70,9 @@ parser = Parser(project_dir=args.project_dir)
 if html_reflow_backend is not None:
     parser.shipout = html_reflow_backend.HTMLReflowBackend(parser)
 parser.resolver.format = args.format
+if docx is not None:
+    docx._install_docx_font_substitution(parser)
+    docx._install_docx_math_font_arrays(parser)
 
 # tracing settings
 #parser.tracingcommands = 2

@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import os
 import types
+import hashlib
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
 from docx import Document
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.enum.section import WD_SECTION_START
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
+from docx.parts.image import ImagePart
 from docx.shared import Pt
+from fontTools.pens.svgPathPen import SVGPathPen
 
 from pytex import align
 from pytex import box as bx
@@ -22,7 +26,7 @@ from pytex import html_reflow as html_math
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
-from pytex.dimen import Dimen
+from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.font_backend import GlyphInfo
 from pytex.module import Module
 from pytex.typeset.shipout import Shipout
@@ -808,9 +812,12 @@ class DocxBackend(Shipout):
 
     @staticmethod
     def _pt(value):
-        scaled = int(value) if isinstance(value, Dimen) else int(Dimen(value))
+        return float(value) * _DOCX_POINTS_PER_TEX_POINT_NUM / _DOCX_POINTS_PER_TEX_POINT_DEN
+
+    @staticmethod
+    def _pt_scaled(value):
         return (
-            scaled
+            int(value)
             * _DOCX_POINTS_PER_TEX_POINT_NUM
             / (_DOCX_POINTS_PER_TEX_POINT_DEN * Dimen.scale)
         )
@@ -881,6 +888,274 @@ class DocxBackend(Shipout):
             "</a:graphic>"
             "</wp:inline>"
             "</w:drawing>"
+        )
+
+    @staticmethod
+    def _svg_number(value):
+        value = float(value)
+        text = f"{value:.6f}".rstrip("0").rstrip(".")
+        if text == "-0":
+            return "0"
+        return text or "0"
+
+    def _svg_box_width(self, box):
+        return max(self._textbox_box_width(box), Dimen())
+
+    def _glyph_svg_path(self, node):
+        char_info = getattr(node, "char_info", None)
+        glyph_name = getattr(char_info, "glyph_name", None)
+        if glyph_name is None:
+            return None
+        font = getattr(node, "font", None)
+        backend = getattr(font, "backend", None)
+        glyph_set = getattr(backend, "_glyph_set", None)
+        if glyph_set is None:
+            return None
+        glyph = glyph_set.get(glyph_name)
+        if glyph is None:
+            return None
+        pen = SVGPathPen(glyph_set)
+        glyph.draw(pen)
+        commands = pen.getCommands()
+        return commands or None
+
+    def _svg_font_attributes(self, font):
+        attrs = []
+        name = self._font_name(font)
+        if name:
+            escaped_name = escape(name, {'"': "&quot;"})
+            attrs.append(f'font-family="{escaped_name}"')
+        at = getattr(font, "at", None)
+        if at is not None:
+            attrs.append(f'font-size="{self._svg_number(self._pt(at))}pt"')
+        bold, italic = self._docx_font_style(font)
+        if bold:
+            attrs.append('font-weight="bold"')
+        if italic:
+            attrs.append('font-style="italic"')
+        return " ".join(attrs)
+
+    def _svg_draw_char(self, node, h, v, out):
+        text = self._glyph_text(node)
+        if not text:
+            return
+        font = getattr(node, "font", None)
+        x = self._pt_scaled(h)
+        baseline = self._pt_scaled(v)
+        path = self._glyph_svg_path(node)
+        if path is not None and font is not None:
+            backend = getattr(font, "backend", None)
+            units_per_em = float(getattr(backend, "units_per_em", 0) or 0)
+            if units_per_em > 0:
+                scale = self._pt(getattr(font, "at", 0)) / units_per_em
+                escaped_path = escape(path, {'"': "&quot;"})
+                out.append(
+                    "<path "
+                    f'd="{escaped_path}" '
+                    f'transform="translate({self._svg_number(x)} {self._svg_number(baseline)}) '
+                    f'scale({self._svg_number(scale)} {self._svg_number(-scale)})" '
+                    'fill="#000000"/>'
+                )
+                return
+        attrs = self._svg_font_attributes(font)
+        attrs = f" {attrs}" if attrs else ""
+        out.append(
+            "<text "
+            f'x="{self._svg_number(x)}" '
+            f'y="{self._svg_number(baseline)}"{attrs} '
+            'xml:space="preserve" fill="#000000">'
+            f"{escape(text)}"
+            "</text>"
+        )
+
+    def _svg_rule_dims(self, node, box):
+        def running(value):
+            return int(value) <= int(NEG_MAX_DIMEN)
+
+        if getattr(box, "node_type", None) == nd.NODE_TYPE.VLIST:
+            width = int(getattr(box, "width", 0)) if running(getattr(node, "width", 0)) else int(getattr(node, "width", 0))
+            height = int(getattr(node, "height", 0))
+            depth = int(getattr(node, "depth", 0))
+        else:
+            width = int(getattr(node, "width", 0))
+            height = int(getattr(box, "height", 0)) if running(getattr(node, "height", 0)) else int(getattr(node, "height", 0))
+            depth = int(getattr(box, "depth", 0)) if running(getattr(node, "depth", 0)) else int(getattr(node, "depth", 0))
+        return width, height, depth
+
+    def _svg_draw_rule(self, node, box, h, v, out):
+        width, height, depth = self._svg_rule_dims(node, box)
+        if width <= 0 or height + depth <= 0:
+            return
+        if getattr(box, "node_type", None) == nd.NODE_TYPE.HLIST:
+            top = v - height
+        else:
+            top = v
+        out.append(
+            "<rect "
+            f'x="{self._svg_number(self._pt_scaled(h))}" '
+            f'y="{self._svg_number(self._pt_scaled(top))}" '
+            f'width="{self._svg_number(self._pt_scaled(width))}" '
+            f'height="{self._svg_number(self._pt_scaled(height + depth))}" '
+            'fill="#000000"/>'
+        )
+
+    def _svg_render_hlist(self, box, h, v, out):
+        items = getattr(box, "list", None) or ()
+        glue_state = self._glue_state(box)
+        for node in items:
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                self._svg_draw_char(node, h, v, out)
+                h += int(getattr(node, "width", 0))
+                continue
+            if node_type == nd.NODE_TYPE.GLUE:
+                h += self._effective_glue_amount(node, box, glue_state)
+                continue
+            if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+                h += int(getattr(node, "kern", 0))
+                continue
+            if node_type == nd.NODE_TYPE.DISC:
+                h = self._svg_render_hlist(node, h, v, out)
+                continue
+            if node_type == nd.NODE_TYPE.RULE:
+                self._svg_draw_rule(node, box, h, v, out)
+                h += int(getattr(node, "width", 0))
+                continue
+            if node_type == nd.NODE_TYPE.HLIST:
+                shifted = int(getattr(node, "shifted", 0))
+                self._svg_render_hlist(node, h, v + shifted, out)
+                h += int(getattr(node, "width", 0))
+                continue
+            if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                shifted = int(getattr(node, "shifted", 0))
+                self._svg_render_vlist(node, h, v + shifted - int(getattr(node, "height", 0)), out)
+                h += int(getattr(node, "width", 0))
+                continue
+        return h
+
+    def _svg_render_vlist(self, box, h, v, out):
+        items = getattr(box, "list", None) or ()
+        glue_state = self._glue_state(box)
+        for node in items:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                v += self._effective_glue_amount(node, box, glue_state)
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                v += int(getattr(node, "kern", 0))
+                continue
+            if node_type == nd.NODE_TYPE.RULE:
+                self._svg_draw_rule(node, box, h, v, out)
+                v += int(getattr(node, "height", 0))
+                continue
+            if node_type == nd.NODE_TYPE.HLIST:
+                shifted = int(getattr(node, "shifted", 0))
+                self._svg_render_hlist(node, h + shifted, v + int(getattr(node, "height", 0)), out)
+                v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
+                continue
+            if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+                shifted = int(getattr(node, "shifted", 0))
+                self._svg_render_vlist(node, h + shifted, v, out)
+                v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
+                continue
+        return v
+
+    def _svg_bytes_for_box(self, box, total_height=None):
+        if box is None:
+            return b""
+        width = self._svg_box_width(box)
+        total_height = (
+            Dimen(total_height)
+            if total_height is not None
+            else Dimen(getattr(box, "height", 0)) + Dimen(getattr(box, "depth", 0))
+        )
+        width_pt = max(self._pt(width), 1.0)
+        height_pt = max(self._pt(total_height), 1.0)
+        content = []
+        node_type = getattr(box, "node_type", None)
+        if node_type == nd.NODE_TYPE.HLIST:
+            self._svg_render_hlist(box, 0, int(getattr(box, "height", 0)), content)
+        elif node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+            self._svg_render_vlist(box, 0, 0, content)
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" '
+            f'width="{self._svg_number(width_pt)}pt" '
+            f'height="{self._svg_number(height_pt)}pt" '
+            f'viewBox="0 0 {self._svg_number(width_pt)} {self._svg_number(height_pt)}">'
+            f"{''.join(content)}"
+            "</svg>"
+        )
+        return svg.encode("utf-8")
+
+    def _get_or_add_svg_image_part(self, story_part, svg_bytes):
+        package = story_part._package
+        assert package is not None
+        sha1 = hashlib.sha1(svg_bytes).hexdigest()
+        for image_part in package.image_parts:
+            if image_part.content_type == "image/svg+xml" and image_part.sha1 == sha1:
+                return story_part.relate_to(image_part, RT.IMAGE), image_part
+        partname = package.image_parts._next_image_partname("svg")
+        image_part = ImagePart(partname, "image/svg+xml", svg_bytes)
+        image_part._package = package
+        package.image_parts.append(image_part)
+        return story_part.relate_to(image_part, RT.IMAGE), image_part
+
+    def _inline_svg_picture_run_xml(self, story_part, svg_bytes, width, height, depth=None):
+        width = max(Dimen(width), Dimen(1))
+        height = max(Dimen(height), Dimen(1))
+        rId, image_part = self._get_or_add_svg_image_part(story_part, svg_bytes)
+        drawing_id, _textbox_id = self._next_docx_drawing_ids()
+        width_emu = max(1, self._emu(width))
+        height_emu = max(1, self._emu(height))
+        filename = escape(getattr(image_part, "filename", f"image{drawing_id}.svg"), {'"': "&quot;"})
+        position = -int(round(self._pt(depth) * 2.0)) if depth else None
+        return parse_xml(
+            (
+                "<w:r "
+                "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
+                "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" "
+                "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" "
+                "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" "
+                "xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">"
+                f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
+                "<w:drawing>"
+                "<wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">"
+                f"<wp:extent cx=\"{width_emu}\" cy=\"{height_emu}\"/>"
+                "<wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>"
+                f"<wp:docPr id=\"{drawing_id}\" name=\"Picture {drawing_id}\"/>"
+                "<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"/></wp:cNvGraphicFramePr>"
+                "<a:graphic>"
+                "<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">"
+                "<pic:pic>"
+                "<pic:nvPicPr>"
+                f"<pic:cNvPr id=\"{drawing_id}\" name=\"{filename}\"/>"
+                "<pic:cNvPicPr><a:picLocks noChangeAspect=\"1\" noChangeArrowheads=\"1\"/></pic:cNvPicPr>"
+                "</pic:nvPicPr>"
+                "<pic:blipFill>"
+                "<a:blip>"
+                "<a:extLst>"
+                "<a:ext uri=\"{96DAC541-7B7A-43D3-8B79-37D633B846F1}\">"
+                f"<asvg:svgBlip xmlns:asvg=\"http://schemas.microsoft.com/office/drawing/2016/SVG/main\" r:embed=\"{rId}\"/>"
+                "</a:ext>"
+                "<a:ext uri=\"{28A0092B-C50C-407E-A947-70E740481C1C}\">"
+                "<a14:useLocalDpi xmlns:a14=\"http://schemas.microsoft.com/office/drawing/2010/main\" val=\"0\"/>"
+                "</a:ext>"
+                "</a:extLst>"
+                "</a:blip>"
+                "<a:stretch><a:fillRect/></a:stretch>"
+                "</pic:blipFill>"
+                "<pic:spPr>"
+                f"<a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{width_emu}\" cy=\"{height_emu}\"/></a:xfrm>"
+                "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>"
+                "<a:noFill/>"
+                "</pic:spPr>"
+                "</pic:pic>"
+                "</a:graphicData>"
+                "</a:graphic>"
+                "</wp:inline>"
+                "</w:drawing>"
+                "</w:r>"
+            )
         )
 
     def _resolve_docx_math_font(self):
@@ -2421,27 +2696,18 @@ class DocxBackend(Shipout):
         )
         return f"<w:txbxContent>{body}</w:txbxContent>"
 
-    def _display_math_run_xml(self, fields, box, line_depth=None, total_height=None):
-        width = max(self._pt(self._textbox_box_width(box)), 1.0)
+    def _display_math_run_xml(self, story_part, box, line_depth=None, total_height=None):
         effective_depth = Dimen(getattr(box, "depth", 0))
         if line_depth is not None and line_depth > effective_depth:
             effective_depth = Dimen(line_depth)
         total_height = Dimen(total_height) if total_height is not None else Dimen(getattr(box, "height", 0)) + effective_depth
-        height = max(self._pt(total_height), 1.0)
-        position = -int(round(self._pt(effective_depth) * 2.0)) if effective_depth else None
-        content = self._display_math_content_xml(fields, box, line_depth=effective_depth, total_height=total_height)
-        return parse_xml(
-            (
-                "<w:r "
-                "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
-                "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" "
-                "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" "
-                "xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\" "
-                "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
-                f"{self._raw_run_properties_xml(no_proof=True, position_half_points=position)}"
-                f"{self._drawingml_textbox_xml(content, width, height, anchor='top')}"
-                "</w:r>"
-            )
+        svg_bytes = self._svg_bytes_for_box(box, total_height=total_height)
+        return self._inline_svg_picture_run_xml(
+            story_part,
+            svg_bytes,
+            self._svg_box_width(box),
+            total_height,
+            depth=effective_depth,
         )
 
     def _display_spacer_run_xml(self, width):
@@ -3032,13 +3298,11 @@ class DocxBackend(Shipout):
             return runs
         box = self._inline_math_box(nodes, line_box=line_box)
         font = spacing_font or self._first_font(box)
-        fields = self._fragment_math_fields(nodes, box)
         runs = []
         self._append_explicit_spacing_run(runs, leading_kern, font)
         runs.append(
             _InlineMathRun(
                 box=box,
-                fields=fields,
                 line_depth=line_depth,
             )
         )
@@ -3473,6 +3737,8 @@ class DocxBackend(Shipout):
         if isinstance(chunk, _InlineMathRun):
             text = self._xml_safe_text("".join(self._flatten_math_text(field) for field in chunk.fields))
             if not text:
+                text = self._xml_safe_text(self._flatten_box_text(chunk.box))
+            if not text:
                 return ""
             run_font = self._first_font(chunk.box) or default_font
             target_width = Dimen(getattr(chunk.box, "width", 0))
@@ -3600,12 +3866,20 @@ class DocxBackend(Shipout):
         )
         return f"<w:txbxContent><w:p>{ppr}{run}</w:p></w:txbxContent>"
 
-    def _inline_math_run_xml(self, math_run):
-        return self._inline_textbox_run_xml(
-            self._inline_math_content_xml(math_run),
-            math_run.box,
-            line_depth=getattr(math_run, "line_depth", 0),
-            anchor="bottom",
+    def _inline_math_run_xml(self, story_part, math_run):
+        box = math_run.box
+        effective_depth = max(
+            Dimen(getattr(box, "depth", 0)),
+            Dimen(getattr(math_run, "line_depth", 0)),
+        )
+        total_height = Dimen(getattr(box, "height", 0)) + effective_depth
+        svg_bytes = self._svg_bytes_for_box(box, total_height=total_height)
+        return self._inline_svg_picture_run_xml(
+            story_part,
+            svg_bytes,
+            self._svg_box_width(box),
+            total_height,
+            depth=effective_depth,
         )
 
     def _append_run_chunks(self, para, chunks):
@@ -3616,7 +3890,7 @@ class DocxBackend(Shipout):
                     para._p.append(run_xml)
                 continue
             if isinstance(chunk, _InlineMathRun):
-                para._p.append(self._inline_math_run_xml(chunk))
+                para._p.append(self._inline_math_run_xml(para.part, chunk))
                 continue
             text = self._xml_safe_text(chunk.text)
             if not text:
@@ -3744,7 +4018,7 @@ class DocxBackend(Shipout):
                 run_xml = self._display_tab_run_xml()
             else:
                 run_xml = self._display_math_run_xml(
-                    fields,
+                    para.part,
                     box,
                     line_depth=line_depth,
                     total_height=math_total_height if kind == "math" else None,
@@ -4230,6 +4504,8 @@ class DocxBackend(Shipout):
 
     @staticmethod
     def _alignment_box_shift(spec):
+        if getattr(spec, "display", False):
+            return Dimen()
         return Dimen(getattr(getattr(spec, "box", None), "shifted", 0))
 
     def _populate_table_cell(self, cell, box, line_measure=None):

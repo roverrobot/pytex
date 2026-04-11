@@ -141,6 +141,35 @@ def _paragraph_texts(document):
     return [p.text.replace("\u00A0", " ") for p in document.paragraphs]
 
 
+def _zip_text(data, path):
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return zf.read(path).decode("utf-8")
+
+
+def _svg_media_parts(data):
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return {
+            name: zf.read(name).decode("utf-8")
+            for name in zf.namelist()
+            if name.startswith("word/media/") and name.endswith(".svg")
+        }
+
+
+def _svg_media_text(data):
+    return "\n".join(_svg_media_parts(data).values())
+
+
+def _assert_svg_blip_only(xml):
+    assert "<a:blip>" in xml
+    assert "<a:blip r:embed=" not in xml
+    assert "<a:extLst>" in xml
+    assert "<asvg:svgBlip" in xml
+
+
+def _svg_xy_values(svg):
+    return [float(value) for value in re.findall(r'\b[xy]="([^"]+)"', svg)]
+
+
 def _math_symbol(ch, atom_type=mmode.ATOM_TYPE.ORD, fam=0):
     return mmode.MathSymbol((atom_type.value << 12) | (fam << 8) | ord(ch), -1)
 
@@ -243,7 +272,7 @@ def test_docx_backend_preserves_tex_line_breaks(parser):
     ]
 
 
-def test_docx_ignores_leading_empty_hbox_in_line_runs(parser):
+def test_docx_converts_leading_empty_hbox_to_spacing(parser):
     backend = docx.DocxBackend(parser)
     font = _FakeFont()
     lead = _FakeHBox([], None, width=12, height=0, depth=0, rightmost_value=12)
@@ -255,10 +284,12 @@ def test_docx_ignores_leading_empty_hbox_in_line_runs(parser):
         depth=2,
     )
 
-    runs = backend._runs_from_line_box(line, docx._InlineMathState())
+    runs = backend._leading_empty_box_to_spacing(
+        backend._runs_from_line_box(line, docx._InlineMathState())
+    )
     text = "".join(getattr(run, "text", "") for run in runs)
 
-    assert text == "A B"
+    assert text.replace("\u00A0", " ") == " AB"
 
 
 def test_docx_unwraps_passthrough_hlist_for_text_runs(parser):
@@ -656,7 +687,7 @@ def test_docx_does_not_double_apply_first_line_indent_when_line_starts_with_inde
     assert "<w:t>Text</w:t>" in xml
 
 
-def test_docx_inline_math_uses_inline_textbox(parser):
+def test_docx_inline_math_uses_svg_picture(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -702,23 +733,25 @@ def test_docx_inline_math_uses_inline_textbox(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
+    xml = _zip_text(data, "word/document.xml")
+    rels = _zip_text(data, "word/_rels/document.xml.rels")
+    media = _svg_media_parts(data)
     assert "<w:fitText" not in xml
-    assert f'cx="{backend._emu_points(21.9178)}"' in xml
-    assert f'cy="{backend._emu_points(7.7210)}"' in xml
+    assert f'cx="{backend._emu(Dimen(22))}"' in xml
+    assert f'cy="{backend._emu(Dimen(8))}"' in xml
     assert "<w:drawing>" in xml
     assert "<wp:inline" in xml
-    assert "<wps:wsp>" in xml
-    assert "<m:oMath>" in xml
-    assert "<m:t>x</m:t>" in xml
-    assert "<m:t>+</m:t>" in xml
-    assert "<m:t>y</m:t>" in xml
+    assert "<pic:pic>" in xml
+    _assert_svg_blip_only(xml)
+    assert "<m:oMath>" not in xml
+    assert "image/svg+xml" in _zip_text(data, "[Content_Types].xml")
+    assert 'Target="media/image1.svg"' in rels
+    assert len(media) == 1
+    assert "<svg" in next(iter(media.values()))
     assert xml.count('w:spacing w:val="-40"') >= 2
-    assert "<w:fitText" not in xml
 
 
-def test_docx_inline_integral_stays_non_nary_without_display_style(parser):
+def test_docx_inline_integral_uses_svg_picture(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -759,14 +792,15 @@ def test_docx_inline_integral_stays_non_nary_without_display_style(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<m:oMath>" in xml
-    assert "<m:nary>" not in xml
-    assert "<m:sSubSup>" in xml
+    xml = _zip_text(data, "word/document.xml")
+    media = _svg_media_parts(data)
+    assert "<pic:pic>" in xml
+    assert "<asvg:svgBlip" in xml
+    assert "<m:oMath>" not in xml
+    assert len(media) == 1
 
 
-def test_docx_inline_math_ignores_internal_tex_spacing_in_omml(parser):
+def test_docx_inline_math_uses_box_width_instead_of_omml_spacing(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -807,10 +841,9 @@ def test_docx_inline_math_ignores_internal_tex_spacing_in_omml(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<m:t>x</m:t>" in xml
-    assert "<m:t>y</m:t>" in xml
+    xml = _zip_text(data, "word/document.xml")
+    assert f'cx="{backend._emu(Dimen(18))}"' in xml
+    assert "<asvg:svgBlip" in xml
     assert not any(space_char in xml for space_char in ("\u2009", "\u205F", "\u200A", "\u2005", "\u2004"))
 
 
@@ -877,12 +910,16 @@ def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<m:oMath>" in xml
-    assert "<m:t>x</m:t>" in xml
-    assert "<m:t>+</m:t>" in xml
-    assert "<m:t>y</m:t>" in xml
+    xml = _zip_text(data, "word/document.xml")
+    svg = _svg_media_text(data)
+    assert "<pic:pic>" in xml
+    assert "<m:oMath>" not in xml
+    assert ">x</text>" in svg
+    assert ">+</text>" in svg
+    assert ">y</text>" in svg
+    coords = _svg_xy_values(svg)
+    assert coords
+    assert max(coords) < 20
 
 
 def test_docx_inline_math_keeps_line_fragments_separate(parser):
@@ -927,15 +964,13 @@ def test_docx_inline_math_keeps_line_fragments_separate(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert f'cx="{backend._emu_points(13.9477)}"' in xml
-    assert f'cx="{backend._emu_points(7.9701)}"' in xml
-    assert f'cy="{backend._emu_points(7.7210)}"' in xml
-    assert xml.count("<m:oMath>") == 2
-    assert "<m:t>x</m:t>" in xml
-    assert "<m:t>+</m:t>" in xml
-    assert "<m:t>y</m:t>" in xml
+    xml = _zip_text(data, "word/document.xml")
+    assert f'cx="{backend._emu(Dimen(14))}"' in xml
+    assert f'cx="{backend._emu(Dimen(8))}"' in xml
+    assert f'cy="{backend._emu(Dimen(8))}"' in xml
+    assert xml.count("<asvg:svgBlip") == 2
+    assert xml.count("<pic:pic>") >= 2
+    assert "<m:oMath>" not in xml
     assert xml.count('xml:space="preserve"> </w:t>') >= 1
     assert 'xml:space="preserve">\u00A0</w:t>' not in xml
     assert 'xml:space="preserve"> </w:t>' not in xml
@@ -986,9 +1021,9 @@ def test_docx_spaces_after_inline_math_remain_breakable(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<m:oMath>" in xml
+    xml = _zip_text(data, "word/document.xml")
+    assert "<asvg:svgBlip" in xml
+    assert "<m:oMath>" not in xml
     assert "<w:t>.</w:t>" in xml
     assert "<w:t>Next</w:t>" in xml
     assert 'xml:space="preserve"> </w:t>' in xml
@@ -1035,9 +1070,10 @@ def test_docx_inline_math_ignores_penalty_owned_atom_duplicates(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert xml.count("<m:t>=</m:t>") == 1
+    xml = _zip_text(data, "word/document.xml")
+    svg = _svg_media_text(data)
+    assert "<asvg:svgBlip" in xml
+    assert svg.count(">=</text>") == 1
 
 
 def test_docx_sets_default_math_font_in_settings(parser, monkeypatch):
@@ -1079,12 +1115,9 @@ def test_docx_math_operator_text_uses_normal_style(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<m:nor/>" in xml
-    assert "<m:t>s</m:t>" in xml
-    assert "<m:t>i</m:t>" in xml
-    assert "<m:t>n</m:t>" in xml
+    xml = _zip_text(data, "word/document.xml")
+    assert "<asvg:svgBlip" in xml
+    assert "<m:oMath>" not in xml
 
 
 def test_docx_backend_emits_text_kerns_as_spacing_hints(parser):
@@ -1158,7 +1191,7 @@ def test_docx_backend_handles_horizontally_shifted_nested_vlists(parser):
     assert _paragraph_texts(document) == ["Shifted text"]
 
 
-def test_docx_backend_emits_display_math_textbox(parser):
+def test_docx_backend_emits_display_math_svg_picture(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -1184,26 +1217,22 @@ def test_docx_backend_emits_display_math_textbox(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "m:oMathPara" in xml
+    xml = _zip_text(data, "word/document.xml")
+    rels = _zip_text(data, "word/_rels/document.xml.rels")
+    assert "m:oMathPara" not in xml
     assert "<w:drawing>" in xml
     assert "<wp:inline" in xml
-    assert "<wps:wsp>" in xml
-    assert 'anchor="t"' in xml
-    assert re.search(r'cx="50610[23]"', xml)
-    assert f'cy="{backend._emu_points(11.9552)}"' in xml
-    assert re.search(r'cx="18978[89]"', xml)
-    assert '<w:spacing w:before="0" w:after="0"/>' in xml
+    assert "<pic:pic>" in xml
+    _assert_svg_blip_only(xml)
+    assert f'cx="{backend._emu(Dimen(40))}"' in xml
+    assert f'cy="{backend._emu(Dimen(12))}"' in xml
+    assert 'Target="media/image1.svg"' in rels
     assert 'w:lineRule="exact" w:line="239"' in xml
     assert '<w:position w:val="-6"/>' in xml
-    assert "<m:t>a</m:t>" in xml
-    assert "<m:t>+</m:t>" in xml
-    assert "<m:t>b</m:t>" in xml
     assert 'w:left="300"' not in xml
 
 
-def test_docx_display_integral_uses_nary_operator_markup(parser):
+def test_docx_display_integral_uses_svg_picture(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -1224,14 +1253,9 @@ def test_docx_display_integral_uses_nary_operator_markup(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<m:nary>" in xml
-    assert "<m:chr" in xml
-    assert '<m:limLoc m:val="undOvr"/>' in xml
-    assert "<m:t>x</m:t>" in xml
-    assert "&#160;" in xml or "\u00a0" in xml
-    assert "<m:sSubSup>" not in xml
+    xml = _zip_text(data, "word/document.xml")
+    assert "<asvg:svgBlip" in xml
+    assert "<m:oMath>" not in xml
 
 
 def test_docx_section_uses_pdf_page_size_and_tex_origin(parser):
@@ -1468,9 +1492,9 @@ def test_docx_display_math_does_not_use_token_stringification(parser, monkeypatc
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "m:oMathPara" in xml
+    xml = _zip_text(data, "word/document.xml")
+    assert "<asvg:svgBlip" in xml
+    assert "m:oMathPara" not in xml
 
 
 def test_docx_display_math_ignores_generic_payload_fields(parser):
@@ -1493,13 +1517,16 @@ def test_docx_display_math_ignores_generic_payload_fields(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "m:oMathPara" in xml
-    assert "<m:t>a</m:t>" in xml
+    xml = _zip_text(data, "word/document.xml")
+    svg = _svg_media_text(data)
+    assert "<asvg:svgBlip" in xml
+    assert "m:oMathPara" not in xml
     assert "from-list" not in xml
     assert "from-raw" not in xml
     assert "from-text" not in xml
+    assert "from-list" not in svg
+    assert "from-raw" not in svg
+    assert "from-text" not in svg
 
 
 def test_docx_display_math_emits_eqno_as_separate_box(parser):
@@ -1527,15 +1554,15 @@ def test_docx_display_math_emits_eqno_as_separate_box(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'style="width:39.8506pt;height:21.9178pt"' in xml
-    assert 'style="width:14.9440pt;height:16.9365pt"' in xml
-    assert xml.count("<m:oMathPara>") == 2
+    xml = _zip_text(data, "word/document.xml")
+    assert f'cx="{backend._emu(Dimen(40))}"' in xml
+    assert f'cy="{backend._emu(Dimen(22))}"' in xml
+    assert f'cx="{backend._emu(Dimen(15))}"' in xml
+    assert f'cy="{backend._emu(Dimen(17))}"' in xml
+    assert xml.count("<asvg:svgBlip") == 2
     assert '<w:tab/>' in xml
     assert 'w:val="right"' in xml
     assert 'w:pos="2291"' in xml
-    assert "<m:t>1</m:t>" in xml
 
 
 def test_docx_display_math_uses_top_level_display_box_height(parser):
@@ -1553,46 +1580,20 @@ def test_docx_display_math_uses_top_level_display_box_height(parser):
     backend.shipout(page)
 
     data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'style="width:39.8506pt;height:23.9103pt"' in xml
+    xml = _zip_text(data, "word/document.xml")
+    assert f'cx="{backend._emu(Dimen(40))}"' in xml
+    assert f'cy="{backend._emu(Dimen(24))}"' in xml
 
 
 def test_docx_maps_math_operator_period_slot_to_period(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
     atom = mmode.Atom(mmode.ATOM_TYPE.PUNCT)
     atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.PUNCT.value << 12) | (0 << 8) | 0x3A, -1)
-    display = _display_math_owner(atom)
-
-    box = _FakeHBox([], display, width=10, height=9, depth=3)
-    box.display = True
-    page = _page_box(parser, [box])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<m:t>.</m:t>" in xml
-    assert "<m:t>:</m:t>" not in xml
+    backend = docx.DocxBackend(parser)
+    assert backend._math_symbol_text(atom.nucleus) == "."
 
 
 def test_docx_maps_math_letter_period_slot_to_period(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
     atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | 0x3A, -1)
-    display = _display_math_owner(atom)
-
-    box = _FakeHBox([], display, width=10, height=9, depth=3)
-    box.display = True
-    page = _page_box(parser, [box])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<m:t>.</m:t>" in xml
-    assert "<m:t>:</m:t>" not in xml
+    backend = docx.DocxBackend(parser)
+    assert backend._math_symbol_text(atom.nucleus) == "."

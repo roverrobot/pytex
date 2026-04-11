@@ -1,3 +1,4 @@
+import os
 import io
 import re
 import zipfile
@@ -13,6 +14,7 @@ from pytex import box as bx
 from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
+from pytex import opentype
 from pytex import paragraph as pg
 from pytex.dimen import Dimen
 from pytex.font_backend import GlyphInfo
@@ -920,6 +922,37 @@ def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):
     coords = _svg_xy_values(svg)
     assert coords
     assert max(coords) < 20
+
+
+def test_docx_svg_uses_opentype_glyph_paths_for_math_chars(parser):
+    if not os.path.exists(docx._LOCAL_STIX_TTF):
+        pytest.skip("bundled STIX math font not available")
+
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    ot_backend = opentype.OpenTypeBackend(
+        docx._LOCAL_STIX_TTF,
+        opentype.OpenTypeBackend._loadPath(docx._LOCAL_STIX_TTF),
+        path=docx._LOCAL_STIX_TTF,
+    )
+    font = txfont.Font(ot_backend, Dimen(10))
+    nodes = [font["∫"], font["d"], font["t"]]
+    # Exercise glyph-name recovery through the backend rather than relying on
+    # the cached glyph_name field already being present on the node.
+    nodes[1].char_info.glyph_name = None
+    nodes[2].char_info.glyph_name = None
+    box = _FakeHBox(
+        nodes,
+        None,
+        width=sum((node.width for node in nodes), Dimen()),
+        height=max(node.height for node in nodes),
+        depth=max(node.depth for node in nodes),
+    )
+
+    svg = backend._svg_bytes_for_box(box).decode("utf-8")
+
+    assert "<path " in svg
+    assert "<text " not in svg
 
 
 def test_docx_inline_math_keeps_line_fragments_separate(parser):

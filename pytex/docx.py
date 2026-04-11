@@ -902,14 +902,29 @@ class DocxBackend(Shipout):
         return max(self._textbox_box_width(box), Dimen())
 
     def _glyph_svg_path(self, node):
-        char_info = getattr(node, "char_info", None)
-        glyph_name = getattr(char_info, "glyph_name", None)
-        if glyph_name is None:
-            return None
         font = getattr(node, "font", None)
         backend = getattr(font, "backend", None)
         glyph_set = getattr(backend, "_glyph_set", None)
         if glyph_set is None:
+            return None
+        char_info = getattr(node, "char_info", None)
+        glyph_name = getattr(char_info, "glyph_name", None)
+        if glyph_name is None:
+            resolver = getattr(backend, "_glyphName", None)
+            if callable(resolver):
+                try:
+                    glyph_name = resolver(getattr(node, "char", ""))
+                except Exception:
+                    glyph_name = None
+        if glyph_name is None:
+            glyph_id = getattr(char_info, "glyph_id", None)
+            font_obj = getattr(backend, "font", None)
+            if glyph_id is not None and font_obj is not None:
+                try:
+                    glyph_name = font_obj.getGlyphName(glyph_id)
+                except Exception:
+                    glyph_name = None
+        if glyph_name is None:
             return None
         glyph = glyph_set.get(glyph_name)
         if glyph is None:

@@ -196,6 +196,20 @@ def test_docx_extension_math_font_wrapper_uses_extension_params(parser, monkeypa
     assert len(wrapped.param) == 13
 
 
+def test_docx_math_font_wrapper_covers_math_italic_family(parser, monkeypatch):
+    monkeypatch.setattr(docx, "_resolve_parser_docx_math_backend", lambda _parser: _FakeMathBackend())
+    parser.textfont[1] = _FakeFont(name="cmmi10", size=10)
+
+    wrapped = parser.textfont[1]
+    assert isinstance(wrapped, docx._DocxMathFont)
+    assert wrapped.family == 1
+    assert len(wrapped.param) == 7
+
+    node = wrapped["N"]
+    assert node.char == "N"
+    assert node.char_info.char == "N"
+
+
 
 def test_docx_backend_preserves_tex_line_breaks(parser):
     backend = docx.DocxBackend(parser)

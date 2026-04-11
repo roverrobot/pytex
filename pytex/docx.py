@@ -290,7 +290,7 @@ class _DocxMathFontArray(txfont.MathFontArray):
         return backend
 
     def _wrapMathFont(self, index, value):
-        if index not in (2, 3):
+        if index not in (0, 1, 2, 3):
             return value
         if not isinstance(value, txfont.Font) or isinstance(value, txfont.NullFont):
             return value
@@ -310,8 +310,9 @@ class _DocxMathFontArray(txfont.MathFontArray):
 
 
 class _DocxSubstituteFontBackend:
-    def __init__(self, backend, style_source_name=None):
+    def __init__(self, backend, style_source_name=None, requested_backend=None):
         self._backend = backend
+        self._requested_backend = requested_backend
         self.docx_style_source_name = style_source_name
         self.docx_font_name = getattr(backend, "name", None)
         self.kind = getattr(backend, "kind", None)
@@ -322,15 +323,18 @@ class _DocxSubstituteFontBackend:
 
     @property
     def dvi_name(self):
-        return getattr(self._backend, "dvi_name", None)
+        requested = getattr(self._requested_backend, "dvi_name", None)
+        return requested if requested is not None else getattr(self._backend, "dvi_name", None)
 
     @property
     def design_size(self):
-        return getattr(self._backend, "design_size", None)
+        requested = getattr(self._requested_backend, "design_size", None)
+        return requested if requested is not None else getattr(self._backend, "design_size", None)
 
     @property
     def checksum(self):
-        return getattr(self._backend, "checksum", 0)
+        requested = getattr(self._requested_backend, "checksum", None)
+        return requested if requested is not None else getattr(self._backend, "checksum", 0)
 
     @property
     def fontdimen(self):
@@ -399,13 +403,14 @@ def _docx_substitute_backend(parser, requested_name, kind, backend):
     wrapped = _docx_wrapped_default_backend(
         parser,
         getattr(backend, "name", None) or requested_name,
+        requested_backend=backend,
     )
     if wrapped is None:
         return backend
     return wrapped
 
 
-def _docx_wrapped_default_backend(parser, style_source_name):
+def _docx_wrapped_default_backend(parser, style_source_name, requested_backend=None):
     fallback = _resolve_docx_text_backend(parser)
     if fallback is None:
         return None
@@ -414,10 +419,19 @@ def _docx_wrapped_default_backend(parser, style_source_name):
         cache = {}
         parser._docx_backend_substitution_cache = cache
     style_source = style_source_name or getattr(fallback, "name", None)
-    key = (id(fallback), style_source)
+    key = (
+        id(fallback),
+        style_source,
+        getattr(requested_backend, "design_size", None),
+        getattr(requested_backend, "checksum", None),
+    )
     wrapped = cache.get(key)
     if wrapped is None:
-        wrapped = _DocxSubstituteFontBackend(fallback, style_source_name=style_source)
+        wrapped = _DocxSubstituteFontBackend(
+            fallback,
+            style_source_name=style_source,
+            requested_backend=requested_backend,
+        )
         cache[key] = wrapped
     return wrapped
 
@@ -437,18 +451,15 @@ def _install_docx_font_substitution(parser):
             return self._docx_original_loadFontBackend(name, kind=kind)
 
         if kind == "tfm" or ext == ".tfm":
-            wrapped = _docx_wrapped_default_backend(self, name)
-            if wrapped is not None:
-                return wrapped
-            return self._docx_original_loadFontBackend(name, kind=kind)
+            backend = self._docx_original_loadFontBackend(name, kind=kind)
+            return _docx_substitute_backend(self, name, kind, backend)
 
         if kind is None and not ext:
             try:
                 return self._docx_original_loadFontBackend(name, kind="opentype")
             except Exception:
-                wrapped = _docx_wrapped_default_backend(self, name)
-                if wrapped is not None:
-                    return wrapped
+                backend = self._docx_original_loadFontBackend(name, kind=kind)
+                return _docx_substitute_backend(self, name, kind, backend)
 
         backend = self._docx_original_loadFontBackend(name, kind=kind)
         return _docx_substitute_backend(self, name, kind, backend)

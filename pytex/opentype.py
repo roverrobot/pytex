@@ -261,15 +261,16 @@ class OpenTypeBackend(FontBackend):
         self._synthetic_glyphs[char] = glyph_name
         return char
 
-    def _variantAssembly(self, construction):
+    def _variantAssembly(self, construction, *, vertical=True):
         assembly = getattr(construction, "GlyphAssembly", None)
         if assembly is None:
             return None
         parts = []
-        top = None
-        middle = None
-        bottom = None
-        repeat = None
+        top = 0
+        middle = 0
+        bottom = 0
+        repeat = 0
+        non_ext = []
         records = list(getattr(assembly, "PartRecords", ()) or ())
         for index, part in enumerate(records):
             glyph_char = self._charForGlyphName(part.glyph)
@@ -287,12 +288,20 @@ class OpenTypeBackend(FontBackend):
             if extender:
                 repeat = codepoint
                 continue
-            if top is None:
-                top = codepoint
-            elif middle is None and index != len(records) - 1:
-                middle = codepoint
-            else:
-                bottom = codepoint
+            non_ext.append(codepoint)
+        if vertical:
+            parts = list(reversed(parts))
+            if len(non_ext) >= 1:
+                bottom = non_ext[0]
+                top = non_ext[-1]
+            if len(non_ext) >= 3:
+                middle = non_ext[1]
+        else:
+            if len(non_ext) >= 1:
+                top = non_ext[0]
+                bottom = non_ext[-1]
+            if len(non_ext) >= 3:
+                middle = non_ext[1]
         return GlyphAssembly(
             parts=parts,
             top=top,
@@ -324,7 +333,7 @@ class OpenTypeBackend(FontBackend):
             for index, _base_glyph in enumerate(glyphs):
                 construction = constructions[index]
                 records = list(getattr(construction, "MathGlyphVariantRecord", ()) or ())
-                assembly = self._variantAssembly(construction)
+                assembly = self._variantAssembly(construction, vertical=vertical)
                 for rec_index, record in enumerate(records):
                     glyph_name = record.VariantGlyph
                     entry = info.setdefault(glyph_name, {"next_larger": None, "assembly": None})

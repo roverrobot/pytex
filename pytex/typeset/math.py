@@ -84,7 +84,7 @@ class _AtomWrapper:
         return getattr(self._atom, name)
 
 
-class _AtomSourceWrapper:
+class _AtomSourceWrapper(nd.Box):
     """
     Lightweight source carrier for shared leaf nodes (e.g., cached CharNode).
 
@@ -93,8 +93,17 @@ class _AtomSourceWrapper:
     """
 
     def __init__(self, node, source):
+        super().__init__(
+            getattr(node, "width", None),
+            getattr(node, "height", None),
+            getattr(node, "depth", None),
+        )
         self._node = node
         self.source = source
+        self.node_type = getattr(node, "node_type", None)
+
+    def saveInfo(self):
+        return self._node.saveInfo()
 
     def __getattr__(self, name):
         return getattr(self._node, name)
@@ -383,7 +392,9 @@ class MathTypesetter:
         def piece(code):
             if code == 0:
                 return None
-            _, n = self._lookupDelimiterChar(chosen["font"], code)
+            _info, n = self._lookupDelimiterChar(chosen["font"], code)
+            if n is None:
+                return None
             b = box.HBox(self.parser, None, 0)
             b.list.append(n)
             return b.typeset(self.parser)

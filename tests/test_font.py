@@ -116,6 +116,12 @@ def test_opentype_math_variants_populate_next_larger_and_assembly(parser):
     assert info.assembly is not None
     assert info.assembly.top is not None
     assert info.assembly.repeat is not None
+    bracket = backend.glyphInfo("[")
+    assert bracket is not None and bracket.assembly is not None
+    assert chr(bracket.assembly.top) == "⎡"
+    assert chr(bracket.assembly.bottom) == "⎣"
+    assert chr(bracket.assembly.repeat) == "⎢"
+    assert [part.glyph for part in bracket.assembly.parts[:3]] == ["⎡", "⎢", "⎣"]
 
 
 def test_missing_character_is_logged_and_omitted(cmr10):

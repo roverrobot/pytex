@@ -843,7 +843,7 @@ class Op(Atom):
         return below
 
     def assemble(self, parser, context, style):
-        b = box.HBox(parser, 0, 0)
+        b = box.HBox(parser, None, 0)
         use_limits = self._rule13UseLimits(style)
         y, delta = self._rule13Nucleus(parser, context, style, use_limits)
         if use_limits:

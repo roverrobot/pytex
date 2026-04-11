@@ -9,6 +9,7 @@ from pytex import texlive
 from pytex import hmode
 from pytex import box
 from pytex.dimen import Dimen
+from pytex.font_backend import GlyphAssembly, GlyphInfo
 from pytex.typeset.math import _AtomWrapper
 
 
@@ -214,6 +215,10 @@ def test_inline_math_typeset_wraps_shared_chars_for_atom_sources(math):
     ]
     assert atom_chars
     assert all(not isinstance(n, nd.CharNode) for n in atom_chars)
+    assert all(isinstance(n, nd.Box) for n in atom_chars)
+    assert all(getattr(n, "width", None) == getattr(n._node, "width", None) for n in atom_chars)
+    assert all(getattr(n, "height", None) == getattr(n._node, "height", None) for n in atom_chars)
+    assert all(getattr(n, "depth", None) == getattr(n._node, "depth", None) for n in atom_chars)
 
 
 def test_inline_math_subscript_emits_single_atom_source(math):
@@ -1701,6 +1706,30 @@ def test_extensible_delimiter_uses_boxed_pieces(math):
     assert b.node_type == nd.NODE_TYPE.VLIST
     assert len(b.list) > 1
     assert all(n.node_type == nd.NODE_TYPE.HLIST for n in b.list)
+
+
+def test_extensible_delimiter_ignores_zero_assembly_parts(math):
+    font = math.textfont[0]
+    node = font["a"]
+    chosen = {
+        "font": font,
+        "node": node,
+        "info": GlyphInfo(
+            char="a",
+            width=node.char_info.width,
+            height=node.char_info.height,
+            depth=node.char_info.depth,
+            italic=node.char_info.italic,
+            assembly=GlyphAssembly(
+                top=0,
+                middle=0,
+                bottom=0,
+                repeat=ord("a"),
+            ),
+        ),
+    }
+    out = math.math_typesetter._buildExtensibleDelimiter(chosen, Dimen(50))
+    assert out.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
 
 
 def test_rule19_uses_live_delimiter_parameters(math):

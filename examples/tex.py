@@ -17,7 +17,6 @@ import os
 import types
 
 backends = ["dvi", "pdf"]
-html_reflow_backend = None
 
 argparser = ArgumentParser()
 argparser.add_argument("-f", "--format", default="initex",
@@ -58,20 +57,14 @@ if args.format != "initex":
     if args.output == "dvi":
         import pytex.dvi
     elif args.output == "pdf":
-        from pytex import docx
         import pytex.pdf
     elif args.output == "html-reflow":
-        from pytex import html_reflow as html_reflow_backend
+        from pytex import html_reflow
     elif args.output == "docx":
         from pytex import docx
 
 parser = Parser(project_dir=args.project_dir)
-if html_reflow_backend is not None:
-    parser.shipout = html_reflow_backend.HTMLReflowBackend(parser)
 parser.resolver.format = args.format
-if docx is not None:
-    docx._install_docx_font_substitution(parser)
-    docx._install_docx_math_font_arrays(parser)
 
 # tracing settings
 #parser.tracingcommands = 2
@@ -106,6 +99,10 @@ else:
     if args.output == "svg":
         from pytex import svg
         parser.shipout = svg.SVGShipoutBackend(parser, file)
+    elif args.output == "pdf":
+        from pytex import font_subst
+        font_subst.installFontSubstitution(parser)
+        font_subst.installMathFontArrays(parser)
     parser.resolver.format = args.format
     fmt = parser.resolver.openIn(args.format, "dump")
     if fmt is None:

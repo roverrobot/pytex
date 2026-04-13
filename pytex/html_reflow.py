@@ -15,6 +15,7 @@ from pytex.dimen import Dimen
 from pytex.html_builder import element, render
 from pytex.module import Module
 from pytex.typeset.shipout import Shipout
+from pytex import font_subst
 
 
 _SPACE_RE = re.compile(r"\s+")
@@ -34,168 +35,6 @@ _DEFAULT_FONT_ROLE = {
     "variant": "normal",
 }
 
-_MATH_OPERATORS_MAP = {
-    0x00: "Γ",
-    0x01: "Δ",
-    0x02: "Θ",
-    0x03: "Λ",
-    0x04: "Ξ",
-    0x05: "Π",
-    0x06: "Σ",
-    0x07: "Υ",
-    0x08: "Φ",
-    0x09: "Ψ",
-    0x0A: "Ω",
-}
-
-_MATH_LETTERS_MAP = {
-    0x0B: "α",
-    0x0C: "β",
-    0x0D: "γ",
-    0x0E: "δ",
-    0x0F: "ε",
-    0x10: "ζ",
-    0x11: "η",
-    0x12: "θ",
-    0x13: "ι",
-    0x14: "κ",
-    0x15: "λ",
-    0x16: "μ",
-    0x17: "ν",
-    0x18: "ξ",
-    0x19: "π",
-    0x1A: "ρ",
-    0x1B: "σ",
-    0x1C: "τ",
-    0x1D: "υ",
-    0x1E: "φ",
-    0x1F: "χ",
-    0x20: "ψ",
-    0x21: "ω",
-    0x22: "ε",
-    0x23: "ϑ",
-    0x24: "ϖ",
-    0x25: "ϱ",
-    0x26: "ς",
-    0x27: "φ",
-    0x40: "∂",
-    0x60: "ℓ",
-    0x7B: "ı",
-    0x7C: "ȷ",
-    0x7D: "℘",
-}
-
-_MATH_SYMBOLS_MAP = {
-    0x00: "−",
-    0x01: "·",
-    0x02: "×",
-    0x03: "*",
-    0x04: "÷",
-    0x06: "±",
-    0x07: "∓",
-    0x08: "⊕",
-    0x09: "⊖",
-    0x0A: "⊗",
-    0x0B: "⊘",
-    0x0C: "⊙",
-    0x0D: "◯",
-    0x0E: "∘",
-    0x0F: "•",
-    0x10: "≍",
-    0x11: "≡",
-    0x12: "⊆",
-    0x13: "⊇",
-    0x14: "≤",
-    0x15: "≥",
-    0x18: "∼",
-    0x19: "≈",
-    0x1A: "⊂",
-    0x1B: "⊃",
-    0x1C: "≪",
-    0x1D: "≫",
-    0x1E: "≺",
-    0x1F: "≻",
-    0x20: "←",
-    0x21: "→",
-    0x22: "↑",
-    0x23: "↓",
-    0x24: "↔",
-    0x25: "↗",
-    0x26: "↘",
-    0x28: "⇐",
-    0x29: "⇒",
-    0x2A: "⇑",
-    0x2B: "⇓",
-    0x2C: "⇔",
-    0x2D: "↖",
-    0x2E: "↙",
-    0x2F: "∝",
-    0x30: "′",
-    0x31: "∞",
-    0x32: "∈",
-    0x33: "∋",
-    0x34: "△",
-    0x35: "▽",
-    0x38: "∀",
-    0x39: "∃",
-    0x3A: "¬",
-    0x3B: "∅",
-    0x3C: "ℜ",
-    0x3D: "ℑ",
-    0x3E: "⊤",
-    0x3F: "⊥",
-    0x40: "ℵ",
-    0x5B: "∪",
-    0x5C: "∩",
-    0x5D: "⊎",
-    0x5E: "∧",
-    0x5F: "∨",
-    0x60: "⊢",
-    0x61: "⊣",
-    0x62: "⌊",
-    0x63: "⌋",
-    0x64: "⌈",
-    0x65: "⌉",
-    0x66: "{",
-    0x67: "}",
-    0x68: "⟨",
-    0x69: "⟩",
-    0x6A: "|",
-    0x6B: "∥",
-    0x6E: "\\",
-    0x71: "∐",
-    0x72: "∇",
-    0x73: "∫",
-    0x74: "⊔",
-    0x75: "⊓",
-    0x76: "⊑",
-    0x77: "⊒",
-    0x78: "§",
-    0x79: "†",
-    0x7A: "‡",
-    0x7B: "¶",
-    0x7C: "♣",
-    0x7D: "♢",
-    0x7E: "♡",
-    0x7F: "♠",
-}
-
-_MATH_LARGE_SYMBOLS_MAP = {
-    0x46: "⨆",
-    0x48: "∮",
-    0x4A: "⨀",
-    0x4C: "⨁",
-    0x4E: "⨂",
-    0x50: "∑",
-    0x51: "∏",
-    0x52: "∫",
-    0x53: "⋃",
-    0x54: "⋂",
-    0x55: "⨄",
-    0x56: "⋀",
-    0x57: "⋁",
-    0x60: "∐",
-}
 
 _CSS_POINTS_PER_TEX_POINT_NUM = 7200
 _CSS_POINTS_PER_TEX_POINT_DEN = 7227
@@ -422,19 +261,19 @@ class HTMLReflowBackend(Shipout):
             return None
         code = ord(symbol.char)
         if symbol.fam == 0:
-            text = _MATH_OPERATORS_MAP.get(code)
+            text = font_subst.MATH_OPERATORS_MAP.get(code)
             if text is not None:
                 return text
         elif symbol.fam == 1:
-            text = _MATH_LETTERS_MAP.get(code)
+            text = font_subst.MATH_LETTERS_MAP.get(code)
             if text is not None:
                 return text
         elif symbol.fam == 2:
-            text = _MATH_SYMBOLS_MAP.get(code)
+            text = font_subst.MATH_SYMBOLS_MAP.get(code)
             if text is not None:
                 return text
         elif symbol.fam == 3:
-            text = _MATH_LARGE_SYMBOLS_MAP.get(code)
+            text = font_subst.MATH_LARGE_SYMBOLS_MAP.get(code)
             if text is not None:
                 return text
         if self._printable_char(symbol.char):
@@ -1450,7 +1289,14 @@ class HTMLReflowBackend(Shipout):
         self.file = None
 
 
+def init(parser):
+    font_subst.installFontSubstitution(parser)
+    font_subst.installMathFontArrays(parser)
+    parser.shipout = HTMLReflowBackend(parser)
+
+
 mod = Module(
     "html_reflow",
     attributes={},
+    init=init,
 )

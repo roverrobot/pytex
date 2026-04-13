@@ -30,6 +30,9 @@ from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.font_backend import GlyphInfo
 from pytex.module import Module
 from pytex.typeset.shipout import Shipout
+from pytex import font_subst
+
+import pytex.font_subst
 
 _ONE_INCH_PT = 72.0
 _ONE_INCH_TEX = Dimen(72.27)
@@ -40,491 +43,6 @@ _DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
 _DOCX_EMU_PER_TEX_POINT_NUM = 91440000
 _DOCX_EMU_PER_TEX_POINT_DEN = 7227
 _INLINE_TEXTBOX_PAD_PT = 0.75
-_DOCX_DEFAULT_TEXT_FONT = "Times New Roman"
-_DOCX_TEXT_FONT_CANDIDATES = (
-    _DOCX_DEFAULT_TEXT_FONT,
-    "Cambria",
-    "Calibri",
-)
-_LOCAL_STIX_TTF = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", ".cache", "fonts", "STIXTwoMath-input.ttf")
-)
-_DOCX_MATH_FONT_CANDIDATES = (
-    _LOCAL_STIX_TTF,
-    "Latin Modern Math",
-    "STIX Two Math",
-    "XITS Math",
-    "Libertinus Math",
-    "Cambria Math",
-)
-_MATH_FAMILY_TEXT_OVERRIDES = {
-    0: {
-        0x3A: ".",
-        0x3B: ",",
-    },
-    1: {
-        0x3A: ".",
-        0x3B: ",",
-    },
-}
-
-
-def _docx_usable_font_name(name):
-    if not name:
-        return False
-    if os.sep in name or "/" in name or "\\" in name:
-        return False
-    lowered = name.lower()
-    return not lowered.endswith((".ttf", ".otf", ".ttc", ".otc"))
-
-
-def _docx_font_backend_name(backend):
-    explicit = getattr(backend, "docx_font_name", None)
-    if explicit and _docx_usable_font_name(explicit):
-        return explicit
-    name = getattr(backend, "name", None)
-    if _docx_usable_font_name(name):
-        return name
-    font = getattr(backend, "font", None)
-    table = font.get("name") if font is not None else None
-    if table is not None:
-        for name_id in (16, 1, 4, 6):
-            for record in table.names:
-                if record.nameID != name_id:
-                    continue
-                try:
-                    text = record.toUnicode().strip()
-                except Exception:
-                    continue
-                if _docx_usable_font_name(text):
-                    return text
-    return None
-
-
-def _docx_math_slot_text(family, code):
-    override = _MATH_FAMILY_TEXT_OVERRIDES.get(family, {}).get(code)
-    if override is not None:
-        return override
-    if family == 0:
-        text = html_math._MATH_OPERATORS_MAP.get(code)
-        if text is not None:
-            return text
-    elif family == 1:
-        text = html_math._MATH_LETTERS_MAP.get(code)
-        if text is not None:
-            return text
-    elif family == 2:
-        text = html_math._MATH_SYMBOLS_MAP.get(code)
-        if text is not None:
-            return text
-    elif family == 3:
-        text = html_math._MATH_LARGE_SYMBOLS_MAP.get(code)
-        if text is not None:
-            return text
-        text = html_math._MATH_SYMBOLS_MAP.get(code)
-        if text is not None:
-            return text
-    if 0x20 <= code < 0x7F:
-        return chr(code)
-    return None
-
-
-def _resolve_parser_docx_math_backend(parser):
-    cached = getattr(parser, "_docx_math_backend", None)
-    if cached is not None:
-        if cached is not False:
-            display_name = _docx_font_backend_name(cached)
-            if display_name:
-                cached.docx_font_name = display_name
-        return cached
-    try:
-        from pytex import opentype  # noqa: F401
-    except Exception:
-        parser._docx_math_backend = False
-        return None
-    for name in _DOCX_MATH_FONT_CANDIDATES:
-        try:
-            backend = parser.loadFontBackend(name)
-        except Exception:
-            continue
-        if getattr(backend, "kind", None) != "opentype":
-            continue
-        if not getattr(backend, "hasMathTable", lambda: False)():
-            continue
-        display_name = _docx_font_backend_name(backend)
-        if display_name:
-            backend.docx_font_name = display_name
-        parser._docx_math_backend = backend
-        return backend
-    parser._docx_math_backend = False
-    return None
-
-
-def _docx_math_fontdimen(backend, family):
-    provider = getattr(backend, "docxMathFontdimen", None)
-    if callable(provider):
-        params = provider(family)
-        if params is not None:
-            return list(params)
-
-    base = list(getattr(backend, "fontdimen", ()) or ())
-    slant = base[0] if len(base) > 0 else 0.0
-    space = base[1] if len(base) > 1 else 0.0
-    stretch = base[2] if len(base) > 2 else 0.0
-    shrink = base[3] if len(base) > 3 else 0.0
-    x_height = base[4] if len(base) > 4 else 0.0
-    extra = base[6] if len(base) > 6 else shrink
-    quad = 1.0
-
-    def constant(name, default=0.0, scale=True):
-        getter = getattr(backend, "mathConstant", None)
-        if callable(getter):
-            return getter(name, default, scale=scale)
-        return default
-
-    if family == 2:
-        num_display = constant("FractionNumeratorDisplayStyleShiftUp")
-        num_text = constant("FractionNumeratorShiftUp", num_display)
-        denom_display = constant("FractionDenominatorDisplayStyleShiftDown")
-        denom_text = constant("FractionDenominatorShiftDown", denom_display)
-        sup_up = constant("SuperscriptShiftUp")
-        sup_up_cramped = constant("SuperscriptShiftUpCramped", sup_up)
-        sub_down = constant("SubscriptShiftDown")
-        return [
-            slant,
-            space,
-            stretch,
-            shrink,
-            x_height,
-            quad,
-            extra,
-            num_display,
-            num_text,
-            num_text,
-            denom_display,
-            denom_text,
-            sup_up,
-            sup_up,
-            sup_up_cramped,
-            sub_down,
-            sub_down,
-            constant("SuperscriptBaselineDropMax"),
-            constant("SubscriptBaselineDropMin"),
-            constant("DisplayOperatorMinHeight", constant("DelimitedSubFormulaMinHeight")),
-            constant("DelimitedSubFormulaMinHeight"),
-            constant("AxisHeight"),
-        ]
-
-    if family == 3:
-        return [
-            slant,
-            space,
-            stretch,
-            shrink,
-            x_height,
-            quad,
-            extra,
-            constant("FractionRuleThickness"),
-            constant("UpperLimitGapMin"),
-            constant("UpperLimitBaselineRiseMin"),
-            constant("LowerLimitGapMin"),
-            constant("LowerLimitBaselineDropMin"),
-            constant("SpaceAfterScript", constant("FractionRuleThickness")),
-        ]
-
-    return base
-
-
-class _DocxMathFont(txfont.Font):
-    def __init__(self, backend, at, family, template=None):
-        self.family = family
-        self._template = template
-        self.backend = backend
-        self.at = at if isinstance(at, Dimen) else Dimen(at)
-        raw_param = _docx_math_fontdimen(backend, family)
-        self.param = [0] * len(raw_param)
-        if self.param:
-            self.param[0] = Dimen(raw_param[0])
-            for i in range(1, len(raw_param)):
-                self.param[i] = raw_param[i] * self.at
-        self.charnode = {}
-        zero = Dimen()
-        space = self.param[1] if len(self.param) > 1 else zero
-        stretch = self.param[2] if len(self.param) > 2 else zero
-        shrink = self.param[3] if len(self.param) > 3 else zero
-        self.spaceglue = txfont.Glue(
-            space,
-            txfont.Stretchness(stretch, 0),
-            txfont.Stretchness(shrink, 0),
-        )
-        self.fontchar = {"skewchar": 0, "hyphenchar": 0}
-        if template is not None:
-            self.fontchar.update(getattr(template, "fontchar", {}))
-            if getattr(template, "name", None) is not None:
-                self.name = template.name
-
-    def _mapped_char(self, char):
-        if not isinstance(char, str) or len(char) != 1:
-            return None
-        return _docx_math_slot_text(self.family, ord(char))
-
-    def glyphInfo(self, char):
-        mapped = self._mapped_char(char)
-        if mapped is None:
-            return self.backend.glyphInfo(char)
-        return self.backend.glyphInfo(mapped)
-
-    def _charNode(self, char):
-        node = self.charnode.get(char)
-        if node is not None:
-            return node
-        mapped = self._mapped_char(char)
-        char_info = self.glyphInfo(char)
-        if char_info is None:
-            char_info = self.fallbackGlyphInfo(char)
-        if char_info is None:
-            return None
-        node = nd.CharNode(mapped if mapped is not None else char, self, char_info=char_info)
-        self.charnode[char] = node
-        return node
-
-    def glyphInfos(self):
-        seen = set()
-        for code in range(256):
-            mapped = _docx_math_slot_text(self.family, code)
-            if mapped is None or mapped in seen:
-                continue
-            seen.add(mapped)
-            info = self.backend.glyphInfo(mapped)
-            if info is not None:
-                yield info
-
-    def fallbackGlyphInfo(self, char):
-        mapped = self._mapped_char(char)
-        if mapped is None:
-            return self.backend.fallbackGlyphInfo(char)
-        return self.backend.fallbackGlyphInfo(mapped)
-
-    def hasCharCode(self, code: int):
-        try:
-            mapped = _docx_math_slot_text(self.family, code)
-        except ValueError:
-            return False
-        if mapped is None:
-            return False
-        return self.backend.hasChar(mapped)
-
-
-class _DocxMathFontArray(txfont.MathFontArray):
-    __slots__ = ("_backend",)
-
-    def __init__(self, name: str, state=None, default=None):
-        super().__init__(name, state=state, default=default)
-        self._backend = None
-
-    def _mathBackend(self):
-        if self._backend is False:
-            return None
-        if self._backend is not None:
-            return self._backend
-        parser = self.state
-        backend = _resolve_parser_docx_math_backend(parser) if parser is not None else None
-        self._backend = backend if backend is not None else False
-        return backend
-
-    def _wrapMathFont(self, index, value):
-        if index not in (0, 1, 2, 3):
-            return value
-        if not isinstance(value, txfont.Font) or isinstance(value, txfont.NullFont):
-            return value
-        if isinstance(value, _DocxMathFont) and value.family == index:
-            return value
-        backend = self._mathBackend()
-        if backend is None:
-            return value
-        wrapped = _DocxMathFont(backend, value.at, index, template=value)
-        return wrapped
-
-    def __setitem__(self, index, value):
-        super().__setitem__(index, self._wrapMathFont(index, value))
-
-    def setGlobal(self, index, value):
-        super().setGlobal(index, self._wrapMathFont(index, value))
-
-
-class _DocxSubstituteFontBackend:
-    def __init__(self, backend, style_source_name=None, requested_backend=None):
-        self._backend = backend
-        self._requested_backend = requested_backend
-        self.docx_style_source_name = style_source_name
-        self.docx_font_name = getattr(backend, "name", None)
-        self.kind = getattr(backend, "kind", None)
-
-    @property
-    def name(self):
-        return getattr(self._backend, "name", None)
-
-    @property
-    def dvi_name(self):
-        requested = getattr(self._requested_backend, "dvi_name", None)
-        return requested if requested is not None else getattr(self._backend, "dvi_name", None)
-
-    @property
-    def design_size(self):
-        requested = getattr(self._requested_backend, "design_size", None)
-        return requested if requested is not None else getattr(self._backend, "design_size", None)
-
-    @property
-    def checksum(self):
-        requested = getattr(self._requested_backend, "checksum", None)
-        return requested if requested is not None else getattr(self._backend, "checksum", 0)
-
-    @property
-    def fontdimen(self):
-        return getattr(self._backend, "fontdimen", ())
-
-    def glyphInfo(self, char):
-        return self._backend.glyphInfo(char)
-
-    def glyphInfos(self):
-        return self._backend.glyphInfos()
-
-    def fallbackGlyphInfo(self, char):
-        return self._backend.fallbackGlyphInfo(char)
-
-    def hasChar(self, char):
-        return self._backend.hasChar(char)
-
-    def leftBoundaryProgram(self):
-        return self._backend.leftBoundaryProgram()
-
-    def rightBoundaryChar(self):
-        return self._backend.rightBoundaryChar()
-
-    def __getattr__(self, name):
-        return getattr(self._backend, name)
-
-
-def _resolve_docx_text_backend(parser):
-    cached = getattr(parser, "_docx_text_backend", None)
-    if cached is not None:
-        return cached
-    original = getattr(parser, "_docx_original_loadFontBackend", None) or getattr(parser, "loadFontBackend", None)
-    if original is None:
-        parser._docx_text_backend = False
-        return None
-    for name in _DOCX_TEXT_FONT_CANDIDATES:
-        try:
-            backend = original(name, kind="opentype")
-        except Exception:
-            continue
-        if getattr(backend, "kind", None) != "opentype":
-            continue
-        parser._docx_text_backend = backend
-        return backend
-    parser._docx_text_backend = False
-    return None
-
-
-def _docx_should_substitute_backend(name, kind, backend):
-    if backend is None:
-        return False
-    if getattr(backend, "kind", None) == "opentype":
-        return False
-    if kind not in (None, "tfm"):
-        return False
-    backend_name = (getattr(backend, "name", "") or "").lower()
-    request_name = (name or "").lower()
-    if backend_name == "nullfont" or request_name == "nullfont":
-        return False
-    return True
-
-
-def _docx_substitute_backend(parser, requested_name, kind, backend):
-    if not _docx_should_substitute_backend(requested_name, kind, backend):
-        return backend
-    wrapped = _docx_wrapped_default_backend(
-        parser,
-        getattr(backend, "name", None) or requested_name,
-        requested_backend=backend,
-    )
-    if wrapped is None:
-        return backend
-    return wrapped
-
-
-def _docx_wrapped_default_backend(parser, style_source_name, requested_backend=None):
-    fallback = _resolve_docx_text_backend(parser)
-    if fallback is None:
-        return None
-    cache = getattr(parser, "_docx_backend_substitution_cache", None)
-    if cache is None:
-        cache = {}
-        parser._docx_backend_substitution_cache = cache
-    style_source = style_source_name or getattr(fallback, "name", None)
-    key = (
-        id(fallback),
-        style_source,
-        getattr(requested_backend, "design_size", None),
-        getattr(requested_backend, "checksum", None),
-    )
-    wrapped = cache.get(key)
-    if wrapped is None:
-        wrapped = _DocxSubstituteFontBackend(
-            fallback,
-            style_source_name=style_source,
-            requested_backend=requested_backend,
-        )
-        cache[key] = wrapped
-    return wrapped
-
-
-def _install_docx_font_substitution(parser):
-    if getattr(parser, "_docx_font_substitution_installed", False):
-        return
-    original = getattr(parser, "loadFontBackend", None)
-    if original is None:
-        return
-
-    parser._docx_original_loadFontBackend = original
-
-    def _load_with_substitution(self, name, kind=None):
-        ext = os.path.splitext(name)[1].lower() if isinstance(name, str) else ""
-        if kind == "opentype" or ext in (".otf", ".ttf", ".ttc", ".otc"):
-            return self._docx_original_loadFontBackend(name, kind=kind)
-
-        if kind == "tfm" or ext == ".tfm":
-            backend = self._docx_original_loadFontBackend(name, kind=kind)
-            return _docx_substitute_backend(self, name, kind, backend)
-
-        if kind is None and not ext:
-            try:
-                return self._docx_original_loadFontBackend(name, kind="opentype")
-            except Exception:
-                backend = self._docx_original_loadFontBackend(name, kind=kind)
-                return _docx_substitute_backend(self, name, kind, backend)
-
-        backend = self._docx_original_loadFontBackend(name, kind=kind)
-        return _docx_substitute_backend(self, name, kind, backend)
-
-    parser.loadFontBackend = types.MethodType(_load_with_substitution, parser)
-    parser._docx_font_substitution_installed = True
-
-
-def _install_docx_math_font_arrays(parser):
-    for name in ("textfont", "scriptfont", "scriptscriptfont"):
-        current = getattr(parser, name, None)
-        if isinstance(current, _DocxMathFontArray):
-            continue
-        wrapped = _DocxMathFontArray(name, state=parser, default=txfont.nullfont)
-        if current is not None:
-            wrapped.list[:] = list(getattr(current, "list", wrapped.list))
-            wrapped.dict.update(getattr(current, "dict", {}))
-        setattr(parser, name, wrapped)
-        parser.arrays[name] = wrapped
-        accessor = parser.builtin.get("\\" + name)
-        if accessor is not None:
-            accessor.domain = wrapped
 
 
 @dataclass
@@ -898,6 +416,22 @@ class DocxBackend(Shipout):
             return "0"
         return text or "0"
 
+    @staticmethod
+    def _svg_extend_bounds(bounds, left, top, right, bottom):
+        if right <= left or bottom <= top:
+            return bounds
+        if bounds is None:
+            return [left, top, right, bottom]
+        if left < bounds[0]:
+            bounds[0] = left
+        if top < bounds[1]:
+            bounds[1] = top
+        if right > bounds[2]:
+            bounds[2] = right
+        if bottom > bounds[3]:
+            bounds[3] = bottom
+        return bounds
+
     def _svg_box_width(self, box):
         return max(self._textbox_box_width(box), Dimen())
 
@@ -950,13 +484,17 @@ class DocxBackend(Shipout):
             attrs.append('font-style="italic"')
         return " ".join(attrs)
 
-    def _svg_draw_char(self, node, h, v, out):
+    def _svg_draw_char(self, node, h, v, out, bounds=None):
         text = self._glyph_text(node)
         if not text:
-            return
+            return bounds
         font = getattr(node, "font", None)
         x = self._pt_scaled(h)
         baseline = self._pt_scaled(v)
+        width = self._pt(getattr(node, "width", 0))
+        top = baseline - self._pt(getattr(node, "height", 0))
+        bottom = baseline + self._pt(getattr(node, "depth", 0))
+        bounds = self._svg_extend_bounds(bounds, x, top, x + width, bottom)
         path = self._glyph_svg_path(node)
         if path is not None and font is not None:
             backend = getattr(font, "backend", None)
@@ -971,7 +509,7 @@ class DocxBackend(Shipout):
                     f'scale({self._svg_number(scale)} {self._svg_number(-scale)})" '
                     'fill="#000000"/>'
                 )
-                return
+                return bounds
         attrs = self._svg_font_attributes(font)
         attrs = f" {attrs}" if attrs else ""
         out.append(
@@ -982,6 +520,7 @@ class DocxBackend(Shipout):
             f"{escape(text)}"
             "</text>"
         )
+        return bounds
 
     def _svg_rule_dims(self, node, box):
         def running(value):
@@ -997,30 +536,36 @@ class DocxBackend(Shipout):
             depth = int(getattr(box, "depth", 0)) if running(getattr(node, "depth", 0)) else int(getattr(node, "depth", 0))
         return width, height, depth
 
-    def _svg_draw_rule(self, node, box, h, v, out):
+    def _svg_draw_rule(self, node, box, h, v, out, bounds=None):
         width, height, depth = self._svg_rule_dims(node, box)
         if width <= 0 or height + depth <= 0:
-            return
+            return bounds
         if getattr(box, "node_type", None) == nd.NODE_TYPE.HLIST:
             top = v - height
         else:
             top = v
+        left_pt = self._pt_scaled(h)
+        top_pt = self._pt_scaled(top)
+        width_pt = self._pt_scaled(width)
+        height_pt = self._pt_scaled(height + depth)
+        bounds = self._svg_extend_bounds(bounds, left_pt, top_pt, left_pt + width_pt, top_pt + height_pt)
         out.append(
             "<rect "
-            f'x="{self._svg_number(self._pt_scaled(h))}" '
-            f'y="{self._svg_number(self._pt_scaled(top))}" '
-            f'width="{self._svg_number(self._pt_scaled(width))}" '
-            f'height="{self._svg_number(self._pt_scaled(height + depth))}" '
+            f'x="{self._svg_number(left_pt)}" '
+            f'y="{self._svg_number(top_pt)}" '
+            f'width="{self._svg_number(width_pt)}" '
+            f'height="{self._svg_number(height_pt)}" '
             'fill="#000000"/>'
         )
+        return bounds
 
-    def _svg_render_hlist(self, box, h, v, out):
+    def _svg_render_hlist(self, box, h, v, out, bounds=None):
         items = getattr(box, "list", None) or ()
         glue_state = self._glue_state(box)
         for node in items:
             node_type = getattr(node, "node_type", None)
             if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                self._svg_draw_char(node, h, v, out)
+                bounds = self._svg_draw_char(node, h, v, out, bounds)
                 h += int(getattr(node, "width", 0))
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
@@ -1030,25 +575,31 @@ class DocxBackend(Shipout):
                 h += int(getattr(node, "kern", 0))
                 continue
             if node_type == nd.NODE_TYPE.DISC:
-                h = self._svg_render_hlist(node, h, v, out)
+                h, bounds = self._svg_render_hlist(node, h, v, out, bounds)
                 continue
             if node_type == nd.NODE_TYPE.RULE:
-                self._svg_draw_rule(node, box, h, v, out)
+                bounds = self._svg_draw_rule(node, box, h, v, out, bounds)
                 h += int(getattr(node, "width", 0))
                 continue
             if node_type == nd.NODE_TYPE.HLIST:
                 shifted = int(getattr(node, "shifted", 0))
-                self._svg_render_hlist(node, h, v + shifted, out)
+                _child_h, bounds = self._svg_render_hlist(node, h, v + shifted, out, bounds)
                 h += int(getattr(node, "width", 0))
                 continue
             if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
                 shifted = int(getattr(node, "shifted", 0))
-                self._svg_render_vlist(node, h, v + shifted - int(getattr(node, "height", 0)), out)
+                _child_v, bounds = self._svg_render_vlist(
+                    node,
+                    h,
+                    v + shifted - int(getattr(node, "height", 0)),
+                    out,
+                    bounds,
+                )
                 h += int(getattr(node, "width", 0))
                 continue
-        return h
+        return h, bounds
 
-    def _svg_render_vlist(self, box, h, v, out):
+    def _svg_render_vlist(self, box, h, v, out, bounds=None):
         items = getattr(box, "list", None) or ()
         glue_state = self._glue_state(box)
         for node in items:
@@ -1060,20 +611,26 @@ class DocxBackend(Shipout):
                 v += int(getattr(node, "kern", 0))
                 continue
             if node_type == nd.NODE_TYPE.RULE:
-                self._svg_draw_rule(node, box, h, v, out)
+                bounds = self._svg_draw_rule(node, box, h, v, out, bounds)
                 v += int(getattr(node, "height", 0))
                 continue
             if node_type == nd.NODE_TYPE.HLIST:
                 shifted = int(getattr(node, "shifted", 0))
-                self._svg_render_hlist(node, h + shifted, v + int(getattr(node, "height", 0)), out)
+                _child_h, bounds = self._svg_render_hlist(
+                    node,
+                    h + shifted,
+                    v + int(getattr(node, "height", 0)),
+                    out,
+                    bounds,
+                )
                 v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
                 continue
             if node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
                 shifted = int(getattr(node, "shifted", 0))
-                self._svg_render_vlist(node, h + shifted, v, out)
+                _child_v, bounds = self._svg_render_vlist(node, h + shifted, v, out, bounds)
                 v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
                 continue
-        return v
+        return v, bounds
 
     def _svg_bytes_for_box(self, box, total_height=None):
         if box is None:
@@ -1087,17 +644,30 @@ class DocxBackend(Shipout):
         width_pt = max(self._pt(width), 1.0)
         height_pt = max(self._pt(total_height), 1.0)
         content = []
+        bounds = None
         node_type = getattr(box, "node_type", None)
         if node_type == nd.NODE_TYPE.HLIST:
-            self._svg_render_hlist(box, 0, int(getattr(box, "height", 0)), content)
+            _h, bounds = self._svg_render_hlist(box, 0, int(getattr(box, "height", 0)), content, bounds)
         elif node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
-            self._svg_render_vlist(box, 0, 0, content)
+            _v, bounds = self._svg_render_vlist(box, 0, 0, content, bounds)
+        offset_y = 0.0
+        if bounds is not None:
+            if bounds[1] < 0:
+                offset_y = -bounds[1]
+            height_pt = max(height_pt + offset_y, bounds[3] + offset_y, 1.0)
+        content_xml = "".join(content)
+        if offset_y:
+            content_xml = (
+                f'<g transform="translate(0 {self._svg_number(offset_y)})">'
+                f"{content_xml}"
+                "</g>"
+            )
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" '
             f'width="{self._svg_number(width_pt)}pt" '
             f'height="{self._svg_number(height_pt)}pt" '
             f'viewBox="0 0 {self._svg_number(width_pt)} {self._svg_number(height_pt)}">'
-            f"{''.join(content)}"
+            f"{content_xml}"
             "</svg>"
         )
         return svg.encode("utf-8")
@@ -4870,8 +4440,8 @@ class DocxBackend(Shipout):
 
 
 def init(parser):
-    _install_docx_font_substitution(parser)
-    _install_docx_math_font_arrays(parser)
+    font_subst.installFontSubstitution(parser)
+    font_subst.installMathFontArrays(parser)
     parser.shipout = DocxBackend(parser)
 
 

@@ -27,17 +27,18 @@ class Shipout:
 
     def shipout(self, box):
         self.open()
-        if box.width is None:
-            packed = []
-            box.typeset(self.parser, packed)
-            box = packed[-1]
         self.pages.append(box)
         self.begin_page(box)
-        self.h = int(self.parser.layout["hoffset"])
-        self.v = int(self.parser.layout["voffset"])
+        h = int(self.parser.layout["hoffset"])
+        v = int(self.parser.layout["voffset"])
         self._position_stack = []
-        self.move_to(self.h, self.v)
-        self._ship_vlist(box)
+        self.move_to(h, v)
+        if box.node_type == nd.NODE_TYPE.VLIST:
+            self.move_to(h, v)
+            self._ship_vlist(box)
+        else:
+            self.move_to(h, v + box.height)
+            self._ship_hlist(box)       
         self.end_page(box)
 
     def _glue_state(self, box):

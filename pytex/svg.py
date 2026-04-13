@@ -44,7 +44,9 @@ class SVGShipoutBackend(Shipout):
         self.canvas = draw.Drawing(_float(box.width), _float(box.height + box.depth))
 
     def end_page(self, box):
-        pass
+        if self.output is not None:
+            self.canvas.save_svg(f"{self.output}-{self.page}.svg")
+        self.page += 1
 
     def define_font(self, font):
         name = font.name
@@ -114,6 +116,4 @@ class SVGShipoutBackend(Shipout):
         pass
 
     def close(self):
-        if self.output is not None:
-            self.canvas.save_svg(f"{self.output}-{self.page}.svg")
-        self.page += 1
+        pass

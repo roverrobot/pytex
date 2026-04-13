@@ -107,17 +107,3 @@ class SVGShipoutBackend(Shipout):
 
     def xObject(self, kind, name=None, options=None, source=None):
         pass
-
-    def __enter__(self):
-        self.open()
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.close()
-        return False
-
-    def open(self):
-        pass
-
-    def close(self):
-        pass

@@ -8,6 +8,7 @@ from pytex.module import Module
 from struct import unpack, pack
 import io
 import os
+from fontTools.t1Lib import T1Font 
 
 
 class BinaryStream:
@@ -291,6 +292,8 @@ class TFMBackend(FontBackend):
         self.tfm = tfm
         self.bc = tfm.bc
         self.ec = tfm.ec
+        self.pfb_file = None
+        self.pfb = None
 
     @classmethod
     def _openFile(cls, parser, name: str):
@@ -307,7 +310,10 @@ class TFMBackend(FontBackend):
         if file is None:
             return None
         try:
-            return cls(TFM(name[:-4], file))
+            backend = cls(TFM(name[:-4], file))
+            info = parser.resolver.getInfo(name[:-4], "fonts/type1")
+            backend.pfb_file = parser.resolver.resolve(info)
+            return backend
         finally:
             file.close()
 
@@ -326,6 +332,13 @@ class TFMBackend(FontBackend):
     @property
     def fontdimen(self):
         return self.tfm.param
+
+    @property
+    def font(self):
+        # load the corresponding type1 font
+        if self.pfb is None and self.pfb_file is not None:
+            self.pfb = T1Font(self.pfb_file)
+        return self.pfb
 
     def glyphInfo(self, char: str):
         code = ord(char)

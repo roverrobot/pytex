@@ -18,14 +18,18 @@ class GlyphCache(dict):
     def __init__(self, font):
         self.font = font.backend.font
         self.glyph_set = self.font.getGlyphSet()
-        self.cmap = self.font.getBestCmap()
-        self.scale = _float(font.at) / self.font['head'].unitsPerEm
+        self.cmap = getattr(self.font, "getBestCmap", None)
+        if self.cmap is None:
+            self.cmap = self.font.font["Encoding"]
+            self.scale = _float(font.at) / 1000
+        else:
+            self.scale = _float(font.at) / self.font['head'].unitsPerEm
         self.svg_pen = SVGPathPen(self.glyph_set)
-        self.cmap = self.font.getBestCmap()
 
     def __getitem__(self, char):
-        name = self.cmap.get(ord(char.char))
-        if name is None:
+        try:
+            name = self.cmap[ord(char.char)]
+        except:
             name = char.char_info.glyph_name
         return self.glyph_set[name]
         

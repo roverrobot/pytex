@@ -28,7 +28,7 @@ argparser.add_argument(
     "-o",
     "--output",
     default="pdf",
-    choices=["dvi", "pdf", "html-reflow", "docx"],
+    choices=["dvi", "pdf", "html-reflow", "docx", "svg"],
     help="shipout output format. Relative output paths are derived from the jobname in the project directory.",
 )
 argparser.add_argument(
@@ -60,7 +60,6 @@ if args.format != "initex":
     elif args.output == "pdf":
         from pytex import docx
         import pytex.pdf
-
     elif args.output == "html-reflow":
         from pytex import html_reflow as html_reflow_backend
     elif args.output == "docx":
@@ -104,6 +103,9 @@ if args.format == "initex":
         file=parser.console,
     )
 else:
+    if args.output == "svg":
+        from pytex import svg
+        parser.shipout = svg.SVGShipoutBackend(parser, file)
     parser.resolver.format = args.format
     fmt = parser.resolver.openIn(args.format, "dump")
     if fmt is None:

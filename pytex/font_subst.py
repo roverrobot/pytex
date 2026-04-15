@@ -258,7 +258,7 @@ def mathSlotText(family, code):
 
 
 def mathFontDimen(backend, family):
-    provider = getattr(backend, "docxMathFontdimen", None)
+    provider = getattr(backend, "mathFontdimen", None)
     if callable(provider):
         params = provider(family)
         if params is not None:

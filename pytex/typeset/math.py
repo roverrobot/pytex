@@ -92,12 +92,8 @@ class _AtomSourceWrapper(nd.Box):
     atom ownership on this wrapper object.
     """
 
-    def __init__(self, node, source):
-        super().__init__(
-            getattr(node, "width", None),
-            getattr(node, "height", None),
-            getattr(node, "depth", None),
-        )
+    def __init__(self, node: nd.CharNode, source):
+        super().__init__(node.width, node.height, node.depth)
         self._node = node
         self.source = source
         self.node_type = getattr(node, "node_type", None)
@@ -110,6 +106,9 @@ class _AtomSourceWrapper(nd.Box):
 
     def __repr__(self):
         return repr(self._node)
+    
+    def meaning(self, parser):
+        return self._node.meaning(parser)
 
 
 class MathTypesetter:

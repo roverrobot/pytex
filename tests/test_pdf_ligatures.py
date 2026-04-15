@@ -16,8 +16,8 @@ def _cmr12_type1_paths():
             "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb",
         ),
         (
-            "/usr/local/texlive/texmf-dist/fonts/afm/public/amsfonts/cm/cmr12.afm",
-            "/usr/local/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb",
+            "/usr/local/texlive/2023/texmf-dist/fonts/afm/public/amsfonts/cm/cmr12.afm",
+            "/usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb",
         ),
     ]
     for afm, pfb in candidates:

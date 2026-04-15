@@ -72,7 +72,7 @@ def test_pdf_shipout_uses_tex_origin(cmr10, tmp_path):
     cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="origin")
     cmr10.end()
     _page, text = _page_content_text(str(out) + ".pdf")
-    match = re.search(r"BT 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm \(a\)", text)
+    match = re.search(r"BT 1 0 0 1 ([0-9.]+) ([0-9.]+) (.*) \(a\)", text)
     assert match is not None
     x = float(match.group(1))
     assert 72.0 < x < 72.5

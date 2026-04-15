@@ -1239,8 +1239,11 @@ def test_plain_math_reference_metrics(parser):
     assert float(integral.width) == pytest.approx(14.48615, abs=1e-4)
     assert float(integral.height) == pytest.approx(15.65013, abs=1e-4)
     assert float(integral.depth) == pytest.approx(9.11122, abs=1e-4)
+    assert integral.list[0].node_type == nd.NODE_TYPE.MATH
     assert integral.list[1].node_type == nd.NODE_TYPE.HLIST
-    assert integral.list[2].node_type == nd.NODE_TYPE.VLIST
+    assert integral.list[1].list[0].node_type == nd.NODE_TYPE.HLIST
+    assert integral.list[1].list[1].node_type == nd.NODE_TYPE.VLIST
+    assert integral.list[2].node_type == nd.NODE_TYPE.MATH
 
     parser.parse("\\setbox1=\\hbox{$\\displaystyle \\sqrt{a}$}")
     disp = parser.box[1]

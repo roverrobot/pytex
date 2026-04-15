@@ -14,9 +14,9 @@ from pytex import vmode
 from pytex.dimen import Dimen
 from pytex.html_builder import element, render
 from pytex.module import Module
-from pytex.typeset.shipout import Shipout
+from pytex import reflow
 from pytex import font_subst
-
+from lxml.html import builder
 
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
@@ -40,7 +40,15 @@ _CSS_POINTS_PER_TEX_POINT_NUM = 7200
 _CSS_POINTS_PER_TEX_POINT_DEN = 7227
 
 
-class HTMLReflowBackend(Shipout):
+def _pt(pt):
+    return float(pt) / 72.27 * 72
+
+class Style(dict):
+    def __str__(self):
+        return  "".join([f"{k}:{v};" for k, v in self.items()])
+
+
+class HTMLReflowBackend(reflow.Reflow):
     """
     Null shipout backend for reflow mode.
 
@@ -49,36 +57,89 @@ class HTMLReflowBackend(Shipout):
     itself only executes shipped whatsits; the final HTML is emitted once at
     close from the main vertical list's raw ownership history.
     """
-
     def __init__(self, parser, output=None):
         super().__init__(parser, output)
         self.file = None
         self.finished = False
+        self.header = builder.HEAD()
+        self.body = builder.BODY()
         self._body_font = None
         self._pending_media_blocks = []
-
-    def shipout(self, box):
-        if box.width is None:
-            packed = []
-            box.typeset(self.parser, packed)
-            box = packed[-1]
-        self.pages.append(box)
-        self._emit_whatsits(box)
-
-    def _emit_whatsits(self, node):
-        if getattr(node, "node_type", None) == nd.NODE_TYPE.WHATSIT:
-            node.output(self.parser, self)
-            return
-        items = getattr(node, "list", None)
-        if items is None:
-            return
-        for child in items:
-            self._emit_whatsits(child)
 
     def open(self):
         # Runtime shipout is intentionally side-effect free for HTML reflow.
         return
 
+    def typesetPage(self, tree):
+        # the body is the last item 
+        body = tree[-1]
+        self.body.append(self.typesetVBox(body))
+
+    def _box(self, box, inline, xspacing, yspacing):
+        box = builder.DIV()
+        style = Style()
+        style["left"] = f"{_pt(xspacing)}pt"
+        style["top"] = f"{_pt(yspacing)}pt"
+        if inline:
+            style["display"] = "inline-block"
+        box.set("style", repr(style))
+        return box
+
+
+    def typesetNBSP(self, width, height=1):
+        div = builder.div()
+        style = Style()
+        style["display"] = "inine-block"
+        style["width"] = f"{_pt(width)}pt"
+        style["height"] = f"{_pt(height)}pt"
+        div.set("style", style)
+        return div
+    
+    def typesetParagraph(self, para: reflow.Paragraph):
+        div = builder.DIV()
+        style = Style()
+        style["text-indent"] = f"{_pt(para.indent)}pt"
+        style["padding"] = f"{_pt(para.spacing_before)}pt 0 0 0"
+        div.set("style", str(style))
+        for n in para:
+            div.append(n.typeset(self))
+        return div
+    
+    def typesetTextRun(self, text):
+        span = builder.SPAN()
+        style = Style()
+        style["font-family"] = text.font.backend._name
+        span.set("style", str(style))
+        span.text= "".join([n.typeset(self) for n in text])
+        return span
+
+    def populateParagraph(self, para, raw, collection, glue_state):
+        for n in raw:
+            if (n.node_type == nd.NODE_TYPE.GLUE):
+                if (glue_state is not None and 
+                    glue_state["order"] > 0 and
+                    not glue_state["shrink"] and
+                    glue_state["order"] == n.glue.sretch.order
+                ):
+                    para.append(reflow.Spring(self._glue_amount(n, box=None, glue_state=glue_state)))
+                else:
+                    para.setSpace(self._glue_amount(n, box=None, glue_state=glue_state))
+                continue
+            if isinstance(n, mmode.InlineMathNode):
+                n = self.typesetInlineMath(n, collection, left_kern=Dimen(), right_kern=Dimen())                
+            para.append(n)
+
+    def typesetSpring(self, ratio):
+        div = builder.div()
+        div.set("style", f"flex-grow:{ratio}")
+        return div
+
+    def typesetChar(self, char, kern):
+        return char
+    
+    def typesetSpace(self, width):
+        return " "
+    
     def _open_output(self, output=None):
         if self.file is not None:
             return
@@ -98,163 +159,6 @@ class HTMLReflowBackend(Shipout):
         if not path.endswith(".html"):
             path += ".html"
         self.file = self.parser.resolver.openOut(path, None)
-
-    @staticmethod
-    def _normalize_text(text):
-        return _SPACE_RE.sub(" ", text).strip()
-
-    def _flatten_text(self, nodes):
-        return self._normalize_text(self._flatten_text_raw(nodes))
-
-    def _flatten_text_raw(self, nodes):
-        parts = []
-        last_space = True
-        for node in nodes:
-            node_type = getattr(node, "node_type", None)
-            if node_type == nd.NODE_TYPE.CHAR:
-                parts.append(node.char)
-                last_space = False
-                continue
-            if node_type == nd.NODE_TYPE.LIGATURE:
-                source = getattr(node, "source", None) or []
-                if source:
-                    parts.append("".join(getattr(child, "char", "") for child in source))
-                else:
-                    parts.append(node.char)
-                last_space = False
-                continue
-            if node_type == nd.NODE_TYPE.GLUE:
-                if parts and not last_space:
-                    parts.append(" ")
-                    last_space = True
-                continue
-            if node_type in (
-                nd.NODE_TYPE.KERN,
-                nd.NODE_TYPE.PENALTY,
-                nd.NODE_TYPE.MARK,
-                nd.NODE_TYPE.INS,
-                nd.NODE_TYPE.ADJUST,
-                nd.NODE_TYPE.WHATSIT,
-            ):
-                continue
-            if node_type == nd.NODE_TYPE.DISC:
-                text = self._flatten_text_raw(node.replace)
-                if text:
-                    parts.append(text)
-                    last_space = text.endswith(" ")
-                continue
-            children = getattr(node, "list", None)
-            if children is not None:
-                text = self._flatten_text_raw(children)
-                if text:
-                    parts.append(text)
-                    last_space = text.endswith(" ")
-        return "".join(parts)
-
-    @staticmethod
-    def _font_signature(font):
-        if font is None:
-            return None
-        backend = getattr(font, "backend", None)
-        name = None if backend is None else getattr(backend, "name", None)
-        at = getattr(font, "at", None)
-        size = None if at is None else round(float(at), 2)
-        return name, size
-
-    def _fonts(self, nodes):
-        fonts = []
-        for node in nodes:
-            font = getattr(node, "font", None)
-            if font is not None:
-                fonts.append(font)
-            children = getattr(node, "list", None)
-            if children is not None:
-                fonts.extend(self._fonts(children))
-        return fonts
-
-    def _dominant_font(self, nodes):
-        fonts = self._fonts(nodes)
-        if not fonts:
-            return None
-        counts = Counter()
-        sample = {}
-        for font in fonts:
-            key = self._font_signature(font)
-            counts[key] += 1
-            sample.setdefault(key, font)
-        return sample[counts.most_common(1)[0][0]]
-
-    def _infer_body_font(self, owners):
-        counts = Counter()
-        sample = {}
-        for owner in owners:
-            if not isinstance(owner, paragraph.Paragraph):
-                continue
-            for font in self._fonts(owner.list):
-                key = self._font_signature(font)
-                counts[key] += 1
-                sample.setdefault(key, font)
-        if not counts:
-            return None
-        return sample[counts.most_common(1)[0][0]]
-
-    @staticmethod
-    def _font_role(font):
-        if font is None:
-            return dict(_DEFAULT_FONT_ROLE)
-        name = getattr(getattr(font, "backend", None), "name", "") or ""
-        lower = name.lower()
-        role = dict(_DEFAULT_FONT_ROLE)
-        if "tt" in lower:
-            role["family"] = "monospace"
-        elif "ss" in lower:
-            role["family"] = "sans-serif"
-        if "bx" in lower or lower.startswith("cmb") or "bold" in lower:
-            role["weight"] = "bold"
-        if "it" in lower or "ti" in lower or "sl" in lower:
-            role["style"] = "italic"
-        if "csc" in lower:
-            role["variant"] = "small-caps"
-        return role
-
-    def _font_attrs(self, font, base_font=None):
-        if font is None:
-            return {}
-        attrs = {}
-        key = self._font_signature(font)
-        role = self._font_role(font)
-        base_role = self._font_role(base_font)
-        style = []
-        at = getattr(font, "at", None)
-        base_at = getattr(base_font, "at", None)
-        if at is not None and base_at is not None:
-            size = round(float(at), 2)
-            base_size = round(float(base_at), 2)
-            if size != base_size:
-                style.append(f"font-size:{size / base_size:.2f}em")
-        elif at is not None and base_font is None and self._body_font is not None:
-            size = round(float(at), 2)
-            body_size = round(float(self._body_font.at), 2)
-            if size != body_size:
-                style.append(f"font-size:{size / body_size:.2f}em")
-        for css_key, role_key in (
-            ("font-family", "family"),
-            ("font-weight", "weight"),
-            ("font-style", "style"),
-            ("font-variant", "variant"),
-        ):
-            value = role.get(role_key)
-            if value != base_role.get(role_key):
-                style.append(f"{css_key}:{value}")
-        if key != self._font_signature(base_font) and (style or base_font is not None):
-            attrs["data-tex-font"] = getattr(getattr(font, "backend", None), "name", None)
-        if style:
-            attrs["style"] = ";".join(style)
-        return attrs
-
-    @staticmethod
-    def _printable_char(char):
-        return isinstance(char, str) and len(char) == 1 and char.isprintable() and ord(char) >= 0x20
 
     def _math_symbol_text(self, symbol):
         if symbol is None:

@@ -122,6 +122,10 @@ class Paragraph(list):
 
 
 class Reflow(shipout.Shipout):
+    def __init__(self, parser, output=None):
+        super().__init__(parser, output)
+        self._last_raw_in_vlist = None
+
     def begin_page(self, box):
         pass
 
@@ -197,41 +201,43 @@ class Reflow(shipout.Shipout):
         # we only need to layout this box
         # we need to consider two things: paragraphs and boxes that are not originated from paragraphs.
         # we first collect glues and kerns to figure out vertical spacing
-        def collect(source, p, nodes):
-            while p and p.source != n:
-                p = next(nodes, None)
+        def collect(source, nodes):
+            p = next(nodes, None)
+            if p is None:
+                return [], None
+            source = p.source
+            if source is None:
+                return [p], p
             collection = []
-            while p and p.source == n:
+            while p and p.source == source:
                 collection.append(p)
                 p = next(nodes, None)
-            return collection, p
+            return collection, source
         spacing = Dimen()
         glue_state = self._glue_state(box)
         vbox = self._box(box, inline, xspacing, yspacing)
         nodes = iter(box.list)
-        p = next(nodes, None)
-        for n in box.raw:
+        while True:
+            collection, n = collect(box, nodes)
+            if n is None:
+                break
             if isinstance(n, mmode.DisplayMathNode):
-                collection, p = collect(n, p, nodes)
                 node = self.typesetDisplayMath(n, collection, yspacing=spacing)
                 vbox.append(node)
                 spacing = Dimen()
                 continue
             if isinstance(n, paragraph.Paragraph):
-                collection, p = collect(n, p, nodes)
                 para = Paragraph(indent = Dimen(), spacing_before=spacing)
                 self.populateParagraph(para, n.raw, collection, glue_state=None)
                 vbox.append(self.typesetParagraph(para))
                 spacing = Dimen()
                 continue
             if isinstance(n, align.HAlignment):
-                collection, p = collect(n, p, nodes)
                 node = self.typesetHAlignment(n, collection, yspacing=spacing)
                 vbox.append(node)
                 spacing = Dimen()
                 continue
             if isinstance(n, align.MAlignment):
-                collection, p = collect(n, p, nodes)
                 node = self.typesetMAlignment(n, collection, yspacing=spacing)
                 vbox.append(node)
                 spacing = Dimen()

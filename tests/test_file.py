@@ -1,5 +1,6 @@
 import pytest
 from pytex import html_reflow
+html_reflow.mod.init = None
 from pytex import texlive
 from pytex import pipes
 from pytex.resolver import InMemoryTextFile
@@ -112,6 +113,7 @@ def test_deferred_shipout_flushes_write_before_closeout(parser, tmp_path):
 
 
 def test_html_reflow_shipout_flushes_write_before_closeout(parser):
+    html_reflow.font_subst.installFontSubstitution(parser)
     parser.shipout = html_reflow.HTMLReflowBackend(parser)
     parser.parse("\\immediate\\openout 1=output2.tex\\shipout\\vbox{\\write1{abc}}\\closeout 1")
     parser.end()

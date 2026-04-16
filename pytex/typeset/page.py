@@ -456,8 +456,6 @@ class PageBuilder:
     def _prependCarryNodes(self, pending, nodes):
         if not nodes:
             return
-        for node in nodes:
-            node.source = node
         self.contrib[:0] = list(nodes)
         self._pruneContribTop(pending)
 

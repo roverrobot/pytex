@@ -9,6 +9,8 @@ from docx.oxml.ns import qn
 import pytest
 
 from pytex import docx
+# prevent module side effects
+docx.mod.init = None
 from pytex import align
 from pytex import box as bx
 from pytex import font as txfont
@@ -67,7 +69,7 @@ class _FakeMathBackend(_FakeBackend):
     def __init__(self, name="Fake Math OTF"):
         super().__init__(name)
 
-    def docxMathFontdimen(self, family):
+    def mathFontdimen(self, family):
         if family == 2:
             return [0.0] * 22
         if family == 3:
@@ -170,6 +172,12 @@ def _assert_svg_blip_only(xml):
 
 def _svg_xy_values(svg):
     return [float(value) for value in re.findall(r'\b[xy]="([^"]+)"', svg)]
+
+
+def _svg_dimension(svg, name):
+    match = re.search(rf'\b{name}="([^"]+)pt"', svg)
+    assert match is not None
+    return float(match.group(1))
 
 
 def _math_symbol(ch, atom_type=mmode.ATOM_TYPE.ORD, fam=0):
@@ -953,6 +961,22 @@ def test_docx_svg_uses_opentype_glyph_paths_for_math_chars(parser):
 
     assert "<path " in svg
     assert "<text " not in svg
+
+
+def test_docx_svg_expands_viewport_for_deep_vlist_content(parser):
+    backend = docx.DocxBackend(parser)
+    font = _FakeFont()
+    numerator = _FakeHBox([nd.CharNode("1", font)], None, width=5, height=7, depth=2)
+    denominator = _FakeHBox([nd.CharNode("d", font), nd.CharNode("t", font)], None, width=10, height=7, depth=2)
+    # The outer box intentionally understates its total height, similar to the
+    # clipping seen when nested math content extends below the nominal box slot.
+    box = _FakeVBox([numerator, nd.Kern(Dimen(3)), denominator], width=20, height=10, depth=1)
+
+    svg = backend._svg_bytes_for_box(box).decode("utf-8")
+
+    assert _svg_dimension(svg, "height") > backend._pt(Dimen(11))
+    assert ">d</text>" in svg
+    assert ">t</text>" in svg
 
 
 def test_docx_inline_math_keeps_line_fragments_separate(parser):

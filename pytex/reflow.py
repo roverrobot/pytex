@@ -202,10 +202,9 @@ class Reflow(shipout.Shipout):
         def source(node):
             while True:
                 s = node.source
-                if s is not None and s.source is not None:
-                    node = s
-                else:
+                if s is None or s.source is None:
                     return s
+                node = s
         def collect(nodes):
             p = next(nodes, None)
             if p is None:

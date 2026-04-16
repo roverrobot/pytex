@@ -342,15 +342,12 @@ class HAlignment(Alignment):
 
     def reboxEntry(self, parser, box, target):
         target = Dimen(target)
-        source = box.source
         box = box.typeset(parser)
         if box.width == target:
-            if source is not None and source is not box:
-                box.source = source
             return box
         out = bx.HBox(parser, target, None)
         out.list[:] = box.list
-        out.source = box if source is None else source
+        out.source = box.source
         return out.typeset(parser)
 
     def _emptyEntry(self, parser, width):

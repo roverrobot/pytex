@@ -17,6 +17,7 @@ from pytex.module import Module
 from pytex import reflow
 from pytex import font_subst
 from lxml.html import builder
+from lxml import etree
 
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
@@ -59,9 +60,8 @@ class HTMLReflowBackend(reflow.Reflow):
     """
     def __init__(self, parser, output=None):
         super().__init__(parser, output)
-        self.file = None
         self.finished = False
-        self.header = builder.HEAD()
+        self.header = builder.HEAD(builder.TITLE(self.parser.jobname or "texput"))
         self.body = builder.BODY()
         self._body_font = None
         self._pending_media_blocks = []
@@ -70,29 +70,45 @@ class HTMLReflowBackend(reflow.Reflow):
         # Runtime shipout is intentionally side-effect free for HTML reflow.
         return
 
+    def close(self):
+        if hasattr(self.output, "write"):
+            file = self.output
+        else:
+            if self.output is None:
+                output = self.parser.jobname or "texput"
+            if not output.endswith(".html"):
+                output += ".html"
+            file = self.parser.resolver.openOut(output, None)
+        html = builder.HTML(self.header, self.body)
+        s=etree.tostring(html, method="html", pretty_print=True, encoding='unicode')
+        file.write(s)
+        file.close()
+    
     def typesetPage(self, tree):
         # the body is the last item 
         body = tree[-1]
         self.body.append(self.typesetVBox(body))
 
     def _box(self, box, inline, xspacing, yspacing):
-        box = builder.DIV()
+        div = builder.DIV()
         style = Style()
         style["left"] = f"{_pt(xspacing)}pt"
         style["top"] = f"{_pt(yspacing)}pt"
         if inline:
             style["display"] = "inline-block"
-        box.set("style", repr(style))
-        return box
+            style["width"] = f"{_pt(box.width)}pt"
+            style["height"] = f"{_pt(box.height+box.depth)}pt"
+        div.set("style", str(style))
+        return div
 
 
     def typesetNBSP(self, width, height=1):
-        div = builder.div()
+        div = builder.DIV()
         style = Style()
         style["display"] = "inine-block"
         style["width"] = f"{_pt(width)}pt"
         style["height"] = f"{_pt(height)}pt"
-        div.set("style", style)
+        div.set("style", str(style))
         return div
     
     def typesetParagraph(self, para: reflow.Paragraph):
@@ -102,13 +118,17 @@ class HTMLReflowBackend(reflow.Reflow):
         style["padding"] = f"{_pt(para.spacing_before)}pt 0 0 0"
         div.set("style", str(style))
         for n in para:
-            div.append(n.typeset(self))
+            s = n.typeset(self)
+            if isinstance(s, str):
+                s = builder.SPAN(s)
+            div.append(s)
         return div
     
     def typesetTextRun(self, text):
         span = builder.SPAN()
         style = Style()
         style["font-family"] = text.font.backend._name
+        style["font-size"] = f"{_pt(text.font.at)}pt"
         span.set("style", str(style))
         span.text= "".join([n.typeset(self) for n in text])
         return span
@@ -116,18 +136,23 @@ class HTMLReflowBackend(reflow.Reflow):
     def populateParagraph(self, para, raw, collection, glue_state):
         for n in raw:
             if (n.node_type == nd.NODE_TYPE.GLUE):
-                if (glue_state is not None and 
-                    glue_state["order"] > 0 and
+                if glue_state is None:
+                    para.setSpace(n.glue.dimen)
+                elif (glue_state["order"] > 0 and
                     not glue_state["shrink"] and
                     glue_state["order"] == n.glue.sretch.order
                 ):
-                    para.append(reflow.Spring(self._glue_amount(n, box=None, glue_state=glue_state)))
+                    para.append(reflow.Spring(self._glue_amount(n, box=None, state=glue_state)))
                 else:
-                    para.setSpace(self._glue_amount(n, box=None, glue_state=glue_state))
+                    para.setSpace(self._glue_amount(n, box=None, state=glue_state))
                 continue
             if isinstance(n, mmode.InlineMathNode):
-                n = self.typesetInlineMath(n, collection, left_kern=Dimen(), right_kern=Dimen())                
-            para.append(n)
+                n = self.typesetInlineMath(n, collection, left_kern=Dimen(), right_kern=Dimen())
+            elif n.node_type == nd.NODE_TYPE.WHATSIT:
+                n.output(self.parser, self)
+                continue
+            elif n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                para.append(n)
 
     def typesetSpring(self, ratio):
         div = builder.div()
@@ -139,26 +164,6 @@ class HTMLReflowBackend(reflow.Reflow):
     
     def typesetSpace(self, width):
         return " "
-    
-    def _open_output(self, output=None):
-        if self.file is not None:
-            return
-        if output is None:
-            output = self.output
-        if output is None:
-            output = self.parser.jobname or "texput"
-        if hasattr(output, "write"):
-            self.file = output
-            return
-        path = os.fspath(output)
-        if os.path.isabs(path):
-            if not path.endswith(".html"):
-                path += ".html"
-            self.file = open(path, "w")
-            return
-        if not path.endswith(".html"):
-            path += ".html"
-        self.file = self.parser.resolver.openOut(path, None)
 
     def _math_symbol_text(self, symbol):
         if symbol is None:
@@ -1178,19 +1183,6 @@ class HTMLReflowBackend(reflow.Reflow):
             lang="en",
         )
         return "<!doctype html>\n" + render(doc) + "\n"
-
-    def close(self):
-        if self.finished or not getattr(self.parser, "ended", False):
-            return
-        if not self.parser.lists:
-            return
-        main = self.parser.lists[0]
-        owners = main.rawNodes() if hasattr(main, "rawNodes") else list(getattr(main, "raw", ()))
-        self._open_output()
-        self.file.write(self._render_document(owners))
-        self.finished = True
-        self.file.close()
-        self.file = None
 
 
 def init(parser):

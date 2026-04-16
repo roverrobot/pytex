@@ -117,8 +117,6 @@ class Paragraph(list):
             super().append(InlineBox(box=node))
         elif node.node_type == nd.NODE_TYPE.VLIST:
             super().append(InlineBox(box=node))
-        else:
-            super().append(node)
 
 
 class Reflow(shipout.Shipout):
@@ -201,24 +199,31 @@ class Reflow(shipout.Shipout):
         # we only need to layout this box
         # we need to consider two things: paragraphs and boxes that are not originated from paragraphs.
         # we first collect glues and kerns to figure out vertical spacing
-        def collect(source, nodes):
+        def source(node):
+            while True:
+                s = node.source
+                if s is not None and s.source is not None:
+                    node = s
+                else:
+                    return s
+        def collect(nodes):
             p = next(nodes, None)
             if p is None:
                 return [], None
-            source = p.source
-            if source is None:
+            s = source(p)
+            if s is None:
                 return [p], p
             collection = []
-            while p and p.source == source:
+            while p and source(p) == s:
                 collection.append(p)
                 p = next(nodes, None)
-            return collection, source
+            return collection, s
         spacing = Dimen()
         glue_state = self._glue_state(box)
         vbox = self._box(box, inline, xspacing, yspacing)
         nodes = iter(box.list)
         while True:
-            collection, n = collect(box, nodes)
+            collection, n = collect(nodes)
             if n is None:
                 break
             if isinstance(n, mmode.DisplayMathNode):
@@ -261,7 +266,7 @@ class Reflow(shipout.Shipout):
             if n.node_type == nd.NODE_TYPE.KERN:
                 spacing += n.kern
                 continue
-            if n.node_type == nd.NODE_TYPE.INSERT:
+            if n.node_type == nd.NODE_TYPE.INS:
                 n.output(self.parser, self)
                 spacing = Dimen()
                 continue
@@ -276,10 +281,12 @@ class Reflow(shipout.Shipout):
         h = xspacing + shifted
         nodes = box.list
         # we start a new paragraph:
-        para = Paragraph(indent=h, spacing_before=yspacing)
+        div = self._box(box, inline, h, yspacing)
+        para = Paragraph(indent=Dimen(), spacing_before=yspacing)
         self.populateParagraph(para, box.raw, [box], glue_state=glue_state)
-        return self.typesetParagraph(para)
-        
+        div.append(self.typesetParagraph(para))
+        return div
+     
     def populateParagraph(self, para, raw, collection, glue_state):
         pass
 

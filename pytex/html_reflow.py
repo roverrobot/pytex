@@ -60,6 +60,10 @@ MENCLOSE = E.menclose
 MOVER = E.mover
 MSQRT = E.msqrt
 MTEXT = E.mtext
+MTABLE = E.mtable
+MLABELEDTR = E.mlabeledtr
+MTR = E.mtr
+MTD = E.mtd
 
 def _pt(pt):
     return float(pt) / 72.27 * 72
@@ -480,7 +484,19 @@ class HTMLReflowBackend(reflow.Reflow):
         style["display"] = "block"
         style["top"] = f"{_pt(yspacing)}pt"
         math.set("style", str(style))
-        return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
+        if node.eqno is None:
+            return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
+        eqno, left = node.eqno
+        mtd_eqno = MTD(self.typesetMList(MROW(), eqno.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T)),
+                       style="white-space:nowrap;")
+        mtd_body = MTD(self.typesetMList(MROW(), node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D)),
+                       style="width:100%; text-align:center;")
+        if left:
+            table = MTABLE(MTR(mtd_eqno, mtd_body), width="100%", columnalign="left center")
+        else:
+            table = MTABLE(MTR(mtd_body, mtd_eqno), width="100%", columnalign="center right")
+        math.append(table)
+        return math
     
 
 def init(parser):

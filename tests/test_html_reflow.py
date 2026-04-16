@@ -3,6 +3,8 @@ import re
 from pytex import align
 from pytex import paragraph
 from pytex import html_reflow
+# prevent module side effects
+html_reflow.mod.init = None
 from pytex import html_builder
 from pytex import mmode
 from pytex import node as nd

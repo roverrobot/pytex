@@ -283,7 +283,9 @@ class HTMLReflowBackend(reflow.Reflow):
                 if node.atom_type == mmode.ATOM_TYPE.ORD and node.sup is None and node.sub is None and isinstance(node.nucleus, mmode.MathSymbol):
                     symbol: mmode.MathSymbol = node.nucleus
                     if symbol.fam == 0:
-                        char = symbol.char
+                        char = self._math_symbol(symbol.char, symbol.fam)
+                        if char is None:
+                            char = symbol.char
                         if char == "." and not has_dot:
                             if not is_digit and letters:
                                 parent.append(MI(letters, mathvariant="normal"))
@@ -441,16 +443,7 @@ class HTMLReflowBackend(reflow.Reflow):
         return self.typesetSymbol(field, atom_type=atom_type)
     
     def _math_symbol(self, char, fam):
-        code = ord(char)
-        if fam == 0:
-            text = font_subst.MATH_OPERATORS_MAP.get(code)
-        elif fam == 1:
-            text = font_subst.MATH_LETTERS_MAP.get(code)
-        elif fam == 2:
-            text = font_subst.MATH_SYMBOLS_MAP.get(code)
-        elif fam == 3:
-            text = font_subst.MATH_LARGE_SYMBOLS_MAP.get(code)
-        return text if text is not None else char
+        return font_subst.mathSlotText(fam, ord(char))
           
     def typesetSymbol(self, symbol: mmode.MathSymbol, atom_type: mmode.ATOM_TYPE = mmode.ATOM_TYPE.ORD):
         text = self._math_symbol(symbol.char, symbol.fam)
@@ -459,9 +452,9 @@ class HTMLReflowBackend(reflow.Reflow):
         # if this a dot or a digit?
         if atom_type == mmode.ATOM_TYPE.ORD:
             if symbol.fam == 0:
-                if (symbol.char == "." or "0" <= symbol.char <= "0"):
+                if text == "." or text.isdigit():
                     return MN(text)
-                return MI(text, mathvriant="normal")
+                return MI(text, mathvariant="normal")
             return MI(text)
         return MO(text or "", mathvariant="normal")
 

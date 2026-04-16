@@ -12,12 +12,14 @@ from pytex import node as nd
 from pytex import paragraph
 from pytex import vmode
 from pytex.dimen import Dimen
-from pytex.html_builder import element, render
 from pytex.module import Module
 from pytex import reflow
 from pytex import font_subst
 from lxml.html import builder
 from lxml import etree
+from lxml.builder import ElementMaker
+
+from tests.test_mmode import math
 
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
@@ -40,6 +42,23 @@ _DEFAULT_FONT_ROLE = {
 _CSS_POINTS_PER_TEX_POINT_NUM = 7200
 _CSS_POINTS_PER_TEX_POINT_DEN = 7227
 
+
+# Define shortcuts for common MathML tags
+E = ElementMaker(namespace="http://www.w3.org/1998/Math/MathML",
+                 nsmap={None: "http://www.w3.org/1998/Math/MathML"})
+MATH = E.math
+MI = E.mi
+MO = E.mo
+MN = E.mn
+MROW = E.mrow
+MSUP = E.msup
+MSUB = E.msub
+MSUBSUP = E.msubsup
+MFRAC = E.mfrac
+MENCLOSE = E.menclose
+MOVER = E.mover
+MSQRT = E.msqrt
+MTEXT = E.mtext
 
 def _pt(pt):
     return float(pt) / 72.27 * 72
@@ -101,7 +120,6 @@ class HTMLReflowBackend(reflow.Reflow):
         div.set("style", str(style))
         return div
 
-
     def typesetNBSP(self, width, height=1):
         div = builder.DIV()
         style = Style()
@@ -147,11 +165,12 @@ class HTMLReflowBackend(reflow.Reflow):
                     para.setSpace(self._glue_amount(n, box=None, state=glue_state))
                 continue
             if isinstance(n, mmode.InlineMathNode):
-                n = self.typesetInlineMath(n, collection, left_kern=Dimen(), right_kern=Dimen())
-            elif n.node_type == nd.NODE_TYPE.WHATSIT:
+                para.setInlineMath(n, collection, left_kern=Dimen(), right_kern=Dimen())
+                continue
+            if n.node_type == nd.NODE_TYPE.WHATSIT:
                 n.output(self.parser, self)
                 continue
-            elif n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            if n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 para.append(n)
 
     def typesetSpring(self, ratio):
@@ -165,1025 +184,250 @@ class HTMLReflowBackend(reflow.Reflow):
     def typesetSpace(self, width):
         return " "
 
-    def _math_symbol_text(self, symbol):
-        if symbol is None:
-            return None
-        code = ord(symbol.char)
-        if symbol.fam == 0:
-            text = font_subst.MATH_OPERATORS_MAP.get(code)
-            if text is not None:
-                return text
-        elif symbol.fam == 1:
-            text = font_subst.MATH_LETTERS_MAP.get(code)
-            if text is not None:
-                return text
-        elif symbol.fam == 2:
-            text = font_subst.MATH_SYMBOLS_MAP.get(code)
-            if text is not None:
-                return text
-        elif symbol.fam == 3:
-            text = font_subst.MATH_LARGE_SYMBOLS_MAP.get(code)
-            if text is not None:
-                return text
-        if self._printable_char(symbol.char):
-            return symbol.char
-        return None
-
-    def _math_delim_text(self, delim):
-        if delim is None or delim._isNull():
-            return None
-        text = self._math_symbol_text(delim.small)
-        if text is not None:
-            return text
-        return self._math_symbol_text(delim.large)
-
-    def _math_fragment(self, children, class_name=None):
-        children = [child for child in children if child is not None and child != ""]
-        if not children:
-            return []
-        if len(children) == 1 and class_name is None:
-            return children
-        return [element("span", children, class_=class_name)]
-
-    @staticmethod
-    def _mathml_group(children):
-        children = [child for child in children if child is not None and child != ""]
-        if not children:
-            return None
-        if len(children) == 1:
-            return children[0]
-        return element("mrow", children)
-
-    def _mathml_leaf(self, text, atom_type=None, fence=False, stretchy=False):
-        if text is None or text == "":
-            return None
-        if text.isdigit():
-            return element("mn", text)
-        if atom_type in (
-            mmode.ATOM_TYPE.BIN,
-            mmode.ATOM_TYPE.REL,
-            mmode.ATOM_TYPE.OPEN,
-            mmode.ATOM_TYPE.CLOSE,
-            mmode.ATOM_TYPE.PUNCT,
-        ):
-            return element("mo", text, fence=fence, stretchy=stretchy)
-        if atom_type == mmode.ATOM_TYPE.OP and not text.isalpha():
-            return element("mo", text)
-        if text.isalpha():
-            return element("mi", text)
-        return element("mo", text, fence=fence, stretchy=stretchy)
-
-    def _mathml_delimiter(self, delim):
-        text = self._math_delim_text(delim)
-        if text is None:
-            return None
-        return self._mathml_leaf(text, mmode.ATOM_TYPE.OPEN, fence=True, stretchy=True)
-
-    def _mathml_text(self, nodes):
-        text = self._flatten_text(nodes)
-        if not text:
-            return None
-        return element("mtext", text)
-
-    def _mathml_text_segment(self, text):
-        if not text:
-            return []
-        if any(char.isspace() for char in text):
-            return [element("mtext", text)]
-        nodes = []
-        for token in re.findall(r"[A-Za-z]+|\d+|.", text):
-            if token.isdigit():
-                nodes.append(element("mn", token))
+    operator_types = (mmode.ATOM_TYPE.BIN, mmode.ATOM_TYPE.REL, mmode.ATOM_TYPE.OP, 
+                      mmode.ATOM_TYPE.OPEN, mmode.ATOM_TYPE.CLOSE, mmode.ATOM_TYPE.PUNCT)
+    
+    def typesetMList(self, parent, nodes, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
+        # we need to consider the atom type (class) and family
+        # for consecutive letters of ORD symbols of family 0, they are either names  or digits
+        letters = ""
+        has_dot = False
+        is_digit = False
+        nodes = iter(nodes)
+        stack = []
+        while True:
+            node = next(nodes, None)
+            if node is None:
+                if not stack:
+                    break
+                nodes = stack.pop()
                 continue
-            if token.isalpha():
-                nodes.append(element("mi", token))
+            # we skip kerns and glues, and rely on MathML to handle them by default
+            if isinstance(node, mmode.StyleNode):
+                style = node.style
                 continue
-            nodes.append(element("mo", token))
-        return nodes
-
-    @staticmethod
-    def _is_mathml_field(field):
-        return isinstance(
-            field,
-            (
-                mmode.MathSymbol,
-                mmode.MathListHolder,
-                mmode.Subformula,
-                mmode.InlineMathNode,
-                mmode.DisplayMathNode,
-                mmode.Over,
-                mmode.Rad,
-                mmode.Accent,
-                mmode.Atom,
-                align.HAlignment,
-                align.MAlignment,
-            ),
-        )
-
-    def _math_source_owner(self, node):
-        source = getattr(node, "source", None)
-        seen = set()
-        while source is not None and not isinstance(source, (list, tuple)):
-            key = id(source)
-            if key in seen:
-                break
-            seen.add(key)
-            if self._is_mathml_field(source):
-                return source
-            source = getattr(source, "source", None)
-        return None
-
-    @staticmethod
-    def _inline_math_source_owner(node):
-        source = getattr(node, "source", None)
-        owner = None
-        saw_math_semantics = False
-        seen = set()
-        while source is not None and not isinstance(source, (list, tuple)):
-            key = id(source)
-            if key in seen:
-                break
-            seen.add(key)
-            if isinstance(
-                source,
-                (
-                    mmode.MathSymbol,
-                    mmode.Atom,
-                    mmode.Subformula,
-                    mmode.MathListHolder,
-                    mmode.Over,
-                    mmode.Rad,
-                    mmode.Accent,
-                ),
-            ):
-                saw_math_semantics = True
-            if isinstance(source, mmode.InlineMathNode):
-                if saw_math_semantics:
-                    owner = source
-            source = getattr(source, "source", None)
-        return owner
-
-    def _mathml_raw_segments(self, nodes):
-        segments = []
-        for node in nodes:
-            if self._is_mathml_field(node):
-                segments.append(("math", node))
-                continue
-            node_type = getattr(node, "node_type", None)
-            if node_type == nd.NODE_TYPE.WHATSIT:
-                segments.append(("special", self._special_text(node)))
-                continue
-            if node_type == nd.NODE_TYPE.PENALTY:
-                if (
-                    getattr(node, "penalty", None) is not None
-                    and node.penalty <= -10000
-                ):
-                    segments.append(("break",))
-                continue
-            source = self._math_source_owner(node)
-            if source is not None:
-                segments.append(("math", source))
-                continue
-            if node_type == nd.NODE_TYPE.CHAR:
-                segments.append(("text", node.font, node.char))
-                continue
-            if node_type == nd.NODE_TYPE.LIGATURE:
-                source = getattr(node, "source", None) or []
-                if source:
-                    text = "".join(getattr(child, "char", "") for child in source)
+            if isinstance(node, mmode.ChoiceNode):
+                if style.style == mmode.MATH_STYLE.D:
+                    new = node.display
+                elif style.style == mmode.MATH_STYLE.T:
+                    new = node.text
+                elif style.style == mmode.MATH_STYLE.S:
+                    new = node.script
                 else:
-                    text = node.char
-                segments.append(("text", node.font, text))
+                    new = node.scriptscript
+                stack.append(nodes)
+                nodes = iter(new.list)
                 continue
-            if node_type == nd.NODE_TYPE.GLUE:
-                segments.append(("text", None, " "))
-                continue
-            if node_type in (
-                nd.NODE_TYPE.KERN,
-                nd.NODE_TYPE.MARK,
-                nd.NODE_TYPE.INS,
-                nd.NODE_TYPE.ADJUST,
-            ):
-                continue
-            if node_type == nd.NODE_TYPE.DISC:
-                segments.extend(self._mathml_raw_segments(node.replace))
-                continue
-            children = getattr(node, "list", None)
-            if children is not None:
-                owner = self._direct_math_child_owner(node)
-                if owner is not None:
-                    segments.append(("math", owner))
-                    continue
-                segments.extend(self._mathml_raw_segments(children))
-        return segments
-
-    def _direct_math_child_owner(self, node):
-        children = getattr(node, "list", None)
-        if not children:
-            return None
-        owners = []
-        seen = set()
-        for child in children:
-            owner = child if self._is_mathml_field(child) else self._math_source_owner(child)
-            if owner is None:
-                continue
-            key = id(owner)
-            if key in seen:
-                continue
-            seen.add(key)
-            owners.append(owner)
-        if len(owners) == 1:
-            return owners[0]
-        return None
-
-    def _mathml_from_raw_nodes(self, nodes):
-        children = []
-        ids = []
-        last_math = None
-        for segment in self._normalize_segments(self._mathml_raw_segments(nodes)):
-            kind = segment[0]
-            if kind == "special":
-                action = self._special_action(segment[1])
-                if action is not None and action["kind"] == "dest":
-                    ids.append(action["target"])
-                continue
-            if kind == "break":
-                children.append(element("mspace", linebreak="newline"))
-                last_math = None
-                continue
-            if kind == "math":
-                field = segment[1]
-                key = id(field)
-                if key == last_math:
-                    continue
-                child = self._render_mathml_field(field)
-                if child is not None:
-                    children.append(child)
-                    last_math = key
-                continue
-            _kind, _font, text = segment
-            children.extend(self._mathml_text_segment(text))
-            last_math = None
-        return children, ids
-
-    def _mathml_alignment(self, owner, mode="matrix"):
-        rows = []
-        max_cols = 0
-        for row in getattr(owner, "rows", ()):
-            cells = []
-            col_count = 0
-            for cell in getattr(row, "cells", ()):
-                children, ids = self._mathml_from_raw_nodes(self._owner_raw_nodes(cell))
-                attrs = {}
-                span = getattr(cell, "span", 1)
-                col_count += span
-                if span > 1:
-                    attrs["columnspan"] = span
-                if ids:
-                    attrs["id"] = ids[0]
-                cells.append(element("mtd", self._mathml_group(children) or element("mrow"), **attrs))
-            if cells:
-                rows.append(element("mtr", cells))
-                max_cols = max(max_cols, col_count)
-        if not rows:
-            return None
-        if mode == "align":
-            aligns = []
-            for i in range(max_cols):
-                if max_cols > 2 and i == max_cols - 1:
-                    aligns.append("right")
-                else:
-                    aligns.append("right" if i % 2 == 0 else "left")
-        else:
-            aligns = ["center"] * max_cols
-        attrs = {}
-        if aligns:
-            attrs["columnalign"] = " ".join(aligns)
-        return element("mtable", rows, **attrs)
-
-    def _find_source_owner(self, node, classes):
-        source = getattr(node, "source", None)
-        while source is not None and not isinstance(source, (list, tuple)):
-            if isinstance(source, classes):
-                return source
-            source = getattr(source, "source", None)
-        for child in getattr(node, "list", ()) or ():
-            found = self._find_source_owner(child, classes)
-            if found is not None:
-                return found
-        return None
-
-    def _render_mathml_scripts(self, atom, base_node):
-        sub = getattr(atom, "sub", None)
-        sup = getattr(atom, "sup", None)
-        if base_node is None:
-            if sub is None and sup is None:
-                return None
-            base_node = element("mrow")
-        if sub is None and sup is None:
-            return base_node
-        if sub is not None and sup is not None:
-            return element(
-                "msubsup",
-                base_node,
-                self._mathml_group(self._render_mathml_items([sub])),
-                self._mathml_group(self._render_mathml_items([sup])),
-            )
-        if sub is not None:
-            return element(
-                "msub",
-                base_node,
-                self._mathml_group(self._render_mathml_items([sub])),
-            )
-        return element(
-            "msup",
-            base_node,
-            self._mathml_group(self._render_mathml_items([sup])),
-        )
-
-    def _render_mathml_field(self, field):
-        if field is None:
-            return None
-        if isinstance(field, str):
-            return element("mtext", field)
-        if isinstance(field, mmode.StyleNode):
-            return None
-        if isinstance(field, mmode.MathSymbol):
-            text = self._math_symbol_text(field)
-            if text is None:
-                return None
-            return self._mathml_leaf(text, field.type)
-        if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
-            return self._mathml_group(self._render_mathml_items(field.list))
-        if isinstance(field, mmode.Over):
-            num, den, _bar, _thickness = field.nucleus
-            frac = element(
-                "mfrac",
-                self._mathml_group(self._render_mathml_items(getattr(num, "list", ()))),
-                self._mathml_group(self._render_mathml_items(getattr(den, "list", ()))),
-            )
-            if field.delims is not None:
-                left_delim, right_delim = field.delims
-                frac = self._mathml_group(
-                    [
-                        self._mathml_delimiter(left_delim),
-                        frac,
-                        self._mathml_delimiter(right_delim),
-                    ]
-                )
-            return self._render_mathml_scripts(field, frac)
-        if isinstance(field, mmode.Rad):
-            base = element("msqrt", self._mathml_group(self._render_mathml_items([field.oprand])))
-            return self._render_mathml_scripts(field, base)
-        if isinstance(field, mmode.Accent):
-            accent = self._render_mathml_field(field.accent)
-            base = self._render_mathml_field(field.base)
-            if base is None:
-                return None
-            if accent is not None:
-                base = element("mover", base, accent, accent="true")
-            return self._render_mathml_scripts(field, base)
-        if isinstance(field, mmode.Atom):
-            children = []
-            if field.left is not None:
-                children.append(self._mathml_delimiter(field.left))
-            boundary = field._boundaryInfo()
-            if boundary is not None:
-                left_delim, right_delim, body_items = boundary
-                children.append(self._mathml_delimiter(left_delim))
-                children.extend(self._render_mathml_items(body_items))
-                children.append(self._mathml_delimiter(right_delim))
-            else:
-                children.append(self._render_mathml_field(getattr(field, "nucleus", None)))
-            if field.right is not None:
-                children.append(self._mathml_delimiter(field.right))
-            return self._render_mathml_scripts(field, self._mathml_group(children))
-        if isinstance(field, align.HAlignment):
-            return self._mathml_alignment(field, mode="matrix")
-        if isinstance(field, align.MAlignment):
-            source = getattr(field, "source", None)
-            if isinstance(source, align.HAlignment):
-                return self._mathml_alignment(source, mode="align")
-            return self._mathml_group(self._render_mathml_items(getattr(field, "list", ())))
-        if getattr(field, "node_type", None) == nd.NODE_TYPE.WHATSIT:
-            return None
-        source = self._find_source_owner(field, (align.HAlignment, align.MAlignment))
-        if source is not None:
-            return self._render_mathml_field(source)
-        return None
-
-    def _render_mathml_items(self, items):
-        children = []
-        for item in items:
-            child = self._render_mathml_field(item)
-            if child is not None:
-                children.append(child)
-        return children
-
-    def _render_mathml(self, node, display=False, class_name=None):
-        children = self._render_mathml_items(getattr(node, "list", ()))
-        if not children:
-            return None
-        attrs = {"display": "block"} if display else {}
-        if class_name is not None:
-            attrs["class_"] = class_name
-        return element("math", children, **attrs)
-
-    def _raw_text_segments(self, nodes):
-        segments = []
-        for node in nodes:
-            node_type = getattr(node, "node_type", None)
-            inline_math = self._inline_math_source_owner(node)
-            if inline_math is not None:
-                segments.append(("math", inline_math))
-                continue
-            if node_type == nd.NODE_TYPE.CHAR:
-                segments.append(("text", node.font, node.char))
-                continue
-            if node_type == nd.NODE_TYPE.LIGATURE:
-                source = getattr(node, "source", None) or []
-                if source:
-                    text = "".join(getattr(child, "char", "") for child in source)
-                else:
-                    text = node.char
-                segments.append(("text", node.font, text))
-                continue
-            if node_type == nd.NODE_TYPE.GLUE:
-                segments.append(("text", None, " "))
-                continue
-            if isinstance(node, mmode.InlineMathNode):
-                segments.append(("math", node))
-                continue
-            if node_type in (
-                nd.NODE_TYPE.KERN,
-                nd.NODE_TYPE.MARK,
-                nd.NODE_TYPE.INS,
-                nd.NODE_TYPE.ADJUST,
-            ):
-                continue
-            if node_type == nd.NODE_TYPE.PENALTY:
-                if (
-                    getattr(node, "penalty", None) is not None
-                    and node.penalty <= -10000
-                ):
-                    segments.append(("break",))
-                continue
-            if node_type == nd.NODE_TYPE.WHATSIT:
-                segments.append(("special", self._special_text(node)))
-                continue
-            if node_type == nd.NODE_TYPE.DISC:
-                segments.extend(self._raw_text_segments(node.replace))
-                continue
-            children = getattr(node, "list", None)
-            if children is not None:
-                segments.extend(self._raw_text_segments(children))
-        return segments
-
-    def _normalize_segments(self, segments):
-        normalized = []
-        pending_space = False
-        started = False
-        for segment in segments:
-            kind = segment[0]
-            if kind in ("special", "math", "break"):
-                if pending_space and started and kind != "break":
-                    normalized.append(("text", None, " "))
-                    pending_space = False
-                normalized.append(segment)
-                continue
-            _kind, font, text = segment
-            for char in text:
-                if char.isspace():
-                    if started:
-                        pending_space = True
-                    continue
-                if pending_space:
-                    normalized.append(("text", font, " "))
-                    pending_space = False
-                normalized.append(("text", font, char))
-                started = True
-        if not normalized:
-            return []
-        merged = []
-        for segment in normalized:
-            if segment[0] != "text":
-                merged.append(segment)
-                continue
-            _kind, font, text = segment
-            if (
-                merged
-                and merged[-1][0] == "text"
-                and self._font_signature(merged[-1][1]) == self._font_signature(font)
-            ):
-                merged[-1] = ("text", merged[-1][1], merged[-1][2] + text)
-                continue
-            merged.append(("text", font, text))
-        return merged
-
-    def _special_marker(self, text):
-        attrs = {
-            "class_": "tex-special",
-            "aria-hidden": "true",
-            "data-tex-special": text,
-        }
-        return element("span", **attrs)
-
-    def _special_action(self, text):
-        if text is None:
-            return None
-        stripped = text.strip()
-        if not stripped:
-            return None
-        match = _DEST_RE.match(stripped)
-        if match is not None:
-            return {"kind": "dest", "target": match.group(1)}
-        match = _GOTO_RE.search(stripped)
-        if match is not None and _BEGINANN_RE.match(stripped):
-            return {"kind": "link-start", "href": f"#{match.group(1)}"}
-        match = _GOTOR_RE.search(stripped)
-        if match is not None and _BEGINANN_RE.match(stripped):
-            href = match.group(1)
-            if match.group(2):
-                href = f"{href}#{match.group(2)}"
-            return {"kind": "link-start", "href": href}
-        if _ENDANN_RE.match(stripped):
-            return {"kind": "link-end"}
-        return {"kind": "marker", "text": stripped}
-
-    def _inline_children(self, nodes, base_font=None):
-        children = []
-        link_stack = []
-        pending_break = False
-        last_math = None
-
-        def has_visible_content(target):
-            for item in target:
-                if isinstance(item, str):
-                    if item.strip():
-                        return True
-                    continue
-                attrs = getattr(item, "attrs", None)
-                if attrs is None:
-                    return True
-                classes = str(attrs.get("class", "")).split()
-                if "tex-special" in classes or "tex-dest" in classes:
-                    continue
-                return True
-            return False
-
-        def append(child):
-            if child is None:
-                return
-            nonlocal pending_break
-            if pending_break:
-                target = link_stack[-1]["children"] if link_stack else children
-                if has_visible_content(target):
-                    target.append(element("br"))
-                pending_break = False
-            if link_stack:
-                link_stack[-1]["children"].append(child)
-            else:
-                children.append(child)
-
-        for segment in self._normalize_segments(self._raw_text_segments(nodes)):
-            kind = segment[0]
-            if kind == "special":
-                action = self._special_action(segment[1])
-                if action is None:
-                    continue
-                if action["kind"] == "dest":
-                    append(element("span", id=action["target"], class_="tex-dest"))
-                    continue
-                if action["kind"] == "link-start":
-                    link_stack.append({"href": action["href"], "children": []})
-                    continue
-                if action["kind"] == "link-end":
-                    if not link_stack:
+            if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
+                if node.atom_type == mmode.ATOM_TYPE.ORD and node.sup is None and node.sub is None and isinstance(node.nucleus, mmode.MathSymbol):
+                    symbol: mmode.MathSymbol = node.nucleus
+                    if symbol.fam == 0:
+                        char = symbol.char
+                        if char == "." and not has_dot:
+                            if not is_digit and letters:
+                                parent.append(MI(letters, mathvariant="normal"))
+                                letters = ""
+                                is_digit = True
+                            has_dot = True
+                            letters += char
+                            continue
+                        if char.isdigit():
+                            if not is_digit and letters:
+                                parent.append(MI(letters, mathvariant="normal"))
+                                letters = ""
+                            is_digit = True
+                            letters += char
+                            continue
+                        if is_digit and letters:
+                            parent.append(MN(letters))
+                            letters = ""
+                            is_digit = False
+                            has_dot = False
+                        letters += char
                         continue
-                    link = link_stack.pop()
-                    append(element("a", link["children"], href=link["href"], class_="tex-link"))
-                    continue
-                append(self._special_marker(action["text"]))
+            if letters:
+                if is_digit:
+                    parent.append(MN(letters))
+                else:
+                    parent.append(MI(letters, mathvariant="normal"))
+                letters = ""
+                is_digit = False
+                has_dot = False
+            if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
+                parent.append(self.typesetAtom(node, style=style))
                 continue
-            if kind == "break":
-                pending_break = True
-                last_math = None
+            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.MARK, nd.NODE_TYPE.ADJUST):
+                 continue
+            if node.node_type == nd.NODE_TYPE.VLIST:
+                parent.append(self.typesetVBox(node, inline=True))
                 continue
-            if kind == "math":
-                field = segment[1]
-                key = id(field)
-                if key == last_math:
-                    continue
-                append(self._render_mathml(field, class_name="inline-math"))
-                last_math = key
+            if node.node_type == nd.NODE_TYPE.HLIST:
+                parent.append(self.typesetHBox(node, inline=True))
                 continue
-            _kind, font, text = segment
-            attrs = self._font_attrs(font, base_font)
-            if attrs:
-                append(element("span", text, **attrs))
+            if node.node_type == nd.NODE_TYPE.WHATSIT:
+                node.output(self.parser, self)
+                continue
+            if node.node_type == nd.NODE_TYPE.INS:
+                node.output(self.parser, self)
+        if letters:
+            if is_digit:
+                parent.append(MN(letters))
             else:
-                append(text)
-            last_math = None
-        while link_stack:
-            link = link_stack.pop(0)
-            append(element("a", link["children"], href=link["href"], class_="tex-link"))
-        return children
+                parent.append(MI(letters, mathvariant="normal"))
+        if len(parent) == 1 and parent.tag != "math":
+            parent = parent[0]
+            # if atom_type is an operator, we need to set it as <mo>
+            if atom_type in self.operator_types:
+                return MO(parent.text, mathvariant=parent.get("mathvariant"))
+        return parent
+    
+    def typesetNucleus(self, atom: mmode.Atom, style: mmode.Style):
+        # an atom has a nucleus, and optionally subscript and superscript. It may also have left and right delimiters.
+        if isinstance(atom, mmode.Over):
+            num, den, bar, thickness = atom.nucleus
+            nucleus = MFRAC(
+                self.typesetMList(MROW(), num.list, mmode.ATOM_TYPE.ORD, style.numerator()),
+                self.typesetMList(MROW(), den.list, mmode.ATOM_TYPE.ORD, style.denominator()))
+            if not bar:
+                thickness = 0
+            if thickness is not None:
+                nucleus.set("linethickness", f"{_pt(thickness)}pt")
+            if atom.delims is not None:
+                left, right = atom.delims
+                open = self.typesetDelim(left)
+                close = self.typesetDelim(right)
+                nucleus = MROW(open, nucleus, close)
+            return nucleus
+        node_type = getattr(atom.nucleus, "node_type", None)
+        if node_type == nd.NODE_TYPE.HLIST:
+            return self.typesetMathHBox(atom.nucleus)
+        if node_type == nd.NODE_TYPE.VLIST:
+            return self.typesetMathVBox(atom.nucleus)
+        atom_type = atom.atom_type
+        t = mmode.ATOM_TYPE.ORD if atom_type.value > 7 else atom_type
+        s = style if atom_type.value > 7 else mmode.Style(style.style, cramped=True)
+        nucleus = self.typesetField(atom.nucleus, atom_type=t, style=s)
+        if atom_type in (mmode.ATOM_TYPE.OVER, mmode.ATOM_TYPE.UNDER):
+            notation = "top" if atom_type == mmode.ATOM_TYPE.OVER else "bottom"
+            return MENCLOSE(nucleus, notation=notation)
+        if atom_type == mmode.ATOM_TYPE.ACC:
+            return MOVER(nucleus, MO(self._math_symbol(atom.accent.char, atom.accent.fam), stretchy=True), accent=True)
+        return MSQRT(nucleus) if atom_type == mmode.ATOM_TYPE.RAD else nucleus
+    
+    def typesetMathHBox(self, hbox):
+        row = MROW()
+        text = ""
+        nodes = iter(hbox.list)
+        while True:
+            n = next(nodes, None)
+            if n is None: 
+                break
+            if n.node_type == nd.NODE_TYPE.CHAR:
+                text += n.char
+                continue
+            if n.node_type == nd.NODE_TYPE.LIGATURE:
+                for p in n.source:
+                    text += p.char
+                continue
+            if n.node_type == nd.NODE_TYPE.GLUE:
+                text += " "
+                continue
+            if text:
+                row.append(MTEXT(text))
+                text = ""
+            if n.node_type == nd.NODE_TYPE.HLIST:
+                row.append(self.typesetMathHBox(n))
+            elif n.node_type == nd.NODE_TYPE.VLIST:
+                row.append(self.typesetMathVBox(n))
+            elif n.node_type == nd.NODE_TYPE.WHATSIT:
+                n.output(self.parser, self)
+            elif n.node_type == nd.NODE_TYPE.MATH:
+                inline: mmode.InlineMathNode = n.source
+                while True:
+                    n = next(nodes, None)
+                    assert n is not None
+                    if n.node_type == nd.NODE_TYPE.MATH:
+                        break
+                row.append(self.typesetMList(MROW(), inline.list, mmode.ATOM_TYPE.ORD, mmode.Style(mmode.MATH_STYLE.T)))
+        if text:
+            row.append(MTEXT(text))
+        return row
 
-    def _render_eqno(self, eqno_list):
-        text = self._flatten_text(getattr(eqno_list, "list", ()))
-        if text and re.fullmatch(r"\d+[A-Za-z]?", text):
-            return element("span", f"({text})", class_="eqno-wrap")
-        eqno_math = self._render_mathml(eqno_list, class_name="eqno")
-        if eqno_math is None:
-            return None
-        return element("span", eqno_math, class_="eqno-wrap")
+    def typesetMathVBox(self, vbox):
+        for n in vbox.list:
+            if n.node_type == nd.NODE_TYPE.WHATSIT:
+                n.output(self.parser, self)
+        return MI()
+                    
+    def typesetAtom(self, atom: mmode.Atom, style: mmode.Style):
+        nucleus = self.typesetNucleus(atom, style)
+        if atom.sub is None:
+            if atom.sup is None:
+                return nucleus
+            return MSUP(nucleus, self.typesetField(atom.sup, mmode.ATOM_TYPE.ORD, style=style.superscript()))
+        if atom.sup is None:
+            return MSUB(nucleus, self.typesetField(atom.sub, mmode.ATOM_TYPE.ORD, style=style.subscript()))
+        return MSUBSUP(
+            nucleus, 
+            self.typesetField(atom.sub, mmode.ATOM_TYPE.ORD, style=style.subscript()), 
+            self.typesetField(atom.sup, mmode.ATOM_TYPE.ORD, style=style.superscript()))
 
-    def _render_alignment_tag(self, nodes):
-        text = self._flatten_text(nodes)
-        if text and re.fullmatch(r"\d+[A-Za-z]?", text):
-            return element("span", f"({text})", class_="eqno-wrap")
-        dominant = self._dominant_font(nodes)
-        children = self._inline_children(nodes, dominant)
-        if not children:
-            return None
-        return element("span", children, class_="eqno-wrap")
-
-    def _special_text(self, node):
-        text = getattr(node, "text", None)
+    def typesetField(self, field, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
+        if field is None:
+            return MROW()
+        if isinstance(field, mmode.Subformula):
+            return self.typesetMList(MROW(), field.list, atom_type=atom_type, style=style)
+        return self.typesetSymbol(field, atom_type=atom_type)
+    
+    def _math_symbol(self, char, fam):
+        code = ord(char)
+        if fam == 0:
+            text = font_subst.MATH_OPERATORS_MAP.get(code)
+        elif fam == 1:
+            text = font_subst.MATH_LETTERS_MAP.get(code)
+        elif fam == 2:
+            text = font_subst.MATH_SYMBOLS_MAP.get(code)
+        elif fam == 3:
+            text = font_subst.MATH_LARGE_SYMBOLS_MAP.get(code)
+        return text if text is not None else char
+          
+    def typesetSymbol(self, symbol: mmode.MathSymbol, atom_type: mmode.ATOM_TYPE = mmode.ATOM_TYPE.ORD):
+        text = self._math_symbol(symbol.char, symbol.fam)
         if text is None:
-            return None
-        if isinstance(text, list):
-            return self.parser.expandedToksToString(text)
-        return text
+            return MI()
+        # if this a dot or a digit?
+        if atom_type == mmode.ATOM_TYPE.ORD:
+            if symbol.fam == 0:
+                if (symbol.char == "." or "0" <= symbol.char <= "0"):
+                    return MN(text)
+                return MI(text, mathvriant="normal")
+            return MI(text)
+        return MO(text or "", mathvariant="normal")
 
-    def _contains_epdf(self, node):
-        if getattr(node, "node_type", None) == nd.NODE_TYPE.WHATSIT:
-            text = self._special_text(node)
-            return bool(text and _EPDF_RE.search(text))
-        for child in getattr(node, "list", ()) or ():
-            if self._contains_epdf(child):
-                return True
-        return False
+    def typesetDelim(self, delim):
+        text = self._math_symbol(delim.small.char, delim.small.fam)
+        if text is None:
+            text = self._math_symbol(delim.small.char, delim.small.fam)
+        if text is None:
+            return MO()
+        return MO(text)
 
-    def _extract_epdf_path(self, node):
-        if getattr(node, "node_type", None) == nd.NODE_TYPE.WHATSIT:
-            text = self._special_text(node)
-            if text is None:
-                return None
-            match = _EPDF_RE.search(text)
-            return None if match is None else match.group(1)
-        for child in getattr(node, "list", ()) or ():
-            path = self._extract_epdf_path(child)
-            if path is not None:
-                return path
-        return None
-
-    def _is_media_container(self, node):
-        node_type = getattr(node, "node_type", None)
-        if node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            return False
-        if not self._contains_epdf(node):
-            return False
-        for child in getattr(node, "list", ()) or ():
-            child_type = getattr(child, "node_type", None)
-            if child_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                continue
-            if self._contains_epdf(child) and self._flatten_text(getattr(child, "list", ())) != "":
-                return False
-        return True
-
-    def _render_media_container(self, node):
-        path = self._extract_epdf_path(node)
-        if path is None:
-            return None
-        caption = self._flatten_text(getattr(node, "list", ()))
-        media = element(
-            "object",
-            element("a", os.path.basename(path), href=path),
-            data=path,
-            type="application/pdf",
-            class_="media-object",
-        )
-        children = [media]
-        if caption:
-            children.append(element("figcaption", caption))
-        return element("figure", children, class_="media-block")
-
-    def _collect_media_blocks(self):
-        blocks = []
-
-        def walk(node):
-            if self._is_media_container(node):
-                block = self._render_media_container(node)
-                if block is not None:
-                    blocks.append(block)
-                return
-            for child in getattr(node, "list", ()) or ():
-                walk(child)
-
-        for page in self.pages:
-            walk(page)
-        return blocks
-
-    @staticmethod
-    def _owner_raw_nodes(owner):
-        raw = getattr(owner, "raw", None)
-        if raw is not None:
-            return raw
-        return getattr(owner, "list", ())
-
-    @staticmethod
-    def _node_width(node):
-        return Dimen(getattr(node, "width", 0))
-
-    def _wrapped_alignment_owner(self, node):
-        if isinstance(node, align.HAlignment):
-            return node
-        if isinstance(node, align.MAlignment):
-            source = getattr(node, "source", None)
-            return source if isinstance(source, align.HAlignment) else node
-        return self._find_source_owner(node, (align.HAlignment, align.MAlignment))
-
-    def _paragraph_alignment_info(self, owner):
-        candidate = None
-        leading_indent = Dimen()
-        seen_visible = False
-        for node in self._owner_raw_nodes(owner):
-            node_type = getattr(node, "node_type", None)
-            if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.WHATSIT):
-                continue
-            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC):
-                return None
-            wrapped = self._wrapped_alignment_owner(node)
-            if wrapped is None:
-                if self._flatten_text(getattr(node, "list", ())):
-                    return None
-                if not seen_visible:
-                    leading_indent += self._node_width(node)
-                continue
-            if isinstance(wrapped, align.MAlignment):
-                source = getattr(wrapped, "source", None)
-                wrapped = source if isinstance(source, align.HAlignment) else wrapped
-            seen_visible = True
-            if candidate is None:
-                candidate = wrapped
-                continue
-            if candidate is not wrapped:
-                return None
-        if candidate is None:
-            return None
-        return candidate, leading_indent
-
-    @staticmethod
-    def _css_points(value):
-        scaled = int(value) if isinstance(value, Dimen) else int(Dimen(value))
-        return (
-            scaled
-            * _CSS_POINTS_PER_TEX_POINT_NUM
-            / (_CSS_POINTS_PER_TEX_POINT_DEN * Dimen.scale)
-        )
-
-    def _alignment_rows(self, owner, mathml_cells=False):
-        rows = []
-        for row in getattr(owner, "rows", ()):
-            cells = []
-            for cell in getattr(row, "cells", ()):
-                attrs = {}
-                span = getattr(cell, "span", 1)
-                if span > 1:
-                    attrs["colspan"] = span
-                raw_nodes = self._owner_raw_nodes(cell)
-                if mathml_cells:
-                    cell_children = []
-                    if self._is_alignment_tag_cell(cell):
-                        attrs["class_"] = "eqno-cell"
-                        label = self._render_alignment_tag(raw_nodes)
-                        if label is not None:
-                            cell_children.append(label)
-                    else:
-                        math_children, ids = self._mathml_from_raw_nodes(raw_nodes)
-                        if ids:
-                            attrs["id"] = ids[0]
-                        if math_children:
-                            cell_children.append(
-                                element(
-                                    "math",
-                                    self._mathml_group(math_children),
-                                    class_="aligned-cell-math",
-                                )
-                            )
-                else:
-                    dominant = self._dominant_font(getattr(cell, "list", ()))
-                    attrs.update(self._font_attrs(dominant, self._body_font))
-                    cell_children = self._inline_children(raw_nodes, dominant)
-                cells.append(
-                    element(
-                        "td",
-                        cell_children,
-                        **attrs,
-                    )
-                )
-            if cells:
-                rows.append(element("tr", cells))
-        return rows
-
-    def _m_alignment_rows(self, owner):
-        rows = []
-        for rowbox in getattr(owner, "list", ()):
-            if getattr(rowbox, "node_type", None) != nd.NODE_TYPE.HLIST:
-                continue
-            cells = []
-            seen = set()
-            for child in getattr(rowbox, "list", ()):
-                source = getattr(child, "source", None)
-                if source is None:
-                    continue
-                key = id(source)
-                if key in seen:
-                    continue
-                seen.add(key)
-                attrs = {}
-                nodes = list(getattr(source, "list", ())) or self._owner_raw_nodes(source)
-                cell_children = []
-                if self._is_alignment_tag_cell(source):
-                    dominant = self._dominant_font(nodes)
-                    cell_children.extend(self._inline_children(nodes, dominant))
-                else:
-                    math_children, ids = self._mathml_from_raw_nodes(nodes)
-                    if ids:
-                        attrs["id"] = ids[0]
-                    if math_children:
-                        cell_children.append(
-                            element(
-                                "math",
-                                self._mathml_group(math_children),
-                                class_="aligned-cell-math",
-                            )
-                        )
-                cells.append(element("td", cell_children, **attrs))
-            if cells:
-                rows.append(element("tr", cells))
-        return rows
-
-    @staticmethod
-    def _is_alignment_tag_cell(source):
-        raw = list(getattr(source, "raw", ()))
-        if not raw:
-            return False
-        if getattr(raw[0], "node_type", None) != nd.NODE_TYPE.KERN:
-            return False
-        non_kern = [node for node in raw if getattr(node, "node_type", None) != nd.NODE_TYPE.KERN]
-        if len(non_kern) > 1:
-            return False
-        for node in raw[:-len(non_kern) or None]:
-            if getattr(node, "node_type", None) != nd.NODE_TYPE.KERN:
-                return False
-        return True
-
-    def _display_math_children(self, owner):
-        math = self._render_mathml(owner, display=True, class_name="display-mathml")
-        eqno = getattr(owner, "eqno", None)
-        if eqno is None:
-            return [math] if math is not None else []
-        eqno_list, left = eqno
-        label = self._render_eqno(eqno_list)
-        if label is None:
-            return [math] if math is not None else []
-        body = element("div", math, class_="display-math-body") if math is not None else None
-        children = [body] if body is not None else []
-        if left:
-            return [label] + children
-        return children + [label]
-
-    def _render_owner(self, owner):
-        if isinstance(owner, paragraph.Paragraph):
-            alignment_info = self._paragraph_alignment_info(owner)
-            if alignment_info is not None:
-                alignment_owner, leading_indent = alignment_info
-                rows = self._alignment_rows(alignment_owner)
-                if rows:
-                    attrs = {"class_": "alignment"}
-                    if leading_indent > 0:
-                        attrs["style"] = f"margin-left:{self._css_points(leading_indent):.4f}pt"
-                    return [element("table", rows, **attrs)]
-                return []
-            dominant = self._dominant_font(owner.list)
-            children = self._inline_children(self._owner_raw_nodes(owner), dominant)
-            if not children:
-                return []
-            attrs = {
-                "class_": ["paragraph", "indent" if owner.indent else "noindent"],
-            }
-            attrs.update(self._font_attrs(dominant, self._body_font))
-            return [
-                element(
-                    "p",
-                    children,
-                    **attrs,
-                )
-            ]
-        if isinstance(owner, mmode.DisplayMathNode):
-            children = self._display_math_children(owner)
-            if not children:
-                return []
-            classes = ["display-math"]
-            if getattr(owner, "eqno", None) is not None:
-                classes.append("with-eqno")
-            return [element("div", children, class_=classes)]
-        if isinstance(owner, align.HAlignment):
-            rows = self._alignment_rows(owner)
-            if not rows:
-                return []
-            return [element("table", rows, class_="alignment")]
-        if isinstance(owner, align.MAlignment):
-            source = getattr(owner, "source", None)
-            if isinstance(source, align.HAlignment):
-                rows = self._alignment_rows(source, mathml_cells=True)
-                if rows:
-                    return [element("div", element("table", rows, class_=["alignment", "display-math-table"]), class_="display-math")]
-            math = self._render_mathml(owner, display=True, class_name="display-mathml")
-            if math is None:
-                return []
-            return [element("div", math, class_="display-math")]
-        if isinstance(owner, vmode.VAdjust):
-            blocks = []
-            for child in getattr(owner, "list", ()):
-                blocks.extend(self._render_owner(child))
-            return blocks
-        node_type = getattr(owner, "node_type", None)
-        if node_type == nd.NODE_TYPE.RULE:
-            return [element("hr", class_="separator")]
-        if node_type == nd.NODE_TYPE.INS:
-            text = self._flatten_text(getattr(owner, "list", ()))
-            if not text:
-                return []
-            return [element("aside", text, class_="note")]
-        if node_type == nd.NODE_TYPE.WHATSIT:
-            text = self._special_text(owner)
-            if text is None:
-                return []
-            action = self._special_action(text)
-            if action is None:
-                return []
-            if action["kind"] == "dest":
-                return [element("span", id=action["target"], class_="tex-dest")]
-            if action["kind"] == "marker":
-                return [self._special_marker(action["text"])]
-            return []
-        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            if (
-                len(getattr(owner, "list", ())) == 0
-                and getattr(owner, "source", None) is not None
-                and self._pending_media_blocks
-            ):
-                return [self._pending_media_blocks.pop(0)]
-            text = self._flatten_text(getattr(owner, "list", ()))
-            if not text:
-                return []
-            return [element("div", text, class_="box")]
-        return []
-
-    def _render_document(self, owners):
-        self._body_font = self._infer_body_font(owners)
-        self._pending_media_blocks = self._collect_media_blocks()
-        blocks = []
-        for owner in owners:
-            blocks.extend(self._render_owner(owner))
-        if self._pending_media_blocks:
-            blocks.extend(self._pending_media_blocks)
-            self._pending_media_blocks = []
-        title = os.path.basename(os.fspath(self.parser.jobname or "texput"))
-        doc = element(
-            "html",
-            element(
-                "head",
-                element("meta", charset="utf-8"),
-                element("title", title),
-                element(
-                    "style",
-                    (
-                        "math{font-family:\"Latin Modern Math\",\"STIX Two Math\",\"Cambria Math\",math;}"
-                        ".display-math{overflow-x:auto;}"
-                        ".display-math math{display:block;}"
-                        ".display-math.with-eqno{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:1em;overflow:visible;}"
-                        ".display-math-body{min-width:0;overflow-x:auto;justify-self:center;}"
-                        ".eqno-wrap{white-space:nowrap;}"
-                        ".eqno-wrap math{display:inline;}"
-                        ".display-math-table{border-collapse:collapse;}"
-                        ".display-math-table td{padding:0 0.35em;vertical-align:middle;}"
-                        ".display-math-table td.eqno-cell{text-align:right;white-space:nowrap;}"
-                        ".display-math-table math{display:block;}"
-                    ),
-                ),
-            ),
-            element(
-                "body",
-                element("main", blocks, class_="pytex-reflow"),
-            ),
-            lang="en",
-        )
-        return "<!doctype html>\n" + render(doc) + "\n"
-
+    def typesetInlineMath(self, node: mmode.InlineMathNode, collection, left_kern, right_kern):
+        math = MATH(display="inline")
+        style = Style()
+        style["left"] = f"{_pt(left_kern)}pt"
+        style["right"] = f"{_pt(right_kern)}pt"
+        math.set("style", str(style))
+        return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
+    
+    def typesetDisplayMath(self, node, collection, yspacing):
+        math = MATH(display="block")
+        style = Style()
+        style["display"] = "block"
+        style["top"] = f"{_pt(yspacing)}pt"
+        math.set("style", str(style))
+        return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
+    
 
 def init(parser):
     font_subst.installFontSubstitution(parser)

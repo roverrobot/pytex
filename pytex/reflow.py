@@ -79,6 +79,16 @@ class Spring:
     def typeset(self, backend):
         return backend.typesetSpring(self.ratio)
 
+@dataclass
+class InlineMath:
+    node: mmode.InlineMathNode
+    collection: list
+    left_kern: Dimen
+    right_kern: Dimen
+
+    def typeset(self, backend):
+        return backend.typesetInlineMath(self.node, self.collection, self.left_kern, self.right_kern)
+
 class Paragraph(list):
     def __init__(self, indent=Dimen(), spacing_before = Dimen()):
         self.spacing_before = spacing_before
@@ -104,6 +114,9 @@ class Paragraph(list):
     def setNBSP(self, width):
         self.text_run = None
         super().append(NBSP(self.parser.currentfont, width))
+
+    def setInlineMath(self, node: mmode.InlineMathNode, collection: list, left_kern: Dimen, right_kern: Dimen):
+        super().append(InlineMath(node, collection, left_kern, right_kern))
 
     def append(self, node):
         if node.node_type == nd.NODE_TYPE.CHAR:

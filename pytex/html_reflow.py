@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 import os
+from pathlib import Path
 import re
 
 from pytex import align
@@ -80,10 +81,66 @@ class HTMLReflowBackend(reflow.Reflow):
     def __init__(self, parser, output=None):
         super().__init__(parser, output)
         self.finished = False
-        self.header = builder.HEAD(builder.TITLE(self.parser.jobname or "texput"))
+        self.header = builder.HEAD()
         self.body = builder.BODY()
         self._body_font = None
         self._pending_media_blocks = []
+
+    def _css_string(self, text):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    def _math_font_face_rule(self):
+        backend = font_subst.resolveMathFontBackend(self.parser)
+        if backend is None:
+            return ""
+        family = font_subst.fontBackendName(backend)
+        path = getattr(backend, "path", None)
+        if not family or not path:
+            return ""
+        try:
+            uri = Path(path).resolve().as_uri()
+        except Exception:
+            return ""
+        ext = Path(path).suffix.lower()
+        format_name = {
+            ".ttf": "truetype",
+            ".otf": "opentype",
+            ".ttc": "truetype",
+            ".otc": "opentype",
+        }.get(ext)
+        src = f'url({self._css_string(uri)})'
+        if format_name is not None:
+            src += f' format({self._css_string(format_name)})'
+        return f"@font-face{{font-family:{self._css_string(family)};src:{src};}}"
+
+    def _math_font_stack(self):
+        stack = []
+        backend = font_subst.resolveMathFontBackend(self.parser)
+        family = font_subst.fontBackendName(backend) if backend is not None else None
+        if family and font_subst.usableFontName(family):
+            stack.append(family)
+        for name in font_subst.MATH_FONT_CANDIDATES:
+            if font_subst.usableFontName(name) and name not in stack:
+                stack.append(name)
+        stack.append("math")
+        items = [self._css_string(name) for name in stack[:-1]]
+        items.append(stack[-1])
+        return ",".join(items)
+
+    def _document_css(self):
+        parts = []
+        font_face = self._math_font_face_rule()
+        if font_face:
+            parts.append(font_face)
+        parts.append(f"math{{font-family:{self._math_font_stack()};}}")
+        return "".join(parts)
+
+    def _build_head(self):
+        return builder.HEAD(
+            builder.META(charset="utf-8"),
+            builder.TITLE(self.parser.jobname or "texput"),
+            builder.STYLE(self._document_css()),
+        )
 
     def open(self):
         # Runtime shipout is intentionally side-effect free for HTML reflow.
@@ -98,8 +155,12 @@ class HTMLReflowBackend(reflow.Reflow):
             if not output.endswith(".html"):
                 output += ".html"
             file = self.parser.resolver.openOut(output, None)
+        self.header = self._build_head()
         html = builder.HTML(self.header, self.body)
-        s=etree.tostring(html, method="html", pretty_print=True, encoding='unicode')
+        html.set("lang", "en")
+        s = "<!doctype html>\n" + etree.tostring(
+            html, method="html", pretty_print=True, encoding="unicode"
+        )
         file.write(s)
         file.close()
     

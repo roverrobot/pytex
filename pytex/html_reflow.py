@@ -65,8 +65,10 @@ MLABELEDTR = E.mlabeledtr
 MTR = E.mtr
 MTD = E.mtd
 
+
 def _pt(pt):
-    return float(pt) / 72.27 * 72
+    return f"{float(pt) / 72.27 * 72}pt"
+
 
 class Style(dict):
     def __str__(self):
@@ -176,12 +178,12 @@ class HTMLReflowBackend(reflow.Reflow):
     def _box(self, box, inline, xspacing, yspacing):
         div = builder.DIV()
         style = Style()
-        style["left"] = f"{_pt(xspacing)}pt"
-        style["top"] = f"{_pt(yspacing)}pt"
+        style["left"] = _pt(xspacing)
+        style["top"] = _pt(yspacing)
         if inline:
             style["display"] = "inline-block"
-            style["width"] = f"{_pt(box.width)}pt"
-            style["height"] = f"{_pt(box.height+box.depth)}pt"
+            style["width"] = _pt(box.width)
+            style["height"] = _pt(box.height+box.depth)
         div.set("style", str(style))
         return div
 
@@ -189,16 +191,16 @@ class HTMLReflowBackend(reflow.Reflow):
         div = builder.DIV()
         style = Style()
         style["display"] = "inine-block"
-        style["width"] = f"{_pt(width)}pt"
-        style["height"] = f"{_pt(height)}pt"
+        style["width"] = _pt(width)
+        style["height"] = _pt(height)
         div.set("style", str(style))
         return div
     
     def typesetParagraph(self, para: reflow.Paragraph):
         div = builder.DIV()
         style = Style()
-        style["text-indent"] = f"{_pt(para.indent)}pt"
-        style["padding"] = f"{_pt(para.spacing_before)}pt 0 0 0"
+        style["text-indent"] = _pt(para.indent)
+        style["padding"] = f"{_pt(para.spacing_before)} 0 0 0"
         div.set("style", str(style))
         for n in para:
             s = n.typeset(self)
@@ -211,7 +213,7 @@ class HTMLReflowBackend(reflow.Reflow):
         span = builder.SPAN()
         style = Style()
         style["font-family"] = text.font.backend._name
-        style["font-size"] = f"{_pt(text.font.at)}pt"
+        style["font-size"] = _pt(text.font.at)
         span.set("style", str(style))
         span.text= "".join([n.typeset(self) for n in text])
         return span
@@ -358,7 +360,7 @@ class HTMLReflowBackend(reflow.Reflow):
             if not bar:
                 thickness = 0
             if thickness is not None:
-                nucleus.set("linethickness", f"{_pt(thickness)}pt")
+                nucleus.set("linethickness", _pt(thickness))
             if atom.delims is not None:
                 left, right = atom.delims
                 open = self.typesetDelim(left)
@@ -473,8 +475,8 @@ class HTMLReflowBackend(reflow.Reflow):
     def typesetInlineMath(self, node: mmode.InlineMathNode, collection, left_kern, right_kern):
         math = MATH(display="inline")
         style = Style()
-        style["left"] = f"{_pt(left_kern)}pt"
-        style["right"] = f"{_pt(right_kern)}pt"
+        style["left"] = _pt(left_kern)
+        style["right"] = _pt(right_kern)
         math.set("style", str(style))
         return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
     
@@ -482,7 +484,7 @@ class HTMLReflowBackend(reflow.Reflow):
         math = MATH(display="block")
         style = Style()
         style["display"] = "block"
-        style["top"] = f"{_pt(yspacing)}pt"
+        style["top"] = _pt(yspacing)
         math.set("style", str(style))
         if node.eqno is None:
             return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
@@ -497,6 +499,7 @@ class HTMLReflowBackend(reflow.Reflow):
             table = MTABLE(MTR(mtd_body, mtd_eqno), width="100%", columnalign="center right")
         math.append(table)
         return math
+        
     
 
 def init(parser):

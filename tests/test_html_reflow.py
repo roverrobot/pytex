@@ -1,340 +1,252 @@
-import re
+from types import SimpleNamespace
+
+from lxml import etree
+from lxml.html import builder
+import pytest
 
 from pytex import align
-from pytex import paragraph
+from pytex import box
+from pytex import font as txfont
+from pytex import glue
 from pytex import html_reflow
-# prevent module side effects
-html_reflow.mod.init = None
-from pytex import html_builder
 from pytex import mmode
 from pytex import node as nd
-from pytex import box
-from pytex import texlive
+from pytex import reflow
 from pytex.dimen import Dimen
 
+# prevent module side effects
+html_reflow.mod.init = None
 
-def _normalize(text):
-    return re.sub(r"\s+", " ", text)
+
+class _FakeTextBackend:
+    def __init__(self, kind="opentype", name="Fake Font", subst_font_name=None):
+        self.kind = kind
+        self.name = name
+        self.subst_font_name = subst_font_name
+        self.fontdimen = [0.0, 0.5, 0.0, 0.0, 0.7, 1.0, 0.0]
 
 
-def _init_math_fonts(parser):
-    parser.parse(
-        "\\font\\tenrm=cmr10 "
-        "\\font\\sevenrm=cmr7 "
-        "\\font\\fiverm=cmr5 "
-        "\\font\\teni=cmmi10 "
-        "\\font\\seveni=cmmi7 "
-        "\\font\\fivei=cmmi5 "
-        "\\font\\tensy=cmsy10 "
-        "\\font\\sevensy=cmsy7 "
-        "\\font\\fivesy=cmsy5 "
-        "\\font\\tenex=cmex10 "
-        "\\skewchar\\teni='177 \\skewchar\\seveni='177 \\skewchar\\fivei='177 "
-        "\\skewchar\\tensy='60 \\skewchar\\sevensy='60 \\skewchar\\fivesy='60 "
-        "\\textfont1=\\teni \\scriptfont1=\\seveni \\scriptscriptfont1=\\fivei "
-        "\\textfont2=\\tensy \\scriptfont2=\\sevensy \\scriptscriptfont2=\\fivesy "
-        "\\textfont3=\\tenex \\scriptfont3=\\tenex \\scriptscriptfont3=\\tenex "
-        "\\mathchardef\\beta=\"010C "
-        "\\mathchardef\\gamma=\"010D "
-        "\\mathchardef\\dagger=\"0279"
+class _CaptureReflow(reflow.Reflow):
+    def __init__(self, parser):
+        super().__init__(parser)
+        self.captured_glue_state = None
+
+    def _glue_state(self, box):
+        return {"order": 1, "shrink": False}
+
+    def _box(self, box, inline, xspacing, yspacing):
+        return []
+
+    def populateParagraph(self, para, hlist, glue_state):
+        self.captured_glue_state = glue_state
+
+    def typesetParagraph(self, para, container=None):
+        return container
+
+
+def _render(node):
+    return etree.tostring(node, method="html", encoding="unicode")
+
+
+def _fake_font(kind="opentype", name="Fake Font", subst_font_name=None, at=10):
+    return txfont.Font(
+        _FakeTextBackend(kind=kind, name=name, subst_font_name=subst_font_name),
+        at,
     )
 
 
-def test_html_reflow_merges_owned_line_boxes_into_one_paragraph(cmr10):
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(r"\hsize=20pt a a a a a a a a", jobname="reflow-para")
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-para.html"].content
-    assert html.count('<p class="paragraph indent">') == 1
-    assert "a a a a a a a a" in _normalize(html)
-
-
-def test_html_reflow_renders_insert_as_note(cmr10):
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(r"\insert2{\hbox{note}}", jobname="reflow-note")
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-note.html"].content
-    assert '<aside class="note">note</aside>' in html
-
-
-def test_html_reflow_renders_halign_as_table(cmr10):
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(r"\halign{#&#\cr a&b\cr c&d\cr}", jobname="reflow-table")
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-table.html"].content
-    assert "<table class=\"alignment\">" in html
-    assert "<td>a</td>" in html
-    assert "<td>b</td>" in html
-    assert "<td>c</td>" in html
-    assert "<td>d</td>" in html
-
-
-def test_html_reflow_preserves_paragraph_font_size_without_heading_inference(cmr10):
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(
-        r"\font\big=cmr10 at 17.28pt "
-        r"{\big 1 Figure}\par "
-        r"Body text",
-        jobname="reflow-font-size",
+def _char(char, font):
+    return nd.CharNode(
+        char,
+        font,
+        char_info=SimpleNamespace(
+            char=char,
+            width=0.5,
+            height=0.7,
+            depth=0.0,
+            italic=0.0,
+        ),
     )
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-font-size.html"].content
-    assert '<p class="paragraph indent"' in html
-    assert 'style="font-size:' in html
-    assert ">1 Figure</p>" in html
-    assert "<h1" not in html
-    assert "<h2" not in html
 
 
-def test_html_reflow_preserves_inline_font_runs(cmr10):
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(
-        r"\font\b=cmbx10 "
-        r"\font\i=cmti10 "
-        r"A {\b B} {\i C}\par",
-        jobname="reflow-inline-fonts",
+def _text_box(parser, text, font, width=None):
+    if width is None:
+        hbox = box.HBox(parser, None, 0)
+    else:
+        hbox = box.HBox(parser, Dimen(width), None)
+    hbox.list = [_char(char, font) for char in text]
+    return hbox.typeset(parser)
+
+
+def _ord_atom(char):
+    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom.nucleus = mmode.MathSymbol(ord(char), -1)
+    return atom
+
+
+def test_html_reflow_close_writes_document_head(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    parser.jobname = "reflow-head"
+    backend.body.append(builder.DIV("x"))
+    backend.close()
+
+    html = parser.resolver.in_memory_files["reflow-head.html"].content
+    assert html.startswith("<!doctype html>")
+    assert '<html lang="en">' in html
+    assert '<meta charset="utf-8">' in html
+    assert "<title>reflow-head</title>" in html
+    assert "math{font-family:" in html
+    assert "<body>" in html
+    assert "<div>x</div>" in html
+
+
+def test_html_reflow_maps_math_operator_period_slot_to_period(parser):
+    atom = mmode.Atom(mmode.ATOM_TYPE.PUNCT)
+    atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.PUNCT.value << 12) | (0 << 8) | 0x3A, -1)
+
+    backend = html_reflow.HTMLReflowBackend(parser)
+    assert backend.typesetSymbol(atom.nucleus, atom_type=mmode.ATOM_TYPE.PUNCT).text == "."
+
+
+def test_html_reflow_maps_ord_period_slot_in_compacted_runs(parser):
+    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (0 << 8) | 0x3A, -1)
+
+    backend = html_reflow.HTMLReflowBackend(parser)
+    node = backend.typesetMList(
+        html_reflow.MROW(),
+        [atom],
+        atom_type=mmode.ATOM_TYPE.ORD,
+        style=mmode.Style(mmode.MATH_STYLE.T),
     )
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-inline-fonts.html"].content
-    assert '<p class="paragraph indent">A' in html
-    assert 'data-tex-font="cmbx10"' in html
-    assert 'style="font-weight:bold"' in html
-    assert 'data-tex-font="cmti10"' in html
-    assert 'style="font-style:italic"' in html
+    assert node.text == "."
 
 
-def test_html_reflow_preserves_raw_special_markers(cmr10):
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(r"\special{foo}", jobname="reflow-special")
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-special.html"].content
-    assert 'class="tex-special"' in html
-    assert 'data-tex-special="foo"' in html
+def test_html_reflow_asserts_on_raw_tfm_text_backend(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(kind="tfm", name="cmr10")
+    text = reflow.TextRun(font)
+    text.setChar("A")
+
+    with pytest.raises(AssertionError, match="OpenType-backed text fonts"):
+        backend.typesetTextRun(text)
 
 
-def test_html_reflow_maps_dvipdfm_link_specials_to_html_anchor(cmr10):
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(
-        r"\special{pdf:dest (target.1) [@thispage /XYZ @xpos @ypos null]}"
-        r"x"
-        r"\special{pdf: bann<< /Type/Annot /Subtype/Link /A<< /S/GoTo /D(target.1) >> >>}"
-        r"a"
-        r"\special{pdf: eann}\par",
-        jobname="reflow-link-special",
+def test_html_reflow_accepts_substituted_text_backend(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(kind="tfm", name="cmr10", subst_font_name="Times New Roman")
+    text = reflow.TextRun(font)
+    text.setChar("A")
+
+    rendered = backend.typesetTextRun(text)
+    style = rendered.get("style")
+    assert style.startswith("font-family:Times New Roman;font-size:")
+    assert style.endswith("pt;")
+    assert rendered.text == "A"
+
+
+def test_reflow_hbox_passes_glue_state_into_populate_paragraph(parser):
+    backend = _CaptureReflow(parser)
+    rendered = backend.typesetHBox(SimpleNamespace(shifted=None, list=[], width=Dimen(40)))
+
+    assert backend.captured_glue_state == {"order": 1, "shrink": False}
+    assert rendered == []
+
+
+def test_html_reflow_hbox_uses_flex_layout_for_springs(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(subst_font_name="Times New Roman")
+    hfil = glue.Glue(0, glue.Stretchness(2, 1))
+    row = box.HBox(parser, Dimen(40), None)
+    row.list = [_char("A", font), nd.Glue(hfil, None)]
+    row = row.typeset(parser)
+
+    rendered = backend.typesetHBox(row)
+    style = rendered.get("style")
+    assert "display:flex;" in style
+    assert "align-items:baseline;" in style
+    assert "white-space:nowrap;" in style
+    assert "width:" in style
+    assert any(
+        child.get("style", "").startswith("flex-grow:")
+        and child.get("style", "").endswith("flex-basis:0;")
+        for child in rendered
+        if hasattr(child, "get")
     )
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-link-special.html"].content
-    assert 'id="target.1"' in html
-    assert '<a href="#target.1" class="tex-link">a</a>' in html
 
 
-def test_html_reflow_uses_raw_paragraph_nodes_for_math_and_breaks(cmr10):
-    _init_math_fonts(cmr10)
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(
-        r"\noindent A$^{1*}$ and B$^{2\dagger}$\penalty-10000 C\par",
-        jobname="reflow-raw-math-breaks",
-    )
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-raw-math-breaks.html"].content
-    assert '<math class="inline-math">' in html
-    assert "<msup>" in html
-    assert "<mn>1</mn>" in html
-    assert "<mn>2</mn>" in html
-    assert "†" in html
-    assert "<br>" in html
+def test_html_reflow_typesets_inline_math_with_offsets(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    node = mmode.InlineMathNode(nodes=[_ord_atom("x")])
+
+    rendered = backend.typesetInlineMath(node, collection=[], left_kern=Dimen(3), right_kern=Dimen(5))
+    html = _render(rendered)
+    assert 'display="inline"' in html
+    assert "left:" in html
+    assert "right:" in html
+    assert ">x<" in html
 
 
-def test_html_reflow_ignores_positive_penalties_in_prose(cmr10):
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(r"\noindent M.\penalty10000\ E. Newman\par", jobname="reflow-no-break-penalty")
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-no-break-penalty.html"].content
-    assert "<br>" not in html
-    assert "M. E. Newman" in _normalize(html)
+def test_html_reflow_typesets_display_math_with_eqno_table(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    node = mmode.DisplayMathNode()
+    node.list = [_ord_atom("x")]
+    node.eqno = (SimpleNamespace(list=[_ord_atom("1")]), False)
 
-
-def test_html_reflow_renders_display_math_from_raw_math_nodes(cmr10):
-    _init_math_fonts(cmr10)
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(r"$$p_S=1-p_I$$", jobname="reflow-display-math")
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-display-math.html"].content
-    assert '<div class="display-math">' in html
-    assert '<math display="block" class="display-mathml">' in html
-    assert "<msub>" in html
-    assert "-" in html
-
-
-def test_html_reflow_ignores_generic_payload_fields_in_mathml(cmr10):
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-
-    class _TokenishPayload:
-        def __init__(self):
-            self.list = ["from-list"]
-            self.raw = [nd.CharNode("x", cmr10.parameters["currentfont"])]
-            self.text = "from-text"
-
-    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_a.nucleus = mmode.MathSymbol(ord("a"), -1)
-    html = html_builder.render(
-        html_builder.element("math", backend._render_mathml_items([_TokenishPayload(), atom_a]))
-    )
-    assert "from-list" not in html
-    assert "from-text" not in html
-    assert ">a<" in html
-
-
-def test_html_reflow_renders_math_from_alignment_cell_raw_nodes(cmr10):
-    _init_math_fonts(cmr10)
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(r"\halign{$#$\cr \beta\cr}", jobname="reflow-halign-math")
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-halign-math.html"].content
-    assert "<table class=\"alignment\">" in html
-    assert '<math class="inline-math">' in html
-    assert "β" in html
-
-
-def test_html_reflow_renders_display_halign_cells_with_mathml(cmr10):
-    _init_math_fonts(cmr10)
-    cmr10.shipout = html_reflow.HTMLReflowBackend(cmr10)
-    cmr10.parse(r"$$\halign{$#$&$#$\cr \beta&\gamma\cr}$$", jobname="reflow-display-halign-math")
-    cmr10.end()
-    html = cmr10.resolver.in_memory_files["reflow-display-halign-math.html"].content
-    assert '<div class="display-math"><table class="alignment display-math-table">' in html
-    assert 'class="aligned-cell-math"' in html
-    assert "β" in html
-    assert "γ" in html
-
-
-def test_html_reflow_prefers_math_source_over_flattened_math_font_chars(cmr10):
-    _init_math_fonts(cmr10)
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    beta = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | 0x0C, -1)
-    holder = mmode.MathListHolder([beta])
-    char = nd.CharNode(chr(0x0C), cmr10.textfont[1])
-    char.source = holder
-    children, ids = backend._mathml_from_raw_nodes([char])
-    assert ids == []
-    html = html_builder.render(html_builder.element("math", children))
-    assert "β" in html
-
-
-def test_html_reflow_only_promotes_inline_math_when_source_chain_is_semantic(cmr10):
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    holder = mmode.InlineMathNode(nodes=[])
-    wrapper = box.HBox(cmr10, None, 0)
-    wrapper.source = holder
-    char = nd.CharNode("A", cmr10.parameters["currentfont"])
-    char.source = wrapper
-    segments = backend._raw_text_segments([char])
-    assert segments == [("text", char.font, "A")]
-
-
-def test_html_reflow_does_not_treat_text_alignment_as_inline_math(cmr10):
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    holder = mmode.InlineMathNode(nodes=[])
-    table = align.HAlignment()
-    table.source = holder
-    wrapper = box.HBox(cmr10, None, 0)
-    wrapper.source = table
-    char = nd.CharNode("A", cmr10.parameters["currentfont"])
-    char.source = wrapper
-    segments = backend._raw_text_segments([char])
-    assert segments == [("text", char.font, "A")]
-
-
-def test_html_reflow_detects_alignment_tag_cells(cmr10):
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    tag = box.HBox(cmr10, None, 0)
-    inner = box.HBox(cmr10, None, 0)
-    tag.raw = [nd.Kern(1), nd.Kern(1), inner]
-    assert backend._is_alignment_tag_cell(tag)
-    cell = box.HBox(cmr10, None, 0)
-    cell.raw = [inner, nd.Glue(cmr10.layout["tabskip"], "\\tabskip")]
-    assert not backend._is_alignment_tag_cell(cell)
-
-
-def test_html_reflow_collapses_single_math_owner_wrappers(cmr10):
-    _init_math_fonts(cmr10)
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    beta = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | 0x0C, -1)
-    holder = mmode.InlineMathNode(nodes=[beta])
-    wrapped = box.HBox(cmr10, None, 0)
-    inner = box.HBox(cmr10, None, 0)
-    inner.source = holder
-    char = nd.CharNode(chr(0x0C), cmr10.textfont[1])
-    char.source = beta
-    inner.list = [char]
-    on = nd.MathShift(True)
-    on.source = holder
-    off = nd.MathShift(False)
-    off.source = holder
-    wrapped.list = [on, inner, off]
-    children, ids = backend._mathml_from_raw_nodes([wrapped])
-    assert ids == []
-    html = html_builder.render(html_builder.element("math", children))
-    assert html.count("β") == 1
-
-
-def test_html_reflow_ignores_positive_penalties_in_mathml(cmr10):
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    currentfont = cmr10.parameters["currentfont"]
-    children, ids = backend._mathml_from_raw_nodes(
-        [nd.CharNode("a", currentfont), nd.Penalty(10000), nd.CharNode("b", currentfont)]
-    )
-    assert ids == []
-    html = html_builder.render(html_builder.element("math", children))
-    assert 'linebreak="newline"' not in html
-
-
-def test_html_reflow_uses_negative_penalties_as_mathml_linebreaks(cmr10):
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    currentfont = cmr10.parameters["currentfont"]
-    children, ids = backend._mathml_from_raw_nodes(
-        [nd.CharNode("a", currentfont), nd.Penalty(-10000), nd.CharNode("b", currentfont)]
-    )
-    assert ids == []
-    html = html_builder.render(html_builder.element("math", children))
-    assert 'linebreak="newline"' in html
-
-
-def test_html_reflow_renders_alignment_tag_cells_as_eqnos(cmr10):
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    currentfont = cmr10.parameters["currentfont"]
-    owner = align.HAlignment()
-    row = align.Row()
-    body = box.HBox(cmr10, None, 0)
-    body.raw = [nd.CharNode("a", currentfont)]
-    tag = box.HBox(cmr10, None, 0)
-    tag.raw = [nd.Kern(1), nd.CharNode("4", currentfont)]
-    row.cells = [body, tag]
-    owner.rows = [row]
-    html = html_builder.render(html_builder.element("table", backend._alignment_rows(owner, mathml_cells=True)))
-    assert 'class="eqno-cell"' in html
-    assert "(4)" in html
-
-
-def test_html_reflow_promotes_paragraph_wrapped_alignment_with_indent_box(cmr10):
-    backend = html_reflow.HTMLReflowBackend(cmr10)
-    currentfont = cmr10.parameters["currentfont"]
-    owner = align.HAlignment()
-    owner.tabskips = []
-    row = align.Row()
-    cell1 = box.HBox(cmr10, None, 0)
-    cell1.raw = [nd.CharNode("1", currentfont)]
-    cell2 = box.HBox(cmr10, None, 0)
-    cell2.raw = [nd.CharNode("2", currentfont)]
-    row.cells = [cell1, cell2]
-    owner.rows = [row]
-    wrapped = box.HBox(cmr10, None, 0)
-    wrapped.source = owner
-    para = paragraph.Paragraph(cmr10, indent=True)
-    para.raw = [box.IndentBox(cmr10, width=Dimen(12)), wrapped]
-    rendered = backend._render_owner(para)
-    html = "".join(html_builder.render(node) for node in rendered)
-    assert "<table" in html
-    assert 'style="margin-left:' in html
+    rendered = backend.typesetDisplayMath(node, collection=[], yspacing=Dimen(6))
+    html = _render(rendered)
+    assert 'display="block"' in html
+    assert "<mtable" in html
+    assert 'columnalign="center right"' in html
+    assert ">x<" in html
     assert ">1<" in html
-    assert ">2<" in html
+
+
+def test_html_reflow_alignment_outer_tabskip_centers_table(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(subst_font_name="Times New Roman")
+
+    owner = align.HAlignment()
+    fil = glue.Glue(0, glue.Stretchness(1, 1))
+    owner.tabskips = [fil, glue.Glue(), fil]
+    row = align.Row()
+    left = _text_box(parser, "a", font)
+    right = _text_box(parser, "b", font)
+    left.span = 1
+    right.span = 1
+    row.cells = [left, right]
+    owner.rows = [row]
+
+    table = backend.typesetHAlignment(owner, collection=[], yspacing=Dimen(12))
+    html = _render(table)
+    assert 'class="alignment"' in html
+    assert "margin-top:" in html
+    assert "margin-left:auto;" in html
+    assert "margin-right:auto;" in html
+
+
+def test_html_reflow_alignment_cell_uses_edge_glue_for_flush(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(subst_font_name="Times New Roman")
+
+    owner = align.HAlignment()
+    row = align.Row()
+    hfil = glue.Glue(0, glue.Stretchness(1, 1))
+
+    right = box.HBox(parser, Dimen(30), None)
+    right.list = [nd.Glue(hfil, None), _char("r", font)]
+    right = right.typeset(parser)
+    right.span = 1
+
+    center = box.HBox(parser, Dimen(30), None)
+    center.list = [nd.Glue(hfil, None), _char("c", font), nd.Glue(hfil, None)]
+    center = center.typeset(parser)
+    center.span = 1
+
+    row.cells = [right, center]
+    owner.rows = [row]
+
+    table = backend.typesetHAlignment(owner, collection=[], yspacing=Dimen())
+    html = _render(table)
+    assert "justify-content:flex-end;" in html
+    assert "justify-content:center;" in html

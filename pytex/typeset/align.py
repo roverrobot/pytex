@@ -12,14 +12,22 @@ VAlignment = al.VAlignment
 MAlignment = al.MAlignment
 
 
+class NoAlignNodeWrapper:
+    def __init__(self, node, source):
+        self.node = node
+        self.source = source
+
+    def __getattr__(self, name):
+        return getattr(self.node, name)
+
+
 class AlignmentTypesetter:
     def __init__(self, parser):
         self.parser = parser
 
     def _appendNoAlign(self, alignment, noalign, vlist):
         for n in noalign:
-            n.source = alignment
-            vlist.append(n, add_interline=False)
+            vlist.append(NoAlignNodeWrapper(n, alignment), add_interline=False)
 
     def typesetHAlignment(self, alignment, vlist):
         parser = self.parser

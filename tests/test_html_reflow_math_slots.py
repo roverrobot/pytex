@@ -1,11 +1,16 @@
 from pytex import html_reflow
 # prevent module side effects
 html_reflow.mod.init = None
+from pytex import align
+from pytex import box
 from pytex import font as txfont
+from pytex import glue
 from pytex import mmode
+from pytex import node as nd
 from pytex import reflow
 from pytex.dimen import Dimen
 import pytest
+from lxml import etree
 from types import SimpleNamespace
 
 
@@ -31,8 +36,8 @@ class _CaptureReflow(reflow.Reflow):
     def populateParagraph(self, para, hlist, glue_state):
         self.captured_glue_state = glue_state
 
-    def typesetHBoxRow(self, para, box, inline=False):
-        return "row"
+    def typesetParagraph(self, para, container=None):
+        return container
 
 
 def test_html_reflow_maps_math_operator_period_slot_to_period(parser):
@@ -84,17 +89,85 @@ def test_reflow_hbox_passes_glue_state_into_populate_paragraph(parser):
     box = SimpleNamespace(shifted=None, list=[], width=Dimen(40))
     rendered = backend.typesetHBox(box)
     assert backend.captured_glue_state == {"order": 1, "shrink": False}
-    assert rendered == ["row"]
+    assert rendered == []
 
 
-def test_html_reflow_hbox_row_uses_flex_layout_for_springs(parser):
-    backend = html_reflow.HTMLReflowBackend(parser)
-    para = reflow.Paragraph()
-    list.append(para, reflow.Spring(2))
-    row = backend.typesetHBoxRow(para, SimpleNamespace(width=Dimen(40)), inline=True)
-    style = row.get("style")
+def test_html_reflow_hbox_uses_flex_layout_for_springs(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    currentfont = cmr10.parameters["currentfont"]
+    currentfont.backend.subst_font_name = "Times New Roman"
+    hfil = glue.Glue(0, glue.Stretchness(2, 1))
+    row = box.HBox(cmr10, Dimen(40), None)
+    row.list = [nd.CharNode("A", currentfont), nd.Glue(hfil, None)]
+    row = row.typeset(cmr10)
+    rendered = backend.typesetHBox(row)
+    style = rendered.get("style")
     assert "display:flex;" in style
     assert "align-items:baseline;" in style
     assert "white-space:nowrap;" in style
     assert "width:" in style
-    assert row[0].get("style") == "flex-grow:2;flex-basis:0;"
+    assert any(
+        child.get("style", "").startswith("flex-grow:")
+        and child.get("style", "").endswith("flex-basis:0;")
+        for child in rendered
+        if hasattr(child, "get")
+    )
+
+
+def test_html_reflow_alignment_outer_tabskip_centers_table(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    currentfont = cmr10.parameters["currentfont"]
+    currentfont.backend.subst_font_name = "Times New Roman"
+
+    owner = align.HAlignment()
+    fil = glue.Glue(0, glue.Stretchness(1, 1))
+    owner.tabskips = [fil, glue.Glue(), fil]
+    row = align.Row()
+
+    left = box.HBox(cmr10, Dimen(20), 0)
+    left.list = [nd.CharNode("a", currentfont)]
+    left = left.typeset(cmr10)
+    left.span = 1
+
+    right = box.HBox(cmr10, Dimen(20), 0)
+    right.list = [nd.CharNode("b", currentfont)]
+    right = right.typeset(cmr10)
+    right.span = 1
+
+    row.cells = [left, right]
+    owner.rows = [row]
+
+    table = backend.typesetHAlignment(owner, collection=[], yspacing=Dimen(12))
+    html = etree.tostring(table, method="html", encoding="unicode")
+    assert 'class="alignment"' in html
+    assert "margin-top:" in html
+    assert "margin-left:auto;" in html
+    assert "margin-right:auto;" in html
+
+
+def test_html_reflow_alignment_cell_uses_edge_glue_for_flush(cmr10):
+    backend = html_reflow.HTMLReflowBackend(cmr10)
+    currentfont = cmr10.parameters["currentfont"]
+    currentfont.backend.subst_font_name = "Times New Roman"
+
+    owner = align.HAlignment()
+    row = align.Row()
+    hfil = glue.Glue(0, glue.Stretchness(1, 1))
+
+    right = box.HBox(cmr10, Dimen(30), None)
+    right.list = [nd.Glue(hfil, None), nd.CharNode("r", currentfont)]
+    right = right.typeset(cmr10)
+    right.span = 1
+
+    center = box.HBox(cmr10, Dimen(30), None)
+    center.list = [nd.Glue(hfil, None), nd.CharNode("c", currentfont), nd.Glue(hfil, None)]
+    center = center.typeset(cmr10)
+    center.span = 1
+
+    row.cells = [right, center]
+    owner.rows = [row]
+
+    table = backend.typesetHAlignment(owner, collection=[], yspacing=Dimen())
+    html = etree.tostring(table, method="html", encoding="unicode")
+    assert "justify-content:flex-end;" in html
+    assert "justify-content:center;" in html

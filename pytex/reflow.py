@@ -119,6 +119,10 @@ class Paragraph(list):
         super().append(InlineMath(node, collection, left_kern, right_kern))
 
     def append(self, node):
+        if isinstance(node, Spring):
+            self.text_run = None
+            super().append(node)
+            return
         if node.node_type == nd.NODE_TYPE.CHAR:
             self.setChar(node)
         elif node.node_type == nd.NODE_TYPE.LIGATURE:
@@ -316,7 +320,7 @@ class Reflow(shipout.Shipout):
                     para.setSpace(raw.glue.dimen)
                 elif (glue_state["order"] > 0 and
                     not glue_state["shrink"] and
-                    glue_state["order"] == raw.glue.sretch.order
+                    glue_state["order"] == raw.glue.stretch.order
                 ):
                     para.append(Spring(self._glue_amount(raw, box=None, state=glue_state)))
                 else:

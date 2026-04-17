@@ -254,6 +254,108 @@ class HTMLReflowBackend(reflow.Reflow):
 
     operator_types = (mmode.ATOM_TYPE.BIN, mmode.ATOM_TYPE.REL, mmode.ATOM_TYPE.OP, 
                       mmode.ATOM_TYPE.OPEN, mmode.ATOM_TYPE.CLOSE, mmode.ATOM_TYPE.PUNCT)
+
+    @staticmethod
+    def _node_has_inline_anchor(node):
+        node_type = getattr(node, "node_type", None)
+        if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC, nd.NODE_TYPE.RULE):
+            return True
+        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            if (
+                Dimen(getattr(node, "width", 0)) > 0
+                or Dimen(getattr(node, "height", 0)) > 0
+                or Dimen(getattr(node, "depth", 0)) > 0
+            ):
+                return True
+            for child in getattr(node, "list", None) or ():
+                if HTMLReflowBackend._node_has_inline_anchor(child):
+                    return True
+        return False
+
+    @staticmethod
+    def _glue_stretch_order(glue):
+        if glue is None:
+            return None
+        stretch = getattr(glue, "stretch", None)
+        if stretch is not None and getattr(stretch, "factor", 0) != 0:
+            return int(getattr(stretch, "order", 0))
+        return None
+
+    def _edge_stretch_order(self, nodes):
+        order = None
+        for node in nodes:
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.GLUE:
+                continue
+            current = self._glue_stretch_order(getattr(node, "glue", None))
+            if current is None:
+                continue
+            if order is None or current > order:
+                order = current
+        return order
+
+    def _box_flush_justify_content(self, box):
+        items = list(getattr(box, "list", None) or ())
+        if not items:
+            return "flex-start"
+        start = 0
+        end = len(items) - 1
+        while start <= end and not self._node_has_inline_anchor(items[start]):
+            start += 1
+        while end >= start and not self._node_has_inline_anchor(items[end]):
+            end -= 1
+        if start > end:
+            return "flex-start"
+        left_order = self._edge_stretch_order(items[:start])
+        right_order = self._edge_stretch_order(items[end + 1:])
+        if left_order is None:
+            return "flex-start"
+        if right_order is None:
+            return "flex-end"
+        if left_order > right_order:
+            return "flex-end"
+        if right_order > left_order:
+            return "flex-start"
+        return "center"
+
+    def _alignment_outer_alignment(self, node):
+        tabskips = list(getattr(node, "tabskips", None) or ())
+        if not tabskips:
+            return "left"
+        left_order = self._glue_stretch_order(tabskips[0])
+        right_order = self._glue_stretch_order(tabskips[-1])
+        if left_order is None:
+            return "left"
+        if right_order is None:
+            return "right"
+        if left_order > right_order:
+            return "right"
+        if right_order > left_order:
+            return "left"
+        return "center"
+
+    def _typeset_alignment_cell(self, cell):
+        td = builder.TD(colspan=str(getattr(cell, "span", 1)))
+        td_style = Style()
+        td_style["padding"] = "0"
+        td_style["vertical-align"] = "baseline"
+        td.set("style", str(td_style))
+
+        wrapper = builder.DIV()
+        wrapper_style = Style()
+        wrapper_style["display"] = "flex"
+        wrapper_style["width"] = "100%"
+        wrapper_style["align-items"] = "baseline"
+        wrapper_style["justify-content"] = self._box_flush_justify_content(cell)
+        wrapper.set("style", str(wrapper_style))
+
+        content = self.typesetHBox(cell, inline=False)
+        content.set(
+            "style",
+            content.get("style", "") + "display:inline-flex;width:auto;max-width:100%;",
+        )
+        wrapper.append(content)
+        td.append(wrapper)
+        return td
     
     def typesetMList(self, parent, nodes, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
         # we need to consider the atom type (class) and family
@@ -507,12 +609,23 @@ class HTMLReflowBackend(reflow.Reflow):
 
         columns = node.columns()
         table = builder.TABLE()
+        table.set("class", "alignment")
+        style = Style()
+        style["margin-top"] = _pt(yspacing)
+        style["border-spacing"] = "0"
+        outer_alignment = self._alignment_outer_alignment(node)
+        if outer_alignment == "right":
+            style["margin-left"] = "auto"
+        elif outer_alignment == "center":
+            style["margin-left"] = "auto"
+            style["margin-right"] = "auto"
+        table.set("style", str(style))
         if node.noalign is not None:
             table.append(noalign(node.noalign, columns))
         for row in node.rows:
             tr = builder.TR()
             for cell in row.cells:
-                tr.append(builder.TD(self.typesetHBox(cell, inline=False), colspan=f"{cell.span}"))
+                tr.append(self._typeset_alignment_cell(cell))
             table.append(tr)
             if row.noalign is not None:
                 table.append(noalign(row.noalign, columns))

@@ -171,7 +171,7 @@ class HTMLReflowBackend(reflow.Reflow):
     def typesetPage(self, tree):
         # the body is the last item 
         body = tree[-1]
-        self.body.append(self.typesetVBox(body))
+        self.body.append(self.typesetVBox(body, mark_last_source=True))
 
     def _box(self, box, inline, xspacing, yspacing):
         style = Style()
@@ -186,8 +186,6 @@ class HTMLReflowBackend(reflow.Reflow):
             style["flex-wrap"] = "nowrap"
             style["white-space"] = "nowrap"
             style["width"] = _pt(box.width)
-        else:
-            style["height"] = _pt(box.height+box.depth)
         return builder.DIV(style=str(style))
 
 
@@ -408,7 +406,11 @@ class HTMLReflowBackend(reflow.Reflow):
             parent = parent[0]
             # if atom_type is an operator, we need to set it as <mo>
             if atom_type in self.operator_types:
-                return MO(parent.text, mathvariant=parent.get("mathvariant"))
+                mo = MO(parent)
+                mathvariant=parent.get("mathvariant")
+                if mathvariant is not None:
+                    mo.set("mathvariant", mathvariant)
+                return mo
         return parent
     
     def typesetNucleus(self, atom: mmode.Atom, style: mmode.Style):
@@ -441,7 +443,7 @@ class HTMLReflowBackend(reflow.Reflow):
             notation = "top" if atom_type == mmode.ATOM_TYPE.OVER else "bottom"
             return MENCLOSE(nucleus, notation=notation)
         if atom_type == mmode.ATOM_TYPE.ACC:
-            return MOVER(nucleus, MO(self._math_symbol(atom.accent.char, atom.accent.fam), stretchy=True), accent=True)
+            return MOVER(nucleus, MO(self._math_symbol(atom.accent.char, atom.accent.fam), stretchy="true"), accent="true")
         return MSQRT(nucleus) if atom_type == mmode.ATOM_TYPE.RAD else nucleus
     
     def typesetMathHBox(self, hbox):
@@ -484,10 +486,21 @@ class HTMLReflowBackend(reflow.Reflow):
         return row
 
     def typesetMathVBox(self, vbox):
+        matrix = None
         for n in vbox.list:
             if n.node_type == nd.NODE_TYPE.WHATSIT:
                 n.output(self.parser, self)
-        return MI()
+            elif isinstance(n.source, align.HAlignment):
+                matrix = n.source
+        if matrix is None:
+            return MI()
+        table = MTABLE()
+        for row in matrix.rows:
+            tr = MTR()
+            for cell in row.cells:
+                tr.append(MTD(self.typesetMathHBox(cell)))
+            table.append(tr)
+        return table
                     
     def typesetAtom(self, atom: mmode.Atom, style: mmode.Style):
         nucleus = self.typesetNucleus(atom, style)
@@ -548,6 +561,8 @@ class HTMLReflowBackend(reflow.Reflow):
         style["top"] = _pt(yspacing)
         math.set("style", str(style))
         self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
+        if node.eqno is None:
+            return math
         eqno_list, left = node.eqno
         eqno = MATH(display="inline")
         self.typesetMList(eqno, eqno_list.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))

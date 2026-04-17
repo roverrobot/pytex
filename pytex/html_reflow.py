@@ -20,8 +20,6 @@ from lxml.html import builder
 from lxml import etree
 from lxml.builder import ElementMaker
 
-from tests.test_mmode import math
-
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
 _DEST_RE = re.compile(r"^\s*pdf:\s*dest\s*\(([^()]*)\)", re.IGNORECASE)

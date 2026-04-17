@@ -257,11 +257,7 @@ class Reflow(shipout.Shipout):
                 parent.append(node)
                 spacing = Dimen()
                 continue
-            if isinstance(n, align.MAlignment):
-                node = self.typesetMAlignment(n, collection, yspacing=spacing)
-                parent.append(node)
-                spacing = Dimen()
-                continue
+            assert not isinstance(n, align.MAlignment)
             if n.node_type == nd.NODE_TYPE.VLIST:
                 h = Dimen() if n.shifted is None else n.shifted
                 parent.append(self.typesetVBox(n, xspacing=h, yspacing=spacing))
@@ -366,9 +362,6 @@ class Reflow(shipout.Shipout):
         pass
 
     def typesetHAlignment(self, node, collection, yspacing):
-        pass
-
-    def typesetMAlignment(self, node, collection, yspacing):
         pass
 
     def typesetInlineMath(self, node, collection, left_kern, right_kern):

@@ -314,46 +314,6 @@ class HTMLReflowBackend(reflow.Reflow):
         if right_order > left_order:
             return "flex-start"
         return "center"
-
-    def _alignment_outer_alignment(self, node):
-        tabskips = list(getattr(node, "tabskips", None) or ())
-        if not tabskips:
-            return "left"
-        left_order = self._glue_stretch_order(tabskips[0])
-        right_order = self._glue_stretch_order(tabskips[-1])
-        if left_order is None:
-            return "left"
-        if right_order is None:
-            return "right"
-        if left_order > right_order:
-            return "right"
-        if right_order > left_order:
-            return "left"
-        return "center"
-
-    def _typeset_alignment_cell(self, cell):
-        td = builder.TD(colspan=str(getattr(cell, "span", 1)))
-        td_style = Style()
-        td_style["padding"] = "0"
-        td_style["vertical-align"] = "baseline"
-        td.set("style", str(td_style))
-
-        wrapper = builder.DIV()
-        wrapper_style = Style()
-        wrapper_style["display"] = "flex"
-        wrapper_style["width"] = "100%"
-        wrapper_style["align-items"] = "baseline"
-        wrapper_style["justify-content"] = self._box_flush_justify_content(cell)
-        wrapper.set("style", str(wrapper_style))
-
-        content = self.typesetHBox(cell, inline=False)
-        content.set(
-            "style",
-            content.get("style", "") + "display:inline-flex;width:auto;max-width:100%;",
-        )
-        wrapper.append(content)
-        td.append(wrapper)
-        return td
     
     def typesetMList(self, parent, nodes, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
         # we need to consider the atom type (class) and family
@@ -587,45 +547,49 @@ class HTMLReflowBackend(reflow.Reflow):
         style["display"] = "block"
         style["top"] = _pt(yspacing)
         math.set("style", str(style))
-        if node.eqno is None:
-            return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
-        eqno, left = node.eqno
-        mtd_eqno = MTD(self.typesetMList(MROW(), eqno.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T)),
-                       style="white-space:nowrap;")
-        mtd_body = MTD(self.typesetMList(MROW(), node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D)),
-                       style="width:100%; text-align:center;")
+        self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
+        eqno_list, left = node.eqno
+        eqno = MATH(display="inline")
+        self.typesetMList(eqno, eqno_list.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
+        seq = [builder.TD(style="width:50%;"), builder.TD(math), builder.TD(style="width:50%;"), builder.TD(eqno)]
         if left:
-            table = MTABLE(MTR(mtd_eqno, mtd_body), width="100%", columnalign="left center")
-        else:
-            table = MTABLE(MTR(mtd_body, mtd_eqno), width="100%", columnalign="center right")
-        math.append(table)
-        return math
+            seq.reverse()
+        tr = builder.TR()
+        for n in seq:
+            tr.append(n)
+        return builder.TABLE(tr, style="width:100%;class=display-math;")
     
     def typesetHAlignment(self, node: align.HAlignment, collection, yspacing):
         def noalign(vlist, columns):
             return builder.TR(builder.TD(self.typesetVList(builder.DIV(), vlist), colspan=str(columns), style="padding: 0;"))
 
-        columns = node.columns()
         table = builder.TABLE()
         table.set("class", "alignment")
         style = Style()
         style["margin-top"] = _pt(yspacing)
         style["border-spacing"] = "0"
-        outer_alignment = self._alignment_outer_alignment(node)
-        if outer_alignment == "right":
-            style["margin-left"] = "auto"
-        elif outer_alignment == "center":
-            style["margin-left"] = "auto"
-            style["margin-right"] = "auto"
+        style["width"]="100%"
         table.set("style", str(style))
-        if node.noalign is not None:
+        spacers = self._alignment_spacers(node)
+        columns = node.columns() + len(spacers)
+        if node.noalign:
             table.append(noalign(node.noalign, columns))
         for row in node.rows:
             tr = builder.TR()
+            tr.append(builder.TD(style=f"width: {spacers[0]}%;"))
+            col = 1
             for cell in row.cells:
-                tr.append(self._typeset_alignment_cell(cell))
+                content = self.typesetHBox(cell, inline=False)
+                content.set(
+                    "style",
+                    content.get("style", "") + "display:inline-flex;width:auto;max-width:100%;",
+                )
+                tr.append(builder.TD(content))
+                if col < len(spacers):
+                    tr.append(builder.TD(style=f"width: {spacers[col]}%;"))
+                    col += cell.span
             table.append(tr)
-            if row.noalign is not None:
+            if row.noalign:
                 table.append(noalign(row.noalign, columns))
         return table
 

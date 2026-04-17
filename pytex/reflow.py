@@ -5,6 +5,7 @@ The base class for reflow shipout backends. providing common utilities for reflo
 
 from pytex.dimen import Dimen
 from pytex.font import Font
+from pytex.glue import Glue
 from pytex.typeset import shipout
 from pytex import node as nd
 from pytex import mmode
@@ -369,3 +370,16 @@ class Reflow(shipout.Shipout):
 
     def _box(self, box, inline, xspacing, yspacing):
         raise NotImplementedError("subclass must implement _box method")
+
+    def _alignment_spacers(self, node):
+        def ratio(stretch, total):
+            return 0 if stretch.order < total.order else stretch.factor / total.factor * 100.0
+        tabskips = node.tabskips
+        if not tabskips:
+            return []
+        total = Glue()
+        for g in tabskips:
+            total += g
+        if total.stretch.order > 0:
+            return [ratio(g.stretch, total.stretch) for g in tabskips]
+        return [float(g.dimen)/float(total.dimen)*100 for g in tabskips]

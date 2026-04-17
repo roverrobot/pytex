@@ -1,5 +1,6 @@
 .vscode/launch.json
 .vscode/settings.json
+.codex/*
 */__pycache__/*
 */*/__pycache__/*
 dist/*

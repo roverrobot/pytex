@@ -333,16 +333,18 @@ class Reflow(shipout.Shipout):
         glue_state = self._glue_state(box)
         shifted = Dimen() if box.shifted is None else box.shifted
         h = xspacing + shifted
-        nodes = box.list
         # we start a new paragraph:
         div = self._box(box, inline, h, yspacing)
         para = Paragraph(indent=Dimen(), spacing_before=yspacing)
-        self.populateParagraph(para, box.list, glue_state=None)
-        div.append(self.typesetParagraph(para))
+        self.populateParagraph(para, box.list, glue_state=glue_state)
+        div.append(self.typesetHBoxRow(para, box, inline=inline))
         return div
      
     def typesetParagraph(self, para: Paragraph):
         pass
+
+    def typesetHBoxRow(self, para: Paragraph, box, inline=False):
+        return self.typesetParagraph(para)
 
     def setChar(self, char, kern):
         pass

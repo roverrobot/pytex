@@ -3,7 +3,10 @@ from pytex import html_reflow
 html_reflow.mod.init = None
 from pytex import font as txfont
 from pytex import mmode
+from pytex import reflow
+from pytex.dimen import Dimen
 import pytest
+from types import SimpleNamespace
 
 
 class _FakeTextBackend:
@@ -12,6 +15,24 @@ class _FakeTextBackend:
         self.name = name
         self.subst_font_name = subst_font_name
         self.fontdimen = [0.0, 0.5, 0.0, 0.0, 0.7, 1.0, 0.0]
+
+
+class _CaptureReflow(reflow.Reflow):
+    def __init__(self, parser):
+        super().__init__(parser)
+        self.captured_glue_state = None
+
+    def _glue_state(self, box):
+        return {"order": 1, "shrink": False}
+
+    def _box(self, box, inline, xspacing, yspacing):
+        return []
+
+    def populateParagraph(self, para, hlist, glue_state):
+        self.captured_glue_state = glue_state
+
+    def typesetHBoxRow(self, para, box, inline=False):
+        return "row"
 
 
 def test_html_reflow_maps_math_operator_period_slot_to_period(parser):
@@ -56,3 +77,24 @@ def test_html_reflow_accepts_substituted_text_backend(parser):
     assert style.startswith("font-family:Times New Roman;font-size:")
     assert style.endswith("pt;")
     assert rendered.text == "A"
+
+
+def test_reflow_hbox_passes_glue_state_into_populate_paragraph(parser):
+    backend = _CaptureReflow(parser)
+    box = SimpleNamespace(shifted=None, list=[], width=Dimen(40))
+    rendered = backend.typesetHBox(box)
+    assert backend.captured_glue_state == {"order": 1, "shrink": False}
+    assert rendered == ["row"]
+
+
+def test_html_reflow_hbox_row_uses_flex_layout_for_springs(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    para = reflow.Paragraph()
+    list.append(para, reflow.Spring(2))
+    row = backend.typesetHBoxRow(para, SimpleNamespace(width=Dimen(40)), inline=True)
+    style = row.get("style")
+    assert "display:flex;" in style
+    assert "align-items:baseline;" in style
+    assert "white-space:nowrap;" in style
+    assert "width:" in style
+    assert row[0].get("style") == "flex-grow:2;flex-basis:0;"

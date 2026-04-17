@@ -209,6 +209,23 @@ class HTMLReflowBackend(reflow.Reflow):
             div.append(s)
         return div
 
+    def typesetHBoxRow(self, para: reflow.Paragraph, box, inline=False):
+        div = builder.DIV()
+        style = Style()
+        style["display"] = "flex"
+        style["align-items"] = "baseline"
+        style["flex-wrap"] = "nowrap"
+        style["white-space"] = "nowrap"
+        style["width"] = _pt(box.width)
+        style["padding"] = f"{_pt(para.spacing_before)} 0 0 0"
+        div.set("style", str(style))
+        for n in para:
+            s = n.typeset(self)
+            if isinstance(s, str):
+                s = builder.SPAN(s)
+            div.append(s)
+        return div
+
     def _text_font_family(self, font):
         backend = font.backend
         assert (
@@ -236,8 +253,8 @@ class HTMLReflowBackend(reflow.Reflow):
         return span
 
     def typesetSpring(self, ratio):
-        div = builder.div()
-        div.set("style", f"flex-grow:{ratio}")
+        div = builder.DIV()
+        div.set("style", f"flex-grow:{ratio};flex-basis:0;")
         return div
 
     def typesetChar(self, char, kern):

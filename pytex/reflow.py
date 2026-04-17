@@ -140,7 +140,7 @@ class Paragraph(list):
 class Reflow(shipout.Shipout):
     def __init__(self, parser, output=None):
         super().__init__(parser, output)
-        self._last_raw_in_vlist = None
+        self.last_source = None
 
     def begin_page(self, box):
         pass
@@ -226,7 +226,7 @@ class Reflow(shipout.Shipout):
             p = next(iter, None)
         return collection, s
 
-    def typesetVList(self, parent, vlist: list, glue_state=None):
+    def typesetVList(self, parent, vlist: list, glue_state=None, mark_last_source=False):
         # we only need to layout this box
         # we need to consider two things: paragraphs and boxes that are not originated from paragraphs.
         # we first collect glues and kerns to figure out vertical spacing
@@ -242,21 +242,30 @@ class Reflow(shipout.Shipout):
             collection, n = self._collect(nodes, source)
             if n is None:
                 break
+            if n is self.last_source:
+                self.last_source = None
+                continue
             if isinstance(n, mmode.DisplayMathNode):
                 node = self.typesetDisplayMath(n, collection, yspacing=spacing)
                 parent.append(node)
                 spacing = Dimen()
+                if mark_last_source:
+                    self.last_source = n
                 continue
             if isinstance(n, paragraph.Paragraph):
                 para = Paragraph(indent = Dimen(), spacing_before=spacing)
                 self.populateParagraph(para, n.list, glue_state=None)
                 parent.append(self.typesetParagraph(para))
                 spacing = Dimen()
+                if mark_last_source:
+                    self.last_source = n
                 continue
             if isinstance(n, align.HAlignment):
                 node = self.typesetHAlignment(n, collection, yspacing=spacing)
                 parent.append(node)
                 spacing = Dimen()
+                if mark_last_source:
+                    self.last_source = n
                 continue
             assert not isinstance(n, align.MAlignment)
             if n.node_type == nd.NODE_TYPE.VLIST:
@@ -289,10 +298,10 @@ class Reflow(shipout.Shipout):
             parent.append(self.typesetNBSP(1, height=spacing))
         return parent
     
-    def typesetVBox(self, box, inline=False, xspacing=Dimen(), yspacing=Dimen()):
+    def typesetVBox(self, box, inline=False, xspacing=Dimen(), yspacing=Dimen(), mark_last_source=False):
         vbox = self._box(box, inline, xspacing, yspacing)
         glue_state = self._glue_state(box)
-        return self.typesetVList(vbox, box.list, glue_state)
+        return self.typesetVList(vbox, box.list, glue_state, mark_last_source)
 
     def populateParagraph(self, para, hlist, glue_state):
         class Source:

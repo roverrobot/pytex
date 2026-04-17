@@ -157,7 +157,7 @@ def test_display_halign_followed_by_text_does_not_reinsert_parskip(cmr10):
     nodes = _concrete_nodes(main)
     last_align = max(
         i for i, n in enumerate(nodes)
-        if isinstance(getattr(n, "source", None), align.MAlignment)
+        if isinstance(getattr(n, "source", None), align.HAlignment)
     )
     assert not any(
         isinstance(getattr(n, "source", None), paragraph.Paragraph)
@@ -264,13 +264,13 @@ def test_mlist_typeset_display(math):
 def test_display_halign_replaces_display_math_list(math):
     math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$")
     top = math.lists[0]
-    node = _source_nodes(top, align.MAlignment)[0]
+    assert _source_nodes(top, align.HAlignment)
 
 
 def test_display_halign_typesets_with_display_wrapper(math):
     math.parse("$$\\halign{#\\cr \\hbox{}\\cr}$$\\par")
     top = math.lists[0]
-    node = _source_nodes(top, align.MAlignment)[0]
+    assert _source_nodes(top, align.HAlignment)
     packed = _concrete_nodes(top)
     assert len(packed) == 7 # HBox, penalty, abovedisplayskip, baselineskip, display-box, penalty, belowdisplayskip
     assert packed[0].node_type == nd.NODE_TYPE.HLIST

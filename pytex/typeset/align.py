@@ -121,16 +121,8 @@ class AlignmentTypesetter:
     def typesetMAlignment(self, alignment, vlist):
         if not isinstance(vlist, vmode.VList):
             raise TypeError("MAlignment typesetting expects a VList")
-        penalty = nd.Penalty(alignment.predisplaypenalty)
-        penalty.source = alignment
-        vlist.append(penalty)
-        above = nd.Glue(alignment.abovedisplayskip, "\\abovedisplayskip")
-        above.source = alignment
-        vlist.append(above)
+        vlist.append(nd.Penalty(alignment.predisplaypenalty))
+        vlist.append(nd.Glue(alignment.abovedisplayskip, "\\abovedisplayskip"))
         vlist.extend(alignment.list, add_interline=False)
-        penalty = nd.Penalty(alignment.postdisplaypenalty)
-        penalty.source = alignment
-        vlist.append(penalty)
-        below = nd.Glue(alignment.belowdisplayskip, "\\belowdisplayskip")
-        below.source = alignment
-        vlist.append(below)
+        vlist.append(nd.Penalty(alignment.postdisplaypenalty))
+        vlist.append(nd.Glue(alignment.belowdisplayskip, "\\belowdisplayskip"))

@@ -519,7 +519,15 @@ class HTMLReflowBackend(reflow.Reflow):
         if field is None:
             return MROW()
         if isinstance(field, mmode.Subformula):
-            return self.typesetMList(MROW(), field.list, atom_type=atom_type, style=style)
+            row = MROW()
+            left = getattr(field, "left_delim")
+            right = getattr(field, "right_delim")
+            if left is not None:
+                row.append(self.typesetDelim(left))
+            self.typesetMList(row, field.list, atom_type=atom_type, style=style)
+            if right is not None:
+                row.append(self.typesetDelim(right))
+            return row
         return self.typesetSymbol(field, atom_type=atom_type)
     
     def _math_symbol(self, char, fam):
@@ -539,6 +547,8 @@ class HTMLReflowBackend(reflow.Reflow):
         return MO(text or "", mathvariant="normal")
 
     def typesetDelim(self, delim):
+        if delim._isNull():
+            return MO()
         text = self._math_symbol(delim.small.char, delim.small.fam)
         if text is None:
             text = self._math_symbol(delim.small.char, delim.small.fam)

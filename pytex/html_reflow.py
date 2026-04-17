@@ -179,11 +179,25 @@ class HTMLReflowBackend(reflow.Reflow):
         style["top"] = _pt(yspacing)
         if inline:
             style["display"] = "inline-block"
+            if  not box.list:
+                set_width = True
+            elif box.node_type == nd.NODE_TYPE.HLIST:
+                justify = self._hbox_justification(box)
+                set_width = justify is not None and justify != "justify"
+            else:
+                set_width = False
+            if set_width and int(box.width) > 0:
+                style["width"] = _pt(box.width)            
         elif box.node_type == nd.NODE_TYPE.HLIST:
             style["display"] = "flex"
             style["align-items"] = "baseline"
             style["flex-wrap"] = "nowrap"
             style["white-space"] = "nowrap"
+            # set width in %
+            if len(self.box_stack) > 1: # the top is this box
+                enclosing = self.box_stack[-2]
+                if int(enclosing.width) != 0 and int(box.width) != 0:
+                    style["width"] = f"{float(box.width)/float(enclosing.width)*100}%;"
         return builder.DIV(style=str(style))
 
 
@@ -201,6 +215,7 @@ class HTMLReflowBackend(reflow.Reflow):
         style = Style()
         style["text-indent"] = _pt(para.indent)
         style["padding"] = f"{_pt(para.spacing_before)} 0 0 0"
+        style["text-align"] = para.justify
         div.set("style", div.get("style", "")+str(style))
         for n in para:
             s = n.typeset(self)

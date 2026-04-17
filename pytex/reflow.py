@@ -91,10 +91,11 @@ class InlineMath:
         return backend.typesetInlineMath(self.node, self.collection, self.left_kern, self.right_kern)
 
 class Paragraph(list):
-    def __init__(self, indent=Dimen(), spacing_before = Dimen()):
+    def __init__(self, indent=Dimen(), spacing_before = Dimen(), justify: str="left"):
         self.spacing_before = spacing_before
         self.indent = indent
         self.text_run = None
+        self.justify = justify
 
     def setChar(self, char: nd.CharNode):
         if self.text_run is None or self.text_run.font is not char.font:
@@ -141,6 +142,7 @@ class Reflow(shipout.Shipout):
     def __init__(self, parser, output=None):
         super().__init__(parser, output)
         self.last_source = None
+        self.box_stack = []
 
     def begin_page(self, box):
         pass
@@ -253,7 +255,23 @@ class Reflow(shipout.Shipout):
                     self.last_source = n
                 continue
             if isinstance(n, paragraph.Paragraph):
-                para = Paragraph(indent = Dimen(), spacing_before=spacing)
+                # first the first line box
+                line = None
+                for b in collection:
+                    if b.node_type == nd.NODE_TYPE.HLIST:
+                        line = b
+                        break
+                    if b.node_type == nd.NODE_TYPE.GLUE:
+                        if glue_state is None:
+                            spacing += b.glue.dimen
+                        else:
+                            spacing += Dimen(integer=self._glue_amount(b, None, glue_state))
+                    elif b.node_type == nd.NODE_TYPE.KERN:
+                        spacing += b.kern
+                if line is None:
+                    # this is an empty graph. We only count spacing
+                    continue
+                para = Paragraph(indent = Dimen(), spacing_before=spacing, justify=self._hbox_justification(line))
                 self.populateParagraph(para, n.list, glue_state=None)
                 parent.append(self.typesetParagraph(para))
                 spacing = Dimen()
@@ -299,9 +317,12 @@ class Reflow(shipout.Shipout):
         return parent
     
     def typesetVBox(self, box, inline=False, xspacing=Dimen(), yspacing=Dimen(), mark_last_source=False):
+        self.box_stack.append(box)
         vbox = self._box(box, inline, xspacing, yspacing)
         glue_state = self._glue_state(box)
-        return self.typesetVList(vbox, box.list, glue_state, mark_last_source)
+        content = self.typesetVList(vbox, box.list, glue_state, mark_last_source)
+        self.box_stack.pop()
+        return content
 
     def populateParagraph(self, para, hlist, glue_state):
         class Source:
@@ -340,14 +361,16 @@ class Reflow(shipout.Shipout):
             
     def typesetHBox(self, box, inline=False, xspacing=Dimen(), yspacing=Dimen()):
         # this method is called for a standalone (manually constructed) hbox. We treat it as paragraph.
+        self.box_stack.append(box)
         glue_state = self._glue_state(box)
         shifted = Dimen() if box.shifted is None else box.shifted
         h = xspacing + shifted
         # we start a new paragraph:
         div = self._box(box, inline, h, yspacing)
-        para = Paragraph(indent=Dimen(), spacing_before=yspacing)
+        para = Paragraph(indent=Dimen(), spacing_before=yspacing, justify=self._hbox_justification(box))
         self.populateParagraph(para, box.list, glue_state=glue_state)
         self.typesetParagraph(para, container=div)
+        self.box_stack.pop()
         return div
      
     def typesetParagraph(self, para: Paragraph, container=None):
@@ -392,3 +415,39 @@ class Reflow(shipout.Shipout):
         if total.stretch.order > 0:
             return [ratio(g.stretch, total.stretch) for g in tabskips]
         return [float(g.dimen)/float(total.dimen)*100 for g in tabskips]
+    
+    _hlist_concrete_type = (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.HLIST)
+        
+    def _hbox_justification(self, box):
+        """
+        if the box has no concrete node, return None. Otherwise, return "left"/"cneter"/"right"
+        depending on whether there are nonzero glues on either side
+        """
+        def find_glue(box, left=True):
+            # returns the total glue and whether met a concrete node
+            glue_state = self._glue_state(box)
+            nodes = box.list if left else reversed(box.list)
+            total = Dimen()
+            for n in nodes:
+                node_type = getattr(n, "node_type", None)
+                if node_type == nd.NODE_TYPE.GLUE:
+                    total += self._glue_amount(n, box, glue_state)
+                    continue
+                if node_type == nd.NODE_TYPE.HLIST:
+                    g, met = find_glue(n, left)
+                    total += g
+                    if met:
+                        return total, True
+                    continue
+                if node_type in self._hlist_concrete_type:
+                    return total, True
+            return total, False
+        
+        left, met = find_glue(box, left=True)
+        if not met:
+            return None
+        right, met = find_glue(box, left=False)
+        if int(left) <= 0:
+            return "left" if int(right) > 0 else "justify" 
+        return "center" if int(right) > 0 else "right"
+        

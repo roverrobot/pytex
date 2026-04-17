@@ -337,14 +337,11 @@ class Reflow(shipout.Shipout):
         div = self._box(box, inline, h, yspacing)
         para = Paragraph(indent=Dimen(), spacing_before=yspacing)
         self.populateParagraph(para, box.list, glue_state=glue_state)
-        div.append(self.typesetHBoxRow(para, box, inline=inline))
+        self.typesetParagraph(para, container=div)
         return div
      
-    def typesetParagraph(self, para: Paragraph):
+    def typesetParagraph(self, para: Paragraph, container=None):
         pass
-
-    def typesetHBoxRow(self, para: Paragraph, box, inline=False):
-        return self.typesetParagraph(para)
 
     def setChar(self, char, kern):
         pass

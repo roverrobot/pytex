@@ -176,16 +176,22 @@ class HTMLReflowBackend(reflow.Reflow):
         self.body.append(self.typesetVBox(body))
 
     def _box(self, box, inline, xspacing, yspacing):
-        div = builder.DIV()
         style = Style()
         style["left"] = _pt(xspacing)
         style["top"] = _pt(yspacing)
         if inline:
             style["display"] = "inline-block"
             style["width"] = _pt(box.width)
+        elif box.node_type == nd.NODE_TYPE.HLIST:
+            style["display"] = "flex"
+            style["align-items"] = "baseline"
+            style["flex-wrap"] = "nowrap"
+            style["white-space"] = "nowrap"
+            style["width"] = _pt(box.width)
+        else:
             style["height"] = _pt(box.height+box.depth)
-        div.set("style", str(style))
-        return div
+        return builder.DIV(style=str(style))
+
 
     def typesetNBSP(self, width, height=1):
         div = builder.DIV()
@@ -196,29 +202,12 @@ class HTMLReflowBackend(reflow.Reflow):
         div.set("style", str(style))
         return div
     
-    def typesetParagraph(self, para: reflow.Paragraph):
-        div = builder.DIV()
+    def typesetParagraph(self, para: reflow.Paragraph, container=None):
+        div = builder.DIV() if container is None else container
         style = Style()
         style["text-indent"] = _pt(para.indent)
         style["padding"] = f"{_pt(para.spacing_before)} 0 0 0"
-        div.set("style", str(style))
-        for n in para:
-            s = n.typeset(self)
-            if isinstance(s, str):
-                s = builder.SPAN(s)
-            div.append(s)
-        return div
-
-    def typesetHBoxRow(self, para: reflow.Paragraph, box, inline=False):
-        div = builder.DIV()
-        style = Style()
-        style["display"] = "flex"
-        style["align-items"] = "baseline"
-        style["flex-wrap"] = "nowrap"
-        style["white-space"] = "nowrap"
-        style["width"] = _pt(box.width)
-        style["padding"] = f"{_pt(para.spacing_before)} 0 0 0"
-        div.set("style", str(style))
+        div.set("style", div.get("style", "")+str(style))
         for n in para:
             s = n.typeset(self)
             if isinstance(s, str):
@@ -523,7 +512,7 @@ class HTMLReflowBackend(reflow.Reflow):
         for row in node.rows:
             tr = builder.TR()
             for cell in row.cells:
-                tr.append(builder.TD(self.typesetHBox(cell, inline=True), colspan=f"{cell.span}"))
+                tr.append(builder.TD(self.typesetHBox(cell, inline=False), colspan=f"{cell.span}"))
             table.append(tr)
             if row.noalign is not None:
                 table.append(noalign(row.noalign, columns))

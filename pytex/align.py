@@ -168,6 +168,16 @@ class Alignment(nd.Node):
         self.spread = None if spread is None else Dimen(spread)
         self.initial_prevdepth = vmode.init_prevdepth
 
+    def columns(self):
+        max = 0
+        for row in self.rows:
+            n = 0
+            for cell in row.cells:
+                n += cell.span
+            if max < n:
+                max = n
+        return max
+
     node_type = nd.NODE_TYPE.ALIGNMENT
     box_materializable = True
 

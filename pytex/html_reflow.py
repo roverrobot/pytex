@@ -218,28 +218,6 @@ class HTMLReflowBackend(reflow.Reflow):
         span.text= "".join([n.typeset(self) for n in text])
         return span
 
-    def populateParagraph(self, para, raw, collection, glue_state):
-        for n in raw:
-            if (n.node_type == nd.NODE_TYPE.GLUE):
-                if glue_state is None:
-                    para.setSpace(n.glue.dimen)
-                elif (glue_state["order"] > 0 and
-                    not glue_state["shrink"] and
-                    glue_state["order"] == n.glue.sretch.order
-                ):
-                    para.append(reflow.Spring(self._glue_amount(n, box=None, state=glue_state)))
-                else:
-                    para.setSpace(self._glue_amount(n, box=None, state=glue_state))
-                continue
-            if isinstance(n, mmode.InlineMathNode):
-                para.setInlineMath(n, collection, left_kern=Dimen(), right_kern=Dimen())
-                continue
-            if n.node_type == nd.NODE_TYPE.WHATSIT:
-                n.output(self.parser, self)
-                continue
-            if n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                para.append(n)
-
     def typesetSpring(self, ratio):
         div = builder.div()
         div.set("style", f"flex-grow:{ratio}")
@@ -343,7 +321,7 @@ class HTMLReflowBackend(reflow.Reflow):
                 parent.append(MN(letters))
             else:
                 parent.append(MI(letters, mathvariant="normal"))
-        if len(parent) == 1 and parent.tag != "math":
+        if len(parent) == 1 and etree.QName(parent).localname != "math":
             parent = parent[0]
             # if atom_type is an operator, we need to set it as <mo>
             if atom_type in self.operator_types:
@@ -499,8 +477,24 @@ class HTMLReflowBackend(reflow.Reflow):
             table = MTABLE(MTR(mtd_body, mtd_eqno), width="100%", columnalign="center right")
         math.append(table)
         return math
-        
     
+    def typesetHAlignment(self, node: align.HAlignment, collection, yspacing):
+        def noalign(vlist, columns):
+            return builder.TR(builder.TD(self.typesetVList(builder.DIV(), vlist), colspan=str(columns), style="padding: 0;"))
+
+        columns = node.columns()
+        table = builder.TABLE()
+        if node.noalign is not None:
+            table.append(noalign(node.noalign, columns))
+        for row in node.rows:
+            tr = builder.TR()
+            for cell in row.cells:
+                tr.append(builder.TD(self.typesetHBox(cell, inline=True), colspan=f"{cell.span}"))
+            table.append(tr)
+            if row.noalign is not None:
+                table.append(noalign(row.noalign, columns))
+        return table
+
 
 def init(parser):
     font_subst.installFontSubstitution(parser)

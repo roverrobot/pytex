@@ -208,7 +208,20 @@ class Reflow(shipout.Shipout):
     def typesetPage(self, tree):
         pass
 
-    def typesetVBox(self, box, inline=False, xspacing=Dimen(), yspacing=Dimen()):
+    def _collect(self, iter, source):
+        p = next(iter, None)
+        if p is None:
+            return [], None
+        s = source(p)
+        if s is None:
+            return [p], p
+        collection = []
+        while p and source(p) == s:
+            collection.append(p)
+            p = next(iter, None)
+        return collection, s
+
+    def typesetVList(self, parent, vlist: list, glue_state=None):
         # we only need to layout this box
         # we need to consider two things: paragraphs and boxes that are not originated from paragraphs.
         # we first collect glues and kerns to figure out vertical spacing
@@ -218,62 +231,51 @@ class Reflow(shipout.Shipout):
                 if s is None or s.source is None:
                     return s
                 node = s
-        def collect(nodes):
-            p = next(nodes, None)
-            if p is None:
-                return [], None
-            s = source(p)
-            if s is None:
-                return [p], p
-            collection = []
-            while p and source(p) == s:
-                collection.append(p)
-                p = next(nodes, None)
-            return collection, s
         spacing = Dimen()
-        glue_state = self._glue_state(box)
-        vbox = self._box(box, inline, xspacing, yspacing)
-        nodes = iter(box.list)
+        nodes = iter(vlist)
         while True:
-            collection, n = collect(nodes)
+            collection, n = self._collect(nodes, source)
             if n is None:
                 break
             if isinstance(n, mmode.DisplayMathNode):
                 node = self.typesetDisplayMath(n, collection, yspacing=spacing)
-                vbox.append(node)
+                parent.append(node)
                 spacing = Dimen()
                 continue
             if isinstance(n, paragraph.Paragraph):
                 para = Paragraph(indent = Dimen(), spacing_before=spacing)
-                self.populateParagraph(para, n.raw, collection, glue_state=None)
-                vbox.append(self.typesetParagraph(para))
+                self.populateParagraph(para, n.list, glue_state=None)
+                parent.append(self.typesetParagraph(para))
                 spacing = Dimen()
                 continue
             if isinstance(n, align.HAlignment):
                 node = self.typesetHAlignment(n, collection, yspacing=spacing)
-                vbox.append(node)
+                parent.append(node)
                 spacing = Dimen()
                 continue
             if isinstance(n, align.MAlignment):
                 node = self.typesetMAlignment(n, collection, yspacing=spacing)
-                vbox.append(node)
+                parent.append(node)
                 spacing = Dimen()
                 continue
             if n.node_type == nd.NODE_TYPE.VLIST:
                 h = Dimen() if n.shifted is None else n.shifted
-                vbox.append(self.typesetVBox(n, xspacing=h, yspacing=spacing))
+                parent.append(self.typesetVBox(n, xspacing=h, yspacing=spacing))
                 spacing = Dimen()
                 continue
             if n.node_type == nd.NODE_TYPE.HLIST:
                 # this hbox is manually constructed (i.e., without a source)
-                vbox.append(self.typesetHBox(n))
+                parent.append(self.typesetHBox(n))
                 spacing = Dimen()
                 continue
             if n.node_type == nd.NODE_TYPE.WHATSIT:
                 n.output(self.parser, self)
                 continue
             if n.node_type == nd.NODE_TYPE.GLUE:
-                spacing += Dimen(integer=self._glue_amount(n, box, glue_state))
+                if glue_state is None:
+                    spacing += n.glue.dimen
+                else:
+                    spacing += Dimen(integer=self._glue_amount(n, None, glue_state))
                 continue
             if n.node_type == nd.NODE_TYPE.KERN:
                 spacing += n.kern
@@ -283,9 +285,49 @@ class Reflow(shipout.Shipout):
                 spacing = Dimen()
                 continue
         if int(spacing) != 0:
-            vbox.append(self.typesetNBSP(1, height=spacing))
-        return vbox
+            parent.append(self.typesetNBSP(1, height=spacing))
+        return parent
     
+    def typesetVBox(self, box, inline=False, xspacing=Dimen(), yspacing=Dimen()):
+        vbox = self._box(box, inline, xspacing, yspacing)
+        glue_state = self._glue_state(box)
+        return self.typesetVList(vbox, box.list, glue_state)
+
+    def populateParagraph(self, para, hlist, glue_state):
+        class Source:
+            def __init__(self):
+                self.inline_math = None
+            
+            def __call__(self, node):
+                if node.node_type == nd.NODE_TYPE.MATH:
+                    self.inline_math = node.source if node.on else None
+                    return node.source
+                if self.inline_math is not None:
+                    return self.inline_math
+                return node.source
+
+        nodes = iter(hlist)
+        while True:
+            collection, raw = self._collect(nodes, Source())
+            if raw is None:
+                break
+            if (raw.node_type == nd.NODE_TYPE.GLUE):
+                if glue_state is None:
+                    para.setSpace(raw.glue.dimen)
+                elif (glue_state["order"] > 0 and
+                    not glue_state["shrink"] and
+                    glue_state["order"] == raw.glue.sretch.order
+                ):
+                    para.append(Spring(self._glue_amount(raw, box=None, state=glue_state)))
+                else:
+                    para.setSpace(self._glue_amount(raw, box=None, state=glue_state))
+            elif isinstance(raw, mmode.InlineMathNode):
+                para.setInlineMath(raw, collection, left_kern=Dimen(), right_kern=Dimen())
+            elif raw.node_type == nd.NODE_TYPE.WHATSIT:
+                raw.output(self.parser, self)
+            if raw.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                para.append(raw)
+            
     def typesetHBox(self, box, inline=False, xspacing=Dimen(), yspacing=Dimen()):
         # this method is called for a standalone (manually constructed) hbox. We treat it as paragraph.
         glue_state = self._glue_state(box)
@@ -295,13 +337,10 @@ class Reflow(shipout.Shipout):
         # we start a new paragraph:
         div = self._box(box, inline, h, yspacing)
         para = Paragraph(indent=Dimen(), spacing_before=yspacing)
-        self.populateParagraph(para, box.raw, [box], glue_state=glue_state)
+        self.populateParagraph(para, box.list, glue_state=None)
         div.append(self.typesetParagraph(para))
         return div
      
-    def populateParagraph(self, para, raw, collection, glue_state):
-        pass
-
     def typesetParagraph(self, para: Paragraph):
         pass
 
@@ -315,9 +354,6 @@ class Reflow(shipout.Shipout):
         pass
 
     def typesetTextRun(self, text):
-        pass
-
-    def populateParagraph(self, para, raw, collection, glue_state):
         pass
 
     def typesetSpring(self, ratio):

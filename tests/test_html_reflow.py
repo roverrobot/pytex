@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from pathlib import Path
 
 from lxml import etree
 from lxml.html import builder
@@ -19,10 +20,12 @@ html_reflow.mod.init = None
 
 
 class _FakeTextBackend:
-    def __init__(self, kind="opentype", name="Fake Font", subst_font_name=None):
+    def __init__(self, kind="opentype", name="Fake Font", subst_font_name=None, path=None, font_number=0):
         self.kind = kind
         self.name = name
         self.subst_font_name = subst_font_name
+        self.path = path
+        self.font_number = font_number
         self.fontdimen = [0.0, 0.5, 0.0, 0.0, 0.7, 1.0, 0.0]
 
 
@@ -48,9 +51,15 @@ def _render(node):
     return etree.tostring(node, method="html", encoding="unicode")
 
 
-def _fake_font(kind="opentype", name="Fake Font", subst_font_name=None, at=10):
+def _fake_font(kind="opentype", name="Fake Font", subst_font_name=None, at=10, path=None, font_number=0):
     return txfont.Font(
-        _FakeTextBackend(kind=kind, name=name, subst_font_name=subst_font_name),
+        _FakeTextBackend(
+            kind=kind,
+            name=name,
+            subst_font_name=subst_font_name,
+            path=path,
+            font_number=font_number,
+        ),
         at,
     )
 
@@ -143,6 +152,49 @@ def test_html_reflow_accepts_substituted_text_backend(parser):
     assert style.startswith("font-family:Times New Roman;font-size:")
     assert style.endswith("pt;")
     assert rendered.text == "A"
+
+
+def test_html_reflow_bundles_local_opentype_font(parser, tmp_path):
+    parser.resolver.output_in_memory = False
+    backend = html_reflow.HTMLReflowBackend(parser)
+    parser.jobname = "font-bundle"
+    source = tmp_path / "Custom.otf"
+    source.write_bytes(b"not-a-real-font")
+    font = _fake_font(kind="opentype", name="Custom Font", path=str(source))
+    text = reflow.TextRun(font)
+    text.setChar("A")
+
+    rendered = backend.typesetTextRun(text)
+    backend.body.append(rendered)
+    backend.close()
+
+    html = (tmp_path / "font-bundle.html").read_text()
+    copied = tmp_path / "font-bundle.assets" / "fonts" / "pytex-font-1.otf"
+    assert rendered.get("style").startswith("font-family:pytex-font-1;font-size:")
+    assert '@font-face{font-family:"pytex-font-1";' in html
+    assert 'url("font-bundle.assets/fonts/pytex-font-1.otf")' in html
+    assert copied.read_bytes() == b"not-a-real-font"
+
+
+def test_html_reflow_reuses_bundled_font_face_for_same_file(parser, tmp_path):
+    parser.resolver.output_in_memory = False
+    backend = html_reflow.HTMLReflowBackend(parser)
+    parser.jobname = "font-reuse"
+    source = tmp_path / "Custom.otf"
+    source.write_bytes(b"font-data")
+
+    first = reflow.TextRun(_fake_font(kind="opentype", name="Custom Font", at=10, path=str(source)))
+    first.setChar("A")
+    second = reflow.TextRun(_fake_font(kind="opentype", name="Custom Font", at=12, path=str(source)))
+    second.setChar("B")
+
+    backend.body.append(backend.typesetTextRun(first))
+    backend.body.append(backend.typesetTextRun(second))
+    backend.close()
+
+    html = (tmp_path / "font-reuse.html").read_text()
+    assert html.count("@font-face{") == 1
+    assert html.count('font-family:"pytex-font-1"') == 1
 
 
 def test_reflow_hbox_passes_glue_state_into_populate_paragraph(parser):

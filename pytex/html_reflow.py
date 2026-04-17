@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections import Counter
 import os
 from pathlib import Path
+import platform
 import re
+import shutil
 
 from pytex import align
 from pytex import mmode
@@ -89,38 +91,147 @@ class HTMLReflowBackend(reflow.Reflow):
         self.body = builder.BODY()
         self._body_font = None
         self._pending_media_blocks = []
+        self._font_families = {}
+        self._font_faces = {}
+        self._next_font_face = 1
 
     def _css_string(self, text):
         return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-    def _math_font_face_rule(self):
-        backend = font_subst.resolveMathFontBackend(self.parser)
-        if backend is None:
-            return ""
-        family = font_subst.fontBackendName(backend)
-        path = getattr(backend, "path", None)
-        if not family or not path:
-            return ""
-        try:
-            uri = Path(path).resolve().as_uri()
-        except Exception:
-            return ""
-        ext = Path(path).suffix.lower()
-        format_name = {
+    @staticmethod
+    def _font_face_format(path):
+        return {
             ".ttf": "truetype",
             ".otf": "opentype",
-            ".ttc": "truetype",
-            ".otc": "opentype",
-        }.get(ext)
-        src = f'url({self._css_string(uri)})'
-        if format_name is not None:
-            src += f' format({self._css_string(format_name)})'
-        return f"@font-face{{font-family:{self._css_string(family)};src:{src};}}"
+        }.get(Path(path).suffix.lower())
+
+    @staticmethod
+    def _system_font_dirs():
+        home = os.path.expanduser("~")
+        system = platform.system()
+        if system == "Darwin":
+            return (
+                "/System/Library/Fonts",
+                "/System/Library/AssetsV2",
+                "/Library/Fonts",
+                os.path.join(home, "Library", "Fonts"),
+            )
+        if system == "Windows":
+            windir = os.environ.get("WINDIR", r"C:\Windows")
+            return (os.path.join(windir, "Fonts"),)
+        return (
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            os.path.join(home, ".local", "share", "fonts"),
+            os.path.join(home, ".fonts"),
+        )
+
+    @classmethod
+    def _is_system_font_path(cls, path):
+        try:
+            resolved = os.path.realpath(path)
+        except Exception:
+            return False
+        for root in cls._system_font_dirs():
+            try:
+                if os.path.commonpath((resolved, os.path.realpath(root))) == os.path.realpath(root):
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    def _font_key(self, backend):
+        path = getattr(backend, "path", None)
+        if path:
+            try:
+                path = os.path.realpath(path)
+            except Exception:
+                pass
+        return (
+            getattr(backend, "kind", None),
+            path,
+            getattr(backend, "font_number", 0),
+            getattr(backend, "name", None),
+        )
+
+    def _next_font_family(self):
+        family = f"pytex-font-{self._next_font_face}"
+        self._next_font_face += 1
+        return family
+
+    def _register_backend_font(self, backend):
+        if backend is None:
+            return None
+        key = self._font_key(backend)
+        family = self._font_families.get(key)
+        if family is not None:
+            return family
+        path = getattr(backend, "path", None)
+        format_name = None if not path else self._font_face_format(path)
+        if (
+            getattr(backend, "kind", None) == "opentype"
+            and isinstance(path, str)
+            and path
+            and os.path.isfile(path)
+            and format_name is not None
+            and not self._is_system_font_path(path)
+        ):
+            face = self._font_faces.get(key)
+            if face is None:
+                family = self._next_font_family()
+                face = {
+                    "family": family,
+                    "path": os.path.realpath(path),
+                    "suffix": Path(path).suffix.lower(),
+                    "format_name": format_name,
+                }
+                self._font_faces[key] = face
+            family = face["family"]
+            self._font_families[key] = family
+            return family
+        family = font_subst.fontBackendName(backend)
+        if family is not None:
+            self._font_families[key] = family
+        return family
+
+    @staticmethod
+    def _output_name(output):
+        output = os.fspath(output)
+        if output.startswith("./"):
+            output = output[2:]
+        if not output.endswith(".html"):
+            output += ".html"
+        return output
+
+    def _font_face_url(self, face, html_path):
+        source = Path(face["path"]).resolve()
+        if html_path is None:
+            return source.as_uri()
+        asset_dir = html_path.with_name(f"{html_path.stem}.assets") / "fonts"
+        target = asset_dir / f"{face['family']}{face['suffix']}"
+        try:
+            asset_dir.mkdir(parents=True, exist_ok=True)
+            if source != target.resolve():
+                shutil.copyfile(source, target)
+            return os.path.relpath(target, html_path.parent).replace(os.sep, "/")
+        except Exception:
+            return source.as_uri()
+
+    def _font_face_rules(self, html_path):
+        rules = []
+        for face in self._font_faces.values():
+            src = f'url({self._css_string(self._font_face_url(face, html_path))})'
+            if face["format_name"] is not None:
+                src += f' format({self._css_string(face["format_name"])})'
+            rules.append(
+                f"@font-face{{font-family:{self._css_string(face['family'])};src:{src};}}"
+            )
+        return rules
 
     def _math_font_stack(self):
         stack = []
         backend = font_subst.resolveMathFontBackend(self.parser)
-        family = font_subst.fontBackendName(backend) if backend is not None else None
+        family = self._register_backend_font(backend) if backend is not None else None
         if family and font_subst.usableFontName(family):
             stack.append(family)
         for name in font_subst.MATH_FONT_CANDIDATES:
@@ -131,19 +242,17 @@ class HTMLReflowBackend(reflow.Reflow):
         items.append(stack[-1])
         return ",".join(items)
 
-    def _document_css(self):
-        parts = []
-        font_face = self._math_font_face_rule()
-        if font_face:
-            parts.append(font_face)
-        parts.append(f"math{{font-family:{self._math_font_stack()};}}")
+    def _document_css(self, html_path=None):
+        math_stack = self._math_font_stack()
+        parts = self._font_face_rules(html_path)
+        parts.append(f"math{{font-family:{math_stack};}}")
         return "".join(parts)
 
-    def _build_head(self):
+    def _build_head(self, html_path=None):
         return builder.HEAD(
             builder.META(charset="utf-8"),
             builder.TITLE(self.parser.jobname or "texput"),
-            builder.STYLE(self._document_css()),
+            builder.STYLE(self._document_css(html_path)),
         )
 
     def open(self):
@@ -151,15 +260,19 @@ class HTMLReflowBackend(reflow.Reflow):
         return
 
     def close(self):
+        html_path = None
         if hasattr(self.output, "write"):
             file = self.output
         else:
             if self.output is None:
                 output = self.parser.jobname or "texput"
-            if not output.endswith(".html"):
-                output += ".html"
+            else:
+                output = self.output
+            output = self._output_name(output)
+            if not self.parser.resolver.output_in_memory:
+                html_path = Path(self.parser.resolver._outputPath(output))
             file = self.parser.resolver.openOut(output, None)
-        self.header = self._build_head()
+        self.header = self._build_head(html_path=html_path)
         html = builder.HTML(self.header, self.body)
         html.set("lang", "en")
         s = "<!doctype html>\n" + etree.tostring(
@@ -227,6 +340,9 @@ class HTMLReflowBackend(reflow.Reflow):
         return div
 
     def _text_font_family(self, font):
+        family = self.define_font(font)
+        if family is not None:
+            return family
         backend = font.backend
         assert (
             getattr(backend, "kind", None) == "opentype"
@@ -242,12 +358,24 @@ class HTMLReflowBackend(reflow.Reflow):
             f"{getattr(backend, 'name', None)!r}"
         )
         return family
+
+    def define_font(self, font):
+        backend = getattr(font, "backend", None)
+        if backend is None:
+            return None
+        if (
+            getattr(backend, "kind", None) == "opentype"
+            or getattr(backend, "subst_font_name", None)
+        ):
+            return self._register_backend_font(backend)
+        return None
     
     def typesetTextRun(self, text):
         if not text:
             return ""
         span = builder.SPAN()
         style = Style()
+        self.define_font(text.font)
         style["font-family"] = self._text_font_family(text.font)
         style["font-size"] = _pt(text.font.at)
         span.set("style", str(style))

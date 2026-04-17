@@ -102,6 +102,7 @@ class RowBuildState:
                 if not self.builder.repeat_start:
                     raise ValueError("extra alignment tab", parser.input.position())
                 column_no %= len(preamble)
+                self.alignment.tabskips.append(self.alignment.tabskips[column_no+1])
             column = preamble[column_no]
             templates = [column.v, column.u]
         if span:

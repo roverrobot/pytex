@@ -208,11 +208,28 @@ class HTMLReflowBackend(reflow.Reflow):
                 s = builder.SPAN(s)
             div.append(s)
         return div
+
+    def _text_font_family(self, font):
+        backend = font.backend
+        assert (
+            getattr(backend, "kind", None) == "opentype"
+            or getattr(backend, "subst_font_name", None)
+        ), (
+            "HTML reflow requires OpenType-backed text fonts; "
+            f"got backend kind {getattr(backend, 'kind', None)!r} "
+            f"for {getattr(backend, 'name', None)!r}"
+        )
+        family = font_subst.fontBackendName(backend)
+        assert family is not None, (
+            "HTML reflow could not resolve a browser-usable font family for "
+            f"{getattr(backend, 'name', None)!r}"
+        )
+        return family
     
     def typesetTextRun(self, text):
         span = builder.SPAN()
         style = Style()
-        style["font-family"] = text.font.backend._name
+        style["font-family"] = self._text_font_family(text.font)
         style["font-size"] = _pt(text.font.at)
         span.set("style", str(style))
         span.text= "".join([n.typeset(self) for n in text])

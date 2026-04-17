@@ -1,7 +1,17 @@
 from pytex import html_reflow
 # prevent module side effects
 html_reflow.mod.init = None
+from pytex import font as txfont
 from pytex import mmode
+import pytest
+
+
+class _FakeTextBackend:
+    def __init__(self, kind="opentype", name="Fake Font", subst_font_name=None):
+        self.kind = kind
+        self.name = name
+        self.subst_font_name = subst_font_name
+        self.fontdimen = [0.0, 0.5, 0.0, 0.0, 0.7, 1.0, 0.0]
 
 
 def test_html_reflow_maps_math_operator_period_slot_to_period(parser):
@@ -22,3 +32,27 @@ def test_html_reflow_maps_ord_period_slot_in_compacted_runs(parser):
         style=mmode.Style(mmode.MATH_STYLE.T),
     )
     assert node.text == "."
+
+
+def test_html_reflow_asserts_on_raw_tfm_text_backend(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = txfont.Font(_FakeTextBackend(kind="tfm", name="cmr10"), 10)
+    text = html_reflow.reflow.TextRun(font)
+    text.setChar("A")
+    with pytest.raises(AssertionError, match="OpenType-backed text fonts"):
+        backend.typesetTextRun(text)
+
+
+def test_html_reflow_accepts_substituted_text_backend(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = txfont.Font(
+        _FakeTextBackend(kind="tfm", name="cmr10", subst_font_name="Times New Roman"),
+        10,
+    )
+    text = html_reflow.reflow.TextRun(font)
+    text.setChar("A")
+    rendered = backend.typesetTextRun(text)
+    style = rendered.get("style")
+    assert style.startswith("font-family:Times New Roman;font-size:")
+    assert style.endswith("pt;")
+    assert rendered.text == "A"

@@ -220,8 +220,10 @@ class HTMLReflowBackend(reflow.Reflow):
         for n in para:
             s = n.typeset(self)
             if isinstance(s, str):
-                s = builder.SPAN(s)
-            div.append(s)
+                if s != "" and s != " ":
+                    div.append(builder.SPAN(s))
+            else:
+                div.append(s)
         return div
 
     def _text_font_family(self, font):
@@ -242,6 +244,8 @@ class HTMLReflowBackend(reflow.Reflow):
         return family
     
     def typesetTextRun(self, text):
+        if not text:
+            return ""
         span = builder.SPAN()
         style = Style()
         style["font-family"] = self._text_font_family(text.font)
@@ -259,6 +263,8 @@ class HTMLReflowBackend(reflow.Reflow):
         return char
     
     def typesetSpace(self, width):
+        if width <= 0:
+            return ""
         return " "
 
     operator_types = (mmode.ATOM_TYPE.BIN, mmode.ATOM_TYPE.REL, mmode.ATOM_TYPE.OP, 

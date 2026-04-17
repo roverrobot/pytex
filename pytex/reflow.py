@@ -43,6 +43,13 @@ class TextRun(list):
     def setChar(self, char):
         self.append(Char(char, self.kern))
         self.kern = None
+
+    def setSpace(self, width):
+        if self.kern is not None:
+            self.append(Space(width)+self.kern)
+        else:
+            self.append(Space(width))
+        self.kern = None
     
     def typeset(self, backend):
         return backend.typesetTextRun(self)
@@ -110,7 +117,8 @@ class Paragraph(list):
             self.setNBSP(width)
 
     def setSpace(self, width: Dimen):
-        self.text_run = None
+        if self.text_run is not None:
+            self.text_run.setSpace(width)
         super().append(Space(width))
 
     def setNBSP(self, width):
@@ -133,8 +141,10 @@ class Paragraph(list):
         elif node.node_type == nd.NODE_TYPE.KERN:
             self.setKern(node.kern)
         elif node.node_type == nd.NODE_TYPE.HLIST:
+            self.text_run = None
             super().append(InlineBox(box=node))
         elif node.node_type == nd.NODE_TYPE.VLIST:
+            self.text_run = None
             super().append(InlineBox(box=node))
 
 

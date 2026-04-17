@@ -806,9 +806,9 @@ class UnBox(Command):
         if not self.vertical and box.node_type != nd.NODE_TYPE.HLIST:
             raise ValueError("expecting an hbox", parser.input.position())
         if top.type == LISTTYPE.VERTICAL:
-            top.extend(box.list, add_interline=False)
+            top.list.extend(box.list)
         else:
-            top.extend(box.list)
+            top.list.extend(box.list)
 
 
 class Shift(ModeDependentCommand):

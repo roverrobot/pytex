@@ -179,13 +179,11 @@ class HTMLReflowBackend(reflow.Reflow):
         style["top"] = _pt(yspacing)
         if inline:
             style["display"] = "inline-block"
-            style["width"] = _pt(box.width)
         elif box.node_type == nd.NODE_TYPE.HLIST:
             style["display"] = "flex"
             style["align-items"] = "baseline"
             style["flex-wrap"] = "nowrap"
             style["white-space"] = "nowrap"
-            style["width"] = _pt(box.width)
         return builder.DIV(style=str(style))
 
 

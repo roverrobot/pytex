@@ -32,6 +32,7 @@ _GOTOR_RE = re.compile(
     r"/S\s*/GoToR\b.*?/F\s*\(([^()]*)\)(?:.*?/D\s*\(([^()]*)\))?",
     re.IGNORECASE | re.DOTALL,
 )
+_URI_RE = re.compile(r"/S\s*/URI\b.*?/URI\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
 _DEFAULT_FONT_ROLE = {
     "family": "serif",
     "weight": "normal",
@@ -42,6 +43,16 @@ _DEFAULT_FONT_ROLE = {
 
 _CSS_POINTS_PER_TEX_POINT_NUM = 7200
 _CSS_POINTS_PER_TEX_POINT_DEN = 7227
+_PDF_STRING_ESCAPES = {
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "b": "\b",
+    "f": "\f",
+    "\\": "\\",
+    "(": "(",
+    ")": ")",
+}
 
 
 # Define shortcuts for common MathML tags
@@ -75,6 +86,15 @@ class Style(dict):
         return  "".join([f"{k}:{v};" for k, v in self.items()])
 
 
+class DeferredWhatsit:
+    def __init__(self, node):
+        self.node = node
+
+    def typeset(self, backend):
+        self.node.output(backend.parser, backend)
+        return None
+
+
 class HTMLReflowBackend(reflow.Reflow):
     """
     Null shipout backend for reflow mode.
@@ -94,6 +114,8 @@ class HTMLReflowBackend(reflow.Reflow):
         self._font_families = {}
         self._font_faces = {}
         self._next_font_face = 1
+        self._container_stack = []
+        self._active_links = []
 
     def _css_string(self, text):
         return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -255,6 +277,110 @@ class HTMLReflowBackend(reflow.Reflow):
             builder.STYLE(self._document_css(html_path)),
         )
 
+    @staticmethod
+    def _decode_pdf_string(token):
+        if len(token) < 2 or token[0] != "(" or token[-1] != ")":
+            return token
+        out = []
+        i = 1
+        while i < len(token) - 1:
+            ch = token[i]
+            if ch == "\\" and i + 1 < len(token) - 1:
+                i += 1
+                esc = token[i]
+                out.append(_PDF_STRING_ESCAPES.get(esc, esc))
+            else:
+                out.append(ch)
+            i += 1
+        return "".join(out)
+
+    def _push_container(self, container):
+        self._container_stack.append(container)
+
+    def _pop_container(self):
+        self._container_stack.pop()
+
+    def _base_container(self):
+        if self._container_stack:
+            return self._container_stack[-1]
+        return self.body
+
+    def _current_link(self):
+        for link in reversed(self._active_links):
+            if link is not None:
+                return link
+        return None
+
+    def _current_parent(self, container=None):
+        link = self._current_link()
+        if link is not None:
+            return link
+        return self._base_container() if container is None else container
+
+    def _append_output(self, container, content):
+        if content is None:
+            return None
+        if isinstance(content, str):
+            if content == "" or content == " ":
+                return None
+            content = builder.SPAN(content)
+        self._current_parent(container).append(content)
+        return content
+
+    @staticmethod
+    def _special_marker(text, attr="data-tex-special"):
+        span = builder.SPAN()
+        span.set("style", "display:none;")
+        span.set(attr, text)
+        return span
+
+    def _annotation_info(self, payload):
+        goto = _GOTO_RE.search(payload)
+        if goto is not None:
+            return {
+                "kind": "goto",
+                "destination": self._decode_pdf_string(f"({goto.group(1)})"),
+            }
+        gotor = _GOTOR_RE.search(payload)
+        if gotor is not None:
+            return {
+                "kind": "gotor",
+                "file": self._decode_pdf_string(f"({gotor.group(1)})"),
+                "destination": None if gotor.group(2) is None else self._decode_pdf_string(f"({gotor.group(2)})"),
+            }
+        uri = _URI_RE.search(payload)
+        if uri is not None:
+            return {
+                "kind": "uri",
+                "url": self._decode_pdf_string(f"({uri.group(1)})"),
+            }
+        return {
+            "kind": "raw",
+            "payload": payload,
+        }
+
+    @staticmethod
+    def _annotation_href(info):
+        kind = info.get("kind")
+        if kind == "goto":
+            return "#" + info["destination"]
+        if kind == "gotor":
+            href = info["file"]
+            if info.get("destination"):
+                href += "#" + info["destination"]
+            return href
+        if kind == "uri":
+            return info["url"]
+        return None
+
+    def _link_element(self, info, annotation_kind):
+        href = self._annotation_href(info)
+        if href is None:
+            return None
+        link = builder.A(href=href)
+        link.set("data-tex-annotation", annotation_kind)
+        return link
+
     def open(self):
         # Runtime shipout is intentionally side-effect free for HTML reflow.
         return
@@ -330,14 +456,134 @@ class HTMLReflowBackend(reflow.Reflow):
         style["padding"] = f"{_pt(para.spacing_before)} 0 0 0"
         style["text-align"] = para.justify
         div.set("style", div.get("style", "")+str(style))
-        for n in para:
-            s = n.typeset(self)
-            if isinstance(s, str):
-                if s != "" and s != " ":
-                    div.append(builder.SPAN(s))
-            else:
-                div.append(s)
+        self._push_container(div)
+        try:
+            for n in para:
+                self._append_output(div, n.typeset(self))
+        finally:
+            self._pop_container()
         return div
+
+    def populateParagraph(self, para, hlist, glue_state):
+        class Source:
+            def __init__(self):
+                self.inline_math = None
+
+            def __call__(self, node):
+                if node.node_type == nd.NODE_TYPE.MATH:
+                    self.inline_math = node.source if node.on else None
+                    return node.source
+                if self.inline_math is not None:
+                    return self.inline_math
+                return node.source
+
+        nodes = iter(hlist)
+        while True:
+            collection, raw = self._collect(nodes, Source())
+            if raw is None:
+                break
+            if raw.node_type == nd.NODE_TYPE.GLUE:
+                if glue_state is None:
+                    para.setSpace(raw.glue.dimen)
+                elif (
+                    glue_state["order"] > 0
+                    and not glue_state["shrink"]
+                    and glue_state["order"] == raw.glue.stretch.order
+                ):
+                    para.append(Spring(self._glue_amount(raw, box=None, state=glue_state)))
+                else:
+                    para.setSpace(self._glue_amount(raw, box=None, state=glue_state))
+                continue
+            if isinstance(raw, mmode.InlineMathNode):
+                para.setInlineMath(raw, collection, left_kern=Dimen(), right_kern=Dimen())
+                continue
+            if raw.node_type == nd.NODE_TYPE.WHATSIT:
+                para.text_run = None
+                list.append(para, DeferredWhatsit(raw))
+                continue
+            if raw.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                para.append(raw)
+
+    def typesetVList(self, parent, vlist: list, glue_state=None, mark_last_source=False):
+        def source(node):
+            while True:
+                s = node.source
+                if s is None or s.source is None:
+                    return s
+                node = s
+
+        spacing = Dimen()
+        nodes = iter(vlist)
+        self._push_container(parent)
+        try:
+            while True:
+                collection, n = self._collect(nodes, source)
+                if n is None:
+                    break
+                if n is self.last_source:
+                    self.last_source = None
+                    continue
+                if isinstance(n, mmode.DisplayMathNode):
+                    self._append_output(parent, self.typesetDisplayMath(n, collection, yspacing=spacing))
+                    spacing = Dimen()
+                    if mark_last_source:
+                        self.last_source = n
+                    continue
+                if isinstance(n, paragraph.Paragraph):
+                    line = None
+                    for b in collection:
+                        if b.node_type == nd.NODE_TYPE.HLIST:
+                            line = b
+                            break
+                        if b.node_type == nd.NODE_TYPE.GLUE:
+                            if glue_state is None:
+                                spacing += b.glue.dimen
+                            else:
+                                spacing += Dimen(integer=self._glue_amount(b, None, glue_state))
+                        elif b.node_type == nd.NODE_TYPE.KERN:
+                            spacing += b.kern
+                    if line is None:
+                        continue
+                    para = Paragraph(indent=Dimen(), spacing_before=spacing, justify=self._hbox_justification(line))
+                    self.populateParagraph(para, n.list, glue_state=None)
+                    self._append_output(parent, self.typesetParagraph(para))
+                    spacing = Dimen()
+                    if mark_last_source:
+                        self.last_source = n
+                    continue
+                if isinstance(n, align.HAlignment):
+                    self._append_output(parent, self.typesetHAlignment(n, collection, yspacing=spacing))
+                    spacing = Dimen()
+                    if mark_last_source:
+                        self.last_source = n
+                    continue
+                assert not isinstance(n, align.MAlignment)
+                if n.node_type == nd.NODE_TYPE.VLIST:
+                    h = Dimen() if n.shifted is None else n.shifted
+                    self._append_output(parent, self.typesetVBox(n, xspacing=h, yspacing=spacing))
+                    spacing = Dimen()
+                    continue
+                if n.node_type == nd.NODE_TYPE.HLIST:
+                    self._append_output(parent, self.typesetHBox(n))
+                    spacing = Dimen()
+                    continue
+                if n.node_type == nd.NODE_TYPE.WHATSIT:
+                    n.output(self.parser, self)
+                    continue
+                if n.node_type == nd.NODE_TYPE.GLUE:
+                    if glue_state is None:
+                        spacing += n.glue.dimen
+                    else:
+                        spacing += Dimen(integer=self._glue_amount(n, None, glue_state))
+                    continue
+                if n.node_type == nd.NODE_TYPE.KERN:
+                    spacing += n.kern
+                    continue
+        finally:
+            self._pop_container()
+        if int(spacing) != 0:
+            self._append_output(parent, self.typesetNBSP(1, height=spacing))
+        return parent
 
     def _text_font_family(self, font):
         family = self.define_font(font)
@@ -468,87 +714,89 @@ class HTMLReflowBackend(reflow.Reflow):
         is_digit = False
         nodes = iter(nodes)
         stack = []
-        while True:
-            node = next(nodes, None)
-            if node is None:
-                if not stack:
-                    break
-                nodes = stack.pop()
-                continue
-            # we skip kerns and glues, and rely on MathML to handle them by default
-            if isinstance(node, mmode.StyleNode):
-                style = node.style
-                continue
-            if isinstance(node, mmode.ChoiceNode):
-                if style.style == mmode.MATH_STYLE.D:
-                    new = node.display
-                elif style.style == mmode.MATH_STYLE.T:
-                    new = node.text
-                elif style.style == mmode.MATH_STYLE.S:
-                    new = node.script
-                else:
-                    new = node.scriptscript
-                stack.append(nodes)
-                nodes = iter(new.list)
-                continue
-            if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
-                if node.atom_type == mmode.ATOM_TYPE.ORD and node.sup is None and node.sub is None and isinstance(node.nucleus, mmode.MathSymbol):
-                    symbol: mmode.MathSymbol = node.nucleus
-                    if symbol.fam == 0:
-                        char = self._math_symbol(symbol.char, symbol.fam)
-                        if char is None:
-                            char = symbol.char
-                        if char == "." and not has_dot:
-                            if not is_digit and letters:
-                                parent.append(MI(letters, mathvariant="normal"))
-                                letters = ""
+        self._push_container(parent)
+        try:
+            while True:
+                node = next(nodes, None)
+                if node is None:
+                    if not stack:
+                        break
+                    nodes = stack.pop()
+                    continue
+                # we skip kerns and glues, and rely on MathML to handle them by default
+                if isinstance(node, mmode.StyleNode):
+                    style = node.style
+                    continue
+                if isinstance(node, mmode.ChoiceNode):
+                    if style.style == mmode.MATH_STYLE.D:
+                        new = node.display
+                    elif style.style == mmode.MATH_STYLE.T:
+                        new = node.text
+                    elif style.style == mmode.MATH_STYLE.S:
+                        new = node.script
+                    else:
+                        new = node.scriptscript
+                    stack.append(nodes)
+                    nodes = iter(new.list)
+                    continue
+                if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
+                    if node.atom_type == mmode.ATOM_TYPE.ORD and node.sup is None and node.sub is None and isinstance(node.nucleus, mmode.MathSymbol):
+                        symbol: mmode.MathSymbol = node.nucleus
+                        if symbol.fam == 0:
+                            char = self._math_symbol(symbol.char, symbol.fam)
+                            if char is None:
+                                char = symbol.char
+                            if char == "." and not has_dot:
+                                if not is_digit and letters:
+                                    self._append_output(parent, MI(letters, mathvariant="normal"))
+                                    letters = ""
+                                    is_digit = True
+                                has_dot = True
+                                letters += char
+                                continue
+                            if char.isdigit():
+                                if not is_digit and letters:
+                                    self._append_output(parent, MI(letters, mathvariant="normal"))
+                                    letters = ""
                                 is_digit = True
-                            has_dot = True
-                            letters += char
-                            continue
-                        if char.isdigit():
-                            if not is_digit and letters:
-                                parent.append(MI(letters, mathvariant="normal"))
+                                letters += char
+                                continue
+                            if is_digit and letters:
+                                self._append_output(parent, MN(letters))
                                 letters = ""
-                            is_digit = True
+                                is_digit = False
+                                has_dot = False
                             letters += char
                             continue
-                        if is_digit and letters:
-                            parent.append(MN(letters))
-                            letters = ""
-                            is_digit = False
-                            has_dot = False
-                        letters += char
-                        continue
+                if letters:
+                    if is_digit:
+                        self._append_output(parent, MN(letters))
+                    else:
+                        self._append_output(parent, MI(letters, mathvariant="normal"))
+                    letters = ""
+                    is_digit = False
+                    has_dot = False
+                if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
+                    self._append_output(parent, self.typesetAtom(node, style=style))
+                    continue
+                if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.MARK, nd.NODE_TYPE.ADJUST):
+                     continue
+                if node.node_type == nd.NODE_TYPE.VLIST:
+                    self._append_output(parent, self.typesetVBox(node, inline=True))
+                    continue
+                if node.node_type == nd.NODE_TYPE.HLIST:
+                    self._append_output(parent, self.typesetHBox(node, inline=True))
+                    continue
+                if node.node_type == nd.NODE_TYPE.WHATSIT:
+                    node.output(self.parser, self)
+                    continue
             if letters:
                 if is_digit:
-                    parent.append(MN(letters))
+                    self._append_output(parent, MN(letters))
                 else:
-                    parent.append(MI(letters, mathvariant="normal"))
-                letters = ""
-                is_digit = False
-                has_dot = False
-            if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
-                parent.append(self.typesetAtom(node, style=style))
-                continue
-            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.MARK, nd.NODE_TYPE.ADJUST):
-                 continue
-            if node.node_type == nd.NODE_TYPE.VLIST:
-                parent.append(self.typesetVBox(node, inline=True))
-                continue
-            if node.node_type == nd.NODE_TYPE.HLIST:
-                parent.append(self.typesetHBox(node, inline=True))
-                continue
-            if node.node_type == nd.NODE_TYPE.WHATSIT:
-                node.output(self.parser, self)
-                continue
-            if node.node_type == nd.NODE_TYPE.INS:
-                node.output(self.parser, self)
-        if letters:
-            if is_digit:
-                parent.append(MN(letters))
-            else:
-                parent.append(MI(letters, mathvariant="normal"))
+                    self._append_output(parent, MI(letters, mathvariant="normal"))
+        finally:
+            self._pop_container()
         if len(parent) == 1 and etree.QName(parent).localname != "math":
             parent = parent[0]
             # if atom_type is an operator, we need to set it as <mo>
@@ -597,48 +845,59 @@ class HTMLReflowBackend(reflow.Reflow):
         row = MROW()
         text = ""
         nodes = iter(hbox.list)
-        while True:
-            n = next(nodes, None)
-            if n is None: 
-                break
-            if n.node_type == nd.NODE_TYPE.CHAR:
-                text += n.char
-                continue
-            if n.node_type == nd.NODE_TYPE.LIGATURE:
-                for p in n.source:
-                    text += p.char
-                continue
-            if n.node_type == nd.NODE_TYPE.GLUE:
-                text += " "
-                continue
+        self._push_container(row)
+        try:
+            while True:
+                n = next(nodes, None)
+                if n is None: 
+                    break
+                if n.node_type == nd.NODE_TYPE.CHAR:
+                    text += n.char
+                    continue
+                if n.node_type == nd.NODE_TYPE.LIGATURE:
+                    for p in n.source:
+                        text += p.char
+                    continue
+                if n.node_type == nd.NODE_TYPE.GLUE:
+                    text += " "
+                    continue
+                if text:
+                    self._append_output(row, MTEXT(text))
+                    text = ""
+                if n.node_type == nd.NODE_TYPE.HLIST:
+                    self._append_output(row, self.typesetMathHBox(n))
+                elif n.node_type == nd.NODE_TYPE.VLIST:
+                    self._append_output(row, self.typesetMathVBox(n))
+                elif n.node_type == nd.NODE_TYPE.WHATSIT:
+                    n.output(self.parser, self)
+                elif n.node_type == nd.NODE_TYPE.MATH:
+                    inline: mmode.InlineMathNode = n.source
+                    while True:
+                        n = next(nodes, None)
+                        assert n is not None
+                        if n.node_type == nd.NODE_TYPE.MATH:
+                            break
+                    self._append_output(
+                        row,
+                        self.typesetMList(MROW(), inline.list, mmode.ATOM_TYPE.ORD, mmode.Style(mmode.MATH_STYLE.T)),
+                    )
             if text:
-                row.append(MTEXT(text))
-                text = ""
-            if n.node_type == nd.NODE_TYPE.HLIST:
-                row.append(self.typesetMathHBox(n))
-            elif n.node_type == nd.NODE_TYPE.VLIST:
-                row.append(self.typesetMathVBox(n))
-            elif n.node_type == nd.NODE_TYPE.WHATSIT:
-                n.output(self.parser, self)
-            elif n.node_type == nd.NODE_TYPE.MATH:
-                inline: mmode.InlineMathNode = n.source
-                while True:
-                    n = next(nodes, None)
-                    assert n is not None
-                    if n.node_type == nd.NODE_TYPE.MATH:
-                        break
-                row.append(self.typesetMList(MROW(), inline.list, mmode.ATOM_TYPE.ORD, mmode.Style(mmode.MATH_STYLE.T)))
-        if text:
-            row.append(MTEXT(text))
+                self._append_output(row, MTEXT(text))
+        finally:
+            self._pop_container()
         return row
 
     def typesetMathVBox(self, vbox):
         matrix = None
-        for n in vbox.list:
-            if n.node_type == nd.NODE_TYPE.WHATSIT:
-                n.output(self.parser, self)
-            elif isinstance(n.source, align.HAlignment):
-                matrix = n.source
+        self._push_container(self._base_container())
+        try:
+            for n in vbox.list:
+                if n.node_type == nd.NODE_TYPE.WHATSIT:
+                    n.output(self.parser, self)
+                elif isinstance(n.source, align.HAlignment):
+                    matrix = n.source
+        finally:
+            self._pop_container()
         if matrix is None:
             return MI()
         table = MTABLE()
@@ -764,6 +1023,39 @@ class HTMLReflowBackend(reflow.Reflow):
             if row.noalign:
                 table.append(noalign(row.noalign, columns))
         return table
+
+    def rawSpecial(self, text):
+        match = _DEST_RE.match(text)
+        if match is not None:
+            marker = builder.SPAN()
+            marker.set("id", self._decode_pdf_string(f"({match.group(1)})"))
+            self._append_output(self._base_container(), marker)
+            return
+        self._append_output(self._base_container(), self._special_marker(text))
+
+    def annotate(self, kind, name=None, dimensions=None, payload=None):
+        if kind == "end":
+            if self._active_links:
+                self._active_links.pop()
+            return
+        info = self._annotation_info(payload or "")
+        link = self._link_element(info, kind)
+        if link is None:
+            self._append_output(
+                self._base_container(),
+                self._special_marker(payload or kind, attr="data-tex-annotation"),
+            )
+            if kind == "begin":
+                self._active_links.append(None)
+            return
+        if kind == "fixed":
+            self._append_output(self._base_container(), link)
+            return
+        if self._current_link() is not None:
+            self._active_links.append(None)
+            return
+        self._append_output(self._base_container(), link)
+        self._active_links.append(link)
 
 
 def init(parser):

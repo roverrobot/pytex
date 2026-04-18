@@ -87,6 +87,15 @@ def _text_box(parser, text, font, width=None):
     return hbox.typeset(parser)
 
 
+def _node_box(parser, nodes, width=None):
+    if width is None:
+        hbox = box.HBox(parser, None, 0)
+    else:
+        hbox = box.HBox(parser, Dimen(width), None)
+    hbox.list = list(nodes)
+    return hbox.typeset(parser)
+
+
 def _ord_atom(char):
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
     atom.nucleus = mmode.MathSymbol(ord(char), -1)
@@ -195,6 +204,57 @@ def test_html_reflow_reuses_bundled_font_face_for_same_file(parser, tmp_path):
     html = (tmp_path / "font-reuse.html").read_text()
     assert html.count("@font-face{") == 1
     assert html.count('font-family:"pytex-font-1"') == 1
+
+
+def test_html_reflow_emits_destination_anchor_for_pdf_dest_special(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(subst_font_name="Times New Roman")
+    hbox = _node_box(
+        parser,
+        [
+            nd.Special("pdf: dest (target.1)[@thispage/XYZ @xpos @ypos null]"),
+            _char("A", font),
+        ],
+    )
+
+    html = _render(backend.typesetHBox(hbox))
+    assert 'id="target.1"' in html
+    assert ">A<" in html
+
+
+def test_html_reflow_wraps_internal_goto_annotation_as_link(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(subst_font_name="Times New Roman")
+    hbox = _node_box(
+        parser,
+        [
+            nd.Special("pdf: beginann <</Type/Annot/Subtype/Link/A<</S/GoTo/D(target.1)>>>>"),
+            _char("A", font),
+            nd.Special("pdf: endann"),
+            _char("B", font),
+        ],
+    )
+
+    html = _render(backend.typesetHBox(hbox))
+    assert 'href="#target.1"' in html
+    assert 'data-tex-annotation="begin"' in html
+    assert html.index('href="#target.1"') < html.index(">B<")
+
+
+def test_html_reflow_wraps_gotor_annotation_as_external_link(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(subst_font_name="Times New Roman")
+    hbox = _node_box(
+        parser,
+        [
+            nd.Special("pdf: beginann <</Type/Annot/Subtype/Link/A<</S/GoToR/F(other.pdf)/D(sec.2)>>>>"),
+            _char("A", font),
+            nd.Special("pdf: endann"),
+        ],
+    )
+
+    html = _render(backend.typesetHBox(hbox))
+    assert 'href="other.pdf#sec.2"' in html
 
 
 def test_reflow_hbox_passes_glue_state_into_populate_paragraph(parser):

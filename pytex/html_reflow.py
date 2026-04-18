@@ -86,15 +86,6 @@ class Style(dict):
         return  "".join([f"{k}:{v};" for k, v in self.items()])
 
 
-class DeferredWhatsit:
-    def __init__(self, node):
-        self.node = node
-
-    def typeset(self, backend):
-        self.node.output(backend.parser, backend)
-        return None
-
-
 class HTMLReflowBackend(reflow.Reflow):
     """
     Null shipout backend for reflow mode.
@@ -300,6 +291,12 @@ class HTMLReflowBackend(reflow.Reflow):
     def _pop_container(self):
         self._container_stack.pop()
 
+    def enterContainer(self, container):
+        self._push_container(container)
+
+    def leaveContainer(self, container):
+        self._pop_container()
+
     def _base_container(self):
         if self._container_stack:
             return self._container_stack[-1]
@@ -317,7 +314,7 @@ class HTMLReflowBackend(reflow.Reflow):
             return link
         return self._base_container() if container is None else container
 
-    def _append_output(self, container, content):
+    def appendOutput(self, container, content):
         if content is None:
             return None
         if isinstance(content, str):
@@ -456,134 +453,13 @@ class HTMLReflowBackend(reflow.Reflow):
         style["padding"] = f"{_pt(para.spacing_before)} 0 0 0"
         style["text-align"] = para.justify
         div.set("style", div.get("style", "")+str(style))
-        self._push_container(div)
+        self.enterContainer(div)
         try:
             for n in para:
-                self._append_output(div, n.typeset(self))
+                self.appendOutput(div, n.typeset(self))
         finally:
-            self._pop_container()
+            self.leaveContainer(div)
         return div
-
-    def populateParagraph(self, para, hlist, glue_state):
-        class Source:
-            def __init__(self):
-                self.inline_math = None
-
-            def __call__(self, node):
-                if node.node_type == nd.NODE_TYPE.MATH:
-                    self.inline_math = node.source if node.on else None
-                    return node.source
-                if self.inline_math is not None:
-                    return self.inline_math
-                return node.source
-
-        nodes = iter(hlist)
-        while True:
-            collection, raw = self._collect(nodes, Source())
-            if raw is None:
-                break
-            if raw.node_type == nd.NODE_TYPE.GLUE:
-                if glue_state is None:
-                    para.setSpace(raw.glue.dimen)
-                elif (
-                    glue_state["order"] > 0
-                    and not glue_state["shrink"]
-                    and glue_state["order"] == raw.glue.stretch.order
-                ):
-                    para.append(Spring(self._glue_amount(raw, box=None, state=glue_state)))
-                else:
-                    para.setSpace(self._glue_amount(raw, box=None, state=glue_state))
-                continue
-            if isinstance(raw, mmode.InlineMathNode):
-                para.setInlineMath(raw, collection, left_kern=Dimen(), right_kern=Dimen())
-                continue
-            if raw.node_type == nd.NODE_TYPE.WHATSIT:
-                para.text_run = None
-                list.append(para, DeferredWhatsit(raw))
-                continue
-            if raw.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                para.append(raw)
-
-    def typesetVList(self, parent, vlist: list, glue_state=None, mark_last_source=False):
-        def source(node):
-            while True:
-                s = node.source
-                if s is None or s.source is None:
-                    return s
-                node = s
-
-        spacing = Dimen()
-        nodes = iter(vlist)
-        self._push_container(parent)
-        try:
-            while True:
-                collection, n = self._collect(nodes, source)
-                if n is None:
-                    break
-                if n is self.last_source:
-                    self.last_source = None
-                    continue
-                if isinstance(n, mmode.DisplayMathNode):
-                    self._append_output(parent, self.typesetDisplayMath(n, collection, yspacing=spacing))
-                    spacing = Dimen()
-                    if mark_last_source:
-                        self.last_source = n
-                    continue
-                if isinstance(n, paragraph.Paragraph):
-                    line = None
-                    for b in collection:
-                        if b.node_type == nd.NODE_TYPE.HLIST:
-                            line = b
-                            break
-                        if b.node_type == nd.NODE_TYPE.GLUE:
-                            if glue_state is None:
-                                spacing += b.glue.dimen
-                            else:
-                                spacing += Dimen(integer=self._glue_amount(b, None, glue_state))
-                        elif b.node_type == nd.NODE_TYPE.KERN:
-                            spacing += b.kern
-                    if line is None:
-                        continue
-                    para = Paragraph(indent=Dimen(), spacing_before=spacing, justify=self._hbox_justification(line))
-                    self.populateParagraph(para, n.list, glue_state=None)
-                    self._append_output(parent, self.typesetParagraph(para))
-                    spacing = Dimen()
-                    if mark_last_source:
-                        self.last_source = n
-                    continue
-                if isinstance(n, align.HAlignment):
-                    self._append_output(parent, self.typesetHAlignment(n, collection, yspacing=spacing))
-                    spacing = Dimen()
-                    if mark_last_source:
-                        self.last_source = n
-                    continue
-                assert not isinstance(n, align.MAlignment)
-                if n.node_type == nd.NODE_TYPE.VLIST:
-                    h = Dimen() if n.shifted is None else n.shifted
-                    self._append_output(parent, self.typesetVBox(n, xspacing=h, yspacing=spacing))
-                    spacing = Dimen()
-                    continue
-                if n.node_type == nd.NODE_TYPE.HLIST:
-                    self._append_output(parent, self.typesetHBox(n))
-                    spacing = Dimen()
-                    continue
-                if n.node_type == nd.NODE_TYPE.WHATSIT:
-                    n.output(self.parser, self)
-                    continue
-                if n.node_type == nd.NODE_TYPE.GLUE:
-                    if glue_state is None:
-                        spacing += n.glue.dimen
-                    else:
-                        spacing += Dimen(integer=self._glue_amount(n, None, glue_state))
-                    continue
-                if n.node_type == nd.NODE_TYPE.KERN:
-                    spacing += n.kern
-                    continue
-        finally:
-            self._pop_container()
-        if int(spacing) != 0:
-            self._append_output(parent, self.typesetNBSP(1, height=spacing))
-        return parent
 
     def _text_font_family(self, font):
         family = self.define_font(font)
@@ -748,7 +624,7 @@ class HTMLReflowBackend(reflow.Reflow):
                                 char = symbol.char
                             if char == "." and not has_dot:
                                 if not is_digit and letters:
-                                    self._append_output(parent, MI(letters, mathvariant="normal"))
+                                    self.appendOutput(parent, MI(letters, mathvariant="normal"))
                                     letters = ""
                                     is_digit = True
                                 has_dot = True
@@ -756,13 +632,13 @@ class HTMLReflowBackend(reflow.Reflow):
                                 continue
                             if char.isdigit():
                                 if not is_digit and letters:
-                                    self._append_output(parent, MI(letters, mathvariant="normal"))
+                                    self.appendOutput(parent, MI(letters, mathvariant="normal"))
                                     letters = ""
                                 is_digit = True
                                 letters += char
                                 continue
                             if is_digit and letters:
-                                self._append_output(parent, MN(letters))
+                                self.appendOutput(parent, MN(letters))
                                 letters = ""
                                 is_digit = False
                                 has_dot = False
@@ -770,31 +646,31 @@ class HTMLReflowBackend(reflow.Reflow):
                             continue
                 if letters:
                     if is_digit:
-                        self._append_output(parent, MN(letters))
+                        self.appendOutput(parent, MN(letters))
                     else:
-                        self._append_output(parent, MI(letters, mathvariant="normal"))
+                        self.appendOutput(parent, MI(letters, mathvariant="normal"))
                     letters = ""
                     is_digit = False
                     has_dot = False
                 if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
-                    self._append_output(parent, self.typesetAtom(node, style=style))
+                    self.appendOutput(parent, self.typesetAtom(node, style=style))
                     continue
                 if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.MARK, nd.NODE_TYPE.ADJUST):
                      continue
                 if node.node_type == nd.NODE_TYPE.VLIST:
-                    self._append_output(parent, self.typesetVBox(node, inline=True))
+                    self.appendOutput(parent, self.typesetVBox(node, inline=True))
                     continue
                 if node.node_type == nd.NODE_TYPE.HLIST:
-                    self._append_output(parent, self.typesetHBox(node, inline=True))
+                    self.appendOutput(parent, self.typesetHBox(node, inline=True))
                     continue
                 if node.node_type == nd.NODE_TYPE.WHATSIT:
                     node.output(self.parser, self)
                     continue
             if letters:
                 if is_digit:
-                    self._append_output(parent, MN(letters))
+                    self.appendOutput(parent, MN(letters))
                 else:
-                    self._append_output(parent, MI(letters, mathvariant="normal"))
+                    self.appendOutput(parent, MI(letters, mathvariant="normal"))
         finally:
             self._pop_container()
         if len(parent) == 1 and etree.QName(parent).localname != "math":
@@ -862,12 +738,12 @@ class HTMLReflowBackend(reflow.Reflow):
                     text += " "
                     continue
                 if text:
-                    self._append_output(row, MTEXT(text))
+                    self.appendOutput(row, MTEXT(text))
                     text = ""
                 if n.node_type == nd.NODE_TYPE.HLIST:
-                    self._append_output(row, self.typesetMathHBox(n))
+                    self.appendOutput(row, self.typesetMathHBox(n))
                 elif n.node_type == nd.NODE_TYPE.VLIST:
-                    self._append_output(row, self.typesetMathVBox(n))
+                    self.appendOutput(row, self.typesetMathVBox(n))
                 elif n.node_type == nd.NODE_TYPE.WHATSIT:
                     n.output(self.parser, self)
                 elif n.node_type == nd.NODE_TYPE.MATH:
@@ -877,12 +753,12 @@ class HTMLReflowBackend(reflow.Reflow):
                         assert n is not None
                         if n.node_type == nd.NODE_TYPE.MATH:
                             break
-                    self._append_output(
+                    self.appendOutput(
                         row,
                         self.typesetMList(MROW(), inline.list, mmode.ATOM_TYPE.ORD, mmode.Style(mmode.MATH_STYLE.T)),
                     )
             if text:
-                self._append_output(row, MTEXT(text))
+                self.appendOutput(row, MTEXT(text))
         finally:
             self._pop_container()
         return row
@@ -1029,9 +905,9 @@ class HTMLReflowBackend(reflow.Reflow):
         if match is not None:
             marker = builder.SPAN()
             marker.set("id", self._decode_pdf_string(f"({match.group(1)})"))
-            self._append_output(self._base_container(), marker)
+            self.appendOutput(self._base_container(), marker)
             return
-        self._append_output(self._base_container(), self._special_marker(text))
+        self.appendOutput(self._base_container(), self._special_marker(text))
 
     def annotate(self, kind, name=None, dimensions=None, payload=None):
         if kind == "end":
@@ -1041,7 +917,7 @@ class HTMLReflowBackend(reflow.Reflow):
         info = self._annotation_info(payload or "")
         link = self._link_element(info, kind)
         if link is None:
-            self._append_output(
+            self.appendOutput(
                 self._base_container(),
                 self._special_marker(payload or kind, attr="data-tex-annotation"),
             )
@@ -1049,12 +925,12 @@ class HTMLReflowBackend(reflow.Reflow):
                 self._active_links.append(None)
             return
         if kind == "fixed":
-            self._append_output(self._base_container(), link)
+            self.appendOutput(self._base_container(), link)
             return
         if self._current_link() is not None:
             self._active_links.append(None)
             return
-        self._append_output(self._base_container(), link)
+        self.appendOutput(self._base_container(), link)
         self._active_links.append(link)
 
 

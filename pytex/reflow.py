@@ -97,6 +97,15 @@ class InlineMath:
     def typeset(self, backend):
         return backend.typesetInlineMath(self.node, self.collection, self.left_kern, self.right_kern)
 
+
+@dataclass
+class DeferredWhatsit:
+    node: nd.Node
+
+    def typeset(self, backend):
+        self.node.output(backend.parser, backend)
+        return None
+
 class Paragraph(list):
     def __init__(self, indent=Dimen(), spacing_before = Dimen(), justify: str="left"):
         self.spacing_before = spacing_before
@@ -197,6 +206,18 @@ class Reflow(shipout.Shipout):
     def close(self):
         pass
 
+    def enterContainer(self, container):
+        pass
+
+    def leaveContainer(self, container):
+        pass
+
+    def appendOutput(self, container, content):
+        if content is None:
+            return None
+        container.append(content)
+        return content
+
     def shipout(self, box):
         self.open()
         self.pages.append(box)
@@ -250,76 +271,80 @@ class Reflow(shipout.Shipout):
                 node = s
         spacing = Dimen()
         nodes = iter(vlist)
-        while True:
-            collection, n = self._collect(nodes, source)
-            if n is None:
-                break
-            if n is self.last_source:
-                self.last_source = None
-                continue
-            if isinstance(n, mmode.DisplayMathNode):
-                node = self.typesetDisplayMath(n, collection, yspacing=spacing)
-                parent.append(node)
-                spacing = Dimen()
-                if mark_last_source:
-                    self.last_source = n
-                continue
-            if isinstance(n, paragraph.Paragraph):
-                # first the first line box
-                line = None
-                for b in collection:
-                    if b.node_type == nd.NODE_TYPE.HLIST:
-                        line = b
-                        break
-                    if b.node_type == nd.NODE_TYPE.GLUE:
-                        if glue_state is None:
-                            spacing += b.glue.dimen
-                        else:
-                            spacing += Dimen(integer=self._glue_amount(b, None, glue_state))
-                    elif b.node_type == nd.NODE_TYPE.KERN:
-                        spacing += b.kern
-                if line is None:
-                    # this is an empty graph. We only count spacing
+        self.enterContainer(parent)
+        try:
+            while True:
+                collection, n = self._collect(nodes, source)
+                if n is None:
+                    break
+                if n is self.last_source:
+                    self.last_source = None
                     continue
-                para = Paragraph(indent = Dimen(), spacing_before=spacing, justify=self._hbox_justification(line))
-                self.populateParagraph(para, n.list, glue_state=None)
-                parent.append(self.typesetParagraph(para))
-                spacing = Dimen()
-                if mark_last_source:
-                    self.last_source = n
-                continue
-            if isinstance(n, align.HAlignment):
-                node = self.typesetHAlignment(n, collection, yspacing=spacing)
-                parent.append(node)
-                spacing = Dimen()
-                if mark_last_source:
-                    self.last_source = n
-                continue
-            assert not isinstance(n, align.MAlignment)
-            if n.node_type == nd.NODE_TYPE.VLIST:
-                h = Dimen() if n.shifted is None else n.shifted
-                parent.append(self.typesetVBox(n, xspacing=h, yspacing=spacing))
-                spacing = Dimen()
-                continue
-            if n.node_type == nd.NODE_TYPE.HLIST:
-                # this hbox is manually constructed (i.e., without a source)
-                parent.append(self.typesetHBox(n))
-                spacing = Dimen()
-                continue
-            if n.node_type == nd.NODE_TYPE.WHATSIT:
-                n.output(self.parser, self)
-                continue
-            if n.node_type == nd.NODE_TYPE.GLUE:
-                if glue_state is None:
-                    spacing += n.glue.dimen
-                else:
-                    spacing += Dimen(integer=self._glue_amount(n, None, glue_state))
-                continue
-            if n.node_type == nd.NODE_TYPE.KERN:
-                spacing += n.kern
-                continue
+                if isinstance(n, mmode.DisplayMathNode):
+                    node = self.typesetDisplayMath(n, collection, yspacing=spacing)
+                    self.appendOutput(parent, node)
+                    spacing = Dimen()
+                    if mark_last_source:
+                        self.last_source = n
+                    continue
+                if isinstance(n, paragraph.Paragraph):
+                    # first the first line box
+                    line = None
+                    for b in collection:
+                        if b.node_type == nd.NODE_TYPE.HLIST:
+                            line = b
+                            break
+                        if b.node_type == nd.NODE_TYPE.GLUE:
+                            if glue_state is None:
+                                spacing += b.glue.dimen
+                            else:
+                                spacing += Dimen(integer=self._glue_amount(b, None, glue_state))
+                        elif b.node_type == nd.NODE_TYPE.KERN:
+                            spacing += b.kern
+                    if line is None:
+                        # this is an empty graph. We only count spacing
+                        continue
+                    para = Paragraph(indent = Dimen(), spacing_before=spacing, justify=self._hbox_justification(line))
+                    self.populateParagraph(para, n.list, glue_state=None)
+                    self.appendOutput(parent, self.typesetParagraph(para))
+                    spacing = Dimen()
+                    if mark_last_source:
+                        self.last_source = n
+                    continue
+                if isinstance(n, align.HAlignment):
+                    node = self.typesetHAlignment(n, collection, yspacing=spacing)
+                    self.appendOutput(parent, node)
+                    spacing = Dimen()
+                    if mark_last_source:
+                        self.last_source = n
+                    continue
+                assert not isinstance(n, align.MAlignment)
+                if n.node_type == nd.NODE_TYPE.VLIST:
+                    h = Dimen() if n.shifted is None else n.shifted
+                    self.appendOutput(parent, self.typesetVBox(n, xspacing=h, yspacing=spacing))
+                    spacing = Dimen()
+                    continue
+                if n.node_type == nd.NODE_TYPE.HLIST:
+                    # this hbox is manually constructed (i.e., without a source)
+                    self.appendOutput(parent, self.typesetHBox(n))
+                    spacing = Dimen()
+                    continue
+                if n.node_type == nd.NODE_TYPE.WHATSIT:
+                    n.output(self.parser, self)
+                    continue
+                if n.node_type == nd.NODE_TYPE.GLUE:
+                    if glue_state is None:
+                        spacing += n.glue.dimen
+                    else:
+                        spacing += Dimen(integer=self._glue_amount(n, None, glue_state))
+                    continue
+                if n.node_type == nd.NODE_TYPE.KERN:
+                    spacing += n.kern
+                    continue
+        finally:
+            self.leaveContainer(parent)
         if int(spacing) != 0:
-            parent.append(self.typesetNBSP(1, height=spacing))
+            self.appendOutput(parent, self.typesetNBSP(1, height=spacing))
         return parent
     
     def typesetVBox(self, box, inline=False, xspacing=Dimen(), yspacing=Dimen(), mark_last_source=False):
@@ -361,7 +386,8 @@ class Reflow(shipout.Shipout):
             elif isinstance(raw, mmode.InlineMathNode):
                 para.setInlineMath(raw, collection, left_kern=Dimen(), right_kern=Dimen())
             elif raw.node_type == nd.NODE_TYPE.WHATSIT:
-                raw.output(self.parser, self)
+                para.text_run = None
+                list.append(para, DeferredWhatsit(raw))
             if raw.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 para.append(raw)
             

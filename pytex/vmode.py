@@ -176,8 +176,6 @@ class VAdjust(nd.Node):
 
     def __init__(self, list):
         self.list = list
-        for n in list:
-            n.source = self
 
     def saveInfo(self):
         return {"list": self.list}, None

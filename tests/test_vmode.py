@@ -815,6 +815,7 @@ def test_vadjust_merges_into_vertical_material(cmr10):
     assert packed[0].node_type == nd.NODE_TYPE.HLIST
     assert packed[1].node_type == nd.NODE_TYPE.RULE
     assert packed[1].height == 1
+    assert packed[1].source is None
 
 
 def test_page_break_merges_vadjust_material(cmr10):

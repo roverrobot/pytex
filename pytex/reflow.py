@@ -318,10 +318,6 @@ class Reflow(shipout.Shipout):
             if n.node_type == nd.NODE_TYPE.KERN:
                 spacing += n.kern
                 continue
-            if n.node_type == nd.NODE_TYPE.INS:
-                n.output(self.parser, self)
-                spacing = Dimen()
-                continue
         if int(spacing) != 0:
             parent.append(self.typesetNBSP(1, height=spacing))
         return parent

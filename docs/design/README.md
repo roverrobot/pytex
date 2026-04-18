@@ -23,3 +23,4 @@ Read in this order:
     * [15-html-reflow-backend.md](15-html-reflow-backend.md)
     * [16-html-faithful-backend-proposal.md](16-html-faithful-backend-proposal.md)
     * [17-docx-faithful-backend-proposal.md](17-docx-faithful-backend-proposal.md)
+    * [18-reflow-document-ir.md](18-reflow-document-ir.md)

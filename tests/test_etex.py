@@ -191,3 +191,8 @@ def test_vsplit_updates_split_marks_registers(parser):
     assert toksToString(parser, parser.globals["splitbotmarks"][0]) == "A"
     assert toksToString(parser, parser.globals["splitfirstmarks"][3]) == "X"
     assert toksToString(parser, parser.globals["splitbotmarks"][3]) == "Y"
+
+
+def test_extra_registers(collector):
+    collector.parse("\\count30000=1\\relax\\the\\count30000")
+    assert collector.getString() == "1"

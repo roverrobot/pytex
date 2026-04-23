@@ -93,10 +93,12 @@ def _color(color: reflow.Color)->str:
 class AnnotationBuilder(reflow.AnnotationBuilder):
     def __init__(self, backend, parent, href):
         super().__init__(backend, parent, href)
-        self.container = Line(justify=None, node=builder.A(href=href))
+        self.link = reflow.Element(builder.A(href=href))
+        self.container = Line(justify=None)
+        self.link.append(self.container)
 
     def beginAnnotation(self, name):
-        self.parent.append(self.container)
+        self.parent.append(self.link)
 
 
 class FixedAnnotation(reflow.Element):

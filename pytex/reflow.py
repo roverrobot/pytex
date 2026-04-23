@@ -634,7 +634,7 @@ class Reflow(shipout.Shipout):
                 para = td.newParagraph()
                 line = para.newLine()
                 with Builder(self, line):
-                    self.typesetLine(cell)
+                    self.typesetLine(cell, nodes=self._hbox_line_nodes(cell))
                 if col < len(spacers):
                     tr.newCell(width=spacers[col])
                     col += cell.span
@@ -675,6 +675,16 @@ class Reflow(shipout.Shipout):
         if int(left) <= 0:
             return "left" if int(right) > 0 else "justify" 
         return "center" if int(right) > 0 else "right"
+
+    def _hbox_line_nodes(self, box):
+        nodes = list(box.list)
+        start = 0
+        end = len(nodes)
+        while start < end and getattr(nodes[start], "node_type", None) == nd.NODE_TYPE.GLUE:
+            start += 1
+        while end > start and getattr(nodes[end - 1], "node_type", None) == nd.NODE_TYPE.GLUE:
+            end -= 1
+        return nodes[start:end]
         
     def typesetParagraph(self,  _: paragraph.Paragraph, nodes: list, glue_state=None):
         self._require_builder("typesetParagraph", "newLine", "setLineSpacing")
@@ -700,7 +710,7 @@ class Reflow(shipout.Shipout):
             return
         line = self.builder.newLine()
         with Builder(self, line):
-            last_source = self.typesetLine(lb)
+            last_source = self.typesetLine(lb, nodes=self._hbox_line_nodes(lb))
         # we add all the interline glues
         spacing = Dimen()
         lines = 1
@@ -721,15 +731,15 @@ class Reflow(shipout.Shipout):
             elif b.node_type == nd.NODE_TYPE.HLIST:
                 line = self.builder.newLine()
                 with Builder(self, line):
-                    last_source = self.typesetLine(b, last_source)
+                    last_source = self.typesetLine(b, last_source, nodes=self._hbox_line_nodes(b))
                 lines += 1
         if lines > 1:
             self.builder.setLineSpacing(spacing / (lines-1))
     
-    def typesetLine(self, box: bx.HBox, last_source=None):
+    def typesetLine(self, box: bx.HBox, last_source=None, nodes=None):
         self._require_builder("typesetLine", "newTextRun", "setSpace", "newInlineBlock")
         text_run = None
-        collection = collect(box.list, HListSource())
+        collection = collect(box.list if nodes is None else nodes, HListSource())
         glue_state = self._glue_state(box)
         for nodes, source in collection:
             if not self.paginate and source is last_source:
@@ -765,7 +775,7 @@ class Reflow(shipout.Shipout):
             para = block.newParagraph(justify=self._hbox_justification(box))
             line = para.newLine()
             with Builder(self, line):
-                self.typesetLine(box)
+                self.typesetLine(box, nodes=self._hbox_line_nodes(box))
         else:
             with Builder(self, block):
                 self.typesetVList(box.list, self._glue_state(box))

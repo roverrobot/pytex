@@ -282,7 +282,23 @@ def test_html_reflow_hbox_renders_inside_builder_context(parser):
     html = _render(rendered)
     assert "display:block;" in rendered.get("style")
     assert "padding-left:0.0pt;" in rendered.get("style")
-    assert ">A " in html
+    assert ">A<" in html
+    assert ">A <" not in html
+
+
+def test_html_reflow_hbox_strips_edge_glue_used_for_justify(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    hfil = glue.Glue(0, glue.Stretchness(1, 1))
+    row = box.HBox(parser, Dimen(40), None)
+    row.list = [nd.Glue(hfil, None), _char("A", font), nd.Glue(hfil, None)]
+    row = row.typeset(parser)
+
+    rendered = _typeset_hbox(parser, row)
+    html = _render(rendered)
+    assert "justify:center;" in html
+    assert ">A<" in html
+    assert "> A<" not in html
+    assert ">A <" not in html
 
 
 def test_html_reflow_hbox_requires_current_builder(parser):
@@ -381,3 +397,5 @@ def test_html_reflow_alignment_cell_uses_edge_glue_for_justify(parser):
     html = _render(table)
     assert "justify:right;" in html
     assert "justify:center;" in html
+    assert ">r<" in html
+    assert ">c<" in html

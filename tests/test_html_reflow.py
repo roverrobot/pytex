@@ -348,6 +348,34 @@ def test_html_reflow_typesets_display_math_with_eqno_table(parser):
     assert ">1<" in html
 
 
+def test_html_reflow_table_cells_use_native_table_layout():
+    table = html_reflow.Table()
+    row = table.newRow()
+    row.newCell(justify="right")
+
+    html = _render(table)
+    assert "<td" in html
+    assert "display:inline-flex" not in html
+    assert "text-align:right;" in html
+    assert "vertical-align:baseline;" in html
+
+
+def test_html_reflow_display_math_eqno_uses_inline_math_cell(parser):
+    backend, body = _open_body(parser, jobname="display-math-eqno")
+    node = mmode.DisplayMathNode()
+    node.list = [_ord_atom("x")]
+    node.eqno = (SimpleNamespace(list=[_ord_atom("1")]), False)
+
+    with reflow.Builder(backend, body):
+        backend.typesetDisplayMath(node, collection=[], yspacing=Dimen(6))
+
+    html = _render(body)
+    assert html.count('display="block"') == 1
+    assert 'display="inline"' in html
+    assert "white-space:nowrap;" in html
+    assert "display:inline-flex" not in html
+
+
 def test_html_reflow_alignment_outer_tabskip_centers_table(parser):
     font = _fake_font(subst_font_name="Times New Roman")
 

@@ -176,11 +176,35 @@ class Paragraph(reflow.Paragraph):
         style["justify"] = justify
         node.set("style", str(style))
         super().__init__(node, reflow_lines, spacing_before, justify)
+        self.line_count = 0
 
     def newLine(self):
         line = Line(self.justify)
+        if self.line_count > 0:
+            line.append(reflow.Element(builder.SPAN(" ")))
+        self.line_count += 1
         self.append(line)
         return line
+
+
+class MFrac(reflow.Element):
+    def __init__(self, num, den, bar, thickness, left=None, right=None):
+        if left is not None:
+            frac = MFrac(num, den, bar, thickness)
+            super().__init__(MROW(left, frac.node, right))
+            return
+        super().__init__(MFRAC())
+        self.append(num)
+        self.append(den)
+        if not bar:
+            thickness = 0
+        if thickness is not None:
+            self.set("linethickness", reflow.PT(thickness))
+
+
+class MRow(reflow.Element):
+    def __init__(self):
+        super().__init__(MROW())
 
 
 class Math(reflow.Math):
@@ -196,12 +220,14 @@ class Cell(reflow.Cell):
         elif isinstance(width, Dimen):
             width = reflow.PT(width)
         else:
-            width = f"{width}%"
+            width = f"{width*100}%"
+        text_align = justify
         style = Style()
         style["width"] = width
         style["justify"] = justify
-        style["display"] = "inline-flex"
-        style["max-width"] = "100%"
+        style["white-space"] = "nowrap"
+        if text_align in ("left", "right", "center", "justify"):
+            style["text-align"] = text_align
         td = builder.TD(style=str(style))
         super().__init__(td, span, width, justify)
     
@@ -216,7 +242,7 @@ class Row(reflow.Row):
         tr = builder.TR()
         super().__init__(tr)
 
-    def newCell(self, span=1, width=None, justify="justified") -> Cell:
+    def newCell(self, span=1, width=None, justify="justify") -> Cell:
         td = Cell(span, width, justify)
         self.append(td)
         return td
@@ -248,11 +274,6 @@ class Block(reflow.Block):
         para = Paragraph(reflow_lines=True, spacing_before=spacing_before, justify=justify)
         self.append(para)
         return para
-
-    def newDisplaymath(self, spacing_before: Dimen=Dimen()) -> Math:
-        math = Math(inline=False)
-        self.append(math)
-        return math
 
     def newTable(self, xspacing: Dimen=Dimen(), yspacing: Dimen=Dimen()):
         table = Table(xspacing, yspacing)
@@ -520,70 +541,6 @@ class HTMLReflowBackend(reflow.Reflow):
         items.append(stack[-1])
         return ",".join(items)
 
-    @staticmethod
-    def _decode_pdf_string(token):
-        if len(token) < 2 or token[0] != "(" or token[-1] != ")":
-            return token
-        out = []
-        i = 1
-        while i < len(token) - 1:
-            ch = token[i]
-            if ch == "\\" and i + 1 < len(token) - 1:
-                i += 1
-                esc = token[i]
-                out.append(_PDF_STRING_ESCAPES.get(esc, esc))
-            else:
-                out.append(ch)
-            i += 1
-        return "".join(out)
-
-    def _annotation_info(self, payload):
-        goto = _GOTO_RE.search(payload)
-        if goto is not None:
-            return {
-                "kind": "goto",
-                "destination": self._decode_pdf_string(f"({goto.group(1)})"),
-            }
-        gotor = _GOTOR_RE.search(payload)
-        if gotor is not None:
-            return {
-                "kind": "gotor",
-                "file": self._decode_pdf_string(f"({gotor.group(1)})"),
-                "destination": None if gotor.group(2) is None else self._decode_pdf_string(f"({gotor.group(2)})"),
-            }
-        uri = _URI_RE.search(payload)
-        if uri is not None:
-            return {
-                "kind": "uri",
-                "url": self._decode_pdf_string(f"({uri.group(1)})"),
-            }
-        return {
-            "kind": "raw",
-            "payload": payload,
-        }
-
-    @staticmethod
-    def _annotation_href(info):
-        kind = info.get("kind")
-        if kind == "goto":
-            return "#" + info["destination"]
-        if kind == "gotor":
-            href = info["file"]
-            if info.get("destination"):
-                href += "#" + info["destination"]
-            return href
-        if kind == "uri":
-            return info["url"]
-        return None
-
-    def _link_element(self, info, annotation_kind):
-        href = self._annotation_href(info)
-        if href is None:
-            return None
-        link = builder.A(href=href)
-        link.set("data-tex-annotation", annotation_kind)
-        return link
-    
     def typesetNBSP(self, width, height=1):
         div = builder.DIV()
         style = Style()
@@ -628,23 +585,6 @@ class HTMLReflowBackend(reflow.Reflow):
                       mmode.ATOM_TYPE.OPEN, mmode.ATOM_TYPE.CLOSE, mmode.ATOM_TYPE.PUNCT)
 
     @staticmethod
-    def _node_has_inline_anchor(node):
-        node_type = getattr(node, "node_type", None)
-        if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.DISC, nd.NODE_TYPE.RULE):
-            return True
-        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-            if (
-                Dimen(getattr(node, "width", 0)) > 0
-                or Dimen(getattr(node, "height", 0)) > 0
-                or Dimen(getattr(node, "depth", 0)) > 0
-            ):
-                return True
-            for child in getattr(node, "list", None) or ():
-                if HTMLReflowBackend._node_has_inline_anchor(child):
-                    return True
-        return False
-
-    @staticmethod
     def _glue_stretch_order(glue):
         if glue is None:
             return None
@@ -665,7 +605,7 @@ class HTMLReflowBackend(reflow.Reflow):
                 order = current
         return order
     
-    def typesetMList(self, parent, nodes, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
+    def typesetMList(self, nodes, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
         # we need to consider the atom type (class) and family
         # for consecutive letters of ORD symbols of family 0, they are either names  or digits
         letters = ""
@@ -673,116 +613,106 @@ class HTMLReflowBackend(reflow.Reflow):
         is_digit = False
         nodes = iter(nodes)
         stack = []
-        try:
-            while True:
-                node = next(nodes, None)
-                if node is None:
-                    if not stack:
-                        break
-                    nodes = stack.pop()
-                    continue
-                # we skip kerns and glues, and rely on MathML to handle them by default
-                if isinstance(node, mmode.StyleNode):
-                    style = node.style
-                    continue
-                if isinstance(node, mmode.ChoiceNode):
-                    if style.style == mmode.MATH_STYLE.D:
-                        new = node.display
-                    elif style.style == mmode.MATH_STYLE.T:
-                        new = node.text
-                    elif style.style == mmode.MATH_STYLE.S:
-                        new = node.script
-                    else:
-                        new = node.scriptscript
-                    stack.append(nodes)
-                    nodes = iter(new.list)
-                    continue
-                if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
-                    if node.atom_type == mmode.ATOM_TYPE.ORD and node.sup is None and node.sub is None and isinstance(node.nucleus, mmode.MathSymbol):
-                        symbol: mmode.MathSymbol = node.nucleus
-                        if symbol.fam == 0:
-                            char = self._math_symbol(symbol.char, symbol.fam)
-                            if char is None:
-                                char = symbol.char
-                            if char == "." and not has_dot:
-                                if not is_digit and letters:
-                                    self.appendOutput(parent, MI(letters, mathvariant="normal"))
-                                    letters = ""
-                                    is_digit = True
-                                has_dot = True
-                                letters += char
-                                continue
-                            if char.isdigit():
-                                if not is_digit and letters:
-                                    self.appendOutput(parent, MI(letters, mathvariant="normal"))
-                                    letters = ""
-                                is_digit = True
-                                letters += char
-                                continue
-                            if is_digit and letters:
-                                self.appendOutput(parent, MN(letters))
+        while True:
+            node = next(nodes, None)
+            if node is None:
+                if not stack:
+                    break
+                nodes = stack.pop()
+                continue
+            # we skip kerns and glues, and rely on MathML to handle them by default
+            if isinstance(node, mmode.StyleNode):
+                style = node.style
+                continue
+            if isinstance(node, mmode.ChoiceNode):
+                if style.style == mmode.MATH_STYLE.D:
+                    new = node.display
+                elif style.style == mmode.MATH_STYLE.T:
+                    new = node.text
+                elif style.style == mmode.MATH_STYLE.S:
+                    new = node.script
+                else:
+                    new = node.scriptscript
+                stack.append(nodes)
+                nodes = iter(new.list)
+                continue
+            if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
+                if node.atom_type == mmode.ATOM_TYPE.ORD and node.sup is None and node.sub is None and isinstance(node.nucleus, mmode.MathSymbol):
+                    symbol: mmode.MathSymbol = node.nucleus
+                    if symbol.fam == 0:
+                        char = self._math_symbol(symbol.char, symbol.fam)
+                        if char is None:
+                            char = symbol.char
+                        if char == "." and not has_dot:
+                            if not is_digit and letters:
+                                self.builder.append(reflow.Element(MI(letters, mathvariant="normal")))
                                 letters = ""
-                                is_digit = False
-                                has_dot = False
+                                is_digit = True
+                            has_dot = True
                             letters += char
                             continue
-                if letters:
-                    if is_digit:
-                        self.appendOutput(parent, MN(letters))
-                    else:
-                        self.appendOutput(parent, MI(letters, mathvariant="normal"))
-                    letters = ""
-                    is_digit = False
-                    has_dot = False
-                if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
-                    self.appendOutput(parent, self.typesetAtom(node, style=style))
-                    continue
-                if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.MARK, nd.NODE_TYPE.ADJUST):
-                     continue
-                if node.node_type == nd.NODE_TYPE.VLIST:
-                    self.appendOutput(parent, self.typesetVBox(node, inline=True))
-                    continue
-                if node.node_type == nd.NODE_TYPE.HLIST:
-                    self.appendOutput(parent, self.typesetHBox(node, inline=True))
-                    continue
-                if node.node_type == nd.NODE_TYPE.WHATSIT:
-                    node.output(self.parser, self)
-                    continue
+                        if char.isdigit():
+                            if not is_digit and letters:
+                                self.builder.append(reflow.Element(MI(letters, mathvariant="normal")))
+                                letters = ""
+                            is_digit = True
+                            letters += char
+                            continue
+                        if is_digit and letters:
+                            self.builder.append(reflow.Element(MN(letters)))
+                            letters = ""
+                            is_digit = False
+                            has_dot = False
+                        letters += char
+                        continue
             if letters:
                 if is_digit:
-                    self.appendOutput(parent, MN(letters))
+                    self.builder.append(reflow.Element(MN(letters)))
                 else:
-                    self.appendOutput(parent, MI(letters, mathvariant="normal"))
-        finally:
-            self._pop_container()
-        if len(parent) == 1 and etree.QName(parent).localname != "math":
-            parent = parent[0]
-            # if atom_type is an operator, we need to set it as <mo>
-            if atom_type in self.operator_types:
-                mo = MO(parent)
-                mathvariant=parent.get("mathvariant")
-                if mathvariant is not None:
-                    mo.set("mathvariant", mathvariant)
-                return mo
-        return parent
+                    self.builder.append(reflow.Element(MI(letters, mathvariant="normal")))
+                letters = ""
+                is_digit = False
+                has_dot = False
+            if node.node_type == nd.NODE_TYPE.MATHNODE: # an atom
+                self.builder.append(self.typesetAtom(node, style=style))
+                continue
+            if node.node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.MARK, nd.NODE_TYPE.ADJUST):
+                    continue
+            if node.node_type == nd.NODE_TYPE.VLIST:
+                self.builder.append(self.typesetMathVBox(node))
+                continue
+            if node.node_type == nd.NODE_TYPE.HLIST:
+                self.builder.append(self.typesetMathHBox(node))
+            if node.node_type == nd.NODE_TYPE.WHATSIT:
+                node.output(self.parser, self)
+                continue
+        if letters:
+            if is_digit:
+                self.builder.append(reflow.Element(MN(letters)))
+            else:
+                self.builder.append(reflow.Element(MI(letters, mathvariant="normal")))
+
+    def typesetFraction(self, atom, style):
+        top, bottom, bar, thickness = atom.nucleus
+        num = MRow()
+        with reflow.Builder(self, num):
+            self.typesetMList(top.list, mmode.ATOM_TYPE.ORD, style.numerator())
+        den = MRow()
+        with reflow.Builder(self, den):
+            self.typesetMList(bottom.list, mmode.ATOM_TYPE.ORD, style.denominator())
+        if atom.delims is not None:
+            open, close = atom.delims
+            left = self.typesetDelim(open)
+            right = self.typesetDelim(close)
+        else:
+            left = None
+            right = None
+        return MFrac(num, den, bar, thickness, left, right)
     
     def typesetNucleus(self, atom: mmode.Atom, style: mmode.Style):
         # an atom has a nucleus, and optionally subscript and superscript. It may also have left and right delimiters.
         if isinstance(atom, mmode.Over):
-            num, den, bar, thickness = atom.nucleus
-            nucleus = MFRAC(
-                self.typesetMList(MROW(), num.list, mmode.ATOM_TYPE.ORD, style.numerator()),
-                self.typesetMList(MROW(), den.list, mmode.ATOM_TYPE.ORD, style.denominator()))
-            if not bar:
-                thickness = 0
-            if thickness is not None:
-                nucleus.set("linethickness", reflow.PT(thickness))
-            if atom.delims is not None:
-                left, right = atom.delims
-                open = self.typesetDelim(left)
-                close = self.typesetDelim(right)
-                nucleus = MROW(open, nucleus, close)
-            return nucleus
+            return self.typesetFraction(atom, style)
         node_type = getattr(atom.nucleus, "node_type", None)
         if node_type == nd.NODE_TYPE.HLIST:
             return self.typesetMathHBox(atom.nucleus)
@@ -794,17 +724,16 @@ class HTMLReflowBackend(reflow.Reflow):
         nucleus = self.typesetField(atom.nucleus, atom_type=t, style=s)
         if atom_type in (mmode.ATOM_TYPE.OVER, mmode.ATOM_TYPE.UNDER):
             notation = "top" if atom_type == mmode.ATOM_TYPE.OVER else "bottom"
-            return MENCLOSE(nucleus, notation=notation)
+            return reflow.Element(MENCLOSE(nucleus.node, notation=notation))
         if atom_type == mmode.ATOM_TYPE.ACC:
-            return MOVER(nucleus, MO(self._math_symbol(atom.accent.char, atom.accent.fam), stretchy="true"), accent="true")
-        return MSQRT(nucleus) if atom_type == mmode.ATOM_TYPE.RAD else nucleus
+            return reflow.Element(MOVER(nucleus.node, MO(self._math_symbol(atom.accent.char, atom.accent.fam), stretchy="true"), accent="true"))
+        return reflow.Element(MSQRT(nucleus.node)) if atom_type == mmode.ATOM_TYPE.RAD else nucleus
     
     def typesetMathHBox(self, hbox):
-        row = MROW()
+        row = MRow()
         text = ""
         nodes = iter(hbox.list)
-        self._push_container(row)
-        try:
+        with reflow.Builder(self, row):
             while True:
                 n = next(nodes, None)
                 if n is None: 
@@ -820,12 +749,12 @@ class HTMLReflowBackend(reflow.Reflow):
                     text += " "
                     continue
                 if text:
-                    self.appendOutput(row, MTEXT(text))
+                    self.builder.append(reflow.Element(MTEXT(text)))
                     text = ""
                 if n.node_type == nd.NODE_TYPE.HLIST:
-                    self.appendOutput(row, self.typesetMathHBox(n))
+                    self.builder.append(self.typesetMathHBox(n))
                 elif n.node_type == nd.NODE_TYPE.VLIST:
-                    self.appendOutput(row, self.typesetMathVBox(n))
+                    self.builder.append(self.typesetMathVBox(n))
                 elif n.node_type == nd.NODE_TYPE.WHATSIT:
                     n.output(self.parser, self)
                 elif n.node_type == nd.NODE_TYPE.MATH:
@@ -835,14 +764,12 @@ class HTMLReflowBackend(reflow.Reflow):
                         assert n is not None
                         if n.node_type == nd.NODE_TYPE.MATH:
                             break
-                    self.appendOutput(
-                        row,
-                        self.typesetMList(MROW(), inline.list, mmode.ATOM_TYPE.ORD, mmode.Style(mmode.MATH_STYLE.T)),
-                    )
+                    r = MRow()
+                    with reflow.Builder(self, r):
+                        self.typesetMList(inline.list, mmode.ATOM_TYPE.ORD, mmode.Style(mmode.MATH_STYLE.T))
+                    self.builder.append(r)
             if text:
-                self.appendOutput(row, MTEXT(text))
-        finally:
-            self._pop_container()
+                self.builder.append(reflow.Element(MTEXT(text)))
         return row
 
     def typesetMathVBox(self, vbox):
@@ -853,12 +780,14 @@ class HTMLReflowBackend(reflow.Reflow):
             elif isinstance(n.source, align.HAlignment):
                 matrix = n.source
         if matrix is None:
-            return MI()
-        table = MTABLE()
+            return reflow.Element(MI())
+        table = reflow.Element(MTABLE())
         for row in matrix.rows:
-            tr = MTR()
+            tr = reflow.Element(MTR())
             for cell in row.cells:
-                tr.append(MTD(self.typesetMathHBox(cell)))
+                td = reflow.Element(MTD())
+                td.append(self.typesetMathHBox(cell))
+                tr.append(td)
             table.append(tr)
         return table
                     
@@ -867,26 +796,34 @@ class HTMLReflowBackend(reflow.Reflow):
         if atom.sub is None:
             if atom.sup is None:
                 return nucleus
-            return MSUP(nucleus, self.typesetField(atom.sup, mmode.ATOM_TYPE.ORD, style=style.superscript()))
+            a = reflow.Element(MSUP())
+            a.append(nucleus)
+            a.append(self.typesetField(atom.sup, mmode.ATOM_TYPE.ORD, style=style.superscript()))
+            return a
         if atom.sup is None:
-            return MSUB(nucleus, self.typesetField(atom.sub, mmode.ATOM_TYPE.ORD, style=style.subscript()))
-        return MSUBSUP(
-            nucleus, 
-            self.typesetField(atom.sub, mmode.ATOM_TYPE.ORD, style=style.subscript()), 
-            self.typesetField(atom.sup, mmode.ATOM_TYPE.ORD, style=style.superscript()))
+            a = reflow.Element(MSUB())
+            a.append(nucleus)
+            a.append(self.typesetField(atom.sub, mmode.ATOM_TYPE.ORD, style=style.subscript()))
+            return a
+        a = reflow.Element(MSUBSUP())
+        a.append(nucleus)
+        a.append(self.typesetField(atom.sub, mmode.ATOM_TYPE.ORD, style=style.subscript()))
+        a.append(self.typesetField(atom.sup, mmode.ATOM_TYPE.ORD, style=style.superscript()))
+        return a
 
     def typesetField(self, field, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
         if field is None:
-            return MROW()
+            return MRow()
         if isinstance(field, mmode.Subformula):
-            row = MROW()
-            left = getattr(field, "left_delim")
-            right = getattr(field, "right_delim")
-            if left is not None:
-                row.append(self.typesetDelim(left))
-            self.typesetMList(row, field.list, atom_type=atom_type, style=style)
-            if right is not None:
-                row.append(self.typesetDelim(right))
+            row = MRow()
+            with reflow.Builder(self, row):
+                left = getattr(field, "left_delim")
+                right = getattr(field, "right_delim")
+                if left is not None:
+                    self.builder.append(self.typesetDelim(left))
+                self.typesetMList(field.list, atom_type=atom_type, style=style)
+                if right is not None:
+                    self.builder.append(self.typesetDelim(right))
             return row
         return self.typesetSymbol(field, atom_type=atom_type)
     
@@ -896,62 +833,85 @@ class HTMLReflowBackend(reflow.Reflow):
     def typesetSymbol(self, symbol: mmode.MathSymbol, atom_type: mmode.ATOM_TYPE = mmode.ATOM_TYPE.ORD):
         text = self._math_symbol(symbol.char, symbol.fam)
         if text is None:
-            return MI()
+            return reflow.Element(MI())
         # if this a dot or a digit?
         if atom_type == mmode.ATOM_TYPE.ORD:
             if symbol.fam == 0:
                 if text == "." or text.isdigit():
-                    return MN(text)
-                return MI(text, mathvariant="normal")
-            return MI(text)
-        return MO(text or "", mathvariant="normal")
+                    return reflow.Element(MN(text))
+                return reflow.Element(MI(text, mathvariant="normal"))
+            return reflow.Element(MI(text))
+        return reflow.Element(MO(text or "", mathvariant="normal"))
 
     def typesetDelim(self, delim):
         if delim._isNull():
-            return MO()
+            return reflow.Element(MO())
         text = self._math_symbol(delim.small.char, delim.small.fam)
         if text is None:
             text = self._math_symbol(delim.small.char, delim.small.fam)
-        if text is None:
-            return MO()
-        return MO(text)
+        return reflow.Element(MO("" if text is None else text))
 
     def typesetInlineMath(self, node: mmode.InlineMathNode, collection, left_kern, right_kern):
-        return
-        math = MATH(display="inline")
+        math = Math(inline=True)
         style = Style()
         style["left"] = reflow.PT(left_kern)
         style["right"] = reflow.PT(right_kern)
         math.set("style", str(style))
-        return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
+        with reflow.Builder(self, math):
+            self.typesetMList(node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
+        self.builder.append(math)
     
-    def typesetDisplayMath(self, node, collection, yspacing):
-        return
-        math = MATH(display="block")
-        style = Style()
-        style["display"] = "block"
-        style["top"] = reflow.PT(yspacing)
-        math.set("style", str(style))
-        self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
+    def typesetDisplayMath(self, node, collection, yspacing: Dimen=Dimen()):
+        math = Math(inline=False)
+        with reflow.Builder(self, math):
+            self.typesetMList(node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
         if node.eqno is None:
-            return math
+            math.set("style", f"padding-top:{reflow.PT(yspacing)};")
+            self.builder.append(math)
+            return 
         eqno_list, left = node.eqno
-        eqno = MATH(display="inline")
-        self.typesetMList(eqno, eqno_list.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
-        seq = [builder.TD(style="width:50%;"), builder.TD(math), builder.TD(style="width:50%;"), builder.TD(eqno)]
+        eqno = Math(inline=True)
+        with reflow.Builder(self, eqno):
+            self.typesetMList(eqno_list.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
+        table = Table(yspacing=yspacing)
+        row = table.newRow()
         if left:
-            seq.reverse()
-        tr = builder.TR()
-        for n in seq:
-            tr.append(n)
-        return builder.TABLE(tr, style="width:100%;class=display-math;")
+            mark = row.newCell()
+            mark.append(eqno)
+            row.newCell(width=0.5)
+            body = row.newCell()
+            body.append(math)
+            row.newCell(width=0.5)
+        else:
+            row.newCell(width=0.5)
+            body = row.newCell()
+            body.append(math)
+            row.newCell(width=0.5)
+            mark = row.newCell()
+            mark.append(eqno)
+        self.builder.append(table)
+    
+    @staticmethod
+    def _decode_pdf_string(token):
+        if len(token) < 2 or token[0] != "(" or token[-1] != ")":
+            return token
+        out = []
+        i = 1
+        while i < len(token) - 1:
+            ch = token[i]
+            if ch == "\\" and i + 1 < len(token) - 1:
+                i += 1
+                esc = token[i]
+                out.append(_PDF_STRING_ESCAPES.get(esc, esc))
+            else:
+                out.append(ch)
+            i += 1
+        return "".join(out)
     
     def rawSpecial(self, text):
         match = _DEST_RE.match(text)
         if match is not None:
-            marker = reflow.Element(builder.SPAN())
-            marker.set("id", self._decode_pdf_string(f"({match.group(1)})"))
-            self.builder.append(marker)
+            self.builder.container.set("id", self._decode_pdf_string(f"({match.group(1)})"))
             return
         Warning(f"unknown special: {text}")
 

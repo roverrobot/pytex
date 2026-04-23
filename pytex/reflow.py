@@ -153,7 +153,7 @@ class Row(Element):
     def __init__(self, node):
         super().__init__(node)
 
-    def newCell(self, span=1, width=None, justified="justififed") -> Cell:
+    def newCell(self, span=1, width=None, justify="justify") -> Cell:
         pass
 
 
@@ -174,9 +174,6 @@ class Block(Element):
         self.inline = inline
 
     def newParagraph(self, spacing_before=Dimen(), justify: str="left") -> Paragraph:
-        pass
-
-    def newDisplaymath(self, spacing_before: Dimen=Dimen()) -> Math:
         pass
 
     def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
@@ -518,6 +515,9 @@ class Reflow(shipout.Shipout):
                 self.last_source = None
                 continue
             if isinstance(n, mmode.DisplayMathNode):
+                # here the display math may have equation numbers, which may be implemented by a table.
+                # alternatively, this can also be implemented as an SVG picture
+                # so we let typesetDisplayMath to determine how to build it without specifying a container
                 self.typesetDisplayMath(n, collection, yspacing=spacing)
                 spacing = Dimen()
                 if not self.paginate:
@@ -590,7 +590,7 @@ class Reflow(shipout.Shipout):
     def typesetSpring(self, ratio):
         pass
 
-    def typesetDisplayMath(self, node, collection, yspacing):
+    def typesetDisplayMath(self, node, collection, yspacing:Dimen=Dimen()):
         pass
 
     def typesetInlineMath(self, node, collection, left_kern, right_kern):
@@ -598,7 +598,7 @@ class Reflow(shipout.Shipout):
 
     def _alignment_spacers(self, node):
         def ratio(stretch, total):
-            return 0 if stretch.order < total.order else stretch.factor / total.factor * 100.0
+            return 0 if stretch.order < total.order else float(stretch.factor) / float(total.factor)
         tabskips = node.tabskips
         if not tabskips:
             return []
@@ -607,7 +607,7 @@ class Reflow(shipout.Shipout):
             total += g
         if total.stretch.order > 0:
             return [ratio(g.stretch, total.stretch) for g in tabskips]
-        return [float(g.dimen)/float(total.dimen)*100 for g in tabskips]
+        return [float(g.dimen)/float(total.dimen) for g in tabskips]
 
     def typesetHAlignment(self, node: align.HAlignment, collection, yspacing):
         self._require_builder("typesetHAlignment", "newRow")

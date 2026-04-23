@@ -480,7 +480,31 @@ class Reflow(shipout.Shipout):
         with Builder(self, self.page.body):
             self.typesetVList(box.list, self._glue_state(box), True)
 
+    def _require_builder(self, method, *capabilities):
+        builder = self.builder
+        assert builder is not None, f"{method} requires a current reflow builder"
+        missing = []
+        for capability in capabilities:
+            try:
+                attr = getattr(builder, capability)
+            except AttributeError:
+                missing.append(capability)
+                continue
+            if not callable(attr):
+                missing.append(capability)
+        if missing:
+            container = getattr(builder, "container", None)
+            container_name = type(container).__name__ if container is not None else type(builder).__name__
+            required = ", ".join(capabilities)
+            missing = ", ".join(missing)
+            raise AssertionError(
+                f"{method} requires a builder with {required}; "
+                f"{container_name} is missing {missing}"
+            )
+        return builder
+
     def typesetVList(self, vlist: list, glue_state=None, mark_last_source=False):
+        self._require_builder("typesetVList", "newParagraph", "newTable", "newBlock")
         # we only need to layout this box
         # we need to consider two things: paragraphs and boxes that are not originated from paragraphs.
         # we first collect glues and kerns to figure out vertical spacing
@@ -540,6 +564,7 @@ class Reflow(shipout.Shipout):
                 continue
     
     def typesetVBox(self, box, xspacing=Dimen(), yspacing=Dimen(), mark_last_source=False):
+        self._require_builder("typesetVBox", "newBlock")
         self.box_stack.append(box)
         vbox = self.builder.newBlock(xspacing, yspacing)
         glue_state = self._glue_state(box)
@@ -549,6 +574,7 @@ class Reflow(shipout.Shipout):
         return vbox
 
     def typesetHBox(self, box: bx.HBox, xspacing=Dimen(), yspacing=Dimen()):
+        self._require_builder("typesetHBox", "newBlock")
         # this method is called for a standalone (manually constructed) hbox. We treat it as paragraph.
         self.box_stack.append(box)
         shifted = Dimen() if box.shifted is None else box.shifted
@@ -584,6 +610,7 @@ class Reflow(shipout.Shipout):
         return [float(g.dimen)/float(total.dimen)*100 for g in tabskips]
 
     def typesetHAlignment(self, node: align.HAlignment, collection, yspacing):
+        self._require_builder("typesetHAlignment", "newRow")
         def noalign(table, vlist, columns):
             """
             returns the total glue/spaces
@@ -650,6 +677,7 @@ class Reflow(shipout.Shipout):
         return "center" if int(right) > 0 else "right"
         
     def typesetParagraph(self,  _: paragraph.Paragraph, nodes: list, glue_state=None):
+        self._require_builder("typesetParagraph", "newLine", "setLineSpacing")
         # first the first line box
         lb = None
         spacing = Dimen()
@@ -699,6 +727,7 @@ class Reflow(shipout.Shipout):
             self.builder.setLineSpacing(spacing / (lines-1))
     
     def typesetLine(self, box: bx.HBox, last_source=None):
+        self._require_builder("typesetLine", "newTextRun", "setSpace", "newInlineBlock")
         text_run = None
         collection = collect(box.list, HListSource())
         glue_state = self._glue_state(box)
@@ -730,6 +759,7 @@ class Reflow(shipout.Shipout):
         return last_source
 
     def typesetInlineBox(self, box: bx.Box):
+        self._require_builder("typesetInlineBox", "newInlineBlock")
         block: Block = self.builder.newInlineBlock(box)
         if box.node_type == nd.NODE_TYPE.HLIST:
             para = block.newParagraph(justify=self._hbox_justification(box))

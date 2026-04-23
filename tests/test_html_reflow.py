@@ -285,6 +285,24 @@ def test_html_reflow_hbox_renders_inside_builder_context(parser):
     assert ">A " in html
 
 
+def test_html_reflow_hbox_requires_current_builder(parser):
+    backend = html_reflow.HTMLReflowBackend(parser)
+    font = _fake_font(subst_font_name="Times New Roman")
+    hbox = _text_box(parser, "a", font)
+
+    with pytest.raises(AssertionError, match="typesetHBox requires a current reflow builder"):
+        backend.typesetHBox(hbox)
+
+
+def test_html_reflow_alignment_requires_table_builder(parser):
+    backend, body = _open_body(parser)
+    owner = align.HAlignment()
+
+    with reflow.Builder(backend, body):
+        with pytest.raises(AssertionError, match="typesetHAlignment requires a builder with newRow"):
+            backend.typesetHAlignment(owner, collection=[], yspacing=Dimen())
+
+
 @pytest.mark.xfail(reason="Inline math has not been adapted to the new reflow builder interface yet.", strict=True)
 def test_html_reflow_typesets_inline_math_with_offsets(parser):
     backend = html_reflow.HTMLReflowBackend(parser)

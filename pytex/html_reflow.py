@@ -10,13 +10,13 @@ import re
 import shutil
 
 from pytex import align
+from pytex import box as bx
 from pytex import mmode
 from pytex import node as nd
-from pytex import paragraph
-from pytex import vmode
 from pytex.dimen import Dimen
 from pytex.module import Module
 from pytex import reflow
+from pytex.font import Font
 from pytex import font_subst
 from lxml.html import builder
 from lxml import etree
@@ -77,13 +77,261 @@ MTR = E.mtr
 MTD = E.mtd
 
 
-def _pt(pt):
-    return f"{float(pt) / 72.27 * 72}pt"
-
-
 class Style(dict):
     def __str__(self):
         return  "".join([f"{k}:{v};" for k, v in self.items()])
+
+
+def _color(color: reflow.Color)->str:
+    """
+    convert the color specification to CSS string
+    """
+    r, g, b, a = color.rgba
+    return f"rgb({int(r*255)},{int(g*255)},{int(b*255)})"
+
+
+class AnnotationBuilder(reflow.AnnotationBuilder):
+    def __init__(self, backend, parent, href):
+        super().__init__(backend, parent, href)
+        self.container = Line(justify=None, node=builder.A(href=href))
+
+    def beginAnnotation(self, name):
+        self.parent.append(self.container)
+
+
+class FixedAnnotation(reflow.Element):
+    def __init__(self, target: str, width: float, height: float, border_color: reflow.Color=reflow.Color.red, border_width: float=1, corner_radius: float=1):
+        """here the dimensions are in postscript pt, i.e., tex bp"""
+        node = builder.A(href=f"#{target}")
+        border = Style()
+        border["border-width"] = border_width
+        border["border-color"] = _color(border_color)
+        border["border-style"] = "solid"
+        div = builder.DIV(
+            builder.DIV(style=str(border)),
+            style="width=0pt;height=0pt;"
+        )
+        node.append(div)
+        super().__init__(node)
+        
+
+class TextRun(reflow.TextRun):
+    def __init__(self, font: Font, color: reflow.Color=reflow.Color.black):
+        span = builder.SPAN("")
+        style = Style()
+        style["color"] = _color(color)
+        # TODO set font family properly
+        style["font-family"] = ""
+        style["font-size"] = reflow.PT(font.at)
+        span.set("style", str(style))
+        super().__init__(span, font, color)
+
+    def setKern(self, kern: Dimen):
+        pass
+
+    def setChar(self, char: nd.Node):
+        if char.node_type == nd.NODE_TYPE.CHAR:
+            c = char.char
+        elif char.node_type == nd.NODE_TYPE.LIGATURE:
+            c = "".join(s.char for s in char.source)
+        self.node.text += c
+
+    def setSpace(self, width):
+        self.node.text += " "
+
+
+class Line(reflow.Line):
+    def __init__(self, justify, node=None):
+        super().__init__(builder.SPAN() if node is None else node, justify)
+
+    def newTextRun(self, font, color) -> TextRun:
+        text_run = TextRun(font, color)
+        self.append(text_run)
+        return text_run
+
+    def newInlineBlock(self, box: bx.Box):
+        div = Div(inline=True)
+        style = Style()
+        style["display"] = "inline-block"
+        if box.node_type == nd.NODE_TYPE.HLIST:
+            style["width"] = reflow.PT(box.width)            
+        div.set("style", div.get("style") + str(style))
+        self.append(div)
+        return div
+
+    def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, nodes: list):
+        pass
+
+    def setSpace(self, width: Dimen):
+        self.node.append(builder.SPAN())
+
+
+class Paragraph(reflow.Paragraph):
+    def __init__(self, reflow_lines:bool, spacing_before=Dimen(), justify="justify"):
+        node = builder.DIV()
+        style = Style()
+        style["padding-top"] = reflow.PT(spacing_before)
+        style["justify"] = justify
+        node.set("style", str(style))
+        super().__init__(node, reflow_lines, spacing_before, justify)
+
+    def newLine(self):
+        line = Line(self.justify)
+        self.append(line)
+        return line
+
+
+class Math(reflow.Math):
+    def __init__(self, inline: bool):
+        math = MATH(display="inline" if inline else "block")
+        super().__init__(math, inline)
+
+
+class Cell(reflow.Cell):
+    def __init__(self, span, width, justify: str="justify"):
+        if width is None:
+            width = "auto"
+        elif isinstance(width, Dimen):
+            width = reflow.PT(width)
+        else:
+            width = f"{width}%"
+        style = Style()
+        style["width"] = width
+        style["justify"] = justify
+        style["display"] = "inline-flex"
+        style["max-width"] = "100%"
+        td = builder.TD(style=str(style))
+        super().__init__(td, span, width, justify)
+    
+    def newParagraph(self) -> Paragraph:
+        para = Paragraph(reflow_lines=True, justify=self.justify)
+        self.append(para)
+        return para
+
+
+class Row(reflow.Row):
+    def __init__(self):
+        tr = builder.TR()
+        super().__init__(tr)
+
+    def newCell(self, span=1, width=None, justify="justified") -> Cell:
+        td = Cell(span, width, justify)
+        self.append(td)
+        return td
+
+
+class Table(reflow.Table):
+    def __init__(self, xspacing=Dimen(), yspacing=Dimen()):
+        style = Style()
+        style["margin-top"] = reflow.PT(yspacing)
+        style["border-spacing"] = "0"
+        style["width"]="100%"
+        style["padding-left"] = reflow.PT(xspacing)
+        style["padding-top"] = reflow.PT(yspacing)
+        table = builder.TABLE(style=str(style))
+        table.set("class", "alignment")
+        super().__init__(table, xspacing, yspacing)
+
+    def newRow(self) -> Row:
+        tr = Row()
+        self.append(tr)
+        return tr
+
+
+class Block(reflow.Block):
+    """
+    This is an abstraction of HBox and VBox
+    """
+    def newParagraph(self, spacing_before=Dimen(), justify: str="left") -> Paragraph:
+        para = Paragraph(reflow_lines=True, spacing_before=spacing_before, justify=justify)
+        self.append(para)
+        return para
+
+    def newDisplaymath(self, spacing_before: Dimen=Dimen()) -> Math:
+        math = Math(inline=False)
+        self.append(math)
+        return math
+
+    def newTable(self, xspacing: Dimen=Dimen(), yspacing: Dimen=Dimen()):
+        table = Table(xspacing, yspacing)
+        self.append(table)
+        return table
+
+    def newBlock(self, xspacing=Dimen(), yspacing=Dimen()):
+        block = Div(inline=False, xspacing=xspacing, yspacing=yspacing)
+        self.append(block)
+        return block
+
+    def newGraph(self, key, type, file):
+        pass
+
+
+class Div(Block):
+    def __init__(self, inline: bool=False, xspacing=Dimen(), yspacing=Dimen()):
+        style = Style()
+        style["display"] = "inline" if inline else "block"
+        style["padding-left"] = reflow.PT(xspacing)
+        style["padding-top"] = reflow.PT(yspacing)
+        div = builder.DIV(style=str(style))
+        super().__init__(div, inline, xspacing, yspacing)
+
+
+class Body(Block):
+    def __init__(self):
+        super().__init__(builder.BODY(), inline=False, xspacing=None, yspacing=None)
+
+
+class Page(reflow.Page):
+    def __init__(self):
+        self._body = Body()
+        super().__init__(self._body.node, None, None)
+
+    @property
+    def header(self) -> Block:
+        pass
+
+    @property
+    def body(self) -> Block:
+        return self._body
+
+    @property
+    def footer(self) -> Block:
+        pass
+
+    def setBackgroundColor(self, color: reflow.Color):
+        pass
+
+
+class Document(reflow.Document):
+    def __init__(self, title: str, output=None):
+        """
+        output is a file like structure to write to, typically opened by Parser.resolver.openOut
+        or None, which means no output
+        """
+        self.head = builder.HEAD(
+            builder.META(charset="utf-8"),
+            builder.TITLE(title or "texput"),
+        )
+        self.body = Page()
+        html = builder.HTML(self.head, self.body.node)
+        super().__init__(html, title, output)
+
+    def newPage(self, width: Dimen, height: Dimen) -> Page:
+        return self.body
+
+    def defineFont(self, font):
+        pass
+
+    def definePicture(self, key, type, path):
+        pass
+
+    def save(self):
+        self.node.set("lang", "en")
+        s = "<!doctype html>\n" + etree.tostring(
+            self.node, method="html", pretty_print=True, encoding="unicode"
+        )
+        self.output.write(s)
+        self.output.close()
 
 
 class HTMLReflowBackend(reflow.Reflow):
@@ -95,18 +343,42 @@ class HTMLReflowBackend(reflow.Reflow):
     itself only executes shipped whatsits; the final HTML is emitted once at
     close from the main vertical list's raw ownership history.
     """
-    def __init__(self, parser, output=None):
-        super().__init__(parser, output)
-        self.finished = False
-        self.header = builder.HEAD()
-        self.body = builder.BODY()
+    def __init__(self, parser):
+        super().__init__(parser, paginate=False)
         self._body_font = None
         self._pending_media_blocks = []
         self._font_families = {}
         self._font_faces = {}
         self._next_font_face = 1
-        self._container_stack = []
-        self._active_links = []
+
+    def open(self):
+        output = self.parser.jobname
+        output = os.fspath(output)
+        if output.startswith("./"):
+            output = output[2:]
+        if not output.endswith(".html"):
+            output += ".html"
+        self.html_path = Path(self.parser.resolver._outputPath(output))
+        output = self.parser.resolver.openOut(output, "shipout")
+        return Document(self.parser.jobname, output)
+    
+    def close(self):
+        if self.document is not None:
+            math_stack = self._math_font_stack()
+            parts = self._font_face_rules(self.html_path)
+            parts.append(f"math{{font-family:{math_stack};}}")
+            self.document.head.append(builder.STYLE("".join(parts)))
+        super().close()        
+    
+    def newAnnotationBuilder(self, name=None, payload=None):
+        info = self._annotation_info(payload or "")
+        href = self._annotation_href(info)
+        if href is None and name is not None:
+            href = "#" + name.lstrip("@")
+        return AnnotationBuilder(self, self.builder, href or "#")
+
+    def newFixedAnnotation(self, target, w, h):
+        return FixedAnnotation(target, w, h)
 
     def _css_string(self, text):
         return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -207,15 +479,6 @@ class HTMLReflowBackend(reflow.Reflow):
             self._font_families[key] = family
         return family
 
-    @staticmethod
-    def _output_name(output):
-        output = os.fspath(output)
-        if output.startswith("./"):
-            output = output[2:]
-        if not output.endswith(".html"):
-            output += ".html"
-        return output
-
     def _font_face_url(self, face, html_path):
         source = Path(face["path"]).resolve()
         if html_path is None:
@@ -255,19 +518,6 @@ class HTMLReflowBackend(reflow.Reflow):
         items.append(stack[-1])
         return ",".join(items)
 
-    def _document_css(self, html_path=None):
-        math_stack = self._math_font_stack()
-        parts = self._font_face_rules(html_path)
-        parts.append(f"math{{font-family:{math_stack};}}")
-        return "".join(parts)
-
-    def _build_head(self, html_path=None):
-        return builder.HEAD(
-            builder.META(charset="utf-8"),
-            builder.TITLE(self.parser.jobname or "texput"),
-            builder.STYLE(self._document_css(html_path)),
-        )
-
     @staticmethod
     def _decode_pdf_string(token):
         if len(token) < 2 or token[0] != "(" or token[-1] != ")":
@@ -284,52 +534,6 @@ class HTMLReflowBackend(reflow.Reflow):
                 out.append(ch)
             i += 1
         return "".join(out)
-
-    def _push_container(self, container):
-        self._container_stack.append(container)
-
-    def _pop_container(self):
-        self._container_stack.pop()
-
-    def enterContainer(self, container):
-        self._push_container(container)
-
-    def leaveContainer(self, container):
-        self._pop_container()
-
-    def _base_container(self):
-        if self._container_stack:
-            return self._container_stack[-1]
-        return self.body
-
-    def _current_link(self):
-        for link in reversed(self._active_links):
-            if link is not None:
-                return link
-        return None
-
-    def _current_parent(self, container=None):
-        link = self._current_link()
-        if link is not None:
-            return link
-        return self._base_container() if container is None else container
-
-    def appendOutput(self, container, content):
-        if content is None:
-            return None
-        if isinstance(content, str):
-            if content == "" or content == " ":
-                return None
-            content = builder.SPAN(content)
-        self._current_parent(container).append(content)
-        return content
-
-    @staticmethod
-    def _special_marker(text, attr="data-tex-special"):
-        span = builder.SPAN()
-        span.set("style", "display:none;")
-        span.set(attr, text)
-        return span
 
     def _annotation_info(self, payload):
         goto = _GOTO_RE.search(payload)
@@ -377,88 +581,14 @@ class HTMLReflowBackend(reflow.Reflow):
         link = builder.A(href=href)
         link.set("data-tex-annotation", annotation_kind)
         return link
-
-    def open(self):
-        # Runtime shipout is intentionally side-effect free for HTML reflow.
-        return
-
-    def close(self):
-        html_path = None
-        if hasattr(self.output, "write"):
-            file = self.output
-        else:
-            if self.output is None:
-                output = self.parser.jobname or "texput"
-            else:
-                output = self.output
-            output = self._output_name(output)
-            if not self.parser.resolver.output_in_memory:
-                html_path = Path(self.parser.resolver._outputPath(output))
-            file = self.parser.resolver.openOut(output, None)
-        self.header = self._build_head(html_path=html_path)
-        html = builder.HTML(self.header, self.body)
-        html.set("lang", "en")
-        s = "<!doctype html>\n" + etree.tostring(
-            html, method="html", pretty_print=True, encoding="unicode"
-        )
-        file.write(s)
-        file.close()
     
-    def typesetPage(self, tree):
-        # the body is the last item 
-        body = tree[-1]
-        self.body.append(self.typesetVBox(body, mark_last_source=True))
-
-    def _box(self, box, inline, xspacing, yspacing):
-        style = Style()
-        style["left"] = _pt(xspacing)
-        style["top"] = _pt(yspacing)
-        if inline:
-            style["display"] = "inline-block"
-            if  not box.list:
-                set_width = True
-            elif box.node_type == nd.NODE_TYPE.HLIST:
-                justify = self._hbox_justification(box)
-                set_width = justify is not None and justify != "justify"
-            else:
-                set_width = False
-            if set_width and int(box.width) > 0:
-                style["width"] = _pt(box.width)            
-        elif box.node_type == nd.NODE_TYPE.HLIST:
-            style["display"] = "flex"
-            style["align-items"] = "baseline"
-            style["flex-wrap"] = "nowrap"
-            style["white-space"] = "nowrap"
-            # set width in %
-            if len(self.box_stack) > 1: # the top is this box
-                enclosing = self.box_stack[-2]
-                if int(enclosing.width) != 0 and int(box.width) != 0:
-                    style["width"] = f"{float(box.width)/float(enclosing.width)*100}%;"
-        return builder.DIV(style=str(style))
-
-
     def typesetNBSP(self, width, height=1):
         div = builder.DIV()
         style = Style()
         style["display"] = "inine-block"
-        style["width"] = _pt(width)
-        style["height"] = _pt(height)
+        style["width"] = reflow.PT(width)
+        style["height"] = reflow.PT(height)
         div.set("style", str(style))
-        return div
-    
-    def typesetParagraph(self, para: reflow.Paragraph, container=None):
-        div = builder.DIV() if container is None else container
-        style = Style()
-        style["text-indent"] = _pt(para.indent)
-        style["padding"] = f"{_pt(para.spacing_before)} 0 0 0"
-        style["text-align"] = para.justify
-        div.set("style", div.get("style", "")+str(style))
-        self.enterContainer(div)
-        try:
-            for n in para:
-                self.appendOutput(div, n.typeset(self))
-        finally:
-            self.leaveContainer(div)
         return div
 
     def _text_font_family(self, font):
@@ -492,31 +622,6 @@ class HTMLReflowBackend(reflow.Reflow):
             return self._register_backend_font(backend)
         return None
     
-    def typesetTextRun(self, text):
-        if not text:
-            return ""
-        span = builder.SPAN()
-        style = Style()
-        self.define_font(text.font)
-        style["font-family"] = self._text_font_family(text.font)
-        style["font-size"] = _pt(text.font.at)
-        span.set("style", str(style))
-        span.text= "".join([n.typeset(self) for n in text])
-        return span
-
-    def typesetSpring(self, ratio):
-        div = builder.DIV()
-        div.set("style", f"flex-grow:{ratio};flex-basis:0;")
-        return div
-
-    def typesetChar(self, char, kern):
-        return char
-    
-    def typesetSpace(self, width):
-        if width <= 0:
-            return ""
-        return " "
-
     operator_types = (mmode.ATOM_TYPE.BIN, mmode.ATOM_TYPE.REL, mmode.ATOM_TYPE.OP, 
                       mmode.ATOM_TYPE.OPEN, mmode.ATOM_TYPE.CLOSE, mmode.ATOM_TYPE.PUNCT)
 
@@ -557,30 +662,6 @@ class HTMLReflowBackend(reflow.Reflow):
             if order is None or current > order:
                 order = current
         return order
-
-    def _box_flush_justify_content(self, box):
-        items = list(getattr(box, "list", None) or ())
-        if not items:
-            return "flex-start"
-        start = 0
-        end = len(items) - 1
-        while start <= end and not self._node_has_inline_anchor(items[start]):
-            start += 1
-        while end >= start and not self._node_has_inline_anchor(items[end]):
-            end -= 1
-        if start > end:
-            return "flex-start"
-        left_order = self._edge_stretch_order(items[:start])
-        right_order = self._edge_stretch_order(items[end + 1:])
-        if left_order is None:
-            return "flex-start"
-        if right_order is None:
-            return "flex-end"
-        if left_order > right_order:
-            return "flex-end"
-        if right_order > left_order:
-            return "flex-start"
-        return "center"
     
     def typesetMList(self, parent, nodes, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
         # we need to consider the atom type (class) and family
@@ -590,7 +671,6 @@ class HTMLReflowBackend(reflow.Reflow):
         is_digit = False
         nodes = iter(nodes)
         stack = []
-        self._push_container(parent)
         try:
             while True:
                 node = next(nodes, None)
@@ -694,7 +774,7 @@ class HTMLReflowBackend(reflow.Reflow):
             if not bar:
                 thickness = 0
             if thickness is not None:
-                nucleus.set("linethickness", _pt(thickness))
+                nucleus.set("linethickness", reflow.PT(thickness))
             if atom.delims is not None:
                 left, right = atom.delims
                 open = self.typesetDelim(left)
@@ -765,15 +845,11 @@ class HTMLReflowBackend(reflow.Reflow):
 
     def typesetMathVBox(self, vbox):
         matrix = None
-        self._push_container(self._base_container())
-        try:
-            for n in vbox.list:
-                if n.node_type == nd.NODE_TYPE.WHATSIT:
-                    n.output(self.parser, self)
-                elif isinstance(n.source, align.HAlignment):
-                    matrix = n.source
-        finally:
-            self._pop_container()
+        for n in vbox.list:
+            if n.node_type == nd.NODE_TYPE.WHATSIT:
+                n.output(self.parser, self)
+            elif isinstance(n.source, align.HAlignment):
+                matrix = n.source
         if matrix is None:
             return MI()
         table = MTABLE()
@@ -839,18 +915,20 @@ class HTMLReflowBackend(reflow.Reflow):
         return MO(text)
 
     def typesetInlineMath(self, node: mmode.InlineMathNode, collection, left_kern, right_kern):
+        return
         math = MATH(display="inline")
         style = Style()
-        style["left"] = _pt(left_kern)
-        style["right"] = _pt(right_kern)
+        style["left"] = reflow.PT(left_kern)
+        style["right"] = reflow.PT(right_kern)
         math.set("style", str(style))
         return self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
     
     def typesetDisplayMath(self, node, collection, yspacing):
+        return
         math = MATH(display="block")
         style = Style()
         style["display"] = "block"
-        style["top"] = _pt(yspacing)
+        style["top"] = reflow.PT(yspacing)
         math.set("style", str(style))
         self.typesetMList(math, node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
         if node.eqno is None:
@@ -866,73 +944,32 @@ class HTMLReflowBackend(reflow.Reflow):
             tr.append(n)
         return builder.TABLE(tr, style="width:100%;class=display-math;")
     
-    def typesetHAlignment(self, node: align.HAlignment, collection, yspacing):
-        def noalign(vlist, columns):
-            return builder.TR(builder.TD(self.typesetVList(builder.DIV(), vlist), colspan=str(columns), style="padding: 0;"))
-
-        table = builder.TABLE()
-        table.set("class", "alignment")
-        style = Style()
-        style["margin-top"] = _pt(yspacing)
-        style["border-spacing"] = "0"
-        style["width"]="100%"
-        table.set("style", str(style))
-        spacers = self._alignment_spacers(node)
-        columns = node.columns() + len(spacers)
-        if node.noalign:
-            table.append(noalign(node.noalign, columns))
-        for row in node.rows:
-            tr = builder.TR()
-            tr.append(builder.TD(style=f"width: {spacers[0]}%;"))
-            col = 1
-            for cell in row.cells:
-                content = self.typesetHBox(cell, inline=False)
-                content.set(
-                    "style",
-                    content.get("style", "") + "display:inline-flex;width:auto;max-width:100%;",
-                )
-                tr.append(builder.TD(content))
-                if col < len(spacers):
-                    tr.append(builder.TD(style=f"width: {spacers[col]}%;"))
-                    col += cell.span
-            table.append(tr)
-            if row.noalign:
-                table.append(noalign(row.noalign, columns))
-        return table
-
     def rawSpecial(self, text):
         match = _DEST_RE.match(text)
         if match is not None:
-            marker = builder.SPAN()
+            marker = reflow.Element(builder.SPAN())
             marker.set("id", self._decode_pdf_string(f"({match.group(1)})"))
-            self.appendOutput(self._base_container(), marker)
+            self.builder.append(marker)
             return
-        self.appendOutput(self._base_container(), self._special_marker(text))
+        Warning(f"unknown special: {text}")
 
-    def annotate(self, kind, name=None, dimensions=None, payload=None):
-        if kind == "end":
-            if self._active_links:
-                self._active_links.pop()
-            return
-        info = self._annotation_info(payload or "")
-        link = self._link_element(info, kind)
-        if link is None:
-            self.appendOutput(
-                self._base_container(),
-                self._special_marker(payload or kind, attr="data-tex-annotation"),
-            )
-            if kind == "begin":
-                self._active_links.append(None)
-            return
-        if kind == "fixed":
-            self.appendOutput(self._base_container(), link)
-            return
-        if self._current_link() is not None:
-            self._active_links.append(None)
-            return
-        self.appendOutput(self._base_container(), link)
-        self._active_links.append(link)
+    def typesetSpring(self, ratio):
+        pass
 
+    def typesetHBox(self, box, xspacing=Dimen(), yspacing=Dimen()):
+        div = super().typesetHBox(box, xspacing, yspacing)
+        # set width in %
+        if self.box_stack: # the top is this box
+            enclosing = self.box_stack[-1]
+            if int(enclosing.width) != 0 and int(box.width) != 0:
+                style = Style()
+                style["display"] = "flex"
+                style["align-items"] = "baseline"
+                style["flex-wrap"] = "nowrap"
+                style["white-space"] = "nowrap"
+                style["width"] =f"{float(box.width)/float(enclosing.width)*100}%"
+                div.set("style", div.get("style") + str(style))
+        return div
 
 def init(parser):
     font_subst.installFontSubstitution(parser)

@@ -98,7 +98,7 @@ class Shipout:
                 target = Dimen._round_div(state["factor_sum"] * state["num"], state["den"])
                 amount += target - state["applied"]
                 state["applied"] = target
-        else:
+        elif box is not None:
             ratio = box.glue_ratio
             if isinstance(ratio, tuple):
                 ratio = type(box).ratioDimen(ratio)

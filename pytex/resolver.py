@@ -146,6 +146,10 @@ class FileResolver:
                     "extensions": ["docx"],
                     "binary": True,
                 },
+                "html": {
+                    "extensions": ["htm", "html"],
+                    "binary": False,
+                },
             },
             "source": {
                 "tex": {

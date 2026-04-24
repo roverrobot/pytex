@@ -24,7 +24,6 @@ from lxml.builder import ElementMaker
 
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
-_DEST_RE = re.compile(r"^\s*pdf:\s*dest\s*\(([^()]*)\)", re.IGNORECASE)
 _BEGINANN_RE = re.compile(r"^\s*pdf:\s*(?:beginann|bann|annotate|annot|ann)\b", re.IGNORECASE)
 _ENDANN_RE = re.compile(r"^\s*pdf:\s*(?:endann|eann|eannot)\b", re.IGNORECASE)
 _GOTO_RE = re.compile(r"/S\s*/GoTo\b.*?/D\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
@@ -222,12 +221,15 @@ class Cell(reflow.Cell):
         else:
             width = f"{width*100}%"
         text_align = justify
+        if text_align == "justified":
+            text_align = "justify"
         style = Style()
         style["width"] = width
         style["justify"] = justify
         style["white-space"] = "nowrap"
         if text_align in ("left", "right", "center", "justify"):
             style["text-align"] = text_align
+        style["vertical-align"] = "baseline"
         td = builder.TD(style=str(style))
         super().__init__(td, span, width, justify)
     
@@ -405,6 +407,45 @@ class HTMLReflowBackend(reflow.Reflow):
 
     def _css_string(self, text):
         return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    def _annotation_info(self, payload):
+        goto = _GOTO_RE.search(payload)
+        if goto is not None:
+            return {
+                "kind": "goto",
+                "destination": self._decode_pdf_string(f"({goto.group(1)})"),
+            }
+        gotor = _GOTOR_RE.search(payload)
+        if gotor is not None:
+            return {
+                "kind": "gotor",
+                "file": self._decode_pdf_string(f"({gotor.group(1)})"),
+                "destination": None if gotor.group(2) is None else self._decode_pdf_string(f"({gotor.group(2)})"),
+            }
+        uri = _URI_RE.search(payload)
+        if uri is not None:
+            return {
+                "kind": "uri",
+                "url": self._decode_pdf_string(f"({uri.group(1)})"),
+            }
+        return {
+            "kind": "raw",
+            "payload": payload,
+        }
+
+    @staticmethod
+    def _annotation_href(info):
+        kind = info.get("kind")
+        if kind == "goto":
+            return "#" + info["destination"]
+        if kind == "gotor":
+            href = info["file"]
+            if info.get("destination"):
+                href += "#" + info["destination"]
+            return href
+        if kind == "uri":
+            return info["url"]
+        return None
 
     @staticmethod
     def _font_face_format(path):
@@ -907,12 +948,11 @@ class HTMLReflowBackend(reflow.Reflow):
                 out.append(ch)
             i += 1
         return "".join(out)
+
+    def setTarget(self, name):
+        self.builder.container.set("id", name)
     
     def rawSpecial(self, text):
-        match = _DEST_RE.match(text)
-        if match is not None:
-            self.builder.container.set("id", self._decode_pdf_string(f"({match.group(1)})"))
-            return
         Warning(f"unknown special: {text}")
 
     def typesetSpring(self, ratio):

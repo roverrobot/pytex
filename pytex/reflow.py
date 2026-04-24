@@ -387,6 +387,9 @@ class Reflow(shipout.Shipout):
         if self.color != color:
             self.color = color
 
+    def setTarget(self, name):
+        pass
+
     def _pdf_unit(self, value: str):
         assert value[-2:] == "pt"
         return float(value[:-2])

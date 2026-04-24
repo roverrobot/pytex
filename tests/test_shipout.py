@@ -12,6 +12,9 @@ class _CaptureShipout(Shipout):
     def setColor(self, mode, space=None, values=None):
         self.calls.append(("color", mode, space, values))
 
+    def setTarget(self, name):
+        self.calls.append(("target", name))
+
     def annotate(self, kind, name=None, dimensions=None, payload=None):
         self.calls.append(("annotate", kind, name, dimensions, payload))
 
@@ -37,6 +40,12 @@ def test_shipout_parses_dvipdfm_annotation_special(parser):
             "<< /Type /Annot /Subtype /Text >>",
         )
     ]
+
+
+def test_shipout_parses_dvipdfm_destination_special(parser):
+    shipout = _CaptureShipout(parser)
+    shipout.special("pdf: dest (target.1)[@thispage/XYZ @xpos @ypos null]")
+    assert shipout.calls == [("target", "target.1")]
 
 
 def test_shipout_parses_dvipdfm_xobject_special(parser):

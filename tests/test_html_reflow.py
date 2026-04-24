@@ -144,7 +144,7 @@ def test_html_reflow_maps_math_operator_period_slot_to_period(parser):
     atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.PUNCT.value << 12) | (0 << 8) | 0x3A, -1)
 
     backend = html_reflow.HTMLReflowBackend(parser)
-    assert backend.typesetSymbol(atom.nucleus, atom_type=mmode.ATOM_TYPE.PUNCT).text == "."
+    assert backend.typesetSymbol(atom.nucleus, atom_type=mmode.ATOM_TYPE.PUNCT).node.text == "."
 
 
 @pytest.mark.xfail(reason="MathML list lowering still uses the old appendOutput/container API.", strict=True)

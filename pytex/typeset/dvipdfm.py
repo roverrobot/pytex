@@ -1,6 +1,18 @@
 """Minimal dvipdfm special parsing and serialization helpers."""
 
 
+_PDF_STRING_ESCAPES = {
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "b": "\b",
+    "f": "\f",
+    "\\": "\\",
+    "(": "(",
+    ")": ")",
+}
+
+
 _COLOR_COMMANDS = {
     "setcolor": "set",
     "scolor": "set",
@@ -111,6 +123,27 @@ def _parse_color_arg(arg):
     raise ValueError("unsupported color")
 
 
+def _decode_pdf_string(token):
+    if len(token) < 2 or token[0] != "(" or token[-1] != ")":
+        return token
+    out = []
+    i = 1
+    while i < len(token) - 1:
+        ch = token[i]
+        if ch == "\\" and i + 1 < len(token) - 1:
+            i += 1
+            esc = token[i]
+            out.append(_PDF_STRING_ESCAPES.get(esc, esc))
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _encode_pdf_string(text):
+    return "(" + text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)") + ")"
+
+
 def _serialize_color_arg(space, values):
     if space == "gray":
         return values[0]
@@ -127,6 +160,10 @@ def serialize_setColor(mode, space=None, values=None):
     if mode == "pop":
         return f"pdf: {command}"
     return f"pdf: {command} {_serialize_color_arg(space, values)}"
+
+
+def serialize_target(name):
+    return f"pdf: dest {_encode_pdf_string(name)} [@thispage/XYZ @xpos @ypos null]"
 
 
 def serialize_annotate(kind, name=None, dimensions=None, payload=None):
@@ -186,6 +223,8 @@ class DVIPDFmSpecialParser:
         try:
             if command in _COLOR_COMMANDS:
                 return self._emit_color(_COLOR_COMMANDS[command], text, index)
+            if command == "dest":
+                return self._emit_target(text, index)
             if command in _ANNOTATE_COMMANDS:
                 return self._emit_annotate(_ANNOTATE_COMMANDS[command], text, index)
             if command in _XOBJECT_COMMANDS:
@@ -203,6 +242,11 @@ class DVIPDFmSpecialParser:
             return True
         space, values = _parse_color_arg(arg)
         self.device.setColor(mode, space, values)
+        return True
+
+    def _emit_target(self, text, index):
+        name, index = _read_token(text, index)
+        self.device.setTarget(_decode_pdf_string(name))
         return True
 
     def _emit_annotate(self, kind, text, index):

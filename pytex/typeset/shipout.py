@@ -256,6 +256,9 @@ class Shipout:
     def setColor(self, mode, space=None, values=None):
         pass
 
+    def setTarget(self, name):
+        pass
+
     def annotate(self, kind, name=None, dimensions=None, payload=None):
         pass
 

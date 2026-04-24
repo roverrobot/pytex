@@ -30,10 +30,6 @@ _PDF_PAGESIZE_RE = re.compile(
     re.IGNORECASE,
 )
 _PAPERSIZE_RE = re.compile(r"^\s*papersize=(\S+),(\S+)\s*$", re.IGNORECASE)
-_PDF_DEST_RE = re.compile(
-    r"^\s*pdf:\s*dest\s+(\(.*\))\s*\[\s*@thispage\s*/XYZ\s+@xpos\s+@ypos\s+null\s*\]\s*$",
-    re.IGNORECASE,
-)
 _PDF_STRING_ESCAPES = {
     "n": "\n",
     "r": "\r",
@@ -171,14 +167,6 @@ class PDFBackend(Shipout):
         self.page_width = width
         self.page_height = height
         self.canvas.setPageSize((self._pt(width), self._pt(height)))
-        return True
-
-    def _raw_dest(self, text):
-        match = _PDF_DEST_RE.match(text)
-        if match is None:
-            return False
-        name = self._decode_pdf_string(match.group(1))
-        self.canvas.bookmarkHorizontalAbsolute(name, self._page_y(self.v), left=self._x(self.h))
         return True
 
     @staticmethod
@@ -616,7 +604,7 @@ class PDFBackend(Shipout):
             self._grow_annotation_rect(x, y, x + self._pt(width), y + total_height)
 
     def rawSpecial(self, text):
-        if not self._raw_pagesize(text) and not self._raw_dest(text):
+        if not self._raw_pagesize(text):
             self._note_ignored(f"rawSpecial ignored: {text}")
 
     def setColor(self, mode, space=None, values=None):
@@ -640,6 +628,9 @@ class PDFBackend(Shipout):
             self._set_canvas_color(*saved)
             return
         raise ValueError(f"unsupported color mode {mode}")
+
+    def setTarget(self, name):
+        self.canvas.bookmarkHorizontalAbsolute(name, self._page_y(self.v), left=self._x(self.h))
 
     def annotate(self, kind, name=None, dimensions=None, payload=None):
         if kind == "begin":

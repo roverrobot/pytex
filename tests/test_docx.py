@@ -492,7 +492,7 @@ def test_docx_deduplicates_repeated_wrapped_alignment_owner(parser):
     assert len(document.tables) == 1
 
 
-def test_docx_display_alignment_emits_omml_fraction_and_tag(parser):
+def test_docx_display_alignment_emits_svg_fraction_and_tag(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -536,7 +536,12 @@ def test_docx_display_alignment_emits_omml_fraction_and_tag(parser):
     out.seek(0)
     with zipfile.ZipFile(out) as z:
         xml = z.read("word/document.xml").decode("utf-8")
-    assert "<m:f>" in xml
+        rels = z.read("word/_rels/document.xml.rels").decode("utf-8")
+    assert "<m:oMath>" not in xml
+    assert "<m:f>" not in xml
+    assert "<w:drawing>" in xml
+    _assert_svg_blip_only(xml)
+    assert 'Target="media/image1.svg"' in rels
     assert "(2)" in xml
     cells = re.findall(r"<w:tc>.*?</w:tc>", xml, flags=re.DOTALL)
     tag_cell_xml = next((cell for cell in cells if "(2)" in cell), None)
@@ -925,6 +930,7 @@ def test_docx_inline_math_uses_realized_glue_width_from_line_box(parser):
     glue = nd.Glue(Glue(Dimen(2), Stretchness(Dimen(2), 0), Stretchness(Dimen(), 0)), None)
     line = _FakeHBox([_FakeHBox([], atom_x, width=8, height=6, depth=1), glue, _FakeHBox([], atom_y, width=8, height=6, depth=1)], None)
     line.glue_ratio = (1, 1, 1)
+    line.spread = Dimen(2)
     line.natural = SimpleNamespace(
         stretch=Stretchness(Dimen(2), 0),
         shrink=Stretchness(Dimen(), 0),
@@ -935,6 +941,9 @@ def test_docx_inline_math_uses_realized_glue_width_from_line_box(parser):
 
     box = backend._inline_math_box(line.list, line_box=line)
     assert box.width == Dimen(20)
+    assert box.glue_ratio == line.glue_ratio
+    assert box.natural is line.natural
+    assert box.spread == line.spread
 
 
 def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):
@@ -989,6 +998,79 @@ def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):
     assert max(coords) < 20
 
 
+def test_docx_hbox_wrapping_inline_math_uses_svg_picture(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    font = _FakeFont()
+    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_x.nucleus = _math_symbol("x")
+    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
+    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
+    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
+    atom_y.nucleus = _math_symbol("y")
+    inline = _inline_math_owner(atom_x, atom_plus, atom_y)
+
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen()
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen()
+
+    wrapped = _FakeHBox(
+        [
+            on,
+            _FakeHBox([], atom_x, width=8, height=6, depth=1),
+            _FakeHBox([], atom_plus, width=6, height=6, depth=1),
+            _FakeHBox([], atom_y, width=8, height=6, depth=1),
+            off,
+        ],
+        None,
+        width=22,
+        height=6,
+        depth=1,
+        rightmost_value=22,
+    )
+
+    line = _FakeHBox(
+        [
+            nd.CharNode("A", font),
+            wrapped,
+            nd.CharNode("B", font),
+        ],
+        para,
+        width=60,
+        height=7,
+        depth=2,
+        rightmost_value=32,
+    )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
+
+    data = _docx_bytes(parser, backend)
+    xml = _zip_text(data, "word/document.xml")
+    assert "<asvg:svgBlip" in xml
+    assert "<wps:wsp>" not in xml
+    assert "<m:oMath>" not in xml
+
+
+def test_docx_reused_svg_renderer_resets_coordinates_between_boxes(parser):
+    backend = docx.DocxBackend(parser)
+    font = _FakeFont()
+
+    first = _FakeHBox([nd.CharNode("x", font)], None, width=8, height=6, depth=1)
+    second = _FakeHBox([nd.CharNode("y", font)], None, width=8, height=6, depth=1)
+
+    backend._svg_bytes_for_box(first)
+    svg = backend._svg_bytes_for_box(second).decode("utf-8")
+    coords = _svg_xy_values(svg)
+
+    assert coords
+    assert max(coords) < 20
+
+
 def test_docx_svg_uses_opentype_glyph_paths_for_math_chars(parser):
     if not os.path.exists(docx._LOCAL_STIX_TTF):
         pytest.skip("bundled STIX math font not available")
@@ -1020,18 +1102,16 @@ def test_docx_svg_uses_opentype_glyph_paths_for_math_chars(parser):
     assert "<text " not in svg
 
 
-def test_docx_svg_expands_viewport_for_deep_vlist_content(parser):
+def test_docx_svg_keeps_exact_box_height_for_deep_vlist_content(parser):
     backend = docx.DocxBackend(parser)
     font = _FakeFont()
     numerator = _FakeHBox([nd.CharNode("1", font)], None, width=5, height=7, depth=2)
     denominator = _FakeHBox([nd.CharNode("d", font), nd.CharNode("t", font)], None, width=10, height=7, depth=2)
-    # The outer box intentionally understates its total height, similar to the
-    # clipping seen when nested math content extends below the nominal box slot.
     box = _FakeVBox([numerator, nd.Kern(Dimen(3)), denominator], width=20, height=10, depth=1)
 
     svg = backend._svg_bytes_for_box(box).decode("utf-8")
 
-    assert _svg_dimension(svg, "height") > backend._pt(Dimen(11))
+    assert _svg_dimension(svg, "height") == pytest.approx(backend._pt(Dimen(11)))
     assert ">d</text>" in svg
     assert ">t</text>" in svg
 

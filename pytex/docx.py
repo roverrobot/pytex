@@ -25,6 +25,7 @@ from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
+from pytex import svg
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.font_backend import GlyphInfo
 from pytex.module import Module
@@ -486,6 +487,7 @@ class DocxBackend(reflow.Reflow):
         self._docx_math_font = None
         self._docx_next_drawing_id = 1
         self._docx_next_textbox_id = 1
+        self._svg_shipout = None
 
     def shipout(self, box):
         if box.width is None:
@@ -963,36 +965,9 @@ class DocxBackend(reflow.Reflow):
             if total_height is not None
             else Dimen(getattr(box, "height", 0)) + Dimen(getattr(box, "depth", 0))
         )
-        width_pt = max(self._pt(width), 1.0)
-        height_pt = max(self._pt(total_height), 1.0)
-        content = []
-        bounds = None
-        node_type = getattr(box, "node_type", None)
-        if node_type == nd.NODE_TYPE.HLIST:
-            _h, bounds = self._svg_render_hlist(box, 0, int(getattr(box, "height", 0)), content, bounds)
-        elif node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
-            _v, bounds = self._svg_render_vlist(box, 0, 0, content, bounds)
-        offset_y = 0.0
-        if bounds is not None:
-            if bounds[1] < 0:
-                offset_y = -bounds[1]
-            height_pt = max(height_pt + offset_y, bounds[3] + offset_y, 1.0)
-        content_xml = "".join(content)
-        if offset_y:
-            content_xml = (
-                f'<g transform="translate(0 {self._svg_number(offset_y)})">'
-                f"{content_xml}"
-                "</g>"
-            )
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" '
-            f'width="{self._svg_number(width_pt)}pt" '
-            f'height="{self._svg_number(height_pt)}pt" '
-            f'viewBox="0 0 {self._svg_number(width_pt)} {self._svg_number(height_pt)}">'
-            f"{content_xml}"
-            "</svg>"
-        )
-        return svg.encode("utf-8")
+        if self._svg_shipout is None:
+            self._svg_shipout = svg.SVGShipoutBackend(self.parser, output=None)
+        return self._svg_shipout.render_box(box, width=width, height=total_height)
 
     def _get_or_add_svg_image_part(self, story_part, svg_bytes):
         package = story_part._package
@@ -3078,6 +3053,7 @@ class DocxBackend(reflow.Reflow):
     def _inline_math_box(self, nodes, line_box=None):
         hbox = bx.HBox(self.parser, None, None)
         hbox.list[:] = list(nodes)
+        hbox.typeset(self.parser)
         cursor = Dimen()
         rightmost = Dimen()
         height = Dimen()
@@ -3127,14 +3103,20 @@ class DocxBackend(reflow.Reflow):
             _consume_advance(Dimen(node_width), node=node)
             height = max(height, Dimen(getattr(node, "height", 0)) - shifted)
             depth = max(depth, Dimen(getattr(node, "depth", 0)) + shifted)
-        width = max(cursor, rightmost)
-        span_width = self._line_node_span_width(line_box, nodes) if line_box is not None else None
-        if span_width is not None and span_width > width:
-            width = span_width
-        hbox.width = width
+        if line_box is not None:
+            natural = getattr(line_box, "natural", None)
+            if natural is not None:
+                hbox.natural = natural
+            if hasattr(line_box, "glue_ratio"):
+                hbox.glue_ratio = line_box.glue_ratio
+            if hasattr(line_box, "spread"):
+                hbox.spread = getattr(line_box, "spread")
+        hbox.width = max(cursor, rightmost)
         hbox.height = height
         hbox.depth = depth
-        hbox._packed = hbox
+        span_width = self._line_node_span_width(line_box, nodes) if line_box is not None else None
+        if span_width is not None:
+            hbox.width = span_width
         return hbox
 
     def _line_node_span_width(self, line_box, nodes):
@@ -3450,6 +3432,14 @@ class DocxBackend(reflow.Reflow):
             required = max(required, self._inline_chunk_line_measure(chunk))
         return required
 
+    def _inline_box_contains_math(self, box_run):
+        for chunk in box_run.chunks:
+            if isinstance(chunk, _InlineMathRun):
+                return True
+            if isinstance(chunk, _InlineBoxRun) and self._inline_box_contains_math(chunk):
+                return True
+        return False
+
     def _line_run_line_measure(self, run):
         if isinstance(run, _InlineBoxRun):
             return self._inline_box_line_measure(run)
@@ -3727,7 +3717,7 @@ class DocxBackend(reflow.Reflow):
             )
         )
 
-    def _inline_box_run_xml(self, box_run):
+    def _inline_box_run_xml(self, story_part, box_run):
         if not self._inline_box_has_renderable_content(box_run):
             return None
         line_measure = self._inline_box_line_measure(box_run)
@@ -3743,6 +3733,17 @@ class DocxBackend(reflow.Reflow):
             adjusted_box.depth = max(original_depth, line_measure - original_height)
             adjusted_box.source = getattr(box_run.box, "source", None)
             adjusted_box._packed = adjusted_box
+        if self._inline_box_contains_math(box_run):
+            depth = Dimen(getattr(adjusted_box, "depth", 0))
+            total_height = Dimen(getattr(adjusted_box, "height", 0)) + depth
+            svg_bytes = self._svg_bytes_for_box(adjusted_box, total_height=total_height)
+            return self._inline_svg_picture_run_xml(
+                story_part,
+                svg_bytes,
+                self._svg_box_width(adjusted_box),
+                total_height,
+                depth=depth,
+            )
         return self._inline_textbox_run_xml(
             self._inline_box_content_xml(box_run),
             adjusted_box,
@@ -3792,7 +3793,7 @@ class DocxBackend(reflow.Reflow):
     def _append_run_chunks(self, para, chunks):
         for chunk in chunks:
             if isinstance(chunk, _InlineBoxRun):
-                run_xml = self._inline_box_run_xml(chunk)
+                run_xml = self._inline_box_run_xml(para.part, chunk)
                 if run_xml is not None:
                     para._p.append(run_xml)
                 continue
@@ -4483,18 +4484,18 @@ class DocxBackend(reflow.Reflow):
         fields = self._fragment_math_fields(raw_nodes)
         if not fields or not any(not isinstance(field, str) for field in fields):
             return False
-        inner = self._omml_group_xml(fields, display_style=True)
-        if not inner:
-            return False
-        para._p.append(
-            parse_xml(
-                (
-                    "<m:oMath xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
-                    f"{inner}"
-                    "</m:oMath>"
-                )
-            )
+        math_total_height = Dimen(getattr(box, "height", 0)) + Dimen(getattr(box, "depth", 0))
+        fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+        fmt.line_spacing = self._length(self._nonnegative_dimen(math_total_height))
+        run_xml = self._display_math_run_xml(
+            para.part,
+            box,
+            line_depth=getattr(box, "depth", 0),
+            total_height=math_total_height,
         )
+        if run_xml is None:
+            return False
+        para._p.append(run_xml)
         return True
 
     def _alignment_entry_reboxed_cell(self, spec, entry, adjusted_widths, adjusted_tabskips):

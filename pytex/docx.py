@@ -1,4 +1,4 @@
-"""Minimal DOCX shipout backend for pure text paragraphs."""
+"""DOCX backend backed by the generic reflow/document interface."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import hashlib
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
-from docx import Document
+from docx import Document as WordDocument
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.enum.section import WD_SECTION_START
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
@@ -22,15 +22,14 @@ from fontTools.pens.svgPathPen import SVGPathPen
 from pytex import align
 from pytex import box as bx
 from pytex import font as txfont
-from pytex import html_reflow as html_math
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.font_backend import GlyphInfo
 from pytex.module import Module
-from pytex.typeset.shipout import Shipout
 from pytex import font_subst
+from pytex import reflow
 
 import pytex.font_subst
 
@@ -43,6 +42,13 @@ _DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
 _DOCX_EMU_PER_TEX_POINT_NUM = 91440000
 _DOCX_EMU_PER_TEX_POINT_DEN = 7227
 _INLINE_TEXTBOX_PAD_PT = 0.75
+_DOCX_DEFAULT_TEXT_FONT = font_subst.DEFAULT_TEXT_FONT
+_MATH_FAMILY_TEXT_OVERRIDES = font_subst.MATH_FAMILY_TEXT_OVERRIDES
+_MATH_OPERATORS_MAP = font_subst.MATH_OPERATORS_MAP
+_MATH_LETTERS_MAP = font_subst.MATH_LETTERS_MAP
+_MATH_SYMBOLS_MAP = font_subst.MATH_SYMBOLS_MAP
+_MATH_LARGE_SYMBOLS_MAP = font_subst.MATH_LARGE_SYMBOLS_MAP
+_LOCAL_STIX_TTF = os.path.join(os.path.expanduser("~"), "Library", "Fonts", "STIXTwoMath-Regular.otf")
 
 
 @dataclass
@@ -163,7 +169,299 @@ class _StructuralBodySlot:
     path: list[tuple[object, int]] = field(default_factory=list)
 
 
-class DocxBackend(Shipout):
+def _docx_font_backend_name(backend):
+    return font_subst.fontBackendName(backend)
+
+
+def _resolve_parser_docx_math_backend(parser):
+    return font_subst.resolveMathFontBackend(parser)
+
+
+class _DocxMathFont(font_subst.MathFont):
+    pass
+
+
+class _DocxMathFontArray(txfont.MathFontArray):
+    __slots__ = ("_backend",)
+
+    def __init__(self, name: str, state=None, default=None):
+        super().__init__(name, state=state, default=default)
+        self._backend = None
+
+    def _mathBackend(self):
+        if self._backend is False:
+            return None
+        if self._backend is not None:
+            return self._backend
+        parser = self.state
+        backend = _resolve_parser_docx_math_backend(parser) if parser is not None else None
+        self._backend = backend if backend is not None else False
+        return backend
+
+    def _wrapMathFont(self, index, value):
+        if index not in (0, 1, 2, 3):
+            return value
+        if not isinstance(value, txfont.Font) or isinstance(value, txfont.NullFont):
+            return value
+        if isinstance(value, _DocxMathFont) and value.family == index:
+            return value
+        backend = self._mathBackend()
+        if backend is None:
+            return value
+        return _DocxMathFont(backend, value.at, index, template=value)
+
+    def __setitem__(self, index, value):
+        super().__setitem__(index, self._wrapMathFont(index, value))
+
+    def setGlobal(self, index, value):
+        super().setGlobal(index, self._wrapMathFont(index, value))
+
+
+font_subst.MathFont = _DocxMathFont
+font_subst.MathFontArray = _DocxMathFontArray
+
+for _font_domain in ("textfont", "scriptfont", "scriptscriptfont"):
+    txfont.mod.domains[_font_domain]["generator"] = (
+        lambda state, _name=_font_domain: _DocxMathFontArray(_name, state=state, default=txfont.nullfont)
+    )
+
+
+class _ContainerNode:
+    def __init__(self):
+        self.children = []
+        self.attrs = {}
+
+    def append(self, child):
+        self.children.append(child)
+
+    def set(self, key, value):
+        self.attrs[key] = value
+
+    def get(self, key, default=None):
+        return self.attrs.get(key, default)
+
+
+class TextRun(reflow.TextRun):
+    def __init__(self, backend, line, font: txfont.Font, color: reflow.Color = reflow.Color.black):
+        super().__init__(_ContainerNode(), font, color)
+        self.backend = backend
+        self.line = line
+        self.chunk = _TextRun("", font)
+        self.line.spec.runs.append(self.chunk)
+
+    def _restart_chunk(self):
+        self.chunk = _TextRun("", self.font)
+        self.line.spec.runs.append(self.chunk)
+
+    def setKern(self, kern: Dimen):
+        if kern == 0:
+            return
+        self.backend._apply_text_kern(self.line.spec.runs, kern)
+
+    def setSpace(self, width):
+        self.backend._append_explicit_spacing_run(self.line.spec.runs, width, self.font)
+        self._restart_chunk()
+
+    def setChar(self, char: nd.Node):
+        self.chunk.text += self.backend._glyph_text(char)
+
+
+class Line(reflow.Line):
+    def __init__(self, backend, justify="justify", box=None):
+        super().__init__(_ContainerNode(), justify)
+        self.backend = backend
+        self.spec = _LineSpec(runs=[], box=box)
+
+    def newTextRun(self, font, color) -> TextRun:
+        run = TextRun(self.backend, self, font, color)
+        self.nodes.append(run)
+        self.node.append(run.node)
+        return run
+
+    def newInlineBlock(self, box: bx.Box):
+        # Placeholder collector for the future generic inline-box path.
+        run = _InlineBoxRun(box, [], Dimen(getattr(box, "depth", 0)))
+        self.spec.runs.append(run)
+        block = Block(self.backend, inline=True, xspacing=Dimen(), yspacing=Dimen())
+        self.nodes.append(block)
+        self.node.append(block.node)
+        return block
+
+    def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, nodes: list):
+        return None
+
+    def setSpace(self, width: Dimen):
+        font = self.backend._space_font(self.spec.runs, (), 0)
+        self.backend._append_explicit_spacing_run(self.spec.runs, width, font)
+
+
+class Paragraph(reflow.Paragraph):
+    def __init__(self, backend, spacing_before=Dimen(), justify="justify", reflow_lines=True):
+        super().__init__(_ContainerNode(), reflow_lines, spacing_before, justify)
+        self.backend = backend
+        self.spec = _ParagraphSpec(owner=None, space_before=spacing_before)
+
+    def newLine(self):
+        line = Line(self.backend, justify=self.justify)
+        self.spec.lines.append(line.spec)
+        self.nodes.append(line)
+        self.node.append(line.node)
+        return line
+
+    def setLineSpacing(self, spacing: Dimen):
+        gaps = max(len(self.spec.lines) - 1, 0)
+        self.spec.interline_gaps = [Dimen(spacing) for _ in range(gaps)]
+
+
+class Cell(reflow.Cell):
+    def __init__(self, backend, span=1, width=None, justify: str = "justify"):
+        super().__init__(_ContainerNode(), span=span, width=width, justify=justify)
+        self.backend = backend
+
+    def newParagraph(self) -> Paragraph:
+        para = Paragraph(self.backend, justify=self.justify)
+        self.nodes.append(para)
+        self.node.append(para.node)
+        return para
+
+
+class Row(reflow.Row):
+    def __init__(self, backend):
+        super().__init__(_ContainerNode())
+        self.backend = backend
+
+    def newCell(self, span=1, width=None, justify="justify") -> Cell:
+        cell = Cell(self.backend, span=span, width=width, justify=justify)
+        self.nodes.append(cell)
+        self.node.append(cell.node)
+        return cell
+
+
+class Table(reflow.Table):
+    def __init__(self, backend, xspacing=Dimen(), yspacing=Dimen()):
+        super().__init__(_ContainerNode(), xspacing=xspacing, yspacing=yspacing)
+        self.backend = backend
+
+    def newRow(self) -> Row:
+        row = Row(self.backend)
+        self.nodes.append(row)
+        self.node.append(row.node)
+        return row
+
+
+class Block(reflow.Block):
+    def __init__(self, backend, region="body", inline=False, xspacing=Dimen(), yspacing=Dimen()):
+        super().__init__(_ContainerNode(), inline=inline, xspacing=xspacing, yspacing=yspacing)
+        self.backend = backend
+        self.region = region
+        self._entries = []
+
+    def addSpec(self, spec):
+        if hasattr(spec, "region"):
+            spec.region = self.region
+        self._entries.append(spec)
+
+    def iter_specs(self):
+        for entry in self._entries:
+            if isinstance(entry, (Block, Table)):
+                yield from entry.iter_specs()
+            else:
+                yield entry
+
+    def newParagraph(self, spacing_before=Dimen(), justify: str = "left") -> Paragraph:
+        para = Paragraph(self.backend, spacing_before=spacing_before, justify=justify)
+        para.spec.region = self.region
+        self._entries.append(para.spec)
+        self.nodes.append(para)
+        self.node.append(para.node)
+        return para
+
+    def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
+        table = Table(self.backend, xspacing=xspacing, yspacing=yspacing)
+        self._entries.append(table)
+        self.nodes.append(table)
+        self.node.append(table.node)
+        return table
+
+    def newBlock(self, xspacing=Dimen(), yspacing=Dimen()):
+        block = Block(self.backend, region=self.region, inline=False, xspacing=xspacing, yspacing=yspacing)
+        self._entries.append(block)
+        self.nodes.append(block)
+        self.node.append(block.node)
+        return block
+
+    def newGraph(self, key, type, file):
+        return None
+
+
+class Page(reflow.Page):
+    def __init__(self, backend, width: Dimen, height: Dimen):
+        super().__init__(_ContainerNode(), width, height)
+        self.backend = backend
+        self.source_page = None
+        self._header = Block(backend, region="header")
+        self._body = Block(backend, region="body")
+        self._footer = Block(backend, region="footer")
+
+    @property
+    def header(self) -> Block:
+        return self._header
+
+    @property
+    def body(self) -> Block:
+        return self._body
+
+    @property
+    def footer(self) -> Block:
+        return self._footer
+
+    def setBackgroundColor(self, color: reflow.Color):
+        pass
+
+
+class Document(reflow.Document):
+    def __init__(self, backend, title: str, output=None):
+        super().__init__(_ContainerNode(), title, output)
+        self.backend = backend
+
+    def newPage(self, width: Dimen, height: Dimen) -> Page:
+        page = Page(self.backend, width, height)
+        self.nodes.append(page)
+        self.node.append(page.node)
+        return page
+
+    def defineFont(self, font):
+        return None
+
+    def definePicture(self, key, type, path):
+        return None
+
+    def save(self):
+        document = WordDocument()
+        self.backend._configure_math_settings(document)
+        self.backend._remove_compatibility_mode(document)
+        if self.nodes:
+            for page_index, page in enumerate(self.nodes):
+                source_page = getattr(page, "source_page", None)
+                if page_index == 0:
+                    section = document.sections[0]
+                else:
+                    section = document.add_section(WD_SECTION_START.NEW_PAGE)
+                if source_page is not None:
+                    self.backend._configure_section(section, source_page, page_index=page_index)
+                self.backend._emit_specs(document, list(page.body.iter_specs()), source_page)
+                self.backend._emit_section_header_footer(
+                    section,
+                    list(page.header.iter_specs()),
+                    list(page.footer.iter_specs()),
+                    source_page,
+                )
+        document.save(self.output)
+        if hasattr(self.output, "close"):
+            self.output.close()
+
+
+class DocxBackend(reflow.Reflow):
     """
     Very small proof-of-concept DOCX backend.
 
@@ -180,7 +478,8 @@ class DocxBackend(Shipout):
     """
 
     def __init__(self, parser, output=None):
-        super().__init__(parser, output)
+        super().__init__(parser, paginate=False)
+        self.output = output
         self.file = None
         self.finished = False
         self._captured_pages: list[list[_Glyph]] = []
@@ -193,28 +492,51 @@ class DocxBackend(Shipout):
             packed = []
             box.typeset(self.parser, packed)
             box = packed[-1]
+        if self.document is None:
+            self.document = self.open()
         self.pages.append(box)
-        self._captured_pages.append(self._capture_page(box))
+        glyphs = self._capture_page(box)
+        self._captured_pages.append(glyphs)
+        self.page = self.document.newPage(box.width, box.height)
+        self.page.source_page = box
+        for spec in self._page_flow_specs(box, glyphs):
+            region = getattr(spec, "region", "body")
+            if region == "header":
+                target = self.page.header
+            elif region == "footer":
+                target = self.page.footer
+            else:
+                target = self.page.body
+            target.addSpec(spec)
+        self.page = None
 
-    def open(self, output=None):
+    def open(self):
+        if self.document is not None:
+            return self.document
+        self._open_output()
+        title = self.parser.jobname or "texput"
+        return Document(self, title, output=self.file)
+
+    def _open_output(self, output=None):
         if self.file is not None:
-            return
+            return self.file
         if output is None:
             output = self.output
         if output is None:
             output = self.parser.jobname or "texput"
         if hasattr(output, "write"):
             self.file = output
-            return
+            return self.file
         path = os.fspath(output)
         if os.path.isabs(path):
             if not path.endswith(".docx"):
                 path += ".docx"
             self.file = open(path, "wb")
-            return
+            return self.file
         if not path.endswith(".docx"):
             path += ".docx"
         self.file = self.parser.resolver.openOut(path, "shipout/docx")
+        return self.file
 
     @staticmethod
     def _paragraph_owner(node):
@@ -2009,22 +2331,22 @@ class DocxBackend(Shipout):
         if override is not None:
             return override
         if symbol.fam == 0:
-            text = html_math._MATH_OPERATORS_MAP.get(code)
+            text = _MATH_OPERATORS_MAP.get(code)
             if text is not None:
                 return text
         elif symbol.fam == 1:
-            text = html_math._MATH_LETTERS_MAP.get(code)
+            text = _MATH_LETTERS_MAP.get(code)
             if text is not None:
                 return text
         elif symbol.fam == 2:
-            text = html_math._MATH_SYMBOLS_MAP.get(code)
+            text = _MATH_SYMBOLS_MAP.get(code)
             if text is not None:
                 return text
         elif symbol.fam == 3:
-            text = html_math._MATH_LARGE_SYMBOLS_MAP.get(code)
+            text = _MATH_LARGE_SYMBOLS_MAP.get(code)
             if text is not None:
                 return text
-            text = html_math._MATH_SYMBOLS_MAP.get(code)
+            text = _MATH_SYMBOLS_MAP.get(code)
             if text is not None:
                 return text
         if self._printable_char(symbol.char):
@@ -4398,44 +4720,14 @@ class DocxBackend(Shipout):
         if footer_specs:
             self._emit_specs(section.footer, footer_specs, page, normalize_first=True)
 
-    def _build_document(self):
-        document = Document()
-        self._configure_math_settings(document)
-        self._remove_compatibility_mode(document)
-        if not self.pages:
-            return document
-        for page_index, page in enumerate(self.pages):
-            glyphs = self._captured_pages[page_index] if page_index < len(self._captured_pages) else []
-            flow_specs = list(self._page_flow_specs(page, glyphs))
-            if not glyphs and not flow_specs and any(
-                getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST
-                for node in getattr(page, "list", ())
-            ):
-                raise ValueError(
-                    f"DOCX backend captured no text glyphs from shipped page {page_index + 1}; "
-                    "the document may have been typeset with nullfont or contain only unsupported content"
-                )
-
-            if page_index == 0:
-                section = document.sections[0]
-            else:
-                section = document.add_section(WD_SECTION_START.NEW_PAGE)
-            self._configure_section(section, page, page_index=page_index)
-
-            body_specs, header_specs, footer_specs = self._split_region_specs(flow_specs)
-            self._emit_specs(document, body_specs, page)
-            self._emit_section_header_footer(section, header_specs, footer_specs, page)
-        return document
-
     def close(self):
         if self.finished:
             return
         self.finished = True
-        self.open()
-        document = self._build_document()
-        document.save(self.file)
-        if hasattr(self.file, "close"):
-            self.file.close()
+        if self.document is None:
+            self.document = self.open()
+        self.document.save()
+        self.document = None
         self.file = None
 
 

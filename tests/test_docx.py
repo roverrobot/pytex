@@ -18,6 +18,7 @@ from pytex import mmode
 from pytex import node as nd
 from pytex import opentype
 from pytex import paragraph as pg
+from pytex import reflow
 from pytex.dimen import Dimen
 from pytex.font_backend import GlyphInfo
 from pytex.glue import Glue, Stretchness
@@ -248,6 +249,62 @@ def test_docx_math_font_wrapper_covers_math_italic_family(parser, monkeypatch):
     assert node.char == "N"
     assert node.char_info.char == "N"
 
+
+
+def test_docx_reflow_document_interface_collects_paragraph_specs(parser):
+    backend = docx.DocxBackend(parser)
+    document = backend.open()
+
+    assert isinstance(document, reflow.Document)
+    page = document.newPage(Dimen(100), Dimen(200))
+    assert isinstance(page.body, reflow.Block)
+
+    para = page.body.newParagraph(spacing_before=Dimen(4), justify="left")
+    line = para.newLine()
+    font = _FakeFont()
+    run = line.newTextRun(font, reflow.Color.black)
+    run.setChar(nd.CharNode("A", font))
+
+    specs = list(page.body.iter_specs())
+    assert len(specs) == 1
+    assert specs[0].space_before == Dimen(4)
+    assert specs[0].lines[0].runs[0].text == "A"
+
+
+def test_docx_shipout_populates_document_page_regions(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    parser.layout["vsize"] = Dimen(60)
+    font = _FakeFont()
+    header_owner = pg.Paragraph(parser, indent=False)
+    body_owner = pg.Paragraph(parser, indent=False)
+    footer_owner = pg.Paragraph(parser, indent=False)
+
+    header_line = _FakeHBox([nd.CharNode("H", font)], header_owner, width=40, height=7, depth=2)
+    body_line = _FakeHBox([nd.CharNode("B", font)], body_owner, width=40, height=7, depth=2)
+    footer_line = _FakeHBox([nd.CharNode("F", font)], footer_owner, width=40, height=7, depth=2)
+
+    page = _FakeVBox(
+        [
+            header_line,
+            nd.Glue(Glue(Dimen(70)), None),
+            body_line,
+            nd.Glue(Glue(Dimen(60)), None),
+            footer_line,
+        ],
+        width=200,
+        height=120,
+        depth=0,
+    )
+
+    backend.shipout(page)
+
+    assert isinstance(backend.document, reflow.Document)
+    model_page = backend.document.nodes[0]
+    assert [spec.region for spec in model_page.header.iter_specs()] == ["header"]
+    assert [spec.region for spec in model_page.body.iter_specs()] == ["body"]
+    assert [spec.region for spec in model_page.footer.iter_specs()] == ["footer"]
 
 
 def test_docx_backend_preserves_tex_line_breaks(parser):

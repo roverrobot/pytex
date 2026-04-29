@@ -1,5 +1,7 @@
 import pytest
 
+from pytex import mmode
+from pytex import lists
 from pytex.token import CATCODE
 
 
@@ -54,3 +56,28 @@ def test_umathcode_accepts_xetex_three_integer_assignment(parser):
     parser.parse("\\Umathcode`A=7 1 65")
 
     assert parser.umathcode[ord("A")] == (((1 << 3) + 7) << 21) + 65
+
+
+def test_umathchardef_defines_readable_unicode_math_char(collector):
+    collector.parse("\\Umathchardef\\foo=7 1 \"03B2 \\number\\foo")
+
+    assert collector.getString().strip() == str((((1 << 3) + 7) << 21) + 0x03B2)
+
+
+def test_umathchardef_appends_unicode_math_symbol(parser):
+    parser.parse("\\Umathchardef\\foo=7 1 \"03B2 $\\foo")
+
+    top = parser.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 1
+    atom = top[0]
+    assert isinstance(atom, mmode.Atom)
+    assert atom.atom_type == mmode.ATOM_TYPE.ORD
+    assert atom.nucleus.fam == 1
+    assert atom.nucleus.char == "\u03b2"
+
+
+def test_udelcode_accepts_xetex_family_and_glyph_assignment(parser):
+    parser.parse("\\Udelcode`A=1 65")
+
+    assert parser.udelcode[ord("A")] == ((0x200 + 1) << 21) + 65

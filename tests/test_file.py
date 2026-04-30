@@ -123,6 +123,23 @@ def test_read(read_tex):
     assert len(a.replacement) == 10
 
 
+def test_read_at_eof_defines_par_and_closes(parser):
+    parser.resolver.in_memory_files["one.tex"] = InMemoryTextFile("abc\n")
+    parser.parse(
+        "\\def\\storedpar{\\par}"
+        "\\openin 0=one.tex "
+        "\\read 0 to \\a "
+        "\\read 0 to \\b "
+        "\\count0=\\ifx\\b\\storedpar 1\\else -1\\fi"
+    )
+    b = parser.equitable["\\b"]
+    assert isinstance(b, macro.Macro)
+    assert len(b.replacement) == 1
+    assert b.replacement[0].name == "\\par"
+    assert parser.count[0] == 1
+    assert parser.globals["openin"][0] is None
+
+
 def test_read_from_pipe_command(parser):
     def handler(resolver, args):
         assert args == ["probe"]

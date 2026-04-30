@@ -43,6 +43,12 @@ def _readFileLineTokenizer(parser, file):
     return Tokenizer(io.StringIO(line), parser, name=name, line_number=line_number)
 
 
+def _parToken(parser):
+    t = token.CommandToken("\\par")
+    t.entry = parser.equitable.entry("\\par")
+    return t
+
+
 class OpenOp(Accessor):
     """
     Open a file
@@ -201,6 +207,7 @@ class ReadOp(Accessor):
         if reached_eof and not done:
             file.close()
             parser.globals["openin"][self.file_id] = None
+            tokens = [_parToken(parser)]
         m = macro.Macro([], tokens)
         m.name = self.key
         return m

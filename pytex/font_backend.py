@@ -38,6 +38,28 @@ class GlyphInfo:
     assembly: GlyphAssembly | None = None
 
 
+@dataclass(frozen=True)
+class FontSpec:
+    """
+    Parsed engine-specific font lookup information.
+
+    ``lookup`` is one of:
+    - ``auto``: legacy behavior, trying TeX metrics and then native fonts.
+    - ``file``: force a file lookup, as XeTeX does for bracketed font names.
+    - ``system``: force a system font-name lookup.
+    """
+    name: str
+    lookup: str = "auto"
+    display_name: str | None = None
+    font_number: int = 0
+    options: str = ""
+    features: str = ""
+
+    @property
+    def backend_name(self):
+        return self.display_name if self.display_name is not None else self.name
+
+
 class FontBackend:
     kind = None
 
@@ -101,7 +123,39 @@ def resourceName(name: str, kind: str = None):
     return f"{root}{ext.lower()}"
 
 
+def parseFontName(parser, name):
+    return name
+
+
+def _loadFontSpec(parser, spec: FontSpec, kind: str = None):
+    cache_key = (kind, spec)
+    cached = _system_font_backend_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    if kind == "tfm" and spec.lookup == "file":
+        raise FileNotFoundError(f"tfm font {spec.name} not found")
+    for backend_cls in _backend_classes:
+        if kind is not None and backend_cls.kind != kind:
+            continue
+        try:
+            backend = backend_cls.load(parser, spec)
+        except FileNotFoundError:
+            if kind is not None:
+                raise
+            continue
+        if backend is None:
+            continue
+        _system_font_backend_cache[cache_key] = backend
+        return backend
+    if kind is None:
+        raise FileNotFoundError(f"font {spec.name} not found")
+    raise FileNotFoundError(f"{kind} font {spec.name} not found")
+
+
 def loadFontBackend(parser, name: str, kind: str = None):
+    if isinstance(name, FontSpec):
+        return _loadFontSpec(parser, name, kind=kind)
+
     if kind is not None:
         name = resourceName(name, kind=kind)
         cache_key = (kind, name)
@@ -159,5 +213,6 @@ def loadFontBackend(parser, name: str, kind: str = None):
 mod = Module("font_backend",
     attributes={
         "loadFontBackend": loadFontBackend,
+        "parseFontName": parseFontName,
     },
 )

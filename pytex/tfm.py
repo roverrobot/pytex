@@ -3,7 +3,7 @@ TeX Font Metrics (TFM) file format
 """
 
 from pytex import node
-from pytex.font_backend import FontBackend, GlyphAssembly, GlyphInfo, registerBackend
+from pytex.font_backend import FontBackend, FontSpec, GlyphAssembly, GlyphInfo, registerBackend
 from pytex.module import Module
 from struct import unpack, pack
 import io
@@ -303,6 +303,12 @@ class TFMBackend(FontBackend):
 
     @classmethod
     def load(cls, parser, name: str):
+        if isinstance(name, FontSpec):
+            if name.lookup in {"file", "system"}:
+                return None
+            name = name.name
+            if not os.path.splitext(name)[1]:
+                name = f"{name}.tfm"
         file = cls._openFile(parser, name)
         if file is None:
             return None

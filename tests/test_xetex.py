@@ -1,7 +1,9 @@
 import pytest
 
+from pytex import opentype
 from pytex import mmode
 from pytex import lists
+from pytex.font_backend import FontSpec
 from pytex.token import CATCODE
 
 
@@ -13,6 +15,66 @@ def _enable_xetex_module():
 def test_xetex_version_primitives_expand_like_engine_identity(collector):
     collector.parse("\\number\\XeTeXversion\\XeTeXrevision")
     assert collector.getString().strip() == "0.999995"
+
+
+def test_xetex_font_name_parser_marks_bracketed_file_specs(parser):
+    spec = parser.parseFontName("[myfont.ttc:2]/OT:script=latn;+liga")
+
+    assert spec == FontSpec(
+        "myfont.ttc",
+        lookup="file",
+        font_number=2,
+        options="/OT",
+        features="script=latn;+liga",
+    )
+
+
+def test_xetex_bracketed_extensionless_font_file_loads(parser):
+    handle = parser.resolver.openIn("lmroman10-regular", "fonts/opentype")
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle.close()
+
+    parser.parse('\\font\\f="[lmroman10-regular]" at 10pt')
+
+    font = parser.equitable["\\f"]
+    assert font.backend.kind == "opentype"
+    assert font.backend.name == "lmroman10-regular"
+    assert font.backend.path.endswith("lmroman10-regular.otf")
+
+
+def test_xetex_font_file_suffixes_are_ignored_for_lookup(parser):
+    handle = parser.resolver.openIn("lmroman10-regular.otf", "fonts/opentype")
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle.close()
+
+    parser.parse('\\font\\f="[lmroman10-regular.otf]/OT:script=latn;+liga" at 10pt')
+
+    font = parser.equitable["\\f"]
+    assert font.backend.kind == "opentype"
+    assert font.backend.name == "lmroman10-regular.otf"
+    assert font.backend.path.endswith("lmroman10-regular.otf")
+
+
+def test_xetex_name_prefix_forces_system_font_lookup(parser, monkeypatch):
+    handle = parser.resolver.openIn("lmroman10-regular.otf", "fonts/opentype")
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    path = handle.name
+    handle.close()
+
+    @classmethod
+    def fake_system_path(cls, name):
+        return (path, 0) if name == "Latin Modern Roman" else None
+
+    monkeypatch.setattr(opentype.OpenTypeBackend, "_systemFontPath", fake_system_path)
+    parser.parse('\\font\\f="name:Latin Modern Roman" at 10pt')
+
+    font = parser.equitable["\\f"]
+    assert font.backend.kind == "opentype"
+    assert font.backend.name == "Latin Modern Roman"
+    assert font.backend.path == path
 
 
 def test_uchar_generates_other_tokens_and_space_tokens(parser):

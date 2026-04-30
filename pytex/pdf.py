@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from io import BytesIO
 import os
 import re
 
 from pypdf import PdfReader, PdfWriter, Transformation
+from pypdf.generic import (
+    ArrayObject,
+    DecodedStreamObject,
+    DictionaryObject,
+    FloatObject,
+    NameObject,
+    NumberObject,
+    TextStringObject,
+)
 from reportlab.pdfbase.pdfdoc import PDFArray, PDFName
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import EmbeddedType1Face, Font as ReportLabFont, registerFont, registerTypeFace
@@ -42,6 +52,20 @@ _PDF_STRING_ESCAPES = {
 _ONE_INCH = Dimen(integer=Dimen._trunc_div(UNITS["in"][0] * Dimen.scale, UNITS["in"][1]))
 
 
+@dataclass
+class _RawOpenTypeGlyph:
+    char: str
+    code: int
+    width: int
+
+
+@dataclass
+class _RawOpenTypeFont:
+    font: object
+    name: str
+    glyphs: dict[int, _RawOpenTypeGlyph] = field(default_factory=dict)
+
+
 class PDFBackend(Shipout):
     """Direct PDF backend built on top of ReportLab."""
 
@@ -54,7 +78,10 @@ class PDFBackend(Shipout):
         self.current_font = None
         self.current_font_name = None
         self._font_names = {}
+        self._companion_font_names = {}
         self._font_counter = 0
+        self._raw_fonts = {}
+        self._page_raw_fonts = []
         self._type1_faces = {}
         self.page_width = 0
         self.page_height = 0
@@ -346,6 +373,232 @@ class PDFBackend(Shipout):
         writer.write(out)
         return out.getvalue()
 
+    @staticmethod
+    def _uses_raw_opentype(font):
+        backend_font = getattr(getattr(font, "backend", None), "font", None)
+        if backend_font is None:
+            return False
+        return "CFF " in backend_font or "CFF2" in backend_font
+
+    def _register_raw_opentype(self, font, font_name):
+        self._raw_fonts[font_name] = _RawOpenTypeFont(font=font, name=font_name)
+
+    @staticmethod
+    def _pdf_number(value):
+        text = f"{float(value):.6f}".rstrip("0").rstrip(".")
+        return text or "0"
+
+    @staticmethod
+    def _pdf_name(name):
+        return NameObject(f"/{name}")
+
+    @staticmethod
+    def _font_units(font, value):
+        units_per_em = getattr(font.backend, "units_per_em", 1000) or 1000
+        return int(round(value * 1000 / units_per_em))
+
+    @staticmethod
+    def _raw_font_data(font):
+        backend = font.backend
+        path = getattr(backend, "path", None)
+        if path and os.path.exists(path) and getattr(backend, "font_number", 0) == 0:
+            ext = os.path.splitext(path)[1].lower()
+            if ext not in {".ttc", ".otc"}:
+                with open(path, "rb") as handle:
+                    return handle.read()
+        out = BytesIO()
+        backend.font.save(out)
+        return out.getvalue()
+
+    @staticmethod
+    def _to_unicode_hex(text):
+        return text.encode("utf-16-be").hex().upper()
+
+    @classmethod
+    def _to_unicode_cmap(cls, raw_font):
+        chunks = []
+        glyphs = sorted(raw_font.glyphs.values(), key=lambda glyph: glyph.code)
+        for offset in range(0, len(glyphs), 100):
+            group = glyphs[offset : offset + 100]
+            chunks.append(f"{len(group)} beginbfchar")
+            for glyph in group:
+                chunks.append(f"<{glyph.code:04X}> <{cls._to_unicode_hex(glyph.char)}>")
+            chunks.append("endbfchar")
+        entries = "\n".join(chunks)
+        return (
+            "/CIDInit /ProcSet findresource begin\n"
+            "12 dict begin\n"
+            "begincmap\n"
+            "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+            f"/CMapName /{raw_font.name}-UTF16 def\n"
+            "/CMapType 2 def\n"
+            "1 begincodespacerange\n"
+            "<0000> <FFFF>\n"
+            "endcodespacerange\n"
+            f"{entries}\n"
+            "endcmap\n"
+            "CMapName currentdict /CMap defineresource pop\n"
+            "end\n"
+            "end\n"
+        ).encode("ascii")
+
+    def _raw_font_glyph(self, raw_font, char):
+        backend = raw_font.font.backend
+        glyph_name = backend._glyphName(char)
+        if glyph_name is None:
+            glyph_name = ".notdef"
+        glyph_id = backend.font.getGlyphID(glyph_name)
+        if glyph_id > 0xFFFF:
+            raise ValueError(f"PDF backend cannot encode glyph id {glyph_id} in font {backend.name}")
+        glyph = raw_font.glyphs.get(glyph_id)
+        if glyph is not None:
+            return glyph
+        advance, _ = backend.font["hmtx"].metrics.get(glyph_name, (0, 0))
+        glyph = _RawOpenTypeGlyph(char=char, code=glyph_id, width=self._font_units(raw_font.font, advance))
+        raw_font.glyphs[glyph_id] = glyph
+        return glyph
+
+    @staticmethod
+    def _stream_object(data, **items):
+        stream = DecodedStreamObject()
+        stream.set_data(data)
+        for key, value in items.items():
+            stream[NameObject(key)] = value
+        return stream
+
+    def _raw_font_pdf_object(self, writer, raw_font):
+        font = raw_font.font
+        backend = font.backend
+        ttfont = backend.font
+        head = ttfont["head"]
+        hhea = ttfont["hhea"]
+        post = ttfont.get("post")
+        os2 = ttfont.get("OS/2")
+        font_data = self._raw_font_data(font)
+
+        font_stream = self._stream_object(
+            font_data,
+            **{
+                "/Subtype": NameObject("/OpenType"),
+                "/Length1": NumberObject(len(font_data)),
+            },
+        )
+        font_stream_ref = writer._add_object(font_stream)
+
+        italic_angle = float(getattr(post, "italicAngle", 0.0) if post is not None else 0.0)
+        flags = 4
+        if getattr(post, "isFixedPitch", 0):
+            flags |= 1
+        if italic_angle:
+            flags |= 64
+        ascent = self._font_units(font, getattr(hhea, "ascent", 0))
+        descent = self._font_units(font, getattr(hhea, "descent", 0))
+        cap_height = getattr(os2, "sCapHeight", 0) if os2 is not None else 0
+        if not cap_height:
+            cap_height = getattr(hhea, "ascent", 0)
+        descriptor = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/FontDescriptor"),
+                NameObject("/FontName"): self._pdf_name(raw_font.name),
+                NameObject("/Flags"): NumberObject(flags),
+                NameObject("/FontBBox"): ArrayObject(
+                    [
+                        NumberObject(self._font_units(font, head.xMin)),
+                        NumberObject(self._font_units(font, head.yMin)),
+                        NumberObject(self._font_units(font, head.xMax)),
+                        NumberObject(self._font_units(font, head.yMax)),
+                    ]
+                ),
+                NameObject("/ItalicAngle"): FloatObject(italic_angle),
+                NameObject("/Ascent"): NumberObject(ascent),
+                NameObject("/Descent"): NumberObject(descent),
+                NameObject("/CapHeight"): NumberObject(self._font_units(font, cap_height)),
+                NameObject("/StemV"): NumberObject(80),
+                NameObject("/FontFile3"): font_stream_ref,
+            }
+        )
+        descriptor_ref = writer._add_object(descriptor)
+
+        widths = ArrayObject()
+        for glyph in sorted(raw_font.glyphs.values(), key=lambda item: item.code):
+            widths.append(NumberObject(glyph.code))
+            widths.append(ArrayObject([NumberObject(glyph.width)]))
+
+        cid_font = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/CIDFontType0"),
+                NameObject("/BaseFont"): self._pdf_name(raw_font.name),
+                NameObject("/CIDSystemInfo"): DictionaryObject(
+                    {
+                        NameObject("/Registry"): TextStringObject("Adobe"),
+                        NameObject("/Ordering"): TextStringObject("Identity"),
+                        NameObject("/Supplement"): NumberObject(0),
+                    }
+                ),
+                NameObject("/FontDescriptor"): descriptor_ref,
+                NameObject("/DW"): NumberObject(1000),
+                NameObject("/W"): widths,
+            }
+        )
+        cid_font_ref = writer._add_object(cid_font)
+
+        to_unicode = self._stream_object(self._to_unicode_cmap(raw_font))
+        to_unicode_ref = writer._add_object(to_unicode)
+        type0_font = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type0"),
+                NameObject("/BaseFont"): self._pdf_name(raw_font.name),
+                NameObject("/Encoding"): NameObject("/Identity-H"),
+                NameObject("/DescendantFonts"): ArrayObject([cid_font_ref]),
+                NameObject("/ToUnicode"): to_unicode_ref,
+            }
+        )
+        return writer._add_object(type0_font)
+
+    @staticmethod
+    def _page_resources(page):
+        resources = page.get("/Resources")
+        if resources is None:
+            resources = DictionaryObject()
+            page[NameObject("/Resources")] = resources
+        else:
+            resources = resources.get_object()
+            page[NameObject("/Resources")] = resources
+        fonts = resources.get("/Font")
+        if fonts is None:
+            fonts = DictionaryObject()
+            resources[NameObject("/Font")] = fonts
+        else:
+            fonts = fonts.get_object()
+            resources[NameObject("/Font")] = fonts
+        return fonts
+
+    def _inject_raw_fonts(self, data):
+        if not any(self._page_raw_fonts):
+            return data
+        writer = PdfWriter(clone_from=BytesIO(data))
+        writer.pdf_header = "%PDF-1.6"
+        writer._header = b"%PDF-1.6"
+        font_refs = {
+            name: self._raw_font_pdf_object(writer, raw_font)
+            for name, raw_font in self._raw_fonts.items()
+            if raw_font.glyphs
+        }
+        for page_index, page in enumerate(writer.pages):
+            if page_index >= len(self._page_raw_fonts):
+                break
+            page_fonts = self._page_raw_fonts[page_index]
+            if not page_fonts:
+                continue
+            fonts = self._page_resources(page)
+            for name in page_fonts:
+                fonts[self._pdf_name(name)] = font_refs[name]
+        out = BytesIO()
+        writer.write(out)
+        return out.getvalue()
+
     def _register_opentype(self, font, font_name):
         path = getattr(font.backend, "path", None)
         if not path:
@@ -389,17 +642,44 @@ class PDFBackend(Shipout):
         self._font_counter += 1
         kind = getattr(font.backend, "kind", None)
         if kind == "opentype":
-            self._register_opentype(font, name)
+            if self._uses_raw_opentype(font):
+                self._register_raw_opentype(font, name)
+            else:
+                self._register_opentype(font, name)
         elif kind == "tfm":
+            companion_key = font.backend.name
+            companion_name = self._companion_font_names.get(companion_key)
+            if companion_name is not None:
+                self._font_names[id(font)] = companion_name
+                return companion_name
             self._register_companion_outline(font, name)
+            self._companion_font_names[companion_key] = name
         else:
             raise ValueError(f"PDF backend does not support backend kind {kind}")
         self._font_names[id(font)] = name
         return name
 
+    @staticmethod
+    def _pdf_comment_text(message):
+        out = []
+        for ch in message:
+            code = ord(ch)
+            if ch == "\\":
+                out.append("\\\\")
+            elif ch == "\r":
+                out.append("\\r")
+            elif ch == "\n":
+                out.append("\\n")
+            elif 0x20 <= code <= 0x7E:
+                out.append(ch)
+            elif code <= 0xFFFF:
+                out.append(f"\\u{code:04X}")
+            else:
+                out.append(f"\\U{code:08X}")
+        return "".join(out)
+
     def _note_ignored(self, message):
-        safe = message.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
-        self.canvas.addLiteral(f"% {safe}")
+        self.canvas.addLiteral(f"% {self._pdf_comment_text(message)}")
 
     def _warn_reportlab_non_bmp(self, char):
         code = ord(char)
@@ -443,11 +723,13 @@ class PDFBackend(Shipout):
         canvas.save()
         data = self._canvas_buffer.getvalue()
         data = self._apply_overlays(data)
+        data = self._inject_raw_fonts(data)
         self._canvas_output.write(data)
         self._canvas_buffer = None
         self.current_font = None
         self.current_font_name = None
         self._page_overlays = []
+        self._page_raw_fonts = []
         self._pdf_sources = {}
         if self._canvas_output is not None:
             self._canvas_output.close()
@@ -465,6 +747,7 @@ class PDFBackend(Shipout):
         self._color_stack = []
         self._current_color = ("gray", ("0",))
         self._page_overlays.append([])
+        self._page_raw_fonts.append(set())
         self._active_annotations = []
         self._set_canvas_color(*self._current_color)
 
@@ -478,7 +761,8 @@ class PDFBackend(Shipout):
         if self.current_font is font:
             return
         font_name = self._font_name(font)
-        self.canvas.setFont(font_name, float(font.at))
+        if font_name not in self._raw_fonts:
+            self.canvas.setFont(font_name, float(font.at))
         self.current_font = font
         self.current_font_name = font_name
 
@@ -487,10 +771,24 @@ class PDFBackend(Shipout):
         self.v = 0 if v is None else int(v)
 
     def set_char(self, node):
-        self._warn_reportlab_non_bmp(node.char)
         x = self._x(self.h)
         y = self._page_y(self.v)
-        self.canvas.drawString(x, y, node.char)
+        raw_font = self._raw_fonts.get(self.current_font_name)
+        if raw_font is not None:
+            glyph = self._raw_font_glyph(raw_font, node.char)
+            self._page_raw_fonts[-1].add(raw_font.name)
+            self.canvas.addLiteral(
+                "BT /{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj ET".format(
+                    raw_font.name,
+                    self._pdf_number(float(self.current_font.at)),
+                    self._pdf_number(x),
+                    self._pdf_number(y),
+                    glyph.code,
+                )
+            )
+        else:
+            self._warn_reportlab_non_bmp(node.char)
+            self.canvas.drawString(x, y, node.char)
         if self._active_annotations:
             self._grow_annotation_rect(*self._annotation_font_box(x, y, self._pt(node.width)))
 

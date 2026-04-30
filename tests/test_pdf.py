@@ -5,8 +5,11 @@ import pytest
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
+from pytex import opentype
 from pytex import pdf
 from pytex import texlive
+
+
 def _page_content_text(path):
     reader = PdfReader(str(path))
     page = reader.pages[0]
@@ -78,6 +81,44 @@ def test_pdf_shipout_uses_tex_origin(cmr10, tmp_path):
     assert 72.0 < x < 72.5
 
 
+def test_pdf_shipout_embeds_cff_opentype_without_reportlab_font_parser(parser, tmp_path):
+    handle = parser.resolver.openIn("lmroman10-regular.otf", "fonts/opentype")
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle.close()
+
+    out = tmp_path / "cff-opentype"
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(r"\font\f=lmroman10-regular.otf at 12pt \shipout\vbox{\hbox{\f A}}", jobname="cff-opentype")
+    parser.end()
+
+    reader = PdfReader(str(out) + ".pdf")
+    page = reader.pages[0]
+    assert "A" in (page.extract_text() or "")
+    fonts = page["/Resources"]["/Font"].get_object()
+    raw_font = fonts["/PyTeXFont0"].get_object()
+    assert raw_font["/Subtype"] == "/Type0"
+    descendant = raw_font["/DescendantFonts"][0].get_object()
+    assert descendant["/Subtype"] == "/CIDFontType0"
+    descriptor = descendant["/FontDescriptor"].get_object()
+    font_file = descriptor["/FontFile3"].get_object()
+    assert font_file["/Subtype"] == "/OpenType"
+    assert len(font_file.get_data()) > 1000
+
+
+def test_pdf_shipout_reuses_type1_companion_font_file(parser, tmp_path):
+    out = tmp_path / "type1-reuse"
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(
+        r"\font\a=cmsy10 at 10pt \font\b=cmsy10 at 12pt "
+        r"\shipout\vbox{\hbox{\a A\b B}}",
+        jobname="type1-reuse",
+    )
+    parser.end()
+
+    assert Path(str(out) + ".pdf").exists()
+
+
 def test_pdf_pagesize_special_changes_page_size(cmr10, tmp_path):
     out = tmp_path / "pagesize"
     cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
@@ -123,6 +164,16 @@ def test_pdf_ignored_multiline_special_is_sanitized(cmr10, tmp_path):
     data = Path(str(out) + ".pdf").read_bytes()
     assert b"% rawSpecial ignored: foo\\nbar" in data
     assert b"% rawSpecial ignored: foo\nbar" not in data
+
+
+def test_pdf_ignored_unicode_special_is_sanitized(cmr10, tmp_path):
+    out = tmp_path / "pdf-unicode-special"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse("\\shipout\\vbox{\\special{foo\ufeffbar}\\hbox{a}}", jobname="pdf-unicode-special")
+    cmr10.end()
+    data = Path(str(out) + ".pdf").read_bytes()
+    assert b"% rawSpecial ignored: foo\\uFEFFbar" in data
+    assert "\ufeff".encode("utf-8") not in data
 
 
 def test_pdf_beginann_endann_and_dest_create_link(cmr10, tmp_path):

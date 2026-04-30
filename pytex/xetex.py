@@ -217,6 +217,46 @@ class UMathCharValue(mmode.MathCharValue):
         return isinstance(other, UMathCharValue) and self.mathcode == other.mathcode
 
 
+def _read_packed_umathchar(parser, primitive):
+    value = parser.readInteger()
+    glyph = value & 0x1FFFFF
+    family = value >> 24
+    if value < 0:
+        raise ValueError(f"{primitive} math character code must be non-negative", parser.input.position())
+    if family > 255:
+        raise ValueError(f"{primitive} family must be in the range 0..255", parser.input.position())
+    if glyph > UNICODE_MAX:
+        raise ValueError(f"{primitive} glyph slot out of range", parser.input.position())
+    return value
+
+
+class UMathChar(mmode.MathChar):
+    r"""
+    \Umathchar <math type> <family> <glyph slot> appends a Unicode math symbol.
+    """
+
+    def mathCharValue(self, parser):
+        try:
+            value = UMathCode.pack(
+                parser.readInteger(),
+                parser.readInteger(),
+                parser.readInteger(),
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc), parser.input.position())
+        return UMathSymbol(value, parser.parameters["fam"])
+
+
+class UMathCharNum(mmode.MathChar):
+    r"""
+    \Umathcharnum <packed math code> appends a Unicode math symbol.
+    """
+
+    def mathCharValue(self, parser):
+        value = _read_packed_umathchar(parser, "\\Umathcharnum")
+        return UMathSymbol(value, parser.parameters["fam"])
+
+
 class UMathCode(token.Command):
     r"""
     \Umathcode <char slot> [=] <math type> <family> <glyph slot>.
@@ -254,6 +294,35 @@ class UMathCode(token.Command):
         self.getAssignment(parser).apply(parser)
 
 
+class UMathCodeNum(token.Command):
+    r"""
+    \Umathcodenum <char slot> [=] <packed math type/family/glyph slot>.
+    """
+
+    def _readCharCode(self, parser):
+        return _read_unicode_scalar(parser, "\\Umathcodenum")
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        char_code = self._readCharCode(parser)
+        return parser.umathcode[char_code], accessor.VALUE_TYPE.INT
+
+    def getAssignment(self, parser):
+        char_code = self._readCharCode(parser)
+        parser.skipEq(expand=True)
+        value = _read_packed_umathchar(parser, "\\Umathcodenum")
+        target = accessor.KeyTarget(
+            parser.umathcode,
+            char_code,
+            accessor.VALUE_TYPE.INT,
+        )
+        return accessor.Assignment(target, value)
+
+    def execute(self, parser):
+        self.getAssignment(parser).apply(parser)
+
+
 class UMathCharDef(EquitableAccessor):
     r"""
     \Umathchardef <control sequence> [=] <math type> <family> <glyph slot>.
@@ -269,6 +338,15 @@ class UMathCharDef(EquitableAccessor):
         except ValueError as exc:
             raise ValueError(str(exc), parser.input.position())
         return UMathCharValue(value)
+
+
+class UMathCharNumDef(EquitableAccessor):
+    r"""
+    \Umathcharnumdef <control sequence> [=] <packed math type/family/glyph slot>.
+    """
+
+    def readValue(self, parser):
+        return UMathCharValue(_read_packed_umathchar(parser, "\\Umathcharnumdef"))
 
 
 class UDelCode(token.Command):
@@ -319,8 +397,12 @@ mod = Module(
         "XeTeXrevision": StringCommand("." + ".".join(version.split(".")[1:])),
         "Uchar": UChar(),
         "Ucharcat": UCharCat(),
+        "Umathchar": UMathChar(),
+        "Umathcharnum": UMathCharNum(),
         "Umathcode": UMathCode(),
+        "Umathcodenum": UMathCodeNum(),
         "Umathchardef": UMathCharDef(),
+        "Umathcharnumdef": UMathCharNumDef(),
         "Udelcode": UDelCode(),
         # XeTeX spells these pdfTeX-derived utilities without the "pdf" prefix.
         "ifprimitive": pdftex_expandable.IfPDFPrimitive(),

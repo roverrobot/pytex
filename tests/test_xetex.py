@@ -120,10 +120,38 @@ def test_umathcode_accepts_xetex_three_integer_assignment(parser):
     assert parser.umathcode[ord("A")] == (((1 << 3) + 7) << 21) + 65
 
 
+def test_umathcodenum_reads_and_writes_packed_mathcode(collector):
+    packed = (((1 << 3) + 7) << 21) + 0x03B2
+
+    collector.parse("\\Umathcodenum`A=%d \\number\\Umathcodenum`A" % packed)
+
+    assert collector.getString().strip() == str(packed)
+
+
 def test_umathchardef_defines_readable_unicode_math_char(collector):
     collector.parse("\\Umathchardef\\foo=7 1 \"03B2 \\number\\foo")
 
     assert collector.getString().strip() == str((((1 << 3) + 7) << 21) + 0x03B2)
+
+
+def test_umathcharnumdef_defines_readable_packed_unicode_math_char(collector):
+    packed = (((1 << 3) + 7) << 21) + 0x03B2
+
+    collector.parse("\\Umathcharnumdef\\foo=%d \\number\\foo" % packed)
+
+    assert collector.getString().strip() == str(packed)
+
+
+def test_umathcharnumdef_accepts_umathcodenum_value(collector):
+    packed = (((1 << 3) + 7) << 21) + 0x03B2
+
+    collector.parse(
+        "\\Umathcode`A=7 1 \"03B2 "
+        "\\Umathcharnumdef\\foo=\\Umathcodenum`A "
+        "\\number\\foo"
+    )
+
+    assert collector.getString().strip() == str(packed)
 
 
 def test_umathchardef_appends_unicode_math_symbol(parser):
@@ -137,6 +165,17 @@ def test_umathchardef_appends_unicode_math_symbol(parser):
     assert atom.atom_type == mmode.ATOM_TYPE.ORD
     assert atom.nucleus.fam == 1
     assert atom.nucleus.char == "\u03b2"
+
+
+def test_umathchar_and_umathcharnum_append_unicode_math_symbols(parser):
+    packed = (((1 << 3) + 7) << 21) + 0x03B2
+    parser.parse("$\\Umathchar 7 1 \"03B2 \\Umathcharnum %d" % packed)
+
+    top = parser.lists[-1]
+    assert top.type == lists.LISTTYPE.MATH
+    assert len(top) == 2
+    assert [atom.nucleus.char for atom in top] == ["\u03b2", "\u03b2"]
+    assert [atom.nucleus.fam for atom in top] == [1, 1]
 
 
 def test_udelcode_accepts_xetex_family_and_glyph_assignment(parser):

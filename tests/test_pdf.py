@@ -75,7 +75,7 @@ def test_pdf_shipout_uses_tex_origin(cmr10, tmp_path):
     cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="origin")
     cmr10.end()
     _page, text = _page_content_text(str(out) + ".pdf")
-    match = re.search(r"BT 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm \(a\)", text)
+    match = re.search(r"BT /F\d+ 10 Tf 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm <61> Tj ET", text)
     assert match is not None
     x = float(match.group(1))
     assert 72.0 < x < 72.5
@@ -117,6 +117,43 @@ def test_pdf_shipout_reuses_type1_companion_font_file(parser, tmp_path):
     parser.end()
 
     assert Path(str(out) + ".pdf").exists()
+
+
+def test_pdf_shipout_type1_text_slots_have_to_unicode(cmr10, tmp_path):
+    out = tmp_path / "type1-text"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="type1-text")
+    cmr10.end()
+
+    page, text = _page_content_text(str(out) + ".pdf")
+    assert "<61> Tj" in text
+    assert "a" in (page.extract_text() or "")
+    fonts = page["/Resources"]["/Font"].get_object()
+    assert any(font.get_object().get("/ToUnicode") is not None for font in fonts.values())
+
+
+def test_pdf_shipout_type1_math_slots_use_glyph_unicode(parser, tmp_path):
+    out = tmp_path / "type1-math"
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(r"\font\f=cmsy10 \shipout\vbox{\hbox{\f\char121}}", jobname="type1-math")
+    parser.end()
+
+    page, text = _page_content_text(str(out) + ".pdf")
+    assert "<79> Tj" in text
+    assert "/F4" not in text
+    assert "†" in (page.extract_text() or "")
+
+
+def test_pdf_shipout_type1_math_low_slots_use_glyph_unicode(parser, tmp_path):
+    out = tmp_path / "type1-math-low"
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(r"\font\f=cmmi10 \shipout\vbox{\hbox{\f\char12}}", jobname="type1-math-low")
+    parser.end()
+
+    page, text = _page_content_text(str(out) + ".pdf")
+    assert "<0C> Tj" in text
+    assert "/F4" not in text
+    assert "β" in (page.extract_text() or "")
 
 
 def test_pdf_pagesize_special_changes_page_size(cmr10, tmp_path):

@@ -138,6 +138,10 @@ class FileResolver:
                     "extensions": ["dvi"],
                     "binary": True,
                 },
+                "xdv": {
+                    "extensions": ["xdv"],
+                    "binary": True,
+                },
                 "pdf": {
                     "extensions": ["pdf"],
                     "binary": True,

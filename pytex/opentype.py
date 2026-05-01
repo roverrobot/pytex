@@ -267,6 +267,12 @@ class OpenTypeBackend(FontBackend):
     def _glyphName(self, char: str):
         return self._cmap.get(ord(char))
 
+    def glyphId(self, char: str):
+        glyph_name = self._glyphName(char)
+        if glyph_name is None:
+            return 0
+        return self.font.getGlyphID(glyph_name)
+
     def _glyphBounds(self, glyph_name):
         glyph = self._glyph_set[glyph_name]
         pen = BoundsPen(self._glyph_set)

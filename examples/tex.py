@@ -16,7 +16,7 @@ from argparse import ArgumentParser
 import os
 import types
 
-backends = ["dvi", "pdf"]
+backends = ["dvi", "xdv", "pdf"]
 
 argparser = ArgumentParser()
 argparser.add_argument("-f", "--format", default="initex",
@@ -27,7 +27,7 @@ argparser.add_argument(
     "-o",
     "--output",
     default="pdf",
-    choices=["dvi", "pdf"],
+    choices=backends,
     help="shipout output format. Relative output paths are derived from the jobname in the project directory.",
 )
 argparser.add_argument(
@@ -55,6 +55,8 @@ if args.format != "initex":
     # load the shipout backend
     if args.output == "dvi":
         import pytex.dvi
+    elif args.output == "xdv":
+        import pytex.xdv
     elif args.output == "pdf":
         import pytex.pdf
 

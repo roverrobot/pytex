@@ -86,7 +86,7 @@ parser.resolver.format = args.format if args.format == "initex" else engine_form
 #parser.tracingstopatend = 1
 
 def dumper(parser, data):
-    with open(parser.resolver.format + '.pfmt', "wb") as fmt:
+    with open(engine_format_name(parser.resolver.format) + '.pfmt', "wb") as fmt:
         fmt.write(data)
 parser.dumper = types.MethodType(dumper, parser)
 
@@ -101,14 +101,14 @@ file, ext = os.path.splitext(base)
 if args.format == "initex":
     if ext == "" and source != "plain": # no extension
         source += ".ini"
-    parser.resolver.format = engine_format_name(file)
+    parser.resolver.format = file
     print(
-        f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.pfmt",
+        f"the format is initex. Will dump the format {parser.resolver.format} to {engine_format_name(parser.resolver.format)}.pfmt",
         file=parser.console,
     )
 else:
-    parser.resolver.format = engine_format_name(args.format)
-    fmt = parser.resolver.openIn(parser.resolver.format, "dump")
+    parser.resolver.format = args.format
+    fmt = parser.resolver.openIn(engine_format_name(parser.resolver.format), "dump")
     if fmt is None:
         raise ValueError(f"cannot find format {parser.resolver.format}")
     parser.load(fmt)

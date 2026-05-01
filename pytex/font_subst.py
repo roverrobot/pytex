@@ -6,6 +6,7 @@ This module substitutes tfm/type1 fonts to ttf/otf fonts
 
 from pytex.dimen import Dimen
 from pytex import font as fnt
+from pytex.font_backend import FontSpec
 from pytex.glue import Glue, Stretchness
 from pytex.module import Module
 from pytex import node as nd
@@ -197,7 +198,14 @@ MATH_LARGE_SYMBOLS_MAP = {
 }
 
 
+def requestFontName(name):
+    if isinstance(name, FontSpec):
+        return name.backend_name
+    return name
+
+
 def usableFontName(name):
+    name = requestFontName(name)
     if not name:
         return False
     if os.sep in name or "/" in name or "\\" in name:
@@ -561,8 +569,8 @@ def shouldSubstituteBackend(name, kind, backend):
         return False
     if kind not in (None, "tfm"):
         return False
-    backend_name = (getattr(backend, "name", "") or "").lower()
-    request_name = (name or "").lower()
+    backend_name = (requestFontName(getattr(backend, "name", "")) or "").lower()
+    request_name = (requestFontName(name) or "").lower()
     if backend_name == "nullfont" or request_name == "nullfont":
         return False
     return True
@@ -573,7 +581,7 @@ def substituteBackend(parser, requested_name, kind, backend):
         return backend
     wrapped = wrappedDefaultBackend(
         parser,
-        getattr(backend, "name", None) or requested_name,
+        getattr(backend, "name", None) or requestFontName(requested_name),
         requested_backend=backend,
     )
     if wrapped is None:
@@ -589,7 +597,7 @@ def wrappedDefaultBackend(parser, style_source_name, requested_backend=None):
     if cache is None:
         cache = {}
         parser._docx_backend_substitution_cache = cache
-    style_source = style_source_name or getattr(fallback, "name", None)
+    style_source = requestFontName(style_source_name) or getattr(fallback, "name", None)
     key = (
         id(fallback),
         style_source,
@@ -632,7 +640,7 @@ def installFontSubstitution(parser):
                 backend = self._original_loadFontBackend(name, kind=kind)
                 return substituteBackend(self, name, kind, backend)
 
-        backend = self._docx_original_loadFontBackend(name, kind=kind)
+        backend = self._original_loadFontBackend(name, kind=kind)
         return substituteBackend(self, name, kind, backend)
 
     parser.loadFontBackend = types.MethodType(_load_with_substitution, parser)

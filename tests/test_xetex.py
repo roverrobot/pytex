@@ -1,6 +1,8 @@
 import pytest
 
 from pytex import opentype
+from pytex import font_subst
+from pytex import texlive  # noqa: F401
 from pytex import mmode
 from pytex import lists
 from pytex.font_backend import FontSpec
@@ -55,6 +57,15 @@ def test_xetex_font_file_suffixes_are_ignored_for_lookup(parser):
     assert font.backend.kind == "opentype"
     assert font.backend.name == "lmroman10-regular.otf"
     assert font.backend.path.endswith("lmroman10-regular.otf")
+
+
+def test_xetex_fontspec_tfm_loads_with_font_substitution(parser):
+    font_subst.installFontSubstitution(parser)
+
+    parser.parse('\\font\\f="cmr10" ')
+
+    font = parser.equitable["\\f"]
+    assert font.backend.dvi_name == "cmr10"
 
 
 def test_xetex_name_prefix_forces_system_font_lookup(parser, monkeypatch):

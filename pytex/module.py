@@ -43,11 +43,7 @@ class Module:
         """
         if self.commands is not None:
             for name, command in self.commands.items():
-                name = "\\" + name
-                if not command.name:
-                    command.name = name
-                parser.equitable.setGlobal(name, command)
-                parser.builtin[name] = command
+                parser.registerCommand(name, command)
 
     def populateDomains(self, parser):
         """

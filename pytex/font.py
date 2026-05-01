@@ -233,6 +233,7 @@ class FontDefineAccessor(EquitableAccessor):
         name = parser.readFileName()
         if name is None:
             raise ValueError("expecting a font name")
+        name = parser.parseFontName(name)
         backend = parser.loadFontBackend(name)
         keyword = parser.readKeyword({"at", "scaled"})
         design = Dimen(backend.design_size)

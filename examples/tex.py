@@ -3,20 +3,20 @@ import sys
 path = str(Path(Path(__file__).parent.absolute()).parent.absolute())
 sys.path.insert(0, path)
 import cProfile
+import importlib
 import pstats
 from pytex.parser import Parser
 # load the texlive module to resolve files in the texlive tree
 from pytex import texlive
 from pytex import etex
-# latex would require pdftex
-from pytex import pdftex
 from pytex import opentype
 
 from argparse import ArgumentParser
 import os
 import types
 
-backends = ["dvi", "pdf"]
+backends = ["dvi", "xdv", "pdf", "html-reflow", "docx", "svg"]
+engines = ["xetex", "pdftex"]
 
 argparser = ArgumentParser()
 argparser.add_argument("-f", "--format", default="initex",
@@ -24,10 +24,17 @@ argparser.add_argument("-f", "--format", default="initex",
 argparser.add_argument("-p", "--profile", action="store_true",
                     help="whether to profile the parser")
 argparser.add_argument(
+    "-e",
+    "--engine",
+    default="xetex",
+    choices=engines,
+    help="TeX engine compatibility layer used to build/load the format.",
+)
+argparser.add_argument(
     "-o",
     "--output",
     default="pdf",
-    choices=["dvi", "pdf", "html-reflow", "docx", "svg"],
+    choices=backends,
     help="shipout output format. Relative output paths are derived from the jobname in the project directory.",
 )
 argparser.add_argument(
@@ -46,16 +53,24 @@ argparser.add_argument("file")
 args = argparser.parse_args()
 
 
-DOCUMENT_METADATA_SNIPPET = "\\DocumentMetadata{backend=dvipdfmx}"
+def engine_format_name(name):
+    suffix = f"-{args.engine}"
+    return name if name.endswith(suffix) else f"{name}{suffix}"
+
+
+DOCUMENT_METADATA_SNIPPET = f"\\DocumentMetadata{{backend={args.engine}}}\\relax\n"
 
 if args.sort is not None and not args.profile:
     print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
 
-docx = None
+importlib.import_module(f"pytex.{args.engine}")
+
 if args.format != "initex":
     # load the selected output backend
     if args.output == "dvi":
         import pytex.dvi
+    elif args.output == "xdv":
+        import pytex.xdv
     elif args.output == "pdf":
         import pytex.pdf
     elif args.output == "html-reflow":
@@ -64,7 +79,7 @@ if args.format != "initex":
         from pytex import docx
 
 parser = Parser(project_dir=args.project_dir)
-parser.resolver.format = args.format
+parser.resolver.format = args.format if args.format == "initex" else engine_format_name(args.format)
 
 # tracing settings
 #parser.tracingcommands = 2
@@ -90,7 +105,7 @@ file, ext = os.path.splitext(base)
 if args.format == "initex":
     if ext == "" and source != "plain": # no extension
         source += ".ini"
-    parser.resolver.format = file
+    parser.resolver.format = engine_format_name(file)
     print(
         f"the format is initex. Will dump the format {parser.resolver.format} to {parser.resolver.format}.pfmt",
         file=parser.console,
@@ -103,10 +118,10 @@ else:
         from pytex import font_subst
         font_subst.installFontSubstitution(parser)
         font_subst.installMathFontArrays(parser)
-    parser.resolver.format = args.format
-    fmt = parser.resolver.openIn(args.format, "dump")
+    parser.resolver.format = engine_format_name(args.format)
+    fmt = parser.resolver.openIn(parser.resolver.format, "dump")
     if fmt is None:
-        raise ValueError(f"cannot find format {args.format}")
+        raise ValueError(f"cannot find format {parser.resolver.format}")
     parser.load(fmt)
     fmt.close()
 

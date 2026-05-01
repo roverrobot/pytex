@@ -5,8 +5,11 @@ import pytest
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
+from pytex import opentype
 from pytex import pdf
 from pytex import texlive
+
+
 def _page_content_text(path):
     reader = PdfReader(str(path))
     page = reader.pages[0]
@@ -72,10 +75,85 @@ def test_pdf_shipout_uses_tex_origin(cmr10, tmp_path):
     cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="origin")
     cmr10.end()
     _page, text = _page_content_text(str(out) + ".pdf")
-    match = re.search(r"BT 1 0 0 1 ([0-9.]+) ([0-9.]+) (.*) \(a\)", text)
+    match = re.search(r"BT /F\d+ 10 Tf 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm <61> Tj ET", text)
     assert match is not None
     x = float(match.group(1))
     assert 72.0 < x < 72.5
+
+
+def test_pdf_shipout_embeds_cff_opentype_without_reportlab_font_parser(parser, tmp_path):
+    handle = parser.resolver.openIn("lmroman10-regular.otf", "fonts/opentype")
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle.close()
+
+    out = tmp_path / "cff-opentype"
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(r"\font\f=lmroman10-regular.otf at 12pt \shipout\vbox{\hbox{\f A}}", jobname="cff-opentype")
+    parser.end()
+
+    reader = PdfReader(str(out) + ".pdf")
+    page = reader.pages[0]
+    assert "A" in (page.extract_text() or "")
+    fonts = page["/Resources"]["/Font"].get_object()
+    raw_font = fonts["/PyTeXFont0"].get_object()
+    assert raw_font["/Subtype"] == "/Type0"
+    descendant = raw_font["/DescendantFonts"][0].get_object()
+    assert descendant["/Subtype"] == "/CIDFontType0"
+    descriptor = descendant["/FontDescriptor"].get_object()
+    font_file = descriptor["/FontFile3"].get_object()
+    assert font_file["/Subtype"] == "/OpenType"
+    assert len(font_file.get_data()) > 1000
+
+
+def test_pdf_shipout_reuses_type1_companion_font_file(parser, tmp_path):
+    out = tmp_path / "type1-reuse"
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(
+        r"\font\a=cmsy10 at 10pt \font\b=cmsy10 at 12pt "
+        r"\shipout\vbox{\hbox{\a A\b B}}",
+        jobname="type1-reuse",
+    )
+    parser.end()
+
+    assert Path(str(out) + ".pdf").exists()
+
+
+def test_pdf_shipout_type1_text_slots_have_to_unicode(cmr10, tmp_path):
+    out = tmp_path / "type1-text"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="type1-text")
+    cmr10.end()
+
+    page, text = _page_content_text(str(out) + ".pdf")
+    assert "<61> Tj" in text
+    assert "a" in (page.extract_text() or "")
+    fonts = page["/Resources"]["/Font"].get_object()
+    assert any(font.get_object().get("/ToUnicode") is not None for font in fonts.values())
+
+
+def test_pdf_shipout_type1_math_slots_use_glyph_unicode(parser, tmp_path):
+    out = tmp_path / "type1-math"
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(r"\font\f=cmsy10 \shipout\vbox{\hbox{\f\char121}}", jobname="type1-math")
+    parser.end()
+
+    page, text = _page_content_text(str(out) + ".pdf")
+    assert "<79> Tj" in text
+    assert "/F4" not in text
+    assert "†" in (page.extract_text() or "")
+
+
+def test_pdf_shipout_type1_math_low_slots_use_glyph_unicode(parser, tmp_path):
+    out = tmp_path / "type1-math-low"
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(r"\font\f=cmmi10 \shipout\vbox{\hbox{\f\char12}}", jobname="type1-math-low")
+    parser.end()
+
+    page, text = _page_content_text(str(out) + ".pdf")
+    assert "<0C> Tj" in text
+    assert "/F4" not in text
+    assert "β" in (page.extract_text() or "")
 
 
 def test_pdf_pagesize_special_changes_page_size(cmr10, tmp_path):
@@ -132,6 +210,16 @@ def test_pdf_ignored_multiline_special_is_sanitized(cmr10, tmp_path):
     data = Path(str(out) + ".pdf").read_bytes()
     assert b"% rawSpecial ignored: foo\\nbar" in data
     assert b"% rawSpecial ignored: foo\nbar" not in data
+
+
+def test_pdf_ignored_unicode_special_is_sanitized(cmr10, tmp_path):
+    out = tmp_path / "pdf-unicode-special"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse("\\shipout\\vbox{\\special{foo\ufeffbar}\\hbox{a}}", jobname="pdf-unicode-special")
+    cmr10.end()
+    data = Path(str(out) + ".pdf").read_bytes()
+    assert b"% rawSpecial ignored: foo\\uFEFFbar" in data
+    assert "\ufeff".encode("utf-8") not in data
 
 
 def test_pdf_beginann_endann_and_dest_create_link(cmr10, tmp_path):

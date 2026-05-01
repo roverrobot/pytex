@@ -39,10 +39,10 @@ class Tokenizer:
         self.name = name if name is not None else getattr(source, "name", None)
         self.lines = enumerate(source, start=line_number)
         self.line_number = line_number
-        self.chars = iter(())
-        self.pos = -1
+        self.line = ""
+        self.pos = 0
+        self.char_pos = -1
         self.first = -1
-        self.peek = None
         self.exhausted = not self._loadLine()
 
     def _setLine(self, line: str, line_number: int):
@@ -55,31 +55,29 @@ class Tokenizer:
         # Skip leading spaces, and also ignored characters that can expose more
         # leading spaces (for example kvsetkeys uses lines that begin with an
         # ignored '&' in e-TeX mode).
-        self.chars = enumerate(line)
-        self.pos = -1
+        self.line = line
+        self.pos = 0
+        self.char_pos = -1
         self.first = -1
-        last = None
         last_pos = -1
-        self.peek = None
-        for self.pos, c in self.chars:
-            last = c
-            last_pos = self.pos
+        for index, c in enumerate(line):
+            last_pos = index
             catcode = self.catcode[ord(c)]
             if catcode != CATCODE.SPACE and catcode != CATCODE.IGNORE:
-                self.first = self.pos
-                self.peek = c
+                self.first = index
+                self.pos = index
                 return
         # line has only spaces; keep the last one for current behavior
-        self.pos = last_pos
         self.first = last_pos
+        self.pos = len(line)
 
     def _loadLine(self):
         line_number, line = next(self.lines, (None, None))
         if line is None:
-            self.chars = iter(())
-            self.pos = -1
+            self.line = ""
+            self.pos = 0
+            self.char_pos = -1
             self.first = -1
-            self.peek = None
             self.lines = enumerate(())
             if not self.source.closed:
                 self.source.close()
@@ -89,16 +87,21 @@ class Tokenizer:
         self.exhausted = False
         return True
 
+    def current(self):
+        if self.pos >= len(self.line):
+            return None
+        return self.line[self.pos]
+
     def char(self):
         """
         read a character from the line, and return the character and its category code
         @return: the character and its category code, or (None, None) if the end of the
         line is reached
         """
-        item = next(self.chars, None)
-        if item is None:
+        if self.pos >= len(self.line):
             return None
-        self.pos, c = item
+        c = self.line[self.pos]
+        self.pos += 1
         return c
     
     def charExpand(self):
@@ -106,52 +109,78 @@ class Tokenizer:
         read a character from the line, and expand ^^. 
         @return: the character and its category code
         """
-        if self.peek is None:
+        start = self.pos
+        c = self.char()
+        if c is None:
             return None, None
-        c = self.peek
-        self.peek = self.char()
+        self.char_pos = start
         catcode = self.catcode[ord(c)]
         if catcode != CATCODE.SUPERSCRIPT:
             return c, catcode
         # handle ^^
-        c1 = self.peek
-        if c1 is None:
-            return c, catcode
-        catcode1 = self.catcode[ord(c1)]
-        if catcode1 != CATCODE.SUPERSCRIPT:
-            self.peek = c1
-            return c, catcode
-        c2 = self.char()
-        if c2 is None:
-            self.peek = c1
-            return c, catcode
-        # handle ^^ followed by two hex digits
-        if ("0" <= c2 <= "9") or ("a" <= c2 <= "f") or ("A" <= c2 <= "F"):
-            c3 = self.char()
-            if c3 is not None and (("0" <= c3 <= "9") or ("a" <= c3 <= "f") or ("A" <= c3 <= "F")):
-                c4 = int(c2 + c3, 16)
-                catcode4 = self.catcode[c4]
-                self.peek = self.char()
-                return chr(c4), catcode4
-            self.peek = c3
+        count = 1
+        for i in range(5):
+            c = self.current()
+            if c is None:
+                break
+            catcode = self.catcode[ord(c)]
+            if catcode != CATCODE.SUPERSCRIPT:
+                break
+            count += 1
+            self.pos += 1
+        if count == 6:
+            c = self.current()
+        # now c and current() returns the first char after ^,
+        if count == 1:
+            return self.line[start], CATCODE.SUPERSCRIPT
+        if count == 2:
+            if c is None:
+                self.pos -= 1
+                return self.line[start], CATCODE.SUPERSCRIPT
+            self.pos += 1
+            # peak the next char returns the second
+            if ("0" <= c <= "9") or ("a" <= c <= "f") or ("A" <= c <= "F"):
+                c1 = self.current()
+                if c1 is not None and (("0" <= c1 <= "9") or ("a" <= c1 <= "f") or ("A" <= c1 <= "F")):
+                    c2 = int(c + c1, 16)
+                    self.pos += 1
+                    return chr(c2), self.catcode[c2]
+            c1 = ord(c)
+            if c1 >= 64:
+                c1 -= 64
+            else:
+                c1 += 64
+            return chr(c1), self.catcode[c1]
+        if count > 3:
+            digits = ""
+            # ^^^^, ^^^^^, ^^^^^^
+            # we need matching number of hex digits
+            for i in range(count):
+                if c is not None and (("0" <= c <= "9") or ("a" <= c <= "f") or ("A" <= c <= "F")):
+                    digits += c
+                    self.pos += 1
+                    c = self.current()
+                else:
+                    break
+            if len(digits) == count:
+                c1 = int(digits, 16)
+                return chr(c1), self.catcode[c1]
+            # fall back to ^^^
+            self.pos = start + 3
+        # ^^^
+        c1 = ord(self.line[self.pos - 1])
+        if c1 >= 64:
+            c1 -= 64
         else:
-            self.peek = None
-        c3 = ord(c2)
-        if c3 >= 64:
-            c3 -= 64
-        else:
-            c3 += 64
-        catcode3 = self.catcode[c3]
-        if self.peek is None:
-            self.peek = self.char()
-        return chr(c3), catcode3
+            c1 += 64
+        return chr(c1), self.catcode[c1]
 
     def skipSpaces(self):
         """
         read a token and if it is a space, skip spaces and return a single space
         """
         while True:
-            c = self.peek
+            c = self.current()
             if c is None:
                 return
             catcode = self.catcode[ord(c)]
@@ -159,7 +188,7 @@ class Tokenizer:
                 break
             self.charExpand()
         if catcode == CATCODE.END_OF_LINE:
-            self.peek = None
+            self.pos += 1
 
     def read(self) -> typing.Optional[Token]:
         """
@@ -178,7 +207,7 @@ class Tokenizer:
                 self.skipSpaces()
                 return SpaceToken()
             if catcode == CATCODE.END_OF_LINE:
-                if self.pos == self.first:
+                if self.char_pos == self.first:
                     t = CommandToken("\\par")
                     t.entry = self.equitable.entry("\\par")
                     return t
@@ -194,7 +223,7 @@ class Tokenizer:
             c, catcode = self.charExpand()
             name = "\\" + c
             while catcode == CATCODE.LETTER:
-                c = self.peek
+                c = self.current()
                 if c is None: 
                     break
                 catcode = self.catcode[ord(c)]

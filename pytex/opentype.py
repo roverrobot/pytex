@@ -15,6 +15,7 @@ from fontTools.ttLib import TTCollection, TTFont, TTLibError, TTLibFileIsCollect
 
 from pytex.font_backend import (
     FontBackend,
+    FontSpec,
     GlyphAssembly,
     GlyphAssemblyPart,
     GlyphInfo,
@@ -63,6 +64,15 @@ class OpenTypeBackend(FontBackend):
         if ext == ".ttc":
             return "fonts/truetype"
         return None
+
+    @classmethod
+    def _fileTypes(cls, name: str, extensionless: bool = False):
+        type = cls._type(name)
+        if type is not None:
+            return [type]
+        if extensionless and not os.path.splitext(name)[1]:
+            return ["fonts/opentype", "fonts/truetype"]
+        return []
 
     @staticmethod
     def _normalizeSystemName(name: str):
@@ -186,38 +196,68 @@ class OpenTypeBackend(FontBackend):
         return TTFont(path, fontNumber=font_number, lazy=False, recalcBBoxes=False, recalcTimestamp=False)
 
     @classmethod
-    def _loadFont(cls, file):
+    def _loadFont(cls, file, font_number: int = 0):
         path = getattr(file, "name", None)
         if isinstance(path, str) and path and os.path.exists(path):
             try:
-                return cls._loadPath(path)
+                return cls._loadPath(path, font_number=font_number)
             except TTLibFileIsCollectionError:
-                return cls._loadPath(path, font_number=0)
+                return cls._loadPath(path, font_number=font_number)
         data = file.read()
-        return TTFont(BytesIO(data), lazy=False, recalcBBoxes=False, recalcTimestamp=False)
+        return TTFont(BytesIO(data), fontNumber=font_number, lazy=False, recalcBBoxes=False, recalcTimestamp=False)
+
+    @classmethod
+    def _loadSystemFont(cls, name: str, backend_name: str):
+        match = cls._systemFontPath(name)
+        if match is None:
+            return None
+        if isinstance(match, str):
+            path, font_number = match, 0
+        else:
+            path, font_number = match
+        return cls(backend_name, cls._loadPath(path, font_number=font_number), path=path, font_number=font_number)
+
+    @classmethod
+    def _loadFileFont(cls, parser, name: str, backend_name: str, font_number: int = 0, extensionless: bool = False):
+        types = cls._fileTypes(name, extensionless=extensionless)
+        if not types:
+            return None
+        for type in types:
+            file = parser.resolver.openIn(name, type)
+            if file is None:
+                continue
+            path = getattr(file, "name", None)
+            if not isinstance(path, str) or not os.path.exists(path):
+                path = None
+            try:
+                return cls(backend_name, cls._loadFont(file, font_number=font_number), path=path, font_number=font_number)
+            finally:
+                file.close()
+        return None
 
     @classmethod
     def load(cls, parser, name: str):
+        if isinstance(name, FontSpec):
+            backend_name = name.backend_name
+            if name.lookup != "system":
+                backend = cls._loadFileFont(
+                    parser,
+                    name.name,
+                    backend_name,
+                    font_number=name.font_number,
+                    extensionless=name.lookup == "file",
+                )
+                if backend is not None or name.lookup == "file":
+                    return backend
+            return cls._loadSystemFont(name.name, backend_name)
+
         type = cls._type(name)
         if type is None:
-            match = cls._systemFontPath(name)
-            if match is None:
-                return None
-            if isinstance(match, str):
-                path, font_number = match, 0
-            else:
-                path, font_number = match
-            return cls(name, cls._loadPath(path, font_number=font_number), path=path, font_number=font_number)
-        file = parser.resolver.openIn(name, type)
-        if file is None:
+            return cls._loadSystemFont(name, name)
+        backend = cls._loadFileFont(parser, name, name)
+        if backend is None:
             raise FileNotFoundError(f"OpenType font {name} not found")
-        path = getattr(file, "name", None)
-        if not isinstance(path, str) or not os.path.exists(path):
-            path = None
-        try:
-            return cls(name, cls._loadFont(file), path=path)
-        finally:
-            file.close()
+        return backend
 
     @property
     def name(self):
@@ -356,6 +396,12 @@ class OpenTypeBackend(FontBackend):
         if self._variant_info is None:
             self._variant_info = self._buildVariantInfo()
         return self._variant_info.get(glyph_name)
+
+    def glyphId(self, char: str):
+        glyph_name = self._glyphName(char)
+        if glyph_name is None:
+            return 0
+        return self.font.getGlyphID(glyph_name)
 
     def _glyphBounds(self, glyph_name):
         glyph = self._glyph_set[glyph_name]

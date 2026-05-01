@@ -383,8 +383,16 @@ class UDelCode(token.Command):
         self.getAssignment(parser).apply(parser)
 
 
+def init(parser):
+    parser.registerEngine("xetex", {
+        "XeTeXversion": FixedInteger(int(version.split(".")[0])),
+        "XeTeXrevision": StringCommand("." + ".".join(version.split(".")[1:])),
+    })
+
+
 mod = Module(
     "xetex",
+    init=init,
     attributes={
         "parseFontName": parseFontName,
     },
@@ -393,8 +401,6 @@ mod = Module(
         "udelcode": {"generator": UDelCodeArray, "accessor": None},
     },
     commands={
-        "XeTeXversion": FixedInteger(int(version.split(".")[0])),
-        "XeTeXrevision": StringCommand("." + ".".join(version.split(".")[1:])),
         "Uchar": UChar(),
         "Ucharcat": UCharCat(),
         "Umathchar": UMathChar(),

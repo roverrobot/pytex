@@ -45,6 +45,7 @@ class Parser:
         self.initState()
         # the builtin commands
         self.builtin = {}
+        self.engine = None
         # now we are at a similar stage to INITEX. We do not need to keep the current state.
         self.input = lexer.InputStack()
         # the stack of if levels. Each element is a tuple containing the conditional 
@@ -83,6 +84,34 @@ class Parser:
         self.ended = False
         self.formatfile = None
         self.token = self.input.read
+
+    @staticmethod
+    def _commandName(name):
+        return name if name.startswith("\\") else "\\" + name
+
+    def registerCommand(self, name, command):
+        name = self._commandName(name)
+        if not command.name:
+            command.name = name
+        self.equitable.setGlobal(name, command)
+        self.builtin[name] = command
+
+    def deregisterCommand(self, name, command=None):
+        name = self._commandName(name)
+        if command is None or self.builtin.get(name) is command:
+            self.builtin.pop(name, None)
+        if command is None or self.equitable[name] is command:
+            self.equitable.setGlobal(name, None)
+
+    def registerEngine(self, name, commands):
+        if self.engine is not None:
+            _old_name, old_commands = self.engine
+            for command_name, command in old_commands.items():
+                self.deregisterCommand(command_name, command)
+        commands = dict(commands)
+        for command_name, command in commands.items():
+            self.registerCommand(command_name, command)
+        self.engine = (name, commands)
 
     def initState(self):
         self.groups = []

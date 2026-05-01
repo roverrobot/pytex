@@ -14,10 +14,18 @@ from pytex import dimen
 
 version = "140.24"
 
+
+def init(parser):
+    parser.registerEngine("pdftex", {
+        "pdftexversion": etex.FixedInteger(int(version.split(".")[0])),
+        "pdftexrevision": etex.StringCommand(version.split(".")[1]),
+    })
+
+
 mod = Module("pdftex", 
+    init=init,
     parameters={
         # integers
-        "pdftexversion": {"value": 140, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
         "pdfdraftmode": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
         "pdfoutput": {"value": 0, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
         "pdfmajorversion": {"value": 1, "accessor": IntegerArrayItemAccessor, "domain": "parameters"},
@@ -32,8 +40,4 @@ mod = Module("pdftex",
         "pdfhorigin": {"value": dimen.Dimen(72.27), "accessor": dimen.DimenArrayItemAccessor, "domain": "parameters"},
         "pdfvorigin": {"value": dimen.Dimen(72.27), "accessor": dimen.DimenArrayItemAccessor, "domain": "parameters"},
     },
-    commands={
-        "pdftexversion": etex.FixedInteger(int(version.split(".")[0])),
-        "pdftexrevision": etex.StringCommand(version.split(".")[1]),
-    }
 )

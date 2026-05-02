@@ -4,6 +4,7 @@ The base class for reflow shipout backends. providing common utilities for reflo
 
 from __future__ import annotations
 
+from pytex import box as bx
 from pytex.dimen import Dimen
 from pytex.font import Font
 from pytex.glue import Glue
@@ -40,23 +41,23 @@ class Color:
         return cls(rgba=(r, g, b, 1))
 
     cymk = cmyk
-    
+
     @classmethod
     def hsv(cls, hsv: tuple):
         h, s, v = cls._numbers(hsv)
         r, g, b = colorsys.hsv_to_rgb(h, s, v)
         return cls((r, g, b, 1))
-    
+
     @classmethod
     def gray(cls, level):
         level = cls._numbers(level)[0]
         return cls((level, level, level, 1))
-    
+
     @classmethod
     def rgb(cls, rgb: tuple):
         r, g, b = cls._numbers(rgb)
         return cls((r, g, b, 1))
-    
+
     def __eq__(self, color):
         if not isinstance(color, Color):
             return False
@@ -72,12 +73,13 @@ class Element:
         self._node = node
         self.nodes = []
 
-    @property 
+    @property
     def node(self):
+        for n in self.nodes:
+            self._node.append(n.node)
         return self._node
-    
+
     def append(self, child):
-        self._node.append(child.node)
         self.nodes.append(child)
 
     def set(self, key, value):
@@ -86,47 +88,84 @@ class Element:
     def get(self, key):
         return self._node.get(key)
 
+    def __len__(self):
+        return len(self.nodes)
 
-class TextRun(Element):
-    def __init__(self, node, font: Font, color: Color=Color.black):
-        super().__init__(node)
-        self.font = font
-        self.color = color
 
+class Text(Element):
     def setKern(self, kern: Dimen):
         pass
 
     def setChar(self, char: str):
         pass
 
+    def setSpace(self, char: str, breakable: bool=True):
+        pass
 
-class Line(Element):
-    def __init__(self, node, justify):
+
+class TextRun(Element):
+    def __init__(self, node, font: Font=None, color: Color=Color.black):
         super().__init__(node)
-        self.jutify = justify
+        self.setFont(font)
+        self.color = color
+        self.text: Text = None
 
-    def newTextRun(self, font, color) -> TextRun:
+    def setFont(self, font):
+        # the font may not have been known when the run is created
+        self.font = font
+
+    def newText(self) -> Text:
         pass
 
     def newInlineBlock(self, box: bx.Box):
         pass
 
-    def newInlineMath(self, backend, inlinemath: InlineMathNode, nodes: list):
+    def newInlineMath(self):
         pass
 
-    def setSpace(self, width: Dimen):
-        pass
+    def setKern(self, kern: Dimen):
+        if self.text is None:
+            self.newText()
+        self.text.setKern(kern)
+
+    def setChar(self, char: str):
+        if self.text is None:
+            self.newText()
+        self.text.setChar(char)
+
+    def setSpace(self, width: Dimen, breakable:bool=True):
+        if self.text is None:
+            self.newText()
+        self.text.setSpace(width, breakable)
 
 
 class Paragraph(Element):
-    def __init__(self, node, reflow:bool, spacing_before=Dimen(), justify: str="justify"):
+    def __init__(self, node, reflow:bool, color: Color=Color.black, spacing_before=Dimen(), justify: str="justify"):
         super().__init__(node)
         self.reflow = reflow
-        self.last_source = None
-        self.justify = justify
+        self.setJustify(justify)
+        self.color = color
+        self.font = None
+        self.text_run = self.newTextRun(None, color)
+        self.scan_math = False
 
-    def newLine(self):
+    def setJustify(self, justify):
         pass
+
+    def newTextRun(self, font, color) -> Text:
+        pass
+
+    def setFont(self, font: Font):
+        if self.text_run.font is None:
+            self.text_run.setFont(font)
+        elif self.font is not font:
+            self.text_run = self.newTextRun(font, self.color)
+        self.font = font
+
+    def setColor(self, color: Color):
+        if self.color != color:
+            self.text_run = self.newTextRun(self.font, color)
+        self.color = color
 
     def setLineSpacing(self, spacing: Dimen):
         pass
@@ -144,15 +183,12 @@ class Cell(Element):
         self.justify = justify
         self.width = width
         self.span = span
-    
-    def newParagraph(self) -> Paragraph:
+
+    def newParagraph(self, color) -> Paragraph:
         pass
 
 
 class Row(Element):
-    def __init__(self, node):
-        super().__init__(node)
-
     def newCell(self, span=1, width=None, justify="justify") -> Cell:
         pass
 
@@ -173,38 +209,16 @@ class Block(Element):
         super().__init__(node)
         self.inline = inline
 
-    def newParagraph(self, spacing_before=Dimen(), justify: str="left") -> Paragraph:
+    def newParagraph(self, color, spacing_before=Dimen(), justify: str="left") -> Paragraph:
         pass
 
     def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
         pass
 
     def newBlock(self, xspacing=Dimen(), yspacing=Dimen()):
-        pass 
+        pass
 
     def newGraph(self, key, type, file):
-        pass
-
-
-class Page(Element):
-    def __init__(self, node, width: Dimen, height: Dimen):
-        super().__init__(node)
-        self.width = width
-        self.height = height
-
-    @property
-    def header(self) -> Block:
-        pass
-
-    @property
-    def body(self) -> Block:
-        pass
-
-    @property
-    def footer(self) -> Block:
-        pass
-
-    def setBackgroundColor(self, color: Color):
         pass
 
 
@@ -218,7 +232,22 @@ class Document(Element):
         self.title = title
         self.output = output
 
-    def newPage(self, width: Dimen, height: Dimen) -> Page:
+    @property
+    def body(self):
+        pass
+
+    @property
+    def header(self):
+        pass
+
+    @property
+    def footer(self):
+        pass
+
+    def newPage(self, width: Dimen, height: Dimen):
+        pass
+
+    def setBackgroundColor(self, color: Color):
         pass
 
     def defineFont(self, font):
@@ -229,7 +258,7 @@ class Document(Element):
 
     def save(self):
         pass
-    
+
 
 class Builder:
     def __init__(self, backend, container):
@@ -249,12 +278,28 @@ class Builder:
 
     def get(self, key, default=None):
         return self.container.get(key, default)
-    
+
     def set(self, key, value):
         self.container.set(key, value)
 
     def __getattr__(self, name):
         return getattr(self.container, name)
+
+
+class ParagraphBuilder(Builder):
+    def __init__(self, backend, container):
+        super().__init__(backend, container)
+        self.saved = None
+
+    def __enter__(self):
+        self.saved = self.backend.paragraph
+        self.backend.paragraph = self.container
+        super().__enter__()
+
+    def __exit__(self, exc_type, exc, tb):
+        super().__exit__(exc_type, exec, tb)
+        self.backend.paragraph = self.saved
+        self.saved = None
 
 
 class AnnotationBuilder(Builder):
@@ -309,19 +354,6 @@ def vlist_source(node):
         node = s
 
 
-class HListSource:
-    def __init__(self):
-        self.inline_math = None
-    
-    def __call__(self, node):
-        if node.node_type == nd.NODE_TYPE.MATH:
-            self.inline_math = node.source if node.on else None
-            return node.source
-        if self.inline_math is not None:
-            return self.inline_math
-        return node.source
-
-
 class Reflow(shipout.Shipout):
     def __init__(self, parser, paginate=False, ext=""):
         super().__init__(parser)
@@ -329,12 +361,11 @@ class Reflow(shipout.Shipout):
         self.last_source = None
         self.box_stack = []
         self.document: Document = None
-        self.page: Page = None
         self.builder_stack = []
         self.builder = None
+        self.paragraph = None
         self.color: Color = Color.black
         self.color_stack: list = []
-        # we do not need to store the current font, as each CharNode stores it
 
     def open(self):
         raise NotImplementedError("should be implemented by each subclass")
@@ -376,7 +407,7 @@ class Reflow(shipout.Shipout):
         elif mode != "pop":
             raise ValueError(f"unsupported color space {space}")
         if mode == "background":
-            self.page.setBackgroundColor(color)
+            self.document.setBackgroundColor(color)
             return
         if mode == "push":
             self.color_stack.append(self.color)
@@ -386,6 +417,8 @@ class Reflow(shipout.Shipout):
             assert mode == "set", "mode can only be set, push, pop, background"
         if self.color != color:
             self.color = color
+            if self.paragraph is not None:
+                self.paragraph.setColor(color)
 
     def setTarget(self, name):
         pass
@@ -396,10 +429,10 @@ class Reflow(shipout.Shipout):
 
     def newAnnotationBuilder(self, name=None, payload=None):
         pass
-    
+
     def newFixedAnnotation(self, name, w, h):
         pass
-    
+
     def annotate(self, kind, name=None, dimensions=None, payload=None):
         if kind == "begin":
             builder = self.newAnnotationBuilder(name=name, payload=payload)
@@ -435,10 +468,10 @@ class Reflow(shipout.Shipout):
             self.document = None
 
     def begin_page(self, box):
-        self.page = self.document.newPage(box.width, box.height)
+        self.document.newPage(box.width, box.height)
 
     def end_page(self, box):
-        self.page = None
+        pass
 
     def shipout(self, box):
         self.pages.append(box)
@@ -468,16 +501,16 @@ class Reflow(shipout.Shipout):
             if box.node_type == nd.NODE_TYPE.VLIST and n.node_type == nd.NODE_TYPE.GLUE and n.name == "\\topskip":
                 return [box]
         return None
-    
+
     def typesetHeader(self, tree):
         pass
-    
+
     def typesetFooter(self, tree):
         pass
 
     def typesetBody(self, tree):
         box = tree[-1]
-        with Builder(self, self.page.body):
+        with Builder(self, self.document.body):
             self.typesetVList(box.list, self._glue_state(box), True)
 
     def _require_builder(self, method, *capabilities):
@@ -527,8 +560,8 @@ class Reflow(shipout.Shipout):
                     self.last_source = n
                 continue
             if isinstance(n, paragraph.Paragraph):
-                para = self.builder.newParagraph(spacing_before=spacing)
-                with Builder(self, para):
+                para = self.builder.newParagraph(color=self.color, spacing_before=spacing)
+                with ParagraphBuilder(self, para):
                     self.typesetParagraph(n, collection)
                 spacing = Dimen()
                 if mark_last_source:
@@ -565,7 +598,7 @@ class Reflow(shipout.Shipout):
             if n.node_type == nd.NODE_TYPE.KERN:
                 spacing += n.kern
                 continue
-    
+
     def typesetVBox(self, box, xspacing=Dimen(), yspacing=Dimen(), mark_last_source=False):
         self._require_builder("typesetVBox", "newBlock")
         self.box_stack.append(box)
@@ -584,24 +617,24 @@ class Reflow(shipout.Shipout):
         h = xspacing + shifted
         # we start a new paragraph:
         div: Block = self.builder.newBlock(h, yspacing)
-        para = div.newParagraph(justify=self._hbox_justification(box))
-        with Builder(self, para):
+        para = div.newParagraph(color=self.color, justify=self._hbox_justification(box))
+        with ParagraphBuilder(self, para):
             self.typesetParagraph(box.list, [box], self._glue_state(box))
         self.box_stack.pop()
         return div
-     
+
     def typesetSpring(self, ratio):
         pass
 
     def typesetDisplayMath(self, node, collection, yspacing:Dimen=Dimen()):
         pass
 
-    def typesetInlineMath(self, node, collection, left_kern, right_kern):
+    def typesetInlineMath(self, node):
         pass
 
     def _alignment_spacers(self, node):
         def ratio(stretch, total):
-            return 0 if stretch.order < total.order else float(stretch.factor) / float(total.factor)
+            return 0.0 if stretch.order < total.order else float(stretch.factor) / float(total.factor)
         tabskips = node.tabskips
         if not tabskips:
             return []
@@ -610,6 +643,8 @@ class Reflow(shipout.Shipout):
             total += g
         if total.stretch.order > 0:
             return [ratio(g.stretch, total.stretch) for g in tabskips]
+        if int(total.dimen) == 0:
+            return [0.0] * len(tabskips)
         return [float(g.dimen)/float(total.dimen) for g in tabskips]
 
     def typesetHAlignment(self, node: align.HAlignment, collection, yspacing):
@@ -630,53 +665,46 @@ class Reflow(shipout.Shipout):
         for row in node.rows:
             tr = table.newRow()
             with Builder(self, tr):
-                tr.newCell(width=spacers[0])
-            col = 1
-            for cell in row.cells:
-                td = tr.newCell(cell.span, justify=self._hbox_justification(cell))
-                para = td.newParagraph()
-                line = para.newLine()
-                with Builder(self, line):
-                    self.typesetLine(cell, nodes=self._hbox_line_nodes(cell))
-                if col < len(spacers):
-                    tr.newCell(width=spacers[col])
+                if spacers[0] != 0.0:
+                    self.builder.newCell(width=spacers[0])
+                col = 1
+                for cell in row.cells:
+                    td = self.builder.newCell(cell.span, justify=self._hbox_justification(cell))
+                    para = td.newParagraph(color=self.color)
+                    with ParagraphBuilder(self, para):
+                        self.typesetLine(nodes=self._hbox_line_nodes(cell), glue_state=self._glue_state(cell))
+                    if col < len(spacers) and spacers[col] != 0.0:
+                        self.builder.newCell(width=spacers[col])
                     col += cell.span
-            if row.noalign:
-                noalign(table, row.noalign, columns)
+                if row.noalign:
+                    noalign(table, row.noalign, columns)
 
     _hlist_concrete_type = (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.HLIST)
-        
+
     def _hbox_justification(self, box):
         """
         if the box has no concrete node, return None. Otherwise, return "left"/"cneter"/"right"
         depending on whether there are nonzero glues on either side
         """
-        def find_glue(box, left=True):
+        def find_glue(nodes, order):
             # returns the total glue and whether met a concrete node
-            glue_state = self._glue_state(box)
-            nodes = box.list if left else reversed(box.list)
-            total = Dimen()
+            total = Glue()
             for n in nodes:
-                node_type = getattr(n, "node_type", None)
-                if node_type == nd.NODE_TYPE.GLUE:
-                    total += self._glue_amount(n, box, glue_state)
-                    continue
-                if node_type == nd.NODE_TYPE.HLIST:
-                    g, met = find_glue(n, left)
-                    total += g
-                    if met:
-                        return total, True
-                    continue
-                if node_type in self._hlist_concrete_type:
-                    return total, True
-            return total, False
-        
-        left, met = find_glue(box, left=True)
+                if n.node_type == nd.NODE_TYPE.GLUE and n.glue.stretch.order == order:
+                    total += n.glue
+                elif n.node_type in self._hlist_concrete_type:
+                    return total.stretch.factor, True
+            return total.stretch.factor, False
+
+        order = 0 if box.natural is None else box.natural.stretch.order
+        if order == 0:
+            return "justify"
+        left, met = find_glue(box.list, order)
         if not met:
             return None
-        right, met = find_glue(box, left=False)
+        right, met = find_glue(reversed(box.list), order)
         if int(left) <= 0:
-            return "left" if int(right) > 0 else "justify" 
+            return "left" if int(right) > 0 else "justify"
         return "center" if int(right) > 0 else "right"
 
     def _hbox_line_nodes(self, box):
@@ -688,13 +716,14 @@ class Reflow(shipout.Shipout):
         while end > start and getattr(nodes[end - 1], "node_type", None) == nd.NODE_TYPE.GLUE:
             end -= 1
         return nodes[start:end]
-        
+
     def typesetParagraph(self,  _: paragraph.Paragraph, nodes: list, glue_state=None):
-        self._require_builder("typesetParagraph", "newLine", "setLineSpacing")
+        self._require_builder("typesetParagraph", "newTextRun", "setLineSpacing")
         # first the first line box
         lb = None
         spacing = Dimen()
         ci = iter(nodes)
+        # we iterate through the nodes to find the first line box, while collecting the glues and kerns before it
         while True:
             b = next(ci, None)
             if b is None:
@@ -711,9 +740,9 @@ class Reflow(shipout.Shipout):
                 spacing += b.kern
         if lb is None:
             return
-        line = self.builder.newLine()
-        with Builder(self, line):
-            last_source = self.typesetLine(lb, nodes=self._hbox_line_nodes(lb))
+        just = self._hbox_justification(lb)
+        self.builder.setJustify(just)
+        self.typesetLine(nodes=self._hbox_line_nodes(lb))
         # we add all the interline glues
         spacing = Dimen()
         lines = 1
@@ -728,57 +757,74 @@ class Reflow(shipout.Shipout):
             elif b.node_type == nd.NODE_TYPE.WHATSIT:
                 b.output(self.parser, self)
             elif b.node_type == nd.NODE_TYPE.VLIST:
-                line: Line = self.builder.newLine()
-                with Builder(self, line):
-                    self.typesetInlineBox(b)
+                self.typesetInlineBox(b)
             elif b.node_type == nd.NODE_TYPE.HLIST:
-                line = self.builder.newLine()
-                with Builder(self, line):
-                    last_source = self.typesetLine(b, last_source, nodes=self._hbox_line_nodes(b))
+                self.typesetLine(nodes=self._hbox_line_nodes(b))
                 lines += 1
         if lines > 1:
             self.builder.setLineSpacing(spacing / (lines-1))
-    
-    def typesetLine(self, box: bx.HBox, last_source=None, nodes=None):
-        self._require_builder("typesetLine", "newTextRun", "setSpace", "newInlineBlock")
-        text_run = None
-        collection = collect(box.list if nodes is None else nodes, HListSource())
-        glue_state = self._glue_state(box)
-        for nodes, source in collection:
-            if not self.paginate and source is last_source:
+
+    def typesetLine(self, nodes: list, glue_state=None):
+        def typeset_inline_math(node: mmode.InlineMathNode):
+            if len(node.list) == 1:
+                atom = node.list[0]
+                if isinstance(atom, mmode.Box) and isinstance(atom.nucleus, bx.VBox) and atom.sub is None and atom.sup is None:
+                    vbox = atom.nucleus
+                    if vbox.list:
+                        is_align = False
+                        for n in vbox.list:
+                            if isinstance(n.source, align.HAlignment):
+                                is_align = True
+                                break
+                        if is_align:
+                            self.typesetInlineBox(vbox)
+                            return
+            self.typesetInlineMath(node)
+
+
+        self._require_builder("typesetLine", "newTextRun")
+        if len(self.paragraph) > 0:
+            self.paragraph.text_run.setSpace(width=Dimen())
+        for n in nodes:
+            text_run = self.builder.text_run
+            node_type = n.node_type
+            if self.paragraph.scan_math:
+                if node_type == nd.NODE_TYPE.MATH:
+                    if n.on:
+                        x=1
+                    assert not n.on
+                    self.paragraph.scan_math = False
+                    text_run.setSpace(n.kern)
                 continue
-            last_source = source
-            node_type = getattr(source, "node_type", None)
             if node_type == nd.NODE_TYPE.GLUE:
-                width = self._glue_amount(source, box, glue_state)
-                target = self.builder if text_run is None else text_run
-                target.setSpace(width)
+                width = self._glue_amount(n, None, glue_state) if glue_state is not None else n.glue.dimen
+                text_run.setSpace(width)
             elif node_type == nd.NODE_TYPE.KERN:
-                target = self.builder if text_run is None else text_run
-                target.setSpace(source.kern)
+                text_run.setSpace(n.kern)
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                if text_run is None:
-                    text_run = self.builder.newTextRun(source.font, self.color)
-                text_run.setChar(source)
-            elif isinstance(source, mmode.InlineMathNode):
-                text_run = None
-                self.typesetInlineMath(source, collection, left_kern=Dimen(), right_kern=Dimen())
+                if text_run.font is not n.font:
+                    self.builder.setFont(n.font)
+                    text_run = self.builder.text_run
+                text_run.setChar(n)
+            elif node_type == nd.NODE_TYPE.MATH:
+                text_run.setSpace(n.kern)
+                assert n.on
+                self.paragraph.scan_math = True
+                with Builder(self, text_run):
+                    typeset_inline_math(n.source)
             elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                text_run = None
-                self.typesetInlineBox(source)
-            elif source.node_type == nd.NODE_TYPE.WHATSIT:
-                text_run = None
-                source.output(self.parser, self)
-        return last_source
+                with Builder(self, text_run):
+                    self.typesetInlineBox(n)
+            elif n.node_type == nd.NODE_TYPE.WHATSIT:
+                n.output(self.parser, self)
 
     def typesetInlineBox(self, box: bx.Box):
         self._require_builder("typesetInlineBox", "newInlineBlock")
         block: Block = self.builder.newInlineBlock(box)
         if box.node_type == nd.NODE_TYPE.HLIST:
-            para = block.newParagraph(justify=self._hbox_justification(box))
-            line = para.newLine()
-            with Builder(self, line):
-                self.typesetLine(box, nodes=self._hbox_line_nodes(box))
+            para = block.newParagraph(color=self.color, justify=self._hbox_justification(box))
+            with ParagraphBuilder(self, para):
+                self.typesetLine(nodes=self._hbox_line_nodes(box), glue_state=self._glue_state(box))
         else:
             with Builder(self, block):
                 self.typesetVList(box.list, self._glue_state(box))

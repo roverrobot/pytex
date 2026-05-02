@@ -902,7 +902,6 @@ class Box(Atom):
         # Box atoms carry a prebuilt box nucleus.
         typeset = getattr(self.nucleus, "typeset", None)
         out = self.nucleus if typeset is None else typeset(parser)
-        _label_box_tree(out, self)
         packed.append(out)
         return Dimen()
 

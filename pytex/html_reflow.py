@@ -929,11 +929,13 @@ class HTMLReflowBackend(reflow.Reflow):
             text = self._math_symbol(delim.small.char, delim.small.fam)
         return reflow.Element(MO("" if text is None else text))
 
-    def typesetInlineMath(self, node: mmode.InlineMathNode):
-        math = self.builder.newInlineMath()
-        with reflow.Builder(self, math):
-            self.typesetMList(node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
-        self.builder.append(math)
+    def typesetInlineMath(self, node: mmode.InlineMathNode, box:bx.HBox, piece: int):
+        if piece == 1:
+            # we typeset from the node, which contains all pieces. So we only handle the first piece.
+            math = self.builder.newInlineMath()
+            with reflow.Builder(self, math):
+                self.typesetMList(node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
+            self.builder.append(math)
 
     def typesetDisplayMath(self, node, collection, yspacing: Dimen=Dimen()):
         math = Math(inline=False)

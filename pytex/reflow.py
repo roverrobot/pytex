@@ -147,7 +147,8 @@ class Paragraph(Element):
         self.color = color
         self.font = None
         self.text_run = self.newTextRun(None, color)
-        self.scan_math = False
+        self.inline_math_segment = 0 # 0 means not in inline math, i>0 means the ith segment (separated by line breaks)
+        self.inline_math_node = None
 
     def setJustify(self, justify):
         pass
@@ -640,7 +641,7 @@ class Reflow(shipout.Shipout):
     def typesetDisplayMath(self, node, collection, yspacing:Dimen=Dimen()):
         pass
 
-    def typesetInlineMath(self, node):
+    def typesetInlineMath(self, node, box, piece):
         pass
 
     def _alignment_spacers(self, node):
@@ -753,7 +754,7 @@ class Reflow(shipout.Shipout):
             return
         just = self._hbox_justification(lb)
         self.builder.setJustify(just)
-        self.typesetLine(nodes=self._hbox_line_nodes(lb))
+        self.typesetLine(nodes=self._hbox_line_nodes(lb), glue_state=self._glue_state(lb))
         # we add all the interline glues
         spacing = Dimen()
         lines = 1
@@ -770,13 +771,13 @@ class Reflow(shipout.Shipout):
             elif b.node_type == nd.NODE_TYPE.VLIST:
                 self.typesetInlineBox(b)
             elif b.node_type == nd.NODE_TYPE.HLIST:
-                self.typesetLine(nodes=self._hbox_line_nodes(b))
+                self.typesetLine(nodes=self._hbox_line_nodes(b), glue_state=self._glue_state(b))
                 lines += 1
         if lines > 1:
             self.builder.setLineSpacing(spacing / (lines-1))
 
     def typesetLine(self, nodes: list, glue_state=None):
-        def typeset_inline_math(node: mmode.InlineMathNode):
+        def typeset_inline_math(node: mmode.InlineMathNode, math_box, piece):
             if len(node.list) == 1:
                 atom = node.list[0]
                 if isinstance(atom, mmode.Box) and isinstance(atom.nucleus, bx.VBox) and atom.sub is None and atom.sup is None:
@@ -790,20 +791,47 @@ class Reflow(shipout.Shipout):
                         if is_align:
                             self.typesetInlineBox(vbox)
                             return
-            self.typesetInlineMath(node)
+            self.typesetInlineMath(node, math_box, piece)
 
+        def pack_inline_math_nodes(parser, nodes, glue_state):
+            math = bx.HBox(parser, None, None)
+            math.list = nodes
+            math.typeset(parser, [])
+            if glue_state is not None:
+                width = math.width
+                num = glue_state["num"]
+                stretch = math.natural.shrink if glue_state["shrink"] else math.natural.stretch
+                if num != 0 and stretch.order == glue_state["order"] and int(stretch.factor) != 0:
+                    sign = 1 if num > 0 else -1
+                    math.glue_ratio = bx.GlueRatio(sign, abs(num), glue_state["den"])
+                for n in nodes:
+                    if n.node_type == nd.NODE_TYPE.GLUE:
+                        amount = Dimen(integer=self._glue_amount(n, None, glue_state))
+                        width += amount - n.glue.dimen
+                math.width = width
+                math.to = width
+                math.spread = width - math.natural.dimen
+            return math
 
         self._require_builder("typesetLine", "newTextRun")
         if len(self.paragraph) > 0:
             self.paragraph.text_run.setSpace(width=Dimen())
+        inline_math_nodes = []
         for n in nodes:
             text_run = self.builder.text_run
             node_type = n.node_type
-            if self.paragraph.scan_math:
+            if self.paragraph.inline_math_segment > 0:
                 if node_type == nd.NODE_TYPE.MATH:
                     assert not n.on
-                    self.paragraph.scan_math = False
+                    math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
+                    with Builder(self, text_run):
+                        typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
                     text_run.setSpace(n.kern)
+                    inline_math_nodes = []
+                    self.paragraph.inline_math_segment = 0
+                    self.paragraph.inline_math_node = None
+                else:
+                    inline_math_nodes.append(n)
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
                 width = self._glue_amount(n, None, glue_state) if glue_state is not None else n.glue.dimen
@@ -816,16 +844,23 @@ class Reflow(shipout.Shipout):
                     text_run = self.builder.text_run
                 text_run.setChar(n)
             elif node_type == nd.NODE_TYPE.MATH:
-                text_run.setSpace(n.kern)
                 assert n.on
-                self.paragraph.scan_math = True
-                with Builder(self, text_run):
-                    typeset_inline_math(n.source)
+                text_run.setSpace(n.kern)
+                self.paragraph.inline_math_segment = 1
+                self.paragraph.inline_math_node = n.source
             elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 with Builder(self, text_run):
                     self.typesetInlineBox(n)
             elif n.node_type == nd.NODE_TYPE.WHATSIT:
                 n.output(self.parser, self)
+        if self.paragraph.inline_math_segment > 0:
+            # we finish a line inside an inline math
+            text_run = self.builder.text_run
+            math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
+            with Builder(self, text_run):
+                typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
+            # we increment the piece by 1 in the new line
+            self.paragraph.inline_math_segment += 1
 
     def typesetInlineBox(self, box: bx.Box):
         self._require_builder("typesetInlineBox", "newInlineBlock")

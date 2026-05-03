@@ -358,7 +358,7 @@ class Reflow(shipout.Shipout):
     def __init__(self, parser, paginate=False, ext=""):
         super().__init__(parser)
         self.paginate = paginate
-        self.last_source = None
+        self.last_source = (None, None)
         self.box_stack = []
         self.document: Document = None
         self.builder_stack = []
@@ -511,7 +511,7 @@ class Reflow(shipout.Shipout):
     def typesetBody(self, tree):
         box = tree[-1]
         with Builder(self, self.document.body):
-            self.typesetVList(box.list, self._glue_state(box), True)
+            self.typesetVList(box.list, self._glue_state(box), top_level=True)
 
     def _require_builder(self, method, *capabilities):
         builder = self.builder
@@ -536,55 +536,66 @@ class Reflow(shipout.Shipout):
             )
         return builder
 
-    def typesetVList(self, vlist: list, glue_state=None, mark_last_source=False):
+    def typesetVList(self, vlist: list, glue_state=None, top_level=False):
         self._require_builder("typesetVList", "newParagraph", "newTable", "newBlock")
-        # we only need to layout this box
-        # we need to consider two things: paragraphs and boxes that are not originated from paragraphs.
-        # we first collect glues and kerns to figure out vertical spacing
-        # clear block level and lower
+        # pagenate or not, if a source/raw node spans multiple paragraphs, we can always use the same
+        # paragraph or table from the previous page to continue. For pagenation, if we control the vertical
+        # layout correctly, continuation shoudl simply flow to the next page. For reflow, there is no page boundary.
+        # If the vlist is not at the top_level (i.e., laying out a page), then we do not need to worry about page spanning.
+        # for this reason, out .last_source should contain a pair of the source node and the container (paragraph)
+        # For a table, it is fully laid out in the previous page, and so we shoudl ignore the continuation on the second page
         spacing = Dimen()
         collections = collect(vlist, vlist_source)
         for collection, n in collections:
             if n is None:
                 break
-            if not self.paginate and n is self.last_source:
-                self.last_source = None
-                continue
             if isinstance(n, mmode.DisplayMathNode):
                 # here the display math may have equation numbers, which may be implemented by a table.
                 # alternatively, this can also be implemented as an SVG picture
                 # so we let typesetDisplayMath to determine how to build it without specifying a container
                 self.typesetDisplayMath(n, collection, yspacing=spacing)
                 spacing = Dimen()
-                if not self.paginate:
-                    self.last_source = n
+                # display math node does not span multiple pages
+                if top_level:
+                    self.last_source = (None, None)
                 continue
             if isinstance(n, paragraph.Paragraph):
-                para = self.builder.newParagraph(color=self.color, spacing_before=spacing)
+                if top_level and self.last_source[0] is n:
+                    para = self.last_source[1]
+                else:
+                    para = self.builder.newParagraph(color=self.color, spacing_before=spacing)
                 with ParagraphBuilder(self, para):
                     self.typesetParagraph(n, collection)
                 spacing = Dimen()
-                if mark_last_source:
-                    self.last_source = n
+                if top_level:
+                    self.last_source = (n, para)
                 continue
             if isinstance(n, align.HAlignment):
-                with Builder(self, self.builder.newTable(yspacing=spacing)):
+                if top_level and self.last_source[0]is n:
+                    self.last_source = (None, None)
+                    continue
+                table = self.builder.newTable(yspacing=spacing)
+                with Builder(self, table):
                     self.typesetHAlignment(n, collection, yspacing=spacing)
                 spacing = Dimen()
-                if mark_last_source:
-                    self.last_source = n
+                if top_level:
+                    self.last_source = (n, table)
                 continue
             assert not isinstance(n, align.MAlignment)
             if n.node_type == nd.NODE_TYPE.VLIST:
                 h = Dimen() if n.shifted is None else n.shifted
                 self.typesetVBox(n, xspacing=h, yspacing=spacing)
                 spacing = Dimen()
+                if top_level:
+                    self.last_source = (None, None)
                 continue
             if n.node_type == nd.NODE_TYPE.HLIST:
                 # this hbox is manually constructed (i.e., without a source)
                 h = Dimen() if n.shifted is None else n.shifted
                 self.typesetHBox(n, xspacing=h, yspacing=spacing)
                 spacing = Dimen()
+                if top_level:
+                    self.last_source = (None, None)
                 continue
             if n.node_type == nd.NODE_TYPE.WHATSIT:
                 n.output(self.parser, self)
@@ -599,13 +610,13 @@ class Reflow(shipout.Shipout):
                 spacing += n.kern
                 continue
 
-    def typesetVBox(self, box, xspacing=Dimen(), yspacing=Dimen(), mark_last_source=False):
+    def typesetVBox(self, box, xspacing=Dimen(), yspacing=Dimen()):
         self._require_builder("typesetVBox", "newBlock")
         self.box_stack.append(box)
         vbox = self.builder.newBlock(xspacing, yspacing)
         glue_state = self._glue_state(box)
         with Builder(self, vbox):
-            self.typesetVList(box.list, glue_state, mark_last_source)
+            self.typesetVList(box.list, glue_state, top_level=False)
         self.box_stack.pop()
         return vbox
 
@@ -790,8 +801,6 @@ class Reflow(shipout.Shipout):
             node_type = n.node_type
             if self.paragraph.scan_math:
                 if node_type == nd.NODE_TYPE.MATH:
-                    if n.on:
-                        x=1
                     assert not n.on
                     self.paragraph.scan_math = False
                     text_run.setSpace(n.kern)
@@ -827,5 +836,5 @@ class Reflow(shipout.Shipout):
                 self.typesetLine(nodes=self._hbox_line_nodes(box), glue_state=self._glue_state(box))
         else:
             with Builder(self, block):
-                self.typesetVList(box.list, self._glue_state(box))
+                self.typesetVList(box.list, self._glue_state(box), top_level=False)
         return block

@@ -99,7 +99,16 @@ class Text(Element):
     def setChar(self, char: str):
         pass
 
-    def setSpace(self, char: str, breakable: bool=True):
+    def setKern(self, width: Dimen):
+        pass
+
+    def setSpace(self, width):
+        pass
+
+    def setSpring(self, width, percent):
+        """
+        Here width is the typeset width of the infinite glue set by tex, and percent is its percentage in stretching
+        """
         pass
 
 
@@ -133,42 +142,80 @@ class TextRun(Element):
             self.newText()
         self.text.setChar(char)
 
-    def setSpace(self, width: Dimen, breakable:bool=True):
+    def setSpace(self, width):
         if self.text is None:
             self.newText()
-        self.text.setSpace(width, breakable)
+        self.text.setSpace(width)
+
+    def setSpring(self, width, percent):
+        if self.text is None:
+            self.newText()
+        self.text.setSpring(width, percent)
+
+
+class Line(Element):
+    def __init__(self, node, line_height: Dimen, color: Color=Color.black):
+        super().__init__(node)
+        self.color = color
+        self.font = None
+        self._text_run = None
+        self.lign_height = line_height
+
+    @property
+    def text_run(self):
+        if self._text_run is None:
+            self.startTextRun()
+        return self._text_run
+
+    @text_run.setter
+    def text_run(self, text_run):
+        self._text_run = text_run
+
+    def newTextRun(self, font, color) -> Text:
+        pass
+
+    def startTextRun(self):
+        self.text_run = self.newTextRun(self.font, self.color)
+        return self.text_run
+
+    def resetTextRun(self):
+        self.text_run = None
+
+    def setFont(self, font: Font):
+        if self._text_run is None:
+            self.font = font
+            return
+        if self._text_run.font is None:
+            self._text_run.setFont(font)
+        elif self.font is not font:
+            self.font = font
+            self.startTextRun()
+            return
+        self.font = font
+
+    def setColor(self, color: Color):
+        if self._text_run is None:
+            self.color = color
+            return
+        if self.color != color:
+            self.color = color
+            self.startTextRun()
+            return
+        self.color = color
 
 
 class Paragraph(Element):
-    def __init__(self, node, reflow:bool, color: Color=Color.black, spacing_before=Dimen(), justify: str="justify"):
+    def __init__(self, node, spacing_before=Dimen(), justify: str="justify"):
         super().__init__(node)
-        self.reflow = reflow
         self.setJustify(justify)
-        self.color = color
-        self.font = None
-        self.text_run = self.newTextRun(None, color)
+        self.justify = justify
         self.inline_math_segment = 0 # 0 means not in inline math, i>0 means the ith segment (separated by line breaks)
         self.inline_math_node = None
 
     def setJustify(self, justify):
         pass
 
-    def newTextRun(self, font, color) -> Text:
-        pass
-
-    def setFont(self, font: Font):
-        if self.text_run.font is None:
-            self.text_run.setFont(font)
-        elif self.font is not font:
-            self.text_run = self.newTextRun(font, self.color)
-        self.font = font
-
-    def setColor(self, color: Color):
-        if self.color != color:
-            self.text_run = self.newTextRun(self.font, color)
-        self.color = color
-
-    def setLineSpacing(self, spacing: Dimen):
+    def newLine(self, line_height: Dimen, color: Color=Color.black, force: bool=False) -> Line:
         pass
 
 
@@ -185,7 +232,7 @@ class Cell(Element):
         self.width = width
         self.span = span
 
-    def newParagraph(self, color) -> Paragraph:
+    def newParagraph(self) -> Paragraph:
         pass
 
 
@@ -210,7 +257,7 @@ class Block(Element):
         super().__init__(node)
         self.inline = inline
 
-    def newParagraph(self, color, spacing_before=Dimen(), justify: str="left") -> Paragraph:
+    def newParagraph(self, spacing_before=Dimen(), justify: str="left") -> Paragraph:
         pass
 
     def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
@@ -266,13 +313,19 @@ class Builder:
         self.backend = backend
         self.container = container
 
-    def __enter__(self):
+    def enter(self):
         self.backend.builder_stack.append(self.backend.builder)
         self.backend.builder = self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __enter__(self):
+        return self.enter()
+
+    def exit(self):
         assert self.backend.builder == self
         self.backend.builder = self.backend.builder_stack.pop()
+
+    def __exit__(self, exc_type, exc, tb):
+        return self.exit()
 
     def append(self, node):
         self.container.append(node)
@@ -292,15 +345,36 @@ class ParagraphBuilder(Builder):
         super().__init__(backend, container)
         self.saved = None
 
-    def __enter__(self):
+    def enter(self):
         self.saved = self.backend.paragraph
         self.backend.paragraph = self.container
-        super().__enter__()
+        super().enter()
 
-    def __exit__(self, exc_type, exc, tb):
-        super().__exit__(exc_type, exec, tb)
+    def exit(self):
+        super().exit()
         self.backend.paragraph = self.saved
         self.saved = None
+
+
+class LineBuilder(Builder):
+    def enter(self):
+        self.saved_in_line = self.backend.in_line
+        super().enter()
+        self.backend.in_line = True
+        if self.backend.pending_annotation is not None:
+            name = self.backend.pending_annotation
+            self.backend.pending_annotation = None
+            ann = self.backend.newAnnotationBuilder(name=name)
+            ann.enter()
+
+    def exit(self):
+        current = self.backend.builder
+        if isinstance(current, AnnotationBuilder):
+            current.exit()
+            self.backend.pending_annotation = current.name
+            assert self.backend.builder == self
+        super().exit()
+        self.backend.in_line = self.saved_in_line
 
 
 class AnnotationBuilder(Builder):
@@ -316,12 +390,13 @@ class AnnotationBuilder(Builder):
     def endAnnotation(self, name):
         pass
 
-    def __enter__(self):
+    def enter(self):
+        assert self.backend.in_line
         self.beginAnnotation(self.name)
-        super().__enter__()
+        super().enter()
 
-    def __exit__(self, exc_type, exc, tb):
-        super().__exit__(exc_type, exc, tb)
+    def exit(self):
+        super().exit()
         self.endAnnotation(self.name)
 
 
@@ -367,6 +442,8 @@ class Reflow(shipout.Shipout):
         self.paragraph = None
         self.color: Color = Color.black
         self.color_stack: list = []
+        self.pending_annotation = None
+        self.in_line = False
 
     def open(self):
         raise NotImplementedError("should be implemented by each subclass")
@@ -418,8 +495,10 @@ class Reflow(shipout.Shipout):
             assert mode == "set", "mode can only be set, push, pop, background"
         if self.color != color:
             self.color = color
-            if self.paragraph is not None:
-                self.paragraph.setColor(color)
+            if self.in_line and self.builder is not None:
+                set_color = getattr(self.builder, "setColor", None)
+                if set_color is not None:
+                    set_color(color)
 
     def setTarget(self, name):
         pass
@@ -437,12 +516,17 @@ class Reflow(shipout.Shipout):
     def annotate(self, kind, name=None, dimensions=None, payload=None):
         if kind == "begin":
             builder = self.newAnnotationBuilder(name=name, payload=payload)
-            builder.__enter__()
+            builder.enter()
         elif kind == "end":
+            if self.pending_annotation is not None:
+                if name is not None:
+                    assert self.pending_annotation == name
+                self.pending_annotation = None
+                return
             assert isinstance(self.builder, AnnotationBuilder)
             if name is not None:
                 assert self.builder.name == name
-            self.builder.__exit__(None, None, None)
+            self.builder.exit()
         else:
             assert kind == "fixed", "kind can only be begin, end, fixed"
             assert dimensions is not None
@@ -564,9 +648,8 @@ class Reflow(shipout.Shipout):
                 if top_level and self.last_source[0] is n:
                     para = self.last_source[1]
                 else:
-                    para = self.builder.newParagraph(color=self.color, spacing_before=spacing)
-                with ParagraphBuilder(self, para):
-                    self.typesetParagraph(n, collection)
+                    para = self.builder.newParagraph(spacing_before=spacing)
+                self.typesetParagraph(para, n, collection)
                 spacing = Dimen()
                 if top_level:
                     self.last_source = (n, para)
@@ -629,9 +712,11 @@ class Reflow(shipout.Shipout):
         h = xspacing + shifted
         # we start a new paragraph:
         div: Block = self.builder.newBlock(h, yspacing)
-        para = div.newParagraph(color=self.color, justify=self._hbox_justification(box))
+        para = div.newParagraph(justify=self._hbox_justification(box))
         with ParagraphBuilder(self, para):
-            self.typesetParagraph(box.list, [box], self._glue_state(box))
+            line = para.newLine(box.height+box.depth, self.color)
+            with LineBuilder(self, line):
+                self.typesetLine(box)
         self.box_stack.pop()
         return div
 
@@ -682,9 +767,11 @@ class Reflow(shipout.Shipout):
                 col = 1
                 for cell in row.cells:
                     td = self.builder.newCell(cell.span, justify=self._hbox_justification(cell))
-                    para = td.newParagraph(color=self.color)
+                    para = td.newParagraph()
                     with ParagraphBuilder(self, para):
-                        self.typesetLine(nodes=self._hbox_line_nodes(cell), glue_state=self._glue_state(cell))
+                        line = para.newLine(cell.height+cell.depth, self.color)
+                        with LineBuilder(self, line):
+                            self.typesetLine(cell)
                     if col < len(spacers) and spacers[col] != 0.0:
                         self.builder.newCell(width=spacers[col])
                     col += cell.span
@@ -716,7 +803,7 @@ class Reflow(shipout.Shipout):
             return None
         right, met = find_glue(reversed(box.list), order)
         if int(left) <= 0:
-            return "left" if int(right) > 0 else "justify"
+            return "justify"
         return "center" if int(right) > 0 else "right"
 
     def _hbox_line_nodes(self, box):
@@ -729,54 +816,45 @@ class Reflow(shipout.Shipout):
             end -= 1
         return nodes[start:end]
 
-    def typesetParagraph(self,  _: paragraph.Paragraph, nodes: list, glue_state=None):
-        self._require_builder("typesetParagraph", "newTextRun", "setLineSpacing")
-        # first the first line box
-        lb = None
-        spacing = Dimen()
-        ci = iter(nodes)
-        # we iterate through the nodes to find the first line box, while collecting the glues and kerns before it
-        while True:
-            b = next(ci, None)
-            if b is None:
-                break
-            if b.node_type == nd.NODE_TYPE.HLIST:
-                lb = b
-                break
-            if b.node_type == nd.NODE_TYPE.GLUE:
-                if glue_state is None:
-                    spacing += b.glue.dimen
-                else:
-                    spacing += Dimen(integer=self._glue_amount(b, None, glue_state))
-            elif b.node_type == nd.NODE_TYPE.KERN:
-                spacing += b.kern
-        if lb is None:
+    def typesetParagraph(self,  para: Paragraph, _: paragraph.Paragraph, nodes: list, glue_state=None):
+        if not nodes:
             return
-        just = self._hbox_justification(lb)
-        self.builder.setJustify(just)
-        self.typesetLine(nodes=self._hbox_line_nodes(lb), glue_state=self._glue_state(lb))
         # we add all the interline glues
         spacing = Dimen()
-        lines = 1
-        while True:
-            b = next(ci, None)
-            if b is None:
-                break
-            if b.node_type == nd.NODE_TYPE.KERN:
-                spacing += b.kern
-            elif b.node_type == nd.NODE_TYPE.GLUE:
-                spacing += self._glue_amount(b, None, glue_state)
-            elif b.node_type == nd.NODE_TYPE.WHATSIT:
-                b.output(self.parser, self)
-            elif b.node_type == nd.NODE_TYPE.VLIST:
-                self.typesetInlineBox(b)
-            elif b.node_type == nd.NODE_TYPE.HLIST:
-                self.typesetLine(nodes=self._hbox_line_nodes(b), glue_state=self._glue_state(b))
-                lines += 1
-        if lines > 1:
-            self.builder.setLineSpacing(spacing / (lines-1))
+        pb = ParagraphBuilder(self, para)
+        pb.enter()
+        for n in nodes:
+            if n.node_type == nd.NODE_TYPE.KERN:
+                spacing += n.kern
+            elif n.node_type == nd.NODE_TYPE.GLUE:
+                spacing += Dimen(integer=self._glue_amount(n, None, glue_state))
+            elif n.node_type == nd.NODE_TYPE.WHATSIT:
+                n.output(self.parser, self)
+            elif n.node_type == nd.NODE_TYPE.HLIST: # a line box
+                just = self._hbox_justification(n)
+                if len(para) == 0: # first line
+                    para.setJustify(just)
+                elif just != para.justify:
+                    pb.exit()
+                    inline_math_segment = para.inline_math_segment
+                    inline_math_node = para.inline_math_node
+                    para = self.builder.newParagraph(spacing, just)
+                    para.inline_math_segment = inline_math_segment
+                    para.inline_math_node = inline_math_node
+                    pb = ParagraphBuilder(self, para)
+                    pb.enter()
+                line = para.newLine(spacing + n.height + n.depth, self.color)
+                with LineBuilder(self, line):
+                    self.typesetLine(n, spacing)
+                spacing = Dimen()
+        pb.exit()
 
-    def typesetLine(self, nodes: list, glue_state=None):
+    def typesetLine(self, line: bx.HBox, yspacing: Dimen=Dimen()):
+        def start_text_run():
+            reset_text_run = getattr(self.builder, "resetTextRun", None)
+            if reset_text_run is not None:
+                reset_text_run()
+
         def typeset_inline_math(node: mmode.InlineMathNode, math_box, piece):
             if len(node.list) == 1:
                 atom = node.list[0]
@@ -813,20 +891,24 @@ class Reflow(shipout.Shipout):
                 math.spread = width - math.natural.dimen
             return math
 
+        assert isinstance(self.builder, (LineBuilder, AnnotationBuilder))
         self._require_builder("typesetLine", "newTextRun")
-        if len(self.paragraph) > 0:
-            self.paragraph.text_run.setSpace(width=Dimen())
+        glue_state = self._glue_state(line)
+        if line.natural is not None:
+            glue_order = line.natural.stretch.order
+            glue_total = int(line.natural.stretch.factor)
         inline_math_nodes = []
+        nodes = line.list if self.paginate else self._hbox_line_nodes(line)
         for n in nodes:
-            text_run = self.builder.text_run
             node_type = n.node_type
             if self.paragraph.inline_math_segment > 0:
                 if node_type == nd.NODE_TYPE.MATH:
                     assert not n.on
+                    text_run = self.builder.text_run
                     math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
                     with Builder(self, text_run):
                         typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
-                    text_run.setSpace(n.kern)
+                    text_run.setKern(n.kern)
                     inline_math_nodes = []
                     self.paragraph.inline_math_segment = 0
                     self.paragraph.inline_math_node = None
@@ -834,25 +916,36 @@ class Reflow(shipout.Shipout):
                     inline_math_nodes.append(n)
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
+                text_run = self.builder.text_run
                 width = self._glue_amount(n, None, glue_state) if glue_state is not None else n.glue.dimen
-                text_run.setSpace(width)
+                if n.glue.stretch.order == glue_order and glue_order > 0:
+                    percent = 0 if glue_total == 0 else int(n.glue.stretch.factor) / glue_total
+                    text_run.setSpring(width, percent)
+                else:
+                    text_run.setSpace(width)
             elif node_type == nd.NODE_TYPE.KERN:
+                text_run = self.builder.text_run
                 text_run.setSpace(n.kern)
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                if text_run.font is not n.font:
-                    self.builder.setFont(n.font)
-                    text_run = self.builder.text_run
+                self.builder.setFont(n.font)
+                text_run = self.builder.text_run
                 text_run.setChar(n)
             elif node_type == nd.NODE_TYPE.MATH:
                 assert n.on
+                text_run = self.builder.text_run
                 text_run.setSpace(n.kern)
                 self.paragraph.inline_math_segment = 1
                 self.paragraph.inline_math_node = n.source
             elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                text_run = self.builder.text_run
                 with Builder(self, text_run):
                     self.typesetInlineBox(n)
             elif n.node_type == nd.NODE_TYPE.WHATSIT:
+                # Specials can change annotation/color state, so they are explicit
+                # text-run boundaries in the source line.
+                start_text_run()
                 n.output(self.parser, self)
+                start_text_run()
         if self.paragraph.inline_math_segment > 0:
             # we finish a line inside an inline math
             text_run = self.builder.text_run
@@ -866,9 +959,11 @@ class Reflow(shipout.Shipout):
         self._require_builder("typesetInlineBox", "newInlineBlock")
         block: Block = self.builder.newInlineBlock(box)
         if box.node_type == nd.NODE_TYPE.HLIST:
-            para = block.newParagraph(color=self.color, justify=self._hbox_justification(box))
+            para = block.newParagraph(justify=self._hbox_justification(box))
             with ParagraphBuilder(self, para):
-                self.typesetLine(nodes=self._hbox_line_nodes(box), glue_state=self._glue_state(box))
+                line = para.newLine(box.height+box.depth, self.color)
+                with LineBuilder(self, line):
+                    self.typesetLine(box)
         else:
             with Builder(self, block):
                 self.typesetVList(box.list, self._glue_state(box), top_level=False)

@@ -109,9 +109,8 @@ class AnnotationBuilder(reflow.AnnotationBuilder):
     def __init__(self, backend, parent, href):
         super().__init__(backend, parent, href)
         self.link = reflow.Element(builder.A(href=href))
-        div = Div(inline=True)
-        self.container = div.newParagraph(reflow.Color.red)
-        self.link.append(div)
+        self.container = Line(Dimen(), reflow.Color.red)
+        self.link.append(self.container)
 
     def beginAnnotation(self, name):
         self.parent.append(self.link)
@@ -137,7 +136,8 @@ class Text(reflow.Text):
         super().__init__(builder.SPAN(""))
 
     def setKern(self, kern: Dimen):
-        pass
+        if int(kern) != 0:
+            self._node.text += f"<div style='display:inline;width:{kern};height:1pt'/>"
 
     def setChar(self, char: nd.Node):
         if char.node_type == nd.NODE_TYPE.CHAR:
@@ -146,21 +146,19 @@ class Text(reflow.Text):
             for n in char.source:
                 self.setChar(self, n)
 
-    def setSpace(self, width, breakable: bool=True):
+    def setSpace(self, width):
         if int(width) == 0:
             return
-        if breakable:
-            self._node.text += " "
-        else:
-            self._node.text += f"<div style='display:inline;width:{width};height:1pt'/>"
+        self._node.text += " "
 
 
 class TextRun(StyledNode, reflow.TextRun):
     def __init__(self, font: Font, color: reflow.Color=reflow.Color.black):
-        span = builder.SPAN("")
+        span = builder.DIV()
         StyledNode.__init__(self)
         reflow.TextRun.__init__(self, span, font, color)
         self.style["color"] = _color(color)
+        self.style["display"] = "inline"
 
     def setFont(self, font: Font):
         # TODO set font family properly
@@ -188,22 +186,46 @@ class TextRun(StyledNode, reflow.TextRun):
         self.append(math)
         return math
 
+    def setSpring(self, width, percent):
+        if percent != 0:
+            self.text = None
+            self.style["display"] = "inline-flex"
+            div = reflow.Element(builder.DIV(style=f"flex-grow:{percent}"))
+            self.append(div)
 
-class Paragraph(StyledNode, reflow.Paragraph):
-    def __init__(self, color: reflow.Color=reflow.Color.black, spacing_before=Dimen(), justify="justify"):
-        node = builder.DIV()
+
+class Line(StyledNode, reflow.Line):
+    def __init__(self, line_height: Dimen, color: reflow.Color=reflow.Color.black):
         StyledNode.__init__(self)
-        reflow.Paragraph.__init__(self, node, True, color, spacing_before, justify)
-        self.style["padding-top"] = reflow.PT(spacing_before)
-        self.style["width"] = "100%"
-
-    def setJustify(self, justify):
-        self.style["text-align"] = justify
+        reflow.Line.__init__(self, builder.DIV(), line_height, color)
+        self.style["display"] = "inline"
 
     def newTextRun(self, font, color):
         text_run = TextRun(font, color)
         self.append(text_run)
         return text_run
+
+
+class Paragraph(StyledNode, reflow.Paragraph):
+    def __init__(self, spacing_before=Dimen(), justify="justify"):
+        node = builder.DIV()
+        StyledNode.__init__(self)
+        reflow.Paragraph.__init__(self, node, spacing_before, justify)
+        self.style["padding-top"] = reflow.PT(spacing_before)
+        self.style["width"] = "100%"
+
+    def setJustify(self, justify):
+        self.style["text-align"] = justify
+        self.justify = justify
+
+    def newLine(self, line_height: Dimen=Dimen(), color: reflow.Color=reflow.Color.black, force: bool=False) -> Line:
+        if force:
+            self.append(reflow.Element(builder.BR()))
+        elif len(self) > 0:
+            self.append(reflow.Element(builder.SPAN(" ")))
+        line = Line(line_height, color)
+        self.append(line)
+        return line
 
 
 class MFrac(reflow.Element):
@@ -253,8 +275,8 @@ class Cell(StyledNode, reflow.Cell):
             self.style["text-align"] = text_align
         self.style["vertical-align"] = "baseline"
 
-    def newParagraph(self, color) -> Paragraph:
-        para = Paragraph(color=color, justify=self.justify)
+    def newParagraph(self) -> Paragraph:
+        para = Paragraph(justify=self.justify)
         self.append(para)
         return para
 
@@ -264,6 +286,7 @@ class Row(StyledNode, reflow.Row):
         tr = builder.TR()
         StyledNode.__init__(self)
         reflow.Row.__init__(self, tr)
+        self.style["width"] = "100%"
 
     def newCell(self, span=1, width=None, justify="justify") -> Cell:
         td = Cell(span, width, justify)
@@ -297,8 +320,8 @@ class Block(StyledNode, reflow.Block):
         StyledNode.__init__(self)
         reflow.Block.__init__(self, node, inline, xspacing, yspacing)
 
-    def newParagraph(self, color, spacing_before=Dimen(), justify: str="left") -> Paragraph:
-        para = Paragraph(color=color, spacing_before=spacing_before, justify=justify)
+    def newParagraph(self, spacing_before=Dimen(), justify: str="left") -> Paragraph:
+        para = Paragraph(spacing_before=spacing_before, justify=justify)
         self.append(para)
         return para
 
@@ -390,7 +413,7 @@ class Document(reflow.Document):
         pass
 
     def newPage(self, width: Dimen, height: Dimen):
-        pass
+        return self
 
     def defineFont(self, font):
         pass
@@ -456,7 +479,10 @@ class HTMLReflowBackend(reflow.Reflow):
         info = self._annotation_info(payload or "")
         href = self._annotation_href(info)
         if href is None and name is not None:
-            href = "#" + name.lstrip("@")
+            if "#" in name or ":" in name:
+                href = name
+            else:
+                href = "#" + name.lstrip("@")
         return AnnotationBuilder(self, self.builder, href or "#")
 
     def newFixedAnnotation(self, target, w, h):

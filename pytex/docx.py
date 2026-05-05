@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import types
 import hashlib
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
@@ -26,12 +25,10 @@ from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
-from pytex.font_backend import GlyphInfo
 from pytex.module import Module
 from pytex import font_subst
 from pytex import reflow
 
-import pytex.font_subst
 
 _ONE_INCH_PT = 72.0
 _ONE_INCH_TEX = Dimen(72.27)
@@ -124,7 +121,6 @@ class _ParagraphSpec:
 class _LineSpec:
     runs: list[object]
     box: object | None = None
-    segments: list[object] = field(default_factory=list)
     line_height: Dimen = field(default_factory=Dimen)
     gap_before: Dimen = field(default_factory=Dimen)
 
@@ -694,7 +690,6 @@ class DocxBackend(reflow.Reflow):
         self.output = output
         self.file = None
         self.finished = False
-        self._captured_pages: list[list[_Glyph]] = []
         self._docx_math_font = None
         self._docx_next_drawing_id = 1
         self._docx_next_textbox_id = 1
@@ -1607,17 +1602,6 @@ class DocxBackend(reflow.Reflow):
         if footer_distance is not None:
             section.footer_distance = self._length(footer_distance)
 
-    def _initial_page_top_offset(self, page):
-        body_geometry = self._structural_body_geometry(page)
-        if body_geometry is not None:
-            return self._nonnegative_dimen(body_geometry[1])
-        vsize = Dimen(self.parser.layout["vsize"])
-        box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
-        text_height = vsize if vsize > 0 else box_height
-        if box_height <= text_height:
-            return Dimen()
-        return box_height - text_height
-
     def _topskip_dimen(self):
         try:
             topskip = self.parser.layout["topskip"]
@@ -2067,11 +2051,6 @@ class DocxBackend(reflow.Reflow):
                 continue
         return v
 
-    def _capture_page(self, page):
-        glyphs: list[_Glyph] = []
-        self._capture_vlist(page, 0, 0, glyphs)
-        return glyphs
-
     @staticmethod
     def _docx_font_style(font):
         backend = getattr(font, "backend", None)
@@ -2108,9 +2087,6 @@ class DocxBackend(reflow.Reflow):
         if getattr(backend, "kind", None) == "opentype" and cls._docx_usable_font_name(name):
             return name
         return _DOCX_DEFAULT_TEXT_FONT
-
-    def _apply_run_font(self, run, font):
-        self._apply_run_font_with_options(run, font, allow_word_kerning=True)
 
     def _apply_run_font_with_options(self, run, font, allow_word_kerning=True):
         if font is None:
@@ -2361,38 +2337,6 @@ class DocxBackend(reflow.Reflow):
         removed_twips = self._spacing_twips(removed_spaces * nominal)
         return left.spacing_twips + right.spacing_twips + removed_twips
 
-    def _glyphs_by_baseline(self, glyphs):
-        lines = {}
-        for glyph in glyphs:
-            lines.setdefault(glyph.y, []).append(glyph)
-        return lines
-
-    @staticmethod
-    def _paragraph_first_indent(owner):
-        items = getattr(owner, "list", None) or ()
-        if not items:
-            return Dimen()
-        first = items[0]
-        if isinstance(first, bx.IndentBox):
-            return Dimen(first.width)
-        return Dimen()
-
-    @staticmethod
-    def _line_starts_with_indent_box(line_box, indent_width):
-        if indent_width <= 0:
-            return False
-        items = getattr(line_box, "list", None) or ()
-        for node in items:
-            node_type = getattr(node, "node_type", None)
-            if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
-                continue
-            if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                width = Dimen(getattr(node, "width", 0))
-                if width == indent_width and not DocxBackend._node_has_inline_text(node):
-                    return True
-            return False
-        return False
-
     def _walk_hlist(self, box, baseline):
         """
         Yield paragraph-owned line events in reading order.
@@ -2503,175 +2447,6 @@ class DocxBackend(reflow.Reflow):
                 v += int(getattr(node, "height", 0) + getattr(node, "depth", 0))
                 continue
 
-    def _page_flow_specs(self, page, glyphs):
-        current = None
-        pending_gap = Dimen()
-        first_body_emitted = False
-        initial_top_offset = self._initial_page_top_offset(page)
-        region_map = self._page_region_map(page)
-        text_top, text_bottom = self._page_text_vertical_bounds(page)
-        line_map = self._glyphs_by_baseline(glyphs)
-        paragraph_math_state = None
-        emitted_alignments = set()
-
-        def consume_space_before(region):
-            nonlocal pending_gap, first_body_emitted
-            gap = pending_gap
-            if region == "body" and not first_body_emitted and initial_top_offset > 0:
-                gap = gap - initial_top_offset
-                if gap < 0:
-                    gap = Dimen()
-            pending_gap = Dimen()
-            if region == "body":
-                first_body_emitted = True
-            return self._nonnegative_dimen(gap)
-
-        for event in self._walk_vlist(page, 0):
-            kind = event[0]
-            if kind == "line":
-                line = event[1]
-                line_top, line_bottom = self._line_vertical_bounds(line)
-                line_region = region_map.get(
-                    id(line.box),
-                    self._flow_region_from_bounds(line_top, line_bottom, text_top, text_bottom),
-                )
-                alignment_info = self._line_alignment_info(line.box)
-                if alignment_info is not None:
-                    owner = alignment_info[0]
-                    is_math_alignment = self._alignment_is_math(owner)
-                    owner_key = id(owner)
-                    if owner_key in emitted_alignments:
-                        pending_gap = Dimen()
-                        continue
-                    if current is not None:
-                        self._flush_pending_inline_math(current, paragraph_math_state)
-                        yield current
-                        current = None
-                        paragraph_math_state = None
-                    # Prefer the explicit display-alignment node event (`kind == "alignment"`),
-                    # which carries full container geometry for amsmath align-like displays.
-                    if is_math_alignment:
-                        continue
-                    yield _AlignmentSpec(
-                        owner=owner,
-                        box=alignment_info[1],
-                        display=is_math_alignment,
-                        space_before=consume_space_before(line_region),
-                        leading_indent=self._nonnegative_dimen(alignment_info[2]),
-                        region=line_region,
-                    )
-                    emitted_alignments.add(owner_key)
-                    pending_gap = Dimen()
-                    continue
-                if (
-                    current is None
-                    or line.owner is not current.owner
-                    or current.region != line_region
-                ):
-                    if current is not None:
-                        self._flush_pending_inline_math(current, paragraph_math_state)
-                        yield current
-                    current = _ParagraphSpec(
-                        owner=line.owner,
-                        space_before=consume_space_before(line_region),
-                        first_line_indent=Dimen(),
-                        region=line_region,
-                    )
-                    paragraph_math_state = _InlineMathState()
-                else:
-                    current.interline_gaps.append(self._nonnegative_dimen(pending_gap))
-                line_runs = self._runs_from_line_box(line.box, paragraph_math_state)
-                if not line_runs:
-                    line_runs = self._runs_from_box(line.box, paragraph_math_state)
-                if not line_runs:
-                    line_runs = self._runs_from_glyphs(line_map.get(line.baseline, ()))
-                if not line_runs:
-                    continue
-                if not current.lines:
-                    line_runs = self._leading_empty_box_to_spacing(line_runs)
-                line_segments = self._segment_mixed_line_runs(line_runs)
-                current.lines.append(
-                    _LineSpec(
-                        runs=line_runs,
-                        box=line.box,
-                        segments=line_segments,
-                    )
-                )
-                pending_gap = Dimen()
-                continue
-            if kind == "display":
-                if current is not None:
-                    self._flush_pending_inline_math(current, paragraph_math_state)
-                    yield current
-                    current = None
-                    paragraph_math_state = None
-                display_box = event[2]
-                display_baseline = int(event[3]) if len(event) > 3 else int(getattr(display_box, "height", 0))
-                display_region = self._flow_region_from_bounds(
-                    display_baseline - int(getattr(display_box, "height", 0)),
-                    display_baseline + int(getattr(display_box, "depth", 0)),
-                    text_top,
-                    text_bottom,
-                )
-                display_region = region_map.get(id(display_box), display_region)
-                yield _DisplayMathSpec(
-                    owner=event[1],
-                    box=display_box,
-                    page=page,
-                    space_before=consume_space_before(display_region),
-                    region=display_region,
-                )
-                pending_gap = Dimen()
-                continue
-            if kind == "alignment":
-                owner = event[1]
-                owner_key = id(owner)
-                if owner_key in emitted_alignments:
-                    pending_gap = Dimen()
-                    continue
-                if current is not None:
-                    self._flush_pending_inline_math(current, paragraph_math_state)
-                    yield current
-                    current = None
-                    paragraph_math_state = None
-                align_box = event[3] if len(event) > 3 else None
-                align_top = int(event[4]) if len(event) > 4 else 0
-                align_bottom = align_top + int(getattr(align_box, "height", 0) + getattr(align_box, "depth", 0))
-                align_region = self._flow_region_from_bounds(align_top, align_bottom, text_top, text_bottom)
-                if align_box is not None:
-                    align_region = region_map.get(id(align_box), align_region)
-                yield _AlignmentSpec(
-                    owner=owner,
-                    box=align_box,
-                    display=bool(event[2]) or self._alignment_is_math(owner),
-                    space_before=consume_space_before(align_region),
-                    region=align_region,
-                )
-                emitted_alignments.add(owner_key)
-                pending_gap = Dimen()
-                continue
-            if kind == "penalty":
-                continue
-            if kind in ("glue", "kern"):
-                node = event[1]
-                amount = event[2]
-                if current is not None and kind == "glue" and getattr(node, "name", None) == "parskip":
-                    self._flush_pending_inline_math(current, paragraph_math_state)
-                    yield current
-                    current = None
-                    paragraph_math_state = None
-                pending_gap += amount
-                continue
-            if current is not None:
-                self._flush_pending_inline_math(current, paragraph_math_state)
-                yield current
-                current = None
-                paragraph_math_state = None
-                pending_gap = Dimen()
-        if current is not None:
-            self._flush_pending_inline_math(current, paragraph_math_state)
-            yield current
-
     @staticmethod
     def _xml_space_attr(text):
         return ' xml:space="preserve"' if text[:1].isspace() or text[-1:].isspace() else ""
@@ -2724,13 +2499,6 @@ class DocxBackend(reflow.Reflow):
             return symbol.char
         return None
 
-    def _math_run_xml(self, text, normal=False):
-        text = self._xml_safe_text(text)
-        if not text:
-            return ""
-        rpr = "<m:rPr><m:nor/></m:rPr>" if normal else ""
-        return f"<m:r>{rpr}<m:t{self._xml_space_attr(text)}>{escape(text)}</m:t></m:r>"
-
     def _flatten_math_text(self, field):
         if field is None:
             return ""
@@ -2765,41 +2533,6 @@ class DocxBackend(reflow.Reflow):
             return self._flatten_box_text(getattr(field, "nucleus", None))
         return ""
 
-    def _omml_group_xml(self, fields, normal=False, display_style=False):
-        return "".join(
-            self._omml_field_xml(field, normal=normal, display_style=display_style)
-            for field in fields
-            if field is not None
-        )
-
-    def _omml_script_xml(self, atom, base_xml, display_style=False):
-        sub = getattr(atom, "sub", None)
-        sup = getattr(atom, "sup", None)
-        if sub is None and sup is None:
-            return base_xml
-        base = base_xml or self._math_run_xml("")
-        if sub is not None and sup is not None:
-            return (
-                "<m:sSubSup>"
-                f"<m:e>{base}</m:e>"
-                f"<m:sub>{self._omml_field_xml(sub, display_style=display_style)}</m:sub>"
-                f"<m:sup>{self._omml_field_xml(sup, display_style=display_style)}</m:sup>"
-                "</m:sSubSup>"
-            )
-        if sub is not None:
-            return (
-                "<m:sSub>"
-                f"<m:e>{base}</m:e>"
-                f"<m:sub>{self._omml_field_xml(sub, display_style=display_style)}</m:sub>"
-                "</m:sSub>"
-            )
-        return (
-            "<m:sSup>"
-            f"<m:e>{base}</m:e>"
-            f"<m:sup>{self._omml_field_xml(sup, display_style=display_style)}</m:sup>"
-            "</m:sSup>"
-        )
-
     def _delimiter_text(self, delim):
         if delim is None:
             return ""
@@ -2808,126 +2541,6 @@ class DocxBackend(reflow.Reflow):
             return ""
         text = self._math_symbol_text(symbol)
         return "" if text is None else text
-
-    def _omml_op_xml(self, atom):
-        symbol = getattr(atom, "nucleus", None)
-        if not isinstance(symbol, mmode.MathSymbol):
-            return None
-        op_text = self._math_symbol_text(symbol)
-        if not op_text:
-            return None
-        op_text_attr = escape(op_text, {'"': "&quot;"})
-        style = getattr(atom, "typeset_style", None)
-        if style is None or style.style != mmode.MATH_STYLE.D:
-            return None
-        use_limits = atom._rule13UseLimits(style)
-        pieces = [
-            "<m:nary>",
-            "<m:naryPr>",
-            f"<m:chr m:val=\"{op_text_attr}\"/>",
-            f"<m:limLoc m:val=\"{'undOvr' if use_limits else 'subSup'}\"/>",
-            "<m:grow m:val=\"1\"/>",
-            "</m:naryPr>",
-        ]
-        sub = getattr(atom, "sub", None)
-        sup = getattr(atom, "sup", None)
-        if sub is not None:
-            pieces.append(f"<m:sub>{self._omml_field_xml(sub)}</m:sub>")
-        if sup is not None:
-            pieces.append(f"<m:sup>{self._omml_field_xml(sup)}</m:sup>")
-        pieces.append("<m:e><m:r><m:t xml:space=\"preserve\">&#160;</m:t></m:r></m:e>")
-        pieces.append("</m:nary>")
-        return "".join(pieces)
-
-    def _omml_atom_xml(self, atom, display_style=False):
-        if isinstance(atom, mmode.Op):
-            nary_xml = self._omml_op_xml(atom)
-            if nary_xml:
-                return nary_xml
-        operator_text = isinstance(atom, mmode.Op) and not isinstance(getattr(atom, "nucleus", None), mmode.MathSymbol)
-        boundary = atom._boundaryInfo() if hasattr(atom, "_boundaryInfo") else None
-        if boundary is not None:
-            left_delim, right_delim, body_items = boundary
-            base_xml = (
-                self._math_run_xml(self._delimiter_text(left_delim), normal=operator_text)
-                + self._omml_group_xml(body_items, normal=operator_text, display_style=display_style)
-                + self._math_run_xml(self._delimiter_text(right_delim), normal=operator_text)
-            )
-        else:
-            base_xml = self._omml_field_xml(
-                getattr(atom, "nucleus", None),
-                normal=operator_text,
-                display_style=display_style,
-            )
-        if getattr(atom, "left", None) is not None:
-            base_xml = self._math_run_xml(self._delimiter_text(atom.left), normal=operator_text) + base_xml
-        if getattr(atom, "right", None) is not None:
-            base_xml += self._math_run_xml(self._delimiter_text(atom.right), normal=operator_text)
-        return self._omml_script_xml(atom, base_xml, display_style=display_style)
-
-    def _omml_field_xml(self, field, normal=False, display_style=False):
-        if field is None or isinstance(field, mmode.StyleNode):
-            return ""
-        if isinstance(field, str):
-            return self._math_run_xml(field, normal=normal)
-        node_type = getattr(field, "node_type", None)
-        if node_type in (
-            nd.NODE_TYPE.WHATSIT,
-            nd.NODE_TYPE.PENALTY,
-        ):
-            return ""
-        if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN):
-            return ""
-        if isinstance(field, mmode.MathSymbol):
-            return self._math_run_xml(self._math_symbol_text(field), normal=normal)
-        if isinstance(field, (mmode.MathListHolder, mmode.Subformula, mmode.InlineMathNode, mmode.DisplayMathNode)):
-            return self._omml_group_xml(getattr(field, "list", ()), normal=normal, display_style=display_style)
-        if isinstance(field, mmode.Over):
-            num, den, _bar, _thickness = field.nucleus
-            frac_xml = (
-                "<m:f>"
-                f"<m:num>{self._omml_group_xml(getattr(num, 'list', ()), display_style=display_style)}</m:num>"
-                f"<m:den>{self._omml_group_xml(getattr(den, 'list', ()), display_style=display_style)}</m:den>"
-                "</m:f>"
-            )
-            if getattr(field, "delims", None) is not None:
-                left_delim, right_delim = field.delims
-                frac_xml = (
-                    self._math_run_xml(self._delimiter_text(left_delim), normal=normal)
-                    + frac_xml
-                    + self._math_run_xml(self._delimiter_text(right_delim), normal=normal)
-                )
-            return self._omml_script_xml(field, frac_xml, display_style=display_style)
-        if isinstance(field, mmode.Rad):
-            base_xml = (
-                "<m:rad>"
-                "<m:radPr><m:degHide m:val=\"1\"/></m:radPr>"
-                f"<m:e>{self._omml_field_xml(field.oprand, display_style=display_style)}</m:e>"
-                "</m:rad>"
-            )
-            return self._omml_script_xml(field, base_xml, display_style=display_style)
-        if isinstance(field, mmode.Accent):
-            accent = getattr(field, "accent", None)
-            base_xml = self._omml_field_xml(field.base, display_style=display_style)
-            if not base_xml:
-                return ""
-            if accent is not None:
-                accent_char = self._xml_safe_text(accent.char)
-                if not accent_char:
-                    return self._omml_script_xml(field, base_xml, display_style=display_style)
-                accent_char = escape(accent_char, {'"': "&quot;"})
-                base_xml = (
-                    "<m:acc>"
-                    f"<m:accPr><m:chr m:val=\"{accent_char}\"/></m:accPr>"
-                    f"<m:e>{base_xml}</m:e>"
-                    "</m:acc>"
-                )
-            return self._omml_script_xml(field, base_xml, display_style=display_style)
-        if isinstance(field, mmode.Atom):
-            return self._omml_atom_xml(field, display_style=display_style)
-        if isinstance(field, mmode.Box):
-            return self._math_run_xml(self._flatten_box_text(getattr(field, "nucleus", None)), normal=normal)
-        return ""
 
     def _flatten_box_text(self, box):
         if box is None:
@@ -2941,38 +2554,6 @@ class DocxBackend(reflow.Reflow):
             if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 parts.append(self._flatten_box_text(node))
         return "".join(parts)
-
-    def _display_math_content_xml(self, fields, box, line_depth=None, total_height=None):
-        effective_depth = Dimen(getattr(box, "depth", 0))
-        if line_depth is not None and line_depth > effective_depth:
-            effective_depth = Dimen(line_depth)
-        ppr = "<w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>"
-        inner = self._omml_group_xml(fields)
-        prefix = ""
-        first_field = next((field for field in fields if field is not None), None)
-        if (
-            isinstance(first_field, mmode.Op)
-            and isinstance(getattr(first_field, "nucleus", None), mmode.MathSymbol)
-            and getattr(getattr(first_field, "typeset_style", None), "style", None) == mmode.MATH_STYLE.D
-        ):
-            prefix = (
-                "<w:r>"
-                "<w:rPr><w:noProof/><w:vanish/></w:rPr>"
-                "<w:t xml:space=\"preserve\"> </w:t>"
-                "</w:r>"
-            )
-        if inner:
-            body = f"<w:p>{ppr}{prefix}<m:oMathPara><m:oMath>{inner}</m:oMath></m:oMathPara></w:p>"
-            return f"<w:txbxContent>{body}</w:txbxContent>"
-        text = self._xml_safe_text(self._flatten_box_text(box))
-        if not text:
-            return "<w:txbxContent><w:p/></w:txbxContent>"
-        body = (
-            f"<w:p>{ppr}<w:r><w:rPr><w:noProof/></w:rPr>"
-            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
-            "</w:r></w:p>"
-        )
-        return f"<w:txbxContent>{body}</w:txbxContent>"
 
     def _display_math_run_xml(self, story_part, box, line_depth=None, total_height=None):
         effective_depth = Dimen(getattr(box, "depth", 0))
@@ -3254,48 +2835,6 @@ class DocxBackend(reflow.Reflow):
         delta = int(width) - nominal_width
         runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
 
-    def _append_nonbreaking_spacing_run(self, runs, width, font):
-        width = self._coerce_dimen(width)
-        if width <= 0:
-            return
-        nominal_width = self._space_width(font)
-        delta = int(width) - nominal_width
-        runs.append(_TextRun("\u00A0", font, spacing_twips=self._spacing_twips(delta)))
-
-    def _leading_empty_box_to_spacing(self, runs):
-        runs = list(runs)
-        if not runs:
-            return runs
-        first = runs[0]
-        if not isinstance(first, _InlineBoxRun):
-            return runs
-        if first.chunks:
-            return runs
-        if self._inline_box_text(first):
-            return runs
-        width = Dimen(getattr(first.box, "width", 0))
-        if width <= 0:
-            return runs[1:]
-        font = None
-        for run in runs[1:]:
-            if isinstance(run, _TextRun):
-                if run.font is not None and not run.text.isspace():
-                    font = run.font
-                    break
-                continue
-            if isinstance(run, _InlineMathRun):
-                font = self._first_font(run.box)
-                if font is not None:
-                    break
-                continue
-            if isinstance(run, _InlineBoxRun):
-                font = self._first_font(run.box)
-                if font is not None:
-                    break
-        spacing_runs = []
-        self._append_nonbreaking_spacing_run(spacing_runs, width, font)
-        return spacing_runs + runs[1:]
-
     @classmethod
     def _can_use_box_runs(cls, box):
         items = getattr(box, "list", None) or ()
@@ -3308,9 +2847,6 @@ class DocxBackend(reflow.Reflow):
                     continue
                 return False
         return True
-
-    def _glue_is_text_space(self, items, index):
-        return self._has_text_before(items, index) and self._has_text_after(items, index)
 
     @staticmethod
     def _node_has_inline_text(node):
@@ -3362,20 +2898,6 @@ class DocxBackend(reflow.Reflow):
             if isinstance(run, _TextRun) and run.text and not run.text.isspace():
                 run.spacing_twips += spacing
                 return
-
-    @classmethod
-    def _has_text_before(cls, items, index):
-        for node in reversed(items[:index]):
-            if cls._node_has_inline_text(node):
-                return True
-        return False
-
-    @classmethod
-    def _has_text_after(cls, items, index):
-        for node in items[index + 1:]:
-            if cls._node_has_inline_text(node):
-                return True
-        return False
 
     def _space_font(self, runs, items, index):
         for run in reversed(runs):
@@ -3602,13 +3124,6 @@ class DocxBackend(reflow.Reflow):
         self._append_explicit_spacing_run(runs, trailing_kern, font)
         return runs
 
-    def _flush_pending_inline_math(self, spec, math_state):
-        if spec is None or not spec.lines or math_state is None:
-            return
-        if math_state.has_nodes():
-            spec.lines[-1].runs.extend(self._finalize_inline_math_state(math_state, line_box=spec.lines[-1].box))
-        math_state.clear()
-
     def _chunk_text(self, chunk):
         if isinstance(chunk, _TextRun):
             return chunk.text
@@ -3650,45 +3165,6 @@ class DocxBackend(reflow.Reflow):
             if node_type == nd.NODE_TYPE.VLIST:
                 line_boxes.extend(self._vbox_inline_line_boxes(node))
         return line_boxes
-
-    def _inline_box_multiline_runs(self, box_run):
-        box = box_run.box
-        node_type = getattr(box, "node_type", None)
-        if node_type == nd.NODE_TYPE.VLIST:
-            return self._vbox_inline_line_runs(box)
-        if node_type != nd.NODE_TYPE.HLIST:
-            return []
-        vchildren = [
-            child
-            for child in getattr(box, "list", None) or ()
-            if getattr(child, "node_type", None) == nd.NODE_TYPE.VLIST
-        ]
-        if not vchildren:
-            return []
-        lines = []
-        for child in vchildren:
-            lines.extend(self._vbox_inline_line_runs(child))
-        return lines
-
-    def _inline_box_multiline_line_measure(self, box_run):
-        box = box_run.box
-        node_type = getattr(box, "node_type", None)
-        line_boxes = []
-        if node_type == nd.NODE_TYPE.VLIST:
-            line_boxes = self._vbox_inline_line_boxes(box)
-        elif node_type == nd.NODE_TYPE.HLIST:
-            for child in getattr(box, "list", None) or ():
-                if getattr(child, "node_type", None) == nd.NODE_TYPE.VLIST:
-                    line_boxes.extend(self._vbox_inline_line_boxes(child))
-        if not line_boxes:
-            return None
-        measure = Dimen()
-        for line_box in line_boxes:
-            measure = max(
-                measure,
-                Dimen(getattr(line_box, "height", 0) + getattr(line_box, "depth", 0)),
-            )
-        return measure if measure > 0 else None
 
     def _vbox_inline_line_specs(self, box):
         alignment_specs = self._vbox_inline_alignment_line_specs(box)
@@ -3868,15 +3344,6 @@ class DocxBackend(reflow.Reflow):
             return True
         text = self._inline_box_text(box_run)
         return bool(text and text.strip())
-
-    def _run_will_emit(self, run):
-        if isinstance(run, _TextRun):
-            return bool(self._xml_safe_text(run.text))
-        if isinstance(run, _InlineMathRun):
-            return True
-        if isinstance(run, _InlineBoxRun):
-            return self._inline_box_has_renderable_content(run)
-        return False
 
     def _run_is_visible(self, run):
         if isinstance(run, _TextRun):
@@ -4154,29 +3621,6 @@ class DocxBackend(reflow.Reflow):
             line_depth=getattr(box_run, "line_depth", 0),
             anchor="top",
         )
-
-    def _inline_math_content_xml(self, math_run):
-        box = math_run.box
-        inner = self._omml_group_xml(math_run.fields)
-        line_height = Dimen(getattr(box, "height", 0) + getattr(box, "depth", 0))
-        line_twips = self._fit_text_twips(line_height)
-        ppr = (
-            "<w:pPr>"
-            f"<w:spacing w:before=\"0\" w:after=\"0\" w:lineRule=\"exact\" w:line=\"{line_twips}\"/>"
-            "</w:pPr>"
-        )
-        if inner:
-            return f"<w:txbxContent><w:p>{ppr}<m:oMath>{inner}</m:oMath></w:p></w:txbxContent>"
-        text = self._xml_safe_text(self._flatten_box_text(box))
-        if not text:
-            return "<w:txbxContent><w:p/></w:txbxContent>"
-        run = (
-            "<w:r>"
-            f"{self._raw_run_properties_xml(font=self._first_font(box), no_proof=True)}"
-            f"<w:t{self._xml_space_attr(text)}>{escape(text)}</w:t>"
-            "</w:r>"
-        )
-        return f"<w:txbxContent><w:p>{ppr}{run}</w:p></w:txbxContent>"
 
     def _inline_math_run_xml(self, story_part, math_run):
         box = math_run.box
@@ -4813,16 +4257,6 @@ class DocxBackend(reflow.Reflow):
         tbl_ind.set(qn("w:type"), "dxa")
         tbl_ind.set(qn("w:w"), str(twips))
 
-    @classmethod
-    def _set_table_width(cls, table, width):
-        tbl_pr = table._tbl.tblPr
-        tbl_w = tbl_pr.find(qn("w:tblW"))
-        if tbl_w is None:
-            tbl_w = OxmlElement("w:tblW")
-            tbl_pr.insert(0, tbl_w)
-        tbl_w.set(qn("w:type"), "dxa")
-        tbl_w.set(qn("w:w"), str(cls._fit_text_twips(width)))
-
     def _text_block_width(self, page=None):
         hsize = Dimen(self.parser.layout["hsize"])
         if hsize > 0:
@@ -5125,54 +4559,6 @@ class DocxBackend(reflow.Reflow):
                 ),
                 page=page,
             )
-
-    def _emit_specs(self, container, specs, page, normalize_first=False):
-        normalized_first_emitted = False
-        for index, spec in enumerate(specs):
-            original = spec.space_before
-            should_normalize = (
-                normalize_first
-                and not normalized_first_emitted
-                and (
-                    (isinstance(spec, _ParagraphSpec) and bool(spec.lines))
-                    or isinstance(spec, (_DisplayMathSpec, _AlignmentSpec))
-                )
-            )
-            if should_normalize:
-                spec.space_before = Dimen()
-            self._emit_spec(container, spec, page)
-            if should_normalize:
-                normalized_first_emitted = True
-            spec.space_before = original
-
-    @staticmethod
-    def _split_region_specs(flow_specs):
-        body_specs = []
-        header_specs = []
-        footer_specs = []
-        for spec in flow_specs:
-            region = getattr(spec, "region", "body")
-            if region == "header":
-                header_specs.append(spec)
-            elif region == "footer":
-                footer_specs.append(spec)
-            else:
-                body_specs.append(spec)
-        return body_specs, header_specs, footer_specs
-
-    def _emit_section_header_footer(self, section, header_specs, footer_specs, page):
-        section.header.is_linked_to_previous = False
-        self._clear_story_content(section.header)
-        if header_specs:
-            # Header/footer stories are already positioned by section distances.
-            # Preserve internal interline spacing, but normalize the first block's
-            # external top gap to avoid reserving extra story height.
-            self._emit_specs(section.header, header_specs, page, normalize_first=True)
-
-        section.footer.is_linked_to_previous = False
-        self._clear_story_content(section.footer)
-        if footer_specs:
-            self._emit_specs(section.footer, footer_specs, page, normalize_first=True)
 
     def close(self):
         if self.finished:

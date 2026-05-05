@@ -48,7 +48,6 @@ _MATH_OPERATORS_MAP = font_subst.MATH_OPERATORS_MAP
 _MATH_LETTERS_MAP = font_subst.MATH_LETTERS_MAP
 _MATH_SYMBOLS_MAP = font_subst.MATH_SYMBOLS_MAP
 _MATH_LARGE_SYMBOLS_MAP = font_subst.MATH_LARGE_SYMBOLS_MAP
-_LOCAL_STIX_TTF = os.path.join(os.path.expanduser("~"), "Library", "Fonts", "STIXTwoMath-Regular.otf")
 
 
 @dataclass

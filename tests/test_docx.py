@@ -19,11 +19,26 @@ from pytex import node as nd
 from pytex import opentype
 from pytex import paragraph as pg
 from pytex import reflow
+from pytex import texlive
 from pytex.dimen import Dimen
 from pytex.font_backend import GlyphInfo
 from pytex.glue import Glue, Stretchness
 from pytex.parser import Parser
 from pytex.token import CATCODE
+
+
+def _local_stix_math_font_path():
+    name = "STIXTwoMath-Regular.otf"
+    user_font = os.path.join(os.path.expanduser("~"), "Library", "Fonts", name)
+    if os.path.exists(user_font):
+        return user_font
+
+    try:
+        resolver = texlive.TexliveResolver(format="plain")
+    except ValueError:
+        return None
+
+    return resolver.resolve(resolver.getInfo(name, "fonts/opentype"))
 
 
 @pytest.fixture()
@@ -1072,15 +1087,16 @@ def test_docx_reused_svg_renderer_resets_coordinates_between_boxes(parser):
 
 
 def test_docx_svg_uses_opentype_glyph_paths_for_math_chars(parser):
-    if not os.path.exists(docx._LOCAL_STIX_TTF):
+    stix_math_font = _local_stix_math_font_path()
+    if stix_math_font is None:
         pytest.skip("bundled STIX math font not available")
 
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
     ot_backend = opentype.OpenTypeBackend(
-        docx._LOCAL_STIX_TTF,
-        opentype.OpenTypeBackend._loadPath(docx._LOCAL_STIX_TTF),
-        path=docx._LOCAL_STIX_TTF,
+        stix_math_font,
+        opentype.OpenTypeBackend._loadPath(stix_math_font),
+        path=stix_math_font,
     )
     font = txfont.Font(ot_backend, Dimen(10))
     nodes = [font["∫"], font["d"], font["t"]]

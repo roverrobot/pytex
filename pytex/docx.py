@@ -371,6 +371,25 @@ class Paragraph(reflow.Paragraph):
         self.nodes.append(line)
         return line
 
+    def iter_specs(self):
+        yield self.spec
+
+    def emit(self, container, page=None, normalize_space_before=False):
+        if not self.spec.lines:
+            return False
+        original = self.spec.space_before
+        if normalize_space_before:
+            self.spec.space_before = Dimen()
+        try:
+            alignment_spec = self.backend._paragraph_alignment_spec(self.spec)
+            if alignment_spec is not None:
+                self.backend._emit_alignment(container, alignment_spec, page=page)
+            else:
+                self.backend._emit_paragraph(container, self.spec)
+        finally:
+            self.spec.space_before = original
+        return True
+
 
 class Cell(reflow.Cell):
     def __init__(self, backend, span=1, width=None, justify: str = "justify"):
@@ -411,6 +430,83 @@ class Table(reflow.Table):
     def iter_specs(self):
         yield self
 
+    def emit(self, container, page=None, normalize_space_before=False):
+        if self.owner is None:
+            return False
+        space_before = Dimen() if normalize_space_before else self.space_before
+        self.backend._emit_alignment(
+            container,
+            _AlignmentSpec(
+                owner=self.owner,
+                box=self.box,
+                space_before=space_before,
+                region=self.region,
+            ),
+            page=page,
+        )
+        return True
+
+
+class DisplayMath(reflow.Element):
+    def __init__(self, backend, spec: _DisplayMathSpec):
+        super().__init__(_ContainerNode())
+        self.backend = backend
+        self.spec = spec
+
+    def iter_specs(self):
+        yield self.spec
+
+    def emit(self, container, page=None, normalize_space_before=False):
+        original = self.spec.space_before
+        if normalize_space_before:
+            self.spec.space_before = Dimen()
+        try:
+            self.backend._emit_display_math(container, self.spec)
+        finally:
+            self.spec.space_before = original
+        return True
+
+
+class AlignmentBlock(reflow.Element):
+    def __init__(self, backend, spec: _AlignmentSpec):
+        super().__init__(_ContainerNode())
+        self.backend = backend
+        self.spec = spec
+
+    def iter_specs(self):
+        yield self.spec
+
+    def emit(self, container, page=None, normalize_space_before=False):
+        original = self.spec.space_before
+        if normalize_space_before:
+            self.spec.space_before = Dimen()
+        try:
+            self.backend._emit_alignment(container, self.spec, page=page)
+        finally:
+            self.spec.space_before = original
+        return True
+
+
+class SpecBlock(reflow.Element):
+    def __init__(self, backend, spec):
+        super().__init__(_ContainerNode())
+        self.backend = backend
+        self.spec = spec
+
+    def iter_specs(self):
+        yield self.spec
+
+    def emit(self, container, page=None, normalize_space_before=False):
+        original = getattr(self.spec, "space_before", None)
+        if normalize_space_before and original is not None:
+            self.spec.space_before = Dimen()
+        try:
+            self.backend._emit_spec(container, self.spec, page)
+        finally:
+            if original is not None:
+                self.spec.space_before = original
+        return True
+
 
 class Block(reflow.Block):
     def __init__(self, backend, region="body", inline=False, xspacing=Dimen(), yspacing=Dimen()):
@@ -422,19 +518,39 @@ class Block(reflow.Block):
     def addSpec(self, spec):
         if hasattr(spec, "region"):
             spec.region = self.region
-        self._entries.append(spec)
+        if isinstance(spec, _DisplayMathSpec):
+            entry = DisplayMath(self.backend, spec)
+        elif isinstance(spec, _AlignmentSpec):
+            entry = AlignmentBlock(self.backend, spec)
+        else:
+            entry = SpecBlock(self.backend, spec)
+        self._entries.append(entry)
+        self.nodes.append(entry)
+        return entry
 
     def iter_specs(self):
         for entry in self._entries:
-            if isinstance(entry, (Block, Table)):
+            if hasattr(entry, "iter_specs"):
                 yield from entry.iter_specs()
             else:
                 yield entry
 
+    def emit(self, container, page=None, normalize_first=False):
+        emitted = False
+        for entry in self._entries:
+            normalize = normalize_first and not emitted
+            if isinstance(entry, Block):
+                current = entry.emit(container, page=page, normalize_first=normalize)
+            else:
+                current = entry.emit(container, page=page, normalize_space_before=normalize)
+            if current:
+                emitted = True
+        return emitted
+
     def newParagraph(self, spacing_before=Dimen(), justify: str = "left") -> Paragraph:
         para = Paragraph(self.backend, spacing_before=spacing_before, justify=justify)
         para.spec.region = self.region
-        self._entries.append(para.spec)
+        self._entries.append(para)
         self.nodes.append(para)
         return para
 
@@ -481,6 +597,24 @@ class Page(reflow.Element):
     def setBackgroundColor(self, color: reflow.Color):
         pass
 
+    def emit_body(self, container):
+        return self.body.emit(container, page=self.source_page)
+
+    def emit_header_footer(self, section):
+        section.header.is_linked_to_previous = False
+        self.backend._clear_story_content(section.header)
+        self.header.emit(section.header, page=self.source_page, normalize_first=True)
+
+        section.footer.is_linked_to_previous = False
+        self.backend._clear_story_content(section.footer)
+        self.footer.emit(section.footer, page=self.source_page, normalize_first=True)
+
+    def emit(self, document, section, page_index):
+        if self.source_page is not None:
+            self.backend._configure_section(section, self.source_page, page_index=page_index)
+        self.emit_body(document)
+        self.emit_header_footer(section)
+
 
 class Document(reflow.Document):
     def __init__(self, backend, title: str, output=None):
@@ -518,20 +652,11 @@ class Document(reflow.Document):
         self.backend._remove_compatibility_mode(document)
         if self.nodes:
             for page_index, page in enumerate(self.nodes):
-                source_page = getattr(page, "source_page", None)
                 if page_index == 0:
                     section = document.sections[0]
                 else:
                     section = document.add_section(WD_SECTION_START.NEW_PAGE)
-                if source_page is not None:
-                    self.backend._configure_section(section, source_page, page_index=page_index)
-                self.backend._emit_specs(document, list(page.body.iter_specs()), source_page)
-                self.backend._emit_section_header_footer(
-                    section,
-                    list(page.header.iter_specs()),
-                    list(page.footer.iter_specs()),
-                    source_page,
-                )
+                page.emit(document, section, page_index)
         document.save(self.output)
         if hasattr(self.output, "close"):
             self.output.close()

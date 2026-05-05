@@ -281,9 +281,24 @@ def test_docx_reflow_document_interface_collects_paragraph_specs(parser):
     run.setChar(nd.CharNode("A", font))
 
     specs = list(page.body.iter_specs())
+    assert page.body._entries == [para]
     assert len(specs) == 1
     assert specs[0].space_before == Dimen(4)
     assert specs[0].lines[0].runs[0].text == "A"
+
+
+def test_docx_block_wraps_display_math_specs_in_document_tree(parser):
+    backend = docx.DocxBackend(parser)
+    document = backend.open()
+    page = document.newPage(Dimen(100), Dimen(200))
+    owner = _display_math_owner(_math_symbol("x"))
+    spec = docx._DisplayMathSpec(owner=owner, box=_FakeHBox([], owner))
+
+    entry = page.body.addSpec(spec)
+
+    assert isinstance(entry, docx.DisplayMath)
+    assert page.body.nodes[-1] is entry
+    assert list(page.body.iter_specs()) == [spec]
 
 
 def test_docx_shipout_populates_document_page_regions(parser):

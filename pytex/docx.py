@@ -3181,8 +3181,16 @@ class DocxBackend(reflow.Reflow):
             or Dimen(getattr(node, "depth", 0)) > 0
         )
 
+    @staticmethod
+    def _coerce_dimen(value):
+        if isinstance(value, Dimen):
+            return value
+        if isinstance(value, int):
+            return Dimen(integer=value)
+        return Dimen(value)
+
     def _append_explicit_spacing_run(self, runs, width, font):
-        width = Dimen(width)
+        width = self._coerce_dimen(width)
         if width <= 0:
             return
         nominal_width = self._space_width(font)
@@ -3190,7 +3198,7 @@ class DocxBackend(reflow.Reflow):
         runs.append(_TextRun(" ", font, spacing_twips=self._spacing_twips(delta)))
 
     def _append_nonbreaking_spacing_run(self, runs, width, font):
-        width = Dimen(width)
+        width = self._coerce_dimen(width)
         if width <= 0:
             return
         nominal_width = self._space_width(font)

@@ -389,6 +389,22 @@ def test_docx_converts_leading_empty_hbox_to_spacing(parser):
     assert text.replace("\u00A0", " ") == " AB"
 
 
+def test_docx_explicit_spacing_accepts_scaled_point_width(parser):
+    backend = docx.DocxBackend(parser)
+    font = _FakeFont()
+    runs = []
+
+    backend._append_explicit_spacing_run(runs, int(Dimen(6)), font)
+
+    assert runs == [
+        docx._TextRun(
+            " ",
+            font,
+            spacing_twips=backend._spacing_twips(int(Dimen(1))),
+        )
+    ]
+
+
 def test_docx_unwraps_passthrough_hlist_for_text_runs(parser):
     backend = docx.DocxBackend(parser)
     font = _FakeFont()

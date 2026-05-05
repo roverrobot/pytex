@@ -88,6 +88,14 @@ def _style(style: dict):
     return "".join([f"{key}:{val};" for key, val in style.items()])
 
 
+def _kern(kern: Dimen):
+    if int(kern) < 0:
+        style = f"display:inline-block;width:0;margin-left:{reflow.PT(kern)};height:1pt;"
+    else:
+        style = f"display:inline-block;width:{reflow.PT(kern)};height:1pt;"
+    return reflow.Element(builder.SPAN(style=style))
+
+
 class StyledNode:
     def __init__(self, node=None):
         self._style = None
@@ -134,10 +142,12 @@ class FixedAnnotation(StyledNode, reflow.Element):
 class Text(reflow.Text):
     def __init__(self):
         super().__init__(builder.SPAN(""))
+        if self._node.text is None:
+            self._node.text = ""
 
     def setKern(self, kern: Dimen):
         if int(kern) != 0:
-            self._node.text += f"<div style='display:inline;width:{kern};height:1pt'/>"
+            self.append(_kern(kern))
 
     def setChar(self, char: nd.Node):
         if char.node_type == nd.NODE_TYPE.CHAR:
@@ -172,11 +182,17 @@ class TextRun(StyledNode, reflow.TextRun):
         self.append(self.text)
         return self.text
 
+    def setKern(self, kern: Dimen):
+        if int(kern) == 0:
+            return
+        self.text = None
+        self.append(_kern(kern))
+
     def newInlineBlock(self, box: bx.Box):
         self.text = None
         div = Div(inline=True)
         if box.node_type == nd.NODE_TYPE.HLIST and int(box.width) != 0:
-            div.style["width"] = reflow.PT(box.width)
+            div.style["min-width"] = reflow.PT(box.width)
         self.append(div)
         return div
 
@@ -215,10 +231,17 @@ class Paragraph(StyledNode, reflow.Paragraph):
         self.style["width"] = "100%"
 
     def setJustify(self, justify):
+        self.style["justify"] = justify
         self.style["text-align"] = justify
         self.justify = justify
 
-    def newLine(self, line_height: Dimen=Dimen(), color: reflow.Color=reflow.Color.black, force: bool=False) -> Line:
+    def newLine(
+        self,
+        line_height: Dimen=Dimen(),
+        color: reflow.Color=reflow.Color.black,
+        force: bool=False,
+        spacing_before: Dimen=Dimen(),
+    ) -> Line:
         if force:
             self.append(reflow.Element(builder.BR()))
         elif len(self) > 0:
@@ -961,7 +984,6 @@ class HTMLReflowBackend(reflow.Reflow):
             math = self.builder.newInlineMath()
             with reflow.Builder(self, math):
                 self.typesetMList(node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
-            self.builder.append(math)
 
     def typesetDisplayMath(self, node, collection, yspacing: Dimen=Dimen()):
         math = Math(inline=False)

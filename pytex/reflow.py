@@ -19,7 +19,7 @@ import colorsys
 
 
 def PT(pt):
-    return f"{float(pt) / 72.27 * 72}pt"
+    return f"{round(float(pt) / 72.27 * 72 * 20) / 20 }pt"
 
 
 @dataclass
@@ -215,7 +215,13 @@ class Paragraph(Element):
     def setJustify(self, justify):
         pass
 
-    def newLine(self, line_height: Dimen, color: Color=Color.black, force: bool=False) -> Line:
+    def newLine(
+        self,
+        line_height: Dimen=Dimen(),
+        color: Color=Color.black,
+        force: bool=False,
+        spacing_before: Dimen=Dimen(),
+    ) -> Line:
         pass
 
 
@@ -424,8 +430,8 @@ def collect(nodes: list, source: callable):
 
 def vlist_source(node):
     while True:
-        s = node.source
-        if s is None or s.source is None:
+        s = getattr(node, "source", None)
+        if s is None or getattr(s, "source", None) is None:
             return s
         node = s
 
@@ -667,7 +673,8 @@ class Reflow(shipout.Shipout):
                 continue
             assert not isinstance(n, align.MAlignment)
             if n.node_type == nd.NODE_TYPE.VLIST:
-                h = Dimen() if n.shifted is None else n.shifted
+                shifted = getattr(n, "shifted", None)
+                h = Dimen() if shifted is None else shifted
                 self.typesetVBox(n, xspacing=h, yspacing=spacing)
                 spacing = Dimen()
                 if top_level:
@@ -675,7 +682,8 @@ class Reflow(shipout.Shipout):
                 continue
             if n.node_type == nd.NODE_TYPE.HLIST:
                 # this hbox is manually constructed (i.e., without a source)
-                h = Dimen() if n.shifted is None else n.shifted
+                shifted = getattr(n, "shifted", None)
+                h = Dimen() if shifted is None else shifted
                 self.typesetHBox(n, xspacing=h, yspacing=spacing)
                 spacing = Dimen()
                 if top_level:
@@ -708,7 +716,8 @@ class Reflow(shipout.Shipout):
         self._require_builder("typesetHBox", "newBlock")
         # this method is called for a standalone (manually constructed) hbox. We treat it as paragraph.
         self.box_stack.append(box)
-        shifted = Dimen() if box.shifted is None else box.shifted
+        shifted_value = getattr(box, "shifted", None)
+        shifted = Dimen() if shifted_value is None else shifted_value
         h = xspacing + shifted
         # we start a new paragraph:
         div: Block = self.builder.newBlock(h, yspacing)
@@ -762,7 +771,7 @@ class Reflow(shipout.Shipout):
         for row in node.rows:
             tr = table.newRow()
             with Builder(self, tr):
-                if spacers[0] != 0.0:
+                if spacers:
                     self.builder.newCell(width=spacers[0])
                 col = 1
                 for cell in row.cells:
@@ -772,7 +781,7 @@ class Reflow(shipout.Shipout):
                         line = para.newLine(cell.height+cell.depth, self.color)
                         with LineBuilder(self, line):
                             self.typesetLine(cell)
-                    if col < len(spacers) and spacers[col] != 0.0:
+                    if col < len(spacers):
                         self.builder.newCell(width=spacers[col])
                     col += cell.span
                 if row.noalign:
@@ -795,7 +804,8 @@ class Reflow(shipout.Shipout):
                     return total.stretch.factor, True
             return total.stretch.factor, False
 
-        order = 0 if box.natural is None else box.natural.stretch.order
+        natural = getattr(box, "natural", None)
+        order = 0 if natural is None else natural.stretch.order
         if order == 0:
             return "justify"
         left, met = find_glue(box.list, order)
@@ -843,17 +853,24 @@ class Reflow(shipout.Shipout):
                     para.inline_math_node = inline_math_node
                     pb = ParagraphBuilder(self, para)
                     pb.enter()
-                line = para.newLine(spacing + n.height + n.depth, self.color)
+                line = para.newLine(n.height + n.depth, self.color, spacing_before=spacing)
                 with LineBuilder(self, line):
                     self.typesetLine(n, spacing)
                 spacing = Dimen()
         pb.exit()
 
-    def typesetLine(self, line: bx.HBox, yspacing: Dimen=Dimen()):
+    def typesetLine(self, line: bx.HBox, yspacing: Dimen=Dimen(), glue_state=None):
         def start_text_run():
             reset_text_run = getattr(self.builder, "resetTextRun", None)
             if reset_text_run is not None:
                 reset_text_run()
+
+        def set_text_kern(text_run, kern):
+            set_kern = getattr(text_run, "setKern", None)
+            if set_kern is not None:
+                set_kern(kern)
+            elif kern != 0:
+                text_run.setSpace(kern)
 
         def typeset_inline_math(node: mmode.InlineMathNode, math_box, piece):
             if len(node.list) == 1:
@@ -891,14 +908,22 @@ class Reflow(shipout.Shipout):
                 math.spread = width - math.natural.dimen
             return math
 
-        assert isinstance(self.builder, (LineBuilder, AnnotationBuilder))
+        assert isinstance(self.builder, (LineBuilder, AnnotationBuilder)) or isinstance(line, (list, tuple))
         self._require_builder("typesetLine", "newTextRun")
-        glue_state = self._glue_state(line)
-        if line.natural is not None:
-            glue_order = line.natural.stretch.order
-            glue_total = int(line.natural.stretch.factor)
+        if isinstance(line, (list, tuple)):
+            nodes = list(line)
+            natural = None
+        else:
+            nodes = line.list if self.paginate else self._hbox_line_nodes(line)
+            natural = getattr(line, "natural", None)
+            if glue_state is None:
+                glue_state = self._glue_state(line)
+        glue_order = 0
+        glue_total = 0
+        if natural is not None:
+            glue_order = natural.stretch.order
+            glue_total = int(natural.stretch.factor)
         inline_math_nodes = []
-        nodes = line.list if self.paginate else self._hbox_line_nodes(line)
         for n in nodes:
             node_type = n.node_type
             if self.paragraph.inline_math_segment > 0:
@@ -908,7 +933,7 @@ class Reflow(shipout.Shipout):
                     math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
                     with Builder(self, text_run):
                         typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
-                    text_run.setKern(n.kern)
+                    set_text_kern(text_run, n.kern)
                     inline_math_nodes = []
                     self.paragraph.inline_math_segment = 0
                     self.paragraph.inline_math_node = None
@@ -925,7 +950,7 @@ class Reflow(shipout.Shipout):
                     text_run.setSpace(width)
             elif node_type == nd.NODE_TYPE.KERN:
                 text_run = self.builder.text_run
-                text_run.setSpace(n.kern)
+                set_text_kern(text_run, n.kern)
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 self.builder.setFont(n.font)
                 text_run = self.builder.text_run

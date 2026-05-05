@@ -10,6 +10,7 @@ from pytex import glue
 from pytex import html_reflow
 from pytex import mmode
 from pytex import node as nd
+from pytex import paragraph as pg
 from pytex import reflow
 from pytex.dimen import Dimen
 
@@ -78,6 +79,12 @@ def _node_box(parser, nodes, width=None):
     return hbox.typeset(parser)
 
 
+def _line_box(parser, nodes, owner=None, width=None):
+    hbox = _node_box(parser, nodes, width=width)
+    hbox.source = owner
+    return hbox
+
+
 def _ord_atom(char):
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
     atom.nucleus = mmode.MathSymbol(ord(char), -1)
@@ -121,7 +128,7 @@ def test_reflow_generic_interface_builds_parent_created_tree():
     assert block.nodes == [paragraph]
     assert paragraph.nodes == [line]
     assert line.nodes == [run]
-    assert run.node.text == "A"
+    assert ">A<" in _render(run)
 
 
 def test_html_reflow_close_writes_document_head(parser):
@@ -134,6 +141,8 @@ def test_html_reflow_close_writes_document_head(parser):
     assert '<html lang="en">' in html
     assert '<meta charset="utf-8">' in html
     assert "<title>reflow-head</title>" in html
+    assert "<head style=" not in html
+    assert "<style>" in html
     assert "math{font-family:" in html
     assert "<body>" in html
     assert "<div>x</div>" in html
@@ -188,6 +197,20 @@ def test_html_reflow_text_run_collects_characters_and_color():
     assert "color:rgb(63,127,191);" in rendered
     assert "font-size:" in rendered
     assert ">A B<" in rendered
+
+
+def test_html_reflow_text_kern_is_real_inline_node_not_escaped_text():
+    font = _fake_font(subst_font_name="Times New Roman")
+    text = html_reflow.TextRun(font, reflow.Color.black)
+    text.setChar(_char("A", font))
+    text.setKern(Dimen(-2))
+    text.setChar(_char("B", font))
+
+    rendered = _render(text)
+    assert "&lt;" not in rendered
+    assert "display:inline-block;" in rendered
+    assert "margin-left:" in rendered
+    assert rendered.index(">A<") < rendered.index("display:inline-block;") < rendered.index(">B<")
 
 
 def test_html_reflow_bundles_local_opentype_font(parser, tmp_path):
@@ -271,6 +294,63 @@ def test_html_reflow_wraps_gotor_annotation_as_external_link(parser):
     assert 'href="other.pdf#sec.2"' in html
 
 
+def test_html_reflow_reopens_line_spanning_annotation_per_line(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    owner = pg.Paragraph(parser, indent=False)
+    line1 = _line_box(
+        parser,
+        [
+            nd.Special("pdf: beginann <</Type/Annot/Subtype/Link/A<</S/GoTo/D(target.1)>>>>"),
+            _char("A", font),
+        ],
+        owner,
+    )
+    line2 = _line_box(
+        parser,
+        [
+            _char("B", font),
+            nd.Special("pdf: endann"),
+            _char("C", font),
+        ],
+        owner,
+    )
+    backend, body = _open_body(parser)
+    with reflow.Builder(backend, body):
+        para = body.newParagraph()
+        backend.typesetParagraph(para, owner, [line1, line2])
+
+    html = _render(body)
+    assert html.count('href="#target.1"') == 2
+    assert html.index(">A<") < html.index(">B<") < html.index(">C<")
+    assert html.rindex('href="#target.1"') < html.index(">C<")
+
+
+def test_html_reflow_multiline_inline_math_emits_first_piece_once(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    owner = pg.Paragraph(parser, indent=False)
+    inline = mmode.InlineMathNode(nodes=[_ord_atom("x"), _ord_atom("y")])
+    on = nd.MathShift(True)
+    on.source = inline
+    on.kern = Dimen()
+    off = nd.MathShift(False)
+    off.source = inline
+    off.kern = Dimen()
+
+    line1 = _line_box(parser, [_char("A", font), on, _char("x", font)], owner)
+    line2 = _line_box(parser, [_char("y", font), off, _char("B", font)], owner)
+    backend, body = _open_body(parser)
+    with reflow.Builder(backend, body):
+        para = body.newParagraph()
+        backend.typesetParagraph(para, owner, [line1, line2])
+
+    html = _render(body)
+    assert html.count("<math") == 1
+    assert ">A<" in html
+    assert ">B<" in html
+    assert ">xy<" in html
+    assert html.index(">A<") < html.index("<math") < html.index(">B<")
+
+
 def test_html_reflow_hbox_renders_inside_builder_context(parser):
     font = _fake_font(subst_font_name="Times New Roman")
     hfil = glue.Glue(0, glue.Stretchness(2, 1))
@@ -299,6 +379,23 @@ def test_html_reflow_hbox_strips_edge_glue_used_for_justify(parser):
     assert ">A<" in html
     assert "> A<" not in html
     assert ">A <" not in html
+
+
+def test_html_reflow_paragraph_keeps_tex_line_nodes_separate(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    owner = pg.Paragraph(parser, indent=False)
+    line1 = _line_box(parser, [_char("A", font)], owner)
+    line2 = _line_box(parser, [_char("B", font)], owner)
+    backend, body = _open_body(parser)
+
+    with reflow.Builder(backend, body):
+        para = body.newParagraph()
+        backend.typesetParagraph(para, owner, [line1, nd.Glue(glue.Glue(Dimen(4)), None), line2])
+
+    lines = [node for node in para.nodes if isinstance(node, html_reflow.Line)]
+    assert len(lines) == 2
+    assert lines[0].lign_height == line1.height + line1.depth
+    assert lines[1].lign_height == line2.height + line2.depth
 
 
 def test_html_reflow_hbox_requires_current_builder(parser):

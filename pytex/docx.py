@@ -25,7 +25,6 @@ from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
-from pytex import svg
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.font_backend import GlyphInfo
 from pytex.module import Module
@@ -127,6 +126,8 @@ class _LineSpec:
     runs: list[object]
     box: object | None = None
     segments: list[object] = field(default_factory=list)
+    line_height: Dimen = field(default_factory=Dimen)
+    gap_before: Dimen = field(default_factory=Dimen)
 
 
 @dataclass
@@ -175,11 +176,21 @@ def _docx_font_backend_name(backend):
 
 
 def _resolve_parser_docx_math_backend(parser):
+    if parser is None or not getattr(parser, "_docx_math_enabled", False):
+        return None
     return font_subst.resolveMathFontBackend(parser)
 
 
 class _DocxMathFont(font_subst.MathFont):
-    pass
+    @classmethod
+    def new(cls, parser, at, name, kind=None, family=0):
+        backend = parser.loadFontBackend(name, kind=kind)
+        return cls(backend, at, family)
+
+    def saveInfo(self):
+        init, state = super().saveInfo()
+        init["family"] = self.family
+        return init, state
 
 
 class _DocxMathFontArray(txfont.MathFontArray):
@@ -218,8 +229,23 @@ class _DocxMathFontArray(txfont.MathFontArray):
         super().setGlobal(index, self._wrapMathFont(index, value))
 
 
-font_subst.MathFont = _DocxMathFont
-font_subst.MathFontArray = _DocxMathFontArray
+def _install_docx_math_font_arrays(parser):
+    for name in ("textfont", "scriptfont", "scriptscriptfont"):
+        current = getattr(parser, name, None)
+        if isinstance(current, _DocxMathFontArray):
+            current.state = parser
+            current._backend = None
+            continue
+        wrapped = _DocxMathFontArray(name, state=parser, default=txfont.nullfont)
+        if current is not None:
+            wrapped.list[:] = list(getattr(current, "list", wrapped.list))
+            wrapped.dict.update(getattr(current, "dict", {}))
+        setattr(parser, name, wrapped)
+        parser.arrays[name] = wrapped
+        accessor = parser.builtin.get("\\" + name)
+        if accessor is not None:
+            accessor.domain = wrapped
+
 
 for _font_domain in ("textfont", "scriptfont", "scriptscriptfont"):
     txfont.mod.domains[_font_domain]["generator"] = (
@@ -257,21 +283,55 @@ class TextRun(reflow.TextRun):
     def setKern(self, kern: Dimen):
         if kern == 0:
             return
+        if self.line.spec.runs and isinstance(self.line.spec.runs[-1], (_InlineBoxRun, _InlineMathRun)):
+            self.backend._append_explicit_spacing_run(self.line.spec.runs, kern, self.font)
+            self._restart_chunk()
+            return
         self.backend._apply_text_kern(self.line.spec.runs, kern)
 
     def setSpace(self, width):
         self.backend._append_explicit_spacing_run(self.line.spec.runs, width, self.font)
         self._restart_chunk()
 
+    def setSpring(self, width, percent):
+        self.setSpace(width)
+
     def setChar(self, char: nd.Node):
         self.chunk.text += self.backend._glyph_text(char)
 
+    def newInlineBlock(self, box: bx.Box):
+        run = _InlineBoxRun(box, [], Dimen(getattr(box, "depth", 0)))
+        self.line.spec.runs.append(run)
+        block = Block(self.backend, inline=True, xspacing=Dimen(), yspacing=Dimen())
+        self.nodes.append(block)
+        self.node.append(block.node)
+        return block
+
+    def newInlineMath(self):
+        run = _InlineMathRun(box=None)
+        self.line.spec.runs.append(run)
+        return run
+
 
 class Line(reflow.Line):
-    def __init__(self, backend, justify="justify", box=None):
-        super().__init__(_ContainerNode(), justify)
+    def __init__(
+        self,
+        backend,
+        line_height=Dimen(),
+        color: reflow.Color = reflow.Color.black,
+        justify="justify",
+        box=None,
+        gap_before=Dimen(),
+    ):
+        super().__init__(_ContainerNode(), line_height, color)
         self.backend = backend
-        self.spec = _LineSpec(runs=[], box=box)
+        self.justify = justify
+        self.spec = _LineSpec(
+            runs=[],
+            box=box,
+            line_height=Dimen(line_height),
+            gap_before=Dimen(gap_before),
+        )
 
     def newTextRun(self, font, color) -> TextRun:
         run = TextRun(self.backend, self, font, color)
@@ -297,21 +357,32 @@ class Line(reflow.Line):
 
 
 class Paragraph(reflow.Paragraph):
-    def __init__(self, backend, spacing_before=Dimen(), justify="justify", reflow_lines=True):
-        super().__init__(_ContainerNode(), reflow_lines, spacing_before, justify)
+    def __init__(self, backend, spacing_before=Dimen(), justify="justify"):
+        super().__init__(_ContainerNode(), spacing_before, justify)
         self.backend = backend
         self.spec = _ParagraphSpec(owner=None, space_before=spacing_before)
 
-    def newLine(self):
-        line = Line(self.backend, justify=self.justify)
+    def setJustify(self, justify):
+        self.justify = justify
+
+    def newLine(
+        self,
+        line_height: Dimen=Dimen(),
+        color: reflow.Color=reflow.Color.black,
+        force: bool=False,
+        spacing_before: Dimen=Dimen(),
+    ):
+        line = Line(
+            self.backend,
+            line_height=line_height,
+            color=color,
+            justify=self.justify,
+            gap_before=spacing_before,
+        )
         self.spec.lines.append(line.spec)
         self.nodes.append(line)
         self.node.append(line.node)
         return line
-
-    def setLineSpacing(self, spacing: Dimen):
-        gaps = max(len(self.spec.lines) - 1, 0)
-        self.spec.interline_gaps = [Dimen(spacing) for _ in range(gaps)]
 
 
 class Cell(reflow.Cell):
@@ -342,12 +413,19 @@ class Table(reflow.Table):
     def __init__(self, backend, xspacing=Dimen(), yspacing=Dimen()):
         super().__init__(_ContainerNode(), xspacing=xspacing, yspacing=yspacing)
         self.backend = backend
+        self.owner = None
+        self.box = None
+        self.space_before = Dimen(yspacing)
+        self.region = "body"
 
     def newRow(self) -> Row:
         row = Row(self.backend)
         self.nodes.append(row)
         self.node.append(row.node)
         return row
+
+    def iter_specs(self):
+        yield self
 
 
 class Block(reflow.Block):
@@ -379,6 +457,7 @@ class Block(reflow.Block):
 
     def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
         table = Table(self.backend, xspacing=xspacing, yspacing=yspacing)
+        table.region = self.region
         self._entries.append(table)
         self.nodes.append(table)
         self.node.append(table.node)
@@ -395,10 +474,12 @@ class Block(reflow.Block):
         return None
 
 
-class Page(reflow.Page):
+class Page(reflow.Element):
     def __init__(self, backend, width: Dimen, height: Dimen):
-        super().__init__(_ContainerNode(), width, height)
+        super().__init__(_ContainerNode())
         self.backend = backend
+        self.width = width
+        self.height = height
         self.source_page = None
         self._header = Block(backend, region="header")
         self._body = Block(backend, region="body")
@@ -424,11 +505,25 @@ class Document(reflow.Document):
     def __init__(self, backend, title: str, output=None):
         super().__init__(_ContainerNode(), title, output)
         self.backend = backend
+        self.current_page = None
+
+    @property
+    def header(self) -> Block:
+        return self.current_page.header
+
+    @property
+    def body(self) -> Block:
+        return self.current_page.body
+
+    @property
+    def footer(self) -> Block:
+        return self.current_page.footer
 
     def newPage(self, width: Dimen, height: Dimen) -> Page:
         page = Page(self.backend, width, height)
         self.nodes.append(page)
         self.node.append(page.node)
+        self.current_page = page
         return page
 
     def defineFont(self, font):
@@ -479,7 +574,9 @@ class DocxBackend(reflow.Reflow):
     """
 
     def __init__(self, parser, output=None):
-        super().__init__(parser, paginate=False)
+        super().__init__(parser, paginate=True)
+        self.parser._docx_math_enabled = True
+        _install_docx_math_font_arrays(self.parser)
         self.output = output
         self.file = None
         self.finished = False
@@ -487,30 +584,156 @@ class DocxBackend(reflow.Reflow):
         self._docx_math_font = None
         self._docx_next_drawing_id = 1
         self._docx_next_textbox_id = 1
-        self._svg_shipout = None
+        self.page = None
 
-    def shipout(self, box):
-        if box.width is None:
-            packed = []
-            box.typeset(self.parser, packed)
-            box = packed[-1]
-        if self.document is None:
-            self.document = self.open()
-        self.pages.append(box)
-        glyphs = self._capture_page(box)
-        self._captured_pages.append(glyphs)
+    def begin_page(self, box):
         self.page = self.document.newPage(box.width, box.height)
         self.page.source_page = box
-        for spec in self._page_flow_specs(box, glyphs):
-            region = getattr(spec, "region", "body")
-            if region == "header":
-                target = self.page.header
-            elif region == "footer":
-                target = self.page.footer
-            else:
-                target = self.page.body
-            target.addSpec(spec)
+
+    def end_page(self, box):
         self.page = None
+        self.document.current_page = None
+
+    def _region_vlist_nodes(self, box, target_region):
+        if box is None:
+            return []
+        if getattr(box, "node_type", None) != nd.NODE_TYPE.VLIST:
+            return [box] if target_region == "body" else []
+        region_map = self._page_region_map(box)
+        text_top, text_bottom = self._page_text_vertical_bounds(box)
+        glue_state = self._glue_state(box)
+        nodes = []
+        pending = []
+        v = 0
+        for node in getattr(box, "list", None) or ():
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                pending.append(node)
+                v += self._effective_glue_amount(node, box, glue_state)
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                pending.append(node)
+                v += int(getattr(node, "kern", 0))
+                continue
+            if node_type in (nd.NODE_TYPE.PENALTY, nd.NODE_TYPE.WHATSIT):
+                pending.append(node)
+                continue
+
+            height = int(getattr(node, "height", 0))
+            depth = int(getattr(node, "depth", 0))
+            top = v
+            bottom = v + height + depth
+            region = region_map.get(
+                id(node),
+                self._flow_region_from_bounds(top, bottom, text_top, text_bottom),
+            )
+            if region == target_region:
+                nodes.extend(pending)
+                nodes.append(node)
+            pending = []
+            v = bottom
+        return nodes
+
+    def _typesetPageRegion(self, tree, region, top_level=False):
+        page_box = self.page.source_page if self.page is not None else tree[-1]
+        nodes = self._region_vlist_nodes(page_box, region)
+        if not nodes:
+            return
+        container = getattr(self.document, region)
+        glue_state = self._glue_state(page_box) if getattr(page_box, "node_type", None) == nd.NODE_TYPE.VLIST else None
+        with reflow.Builder(self, container):
+            self.typesetVList(nodes, glue_state, top_level=top_level)
+
+    def typesetHeader(self, tree):
+        self._typesetPageRegion(tree, "header", top_level=False)
+
+    def typesetBody(self, tree):
+        self._typesetPageRegion(tree, "body", top_level=True)
+
+    def typesetFooter(self, tree):
+        self._typesetPageRegion(tree, "footer", top_level=False)
+
+    def typesetParagraph(self, para: Paragraph, source: pg.Paragraph, nodes: list, glue_state=None):
+        para.spec.owner = source
+        return super().typesetParagraph(para, source, nodes, glue_state)
+
+    def _current_line(self):
+        builder = self.builder
+        if isinstance(builder, reflow.AnnotationBuilder):
+            builder = builder.parent
+        container = getattr(builder, "container", None)
+        if isinstance(container, Line):
+            return container
+        if isinstance(container, TextRun):
+            return container.line
+        return None
+
+    def typesetLine(self, line: bx.HBox, yspacing: Dimen=Dimen()):
+        current = self._current_line()
+        if current is not None:
+            current.spec.box = line
+            current.spec.line_height = max(
+                Dimen(current.spec.line_height),
+                Dimen(getattr(line, "height", 0) + getattr(line, "depth", 0)),
+            )
+        return super().typesetLine(line, yspacing)
+
+    def typesetInlineMath(self, node: mmode.InlineMathNode, box: bx.HBox, piece: int):
+        current = self._current_line()
+        if current is None:
+            return
+        box = self._inline_math_box(getattr(box, "list", ()), line_box=current.spec.box)
+        current.spec.runs.append(
+            _InlineMathRun(
+                box=box,
+                line_depth=max(
+                    Dimen(getattr(box, "depth", 0)),
+                    Dimen(getattr(current.spec.box, "depth", 0)),
+                ),
+            )
+        )
+
+    def typesetInlineBox(self, box: bx.Box):
+        current = self._current_line()
+        if current is None:
+            return super().typesetInlineBox(box)
+        chunks = []
+        if getattr(box, "node_type", None) == nd.NODE_TYPE.HLIST:
+            math_state = _InlineMathState()
+            chunks = self._runs_from_line_box(box, math_state)
+            if not chunks:
+                chunks = self._runs_from_box(box, math_state)
+            chunks = self._normalize_runs(chunks)
+        line_depth = Dimen(getattr(current.spec.box, "depth", 0))
+        current.spec.runs.append(_InlineBoxRun(box, chunks, line_depth))
+        return None
+
+    def typesetDisplayMath(self, node, collection, yspacing: Dimen=Dimen()):
+        box = None
+        for candidate in collection:
+            if getattr(candidate, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                box = candidate
+                break
+        if box is None:
+            return
+        add_spec = getattr(self.builder, "addSpec", None)
+        if add_spec is not None:
+            add_spec(
+                _DisplayMathSpec(
+                    owner=node,
+                    box=box,
+                    page=self.page.source_page if self.page is not None else None,
+                    space_before=yspacing,
+                )
+            )
+
+    def typesetHAlignment(self, node: align.HAlignment, collection, yspacing):
+        table = self.builder.container if isinstance(self.builder.container, Table) else None
+        if table is not None:
+            table.owner = node
+            table.box = collection[0] if collection else None
+            table.space_before = Dimen(yspacing)
+        return super().typesetHAlignment(node, collection, yspacing)
 
     def open(self):
         if self.document is not None:
@@ -965,9 +1188,20 @@ class DocxBackend(reflow.Reflow):
             if total_height is not None
             else Dimen(getattr(box, "height", 0)) + Dimen(getattr(box, "depth", 0))
         )
-        if self._svg_shipout is None:
-            self._svg_shipout = svg.SVGShipoutBackend(self.parser, output=None)
-        return self._svg_shipout.render_box(box, width=width, height=total_height)
+        parts = []
+        node_type = getattr(box, "node_type", None)
+        if node_type == nd.NODE_TYPE.HLIST:
+            self._svg_render_hlist(box, 0, int(getattr(box, "height", 0)), parts)
+        elif node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.ALIGNMENT):
+            self._svg_render_vlist(box, 0, 0, parts)
+        svg_width = self._svg_number(self._pt(width))
+        svg_height = self._svg_number(self._pt(total_height))
+        return (
+            f'<svg xmlns="http://www.w3.org/2000/svg" '
+            f'width="{svg_width}pt" height="{svg_height}pt" '
+            f'viewBox="0 0 {svg_width} {svg_height}">'
+            f'{"".join(parts)}</svg>'
+        ).encode("utf-8")
 
     def _get_or_add_svg_image_part(self, story_part, svg_bytes):
         package = story_part._package
@@ -2953,9 +3187,9 @@ class DocxBackend(reflow.Reflow):
         if spacing == 0:
             return
         for run in reversed(runs):
-            if isinstance(run, _InlineBoxRun):
+            if isinstance(run, (_InlineBoxRun, _InlineMathRun)):
                 return
-            if run.text and not run.text.isspace():
+            if isinstance(run, _TextRun) and run.text and not run.text.isspace():
                 run.spacing_twips += spacing
                 return
 
@@ -3811,6 +4045,36 @@ class DocxBackend(reflow.Reflow):
             )
             self._apply_run_spacing(run, chunk.spacing_twips)
 
+    def _paragraph_alignment_spec(self, spec):
+        owner = None
+        box = None
+        leading_indent = Dimen()
+        for line_spec in spec.lines:
+            if line_spec.box is None:
+                if self._line_spec_will_emit(line_spec):
+                    return None
+                continue
+            info = self._line_alignment_info(line_spec.box)
+            if info is None:
+                if self._line_spec_will_emit(line_spec):
+                    return None
+                continue
+            if owner is None:
+                owner, box, leading_indent = info
+                continue
+            if info[0] is not owner:
+                return None
+        if owner is None:
+            return None
+        return _AlignmentSpec(
+            owner=owner,
+            box=box,
+            display=self._alignment_is_math(owner),
+            space_before=spec.space_before,
+            leading_indent=self._nonnegative_dimen(leading_indent),
+            region=spec.region,
+        )
+
     def _emit_paragraph(self, document, spec):
         para = document.add_paragraph()
         fmt = para.paragraph_format
@@ -4665,6 +4929,10 @@ class DocxBackend(reflow.Reflow):
 
     def _emit_spec(self, container, spec, page):
         if isinstance(spec, _ParagraphSpec) and spec.lines:
+            alignment_spec = self._paragraph_alignment_spec(spec)
+            if alignment_spec is not None:
+                self._emit_alignment(container, alignment_spec, page=page)
+                return
             self._emit_paragraph(container, spec)
             return
         if isinstance(spec, _DisplayMathSpec):
@@ -4672,6 +4940,18 @@ class DocxBackend(reflow.Reflow):
             return
         if isinstance(spec, _AlignmentSpec):
             self._emit_alignment(container, spec, page=page)
+            return
+        if isinstance(spec, Table) and spec.owner is not None:
+            self._emit_alignment(
+                container,
+                _AlignmentSpec(
+                    owner=spec.owner,
+                    box=spec.box,
+                    space_before=spec.space_before,
+                    region=spec.region,
+                ),
+                page=page,
+            )
 
     def _emit_specs(self, container, specs, page, normalize_first=False):
         normalized_first_emitted = False
@@ -4734,7 +5014,8 @@ class DocxBackend(reflow.Reflow):
 
 def init(parser):
     font_subst.installFontSubstitution(parser)
-    font_subst.installMathFontArrays(parser)
+    parser._docx_math_enabled = True
+    _install_docx_math_font_arrays(parser)
     parser.shipout = DocxBackend(parser)
 
 

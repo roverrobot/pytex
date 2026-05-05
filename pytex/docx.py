@@ -255,11 +255,12 @@ for _font_domain in ("textfont", "scriptfont", "scriptscriptfont"):
 
 class _ContainerNode:
     def __init__(self):
-        self.children = []
         self.attrs = {}
 
     def append(self, child):
-        self.children.append(child)
+        # Child ownership lives in reflow.Element.nodes. This node only carries
+        # ad-hoc properties for the neutral DOCX IR.
+        pass
 
     def set(self, key, value):
         self.attrs[key] = value
@@ -304,7 +305,6 @@ class TextRun(reflow.TextRun):
         self.line.spec.runs.append(run)
         block = Block(self.backend, inline=True, xspacing=Dimen(), yspacing=Dimen())
         self.nodes.append(block)
-        self.node.append(block.node)
         return block
 
     def newInlineMath(self):
@@ -336,7 +336,6 @@ class Line(reflow.Line):
     def newTextRun(self, font, color) -> TextRun:
         run = TextRun(self.backend, self, font, color)
         self.nodes.append(run)
-        self.node.append(run.node)
         return run
 
     def newInlineBlock(self, box: bx.Box):
@@ -345,7 +344,6 @@ class Line(reflow.Line):
         self.spec.runs.append(run)
         block = Block(self.backend, inline=True, xspacing=Dimen(), yspacing=Dimen())
         self.nodes.append(block)
-        self.node.append(block.node)
         return block
 
     def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, nodes: list):
@@ -381,7 +379,6 @@ class Paragraph(reflow.Paragraph):
         )
         self.spec.lines.append(line.spec)
         self.nodes.append(line)
-        self.node.append(line.node)
         return line
 
 
@@ -393,7 +390,6 @@ class Cell(reflow.Cell):
     def newParagraph(self) -> Paragraph:
         para = Paragraph(self.backend, justify=self.justify)
         self.nodes.append(para)
-        self.node.append(para.node)
         return para
 
 
@@ -405,7 +401,6 @@ class Row(reflow.Row):
     def newCell(self, span=1, width=None, justify="justify") -> Cell:
         cell = Cell(self.backend, span=span, width=width, justify=justify)
         self.nodes.append(cell)
-        self.node.append(cell.node)
         return cell
 
 
@@ -421,7 +416,6 @@ class Table(reflow.Table):
     def newRow(self) -> Row:
         row = Row(self.backend)
         self.nodes.append(row)
-        self.node.append(row.node)
         return row
 
     def iter_specs(self):
@@ -452,7 +446,6 @@ class Block(reflow.Block):
         para.spec.region = self.region
         self._entries.append(para.spec)
         self.nodes.append(para)
-        self.node.append(para.node)
         return para
 
     def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
@@ -460,14 +453,12 @@ class Block(reflow.Block):
         table.region = self.region
         self._entries.append(table)
         self.nodes.append(table)
-        self.node.append(table.node)
         return table
 
     def newBlock(self, xspacing=Dimen(), yspacing=Dimen()):
         block = Block(self.backend, region=self.region, inline=False, xspacing=xspacing, yspacing=yspacing)
         self._entries.append(block)
         self.nodes.append(block)
-        self.node.append(block.node)
         return block
 
     def newGraph(self, key, type, file):
@@ -522,7 +513,6 @@ class Document(reflow.Document):
     def newPage(self, width: Dimen, height: Dimen) -> Page:
         page = Page(self.backend, width, height)
         self.nodes.append(page)
-        self.node.append(page.node)
         self.current_page = page
         return page
 

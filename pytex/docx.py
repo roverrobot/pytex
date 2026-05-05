@@ -576,13 +576,16 @@ class Block(reflow.Block):
         return None
 
 
-class Page(reflow.Element):
-    def __init__(self, backend, width: Dimen, height: Dimen):
+class Section(reflow.Element):
+    def __init__(self, backend, signature, config_page=None, page_index=0):
         super().__init__(_ContainerNode())
         self.backend = backend
-        self.width = width
-        self.height = height
-        self.source_page = None
+        self.signature = signature
+        self.config_page = config_page
+        self.source_page = config_page
+        self.page_index = page_index
+        self.shipout_count = 0
+        self._is_new_for_shipout = True
         self._header = Block(backend, region="header")
         self._body = Block(backend, region="body")
         self._footer = Block(backend, region="footer")
@@ -599,24 +602,33 @@ class Page(reflow.Element):
     def footer(self) -> Block:
         return self._footer
 
+    @property
+    def is_new_for_shipout(self):
+        return self._is_new_for_shipout
+
+    def begin_shipout(self, source_page=None, is_new=False):
+        self.source_page = source_page if source_page is not None else self.config_page
+        self._is_new_for_shipout = is_new or self.shipout_count == 0
+        self.shipout_count += 1
+
     def setBackgroundColor(self, color: reflow.Color):
         pass
 
     def emit_body(self, container):
-        return self.body.emit(container, page=self.source_page)
+        return self.body.emit(container, page=self.config_page)
 
     def emit_header_footer(self, section):
         section.header.is_linked_to_previous = False
         self.backend._clear_story_content(section.header)
-        self.header.emit(section.header, page=self.source_page, normalize_first=True)
+        self.header.emit(section.header, page=self.config_page, normalize_first=True)
 
         section.footer.is_linked_to_previous = False
         self.backend._clear_story_content(section.footer)
-        self.footer.emit(section.footer, page=self.source_page, normalize_first=True)
+        self.footer.emit(section.footer, page=self.config_page, normalize_first=True)
 
-    def emit(self, document, section, page_index):
-        if self.source_page is not None:
-            self.backend._configure_section(section, self.source_page, page_index=page_index)
+    def emit(self, document, section, section_index):
+        if self.config_page is not None:
+            self.backend._configure_section(section, self.config_page, page_index=self.page_index)
         self.emit_body(document)
         self.emit_header_footer(section)
 
@@ -625,25 +637,41 @@ class Document(reflow.Document):
     def __init__(self, backend, title: str, output=None):
         super().__init__(_ContainerNode(), title, output)
         self.backend = backend
-        self.current_page = None
+        self.sections: list[Section] = []
+        self.current_section: Section | None = None
+        self._shipout_index = 0
 
     @property
     def header(self) -> Block:
-        return self.current_page.header
+        return self.current_section.header
 
     @property
     def body(self) -> Block:
-        return self.current_page.body
+        return self.current_section.body
 
     @property
     def footer(self) -> Block:
-        return self.current_page.footer
+        return self.current_section.footer
 
-    def newPage(self, width: Dimen, height: Dimen) -> Page:
-        page = Page(self.backend, width, height)
-        self.nodes.append(page)
-        self.current_page = page
-        return page
+    def newPage(self, width: Dimen, height: Dimen, source_page=None) -> Section:
+        page_index = self._shipout_index
+        self._shipout_index += 1
+        signature = self.backend._section_signature(source_page, width, height, page_index=page_index)
+        is_new = not self.sections or self.sections[-1].signature != signature
+        if is_new:
+            section = Section(
+                self.backend,
+                signature=signature,
+                config_page=source_page,
+                page_index=page_index,
+            )
+            self.sections.append(section)
+            self.nodes.append(section)
+        else:
+            section = self.sections[-1]
+        section.begin_shipout(source_page=source_page, is_new=is_new)
+        self.current_section = section
+        return section
 
     def defineFont(self, font):
         return None
@@ -655,13 +683,13 @@ class Document(reflow.Document):
         document = WordDocument()
         self.backend._configure_math_settings(document)
         self.backend._remove_compatibility_mode(document)
-        if self.nodes:
-            for page_index, page in enumerate(self.nodes):
-                if page_index == 0:
+        if self.sections:
+            for section_index, section_model in enumerate(self.sections):
+                if section_index == 0:
                     section = document.sections[0]
                 else:
                     section = document.add_section(WD_SECTION_START.NEW_PAGE)
-                page.emit(document, section, page_index)
+                section_model.emit(document, section, section_index)
         document.save(self.output)
         if hasattr(self.output, "close"):
             self.output.close()
@@ -693,15 +721,13 @@ class DocxBackend(reflow.Reflow):
         self._docx_math_font = None
         self._docx_next_drawing_id = 1
         self._docx_next_textbox_id = 1
-        self.page = None
+        self.section = None
 
     def begin_page(self, box):
-        self.page = self.document.newPage(box.width, box.height)
-        self.page.source_page = box
+        self.section = self.document.newPage(box.width, box.height, source_page=box)
 
     def end_page(self, box):
-        self.page = None
-        self.document.current_page = None
+        self.section = None
 
     def _region_vlist_nodes(self, box, target_region):
         if box is None:
@@ -744,7 +770,13 @@ class DocxBackend(reflow.Reflow):
         return nodes
 
     def _typesetPageRegion(self, tree, region, top_level=False):
-        page_box = self.page.source_page if self.page is not None else tree[-1]
+        if (
+            region in ("header", "footer")
+            and self.section is not None
+            and not self.section.is_new_for_shipout
+        ):
+            return
+        page_box = self.section.source_page if self.section is not None else tree[-1]
         nodes = self._region_vlist_nodes(page_box, region)
         if not nodes:
             return
@@ -831,7 +863,7 @@ class DocxBackend(reflow.Reflow):
                 _DisplayMathSpec(
                     owner=node,
                     box=box,
-                    page=self.page.source_page if self.page is not None else None,
+                    page=self.section.source_page if self.section is not None else None,
                     space_before=yspacing,
                 )
             )
@@ -1566,14 +1598,22 @@ class DocxBackend(reflow.Reflow):
             return None
         return body_left, body_top, body_width, body_height
 
-    def _configure_section(self, section, page, page_index=0):
+    def _section_geometry(self, page, page_index=0):
         hsize = Dimen(self.parser.layout["hsize"])
         vsize = Dimen(self.parser.layout["vsize"])
-        page_width, page_height, origin_x, origin_y = self._tex_page_size(page)
-        box_width = Dimen(getattr(page, "width", 0))
-        box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
+        if page is None:
+            page_width = Dimen()
+            page_height = Dimen()
+            origin_x = _ONE_INCH_TEX + Dimen(self.parser.layout["hoffset"])
+            origin_y = _ONE_INCH_TEX + Dimen(self.parser.layout["voffset"])
+            box_width = hsize
+            box_height = vsize
+        else:
+            page_width, page_height, origin_x, origin_y = self._tex_page_size(page)
+            box_width = Dimen(getattr(page, "width", 0))
+            box_height = Dimen(getattr(page, "height", 0) + getattr(page, "depth", 0))
 
-        body_geometry = self._structural_body_geometry(page)
+        body_geometry = self._structural_body_geometry(page) if page is not None else None
         if body_geometry is not None:
             body_left, body_top, text_width, text_height = body_geometry
             left_margin = self._nonnegative_dimen(origin_x + body_left)
@@ -1589,14 +1629,56 @@ class DocxBackend(reflow.Reflow):
             top_margin = self._nonnegative_dimen(origin_y)
         right_margin = self._nonnegative_dimen(page_width - left_margin - text_width)
         bottom_margin = self._nonnegative_dimen(page_height - top_margin - text_height)
+        header_distance, footer_distance = (None, None)
+        if page is not None:
+            header_distance, footer_distance = self._header_footer_distances(page)
+        return {
+            "page_width": self._nonnegative_dimen(page_width),
+            "page_height": self._nonnegative_dimen(page_height),
+            "left_margin": left_margin,
+            "right_margin": right_margin,
+            "top_margin": top_margin,
+            "bottom_margin": bottom_margin,
+            "header_distance": header_distance,
+            "footer_distance": footer_distance,
+        }
 
-        section.left_margin = self._length(left_margin)
-        section.right_margin = self._length(right_margin)
-        section.top_margin = self._length(top_margin)
-        section.bottom_margin = self._length(bottom_margin)
-        section.page_width = self._length(self._nonnegative_dimen(page_width))
-        section.page_height = self._length(self._nonnegative_dimen(page_height))
-        header_distance, footer_distance = self._header_footer_distances(page)
+    def _section_signature(self, page, width=None, height=None, page_index=0):
+        geometry = self._section_geometry(page, page_index=page_index)
+        if geometry["page_width"] <= 0 and width is not None:
+            geometry["page_width"] = self._nonnegative_dimen(width)
+        if geometry["page_height"] <= 0 and height is not None:
+            geometry["page_height"] = self._nonnegative_dimen(height)
+
+        def key(value):
+            if value is None:
+                return None
+            return int(value)
+
+        return tuple(
+            key(geometry[name])
+            for name in (
+                "page_width",
+                "page_height",
+                "left_margin",
+                "right_margin",
+                "top_margin",
+                "bottom_margin",
+                "header_distance",
+                "footer_distance",
+            )
+        )
+
+    def _configure_section(self, section, page, page_index=0):
+        geometry = self._section_geometry(page, page_index=page_index)
+        section.left_margin = self._length(geometry["left_margin"])
+        section.right_margin = self._length(geometry["right_margin"])
+        section.top_margin = self._length(geometry["top_margin"])
+        section.bottom_margin = self._length(geometry["bottom_margin"])
+        section.page_width = self._length(geometry["page_width"])
+        section.page_height = self._length(geometry["page_height"])
+        header_distance = geometry["header_distance"]
+        footer_distance = geometry["footer_distance"]
         if header_distance is not None:
             section.header_distance = self._length(header_distance)
         if footer_distance is not None:

@@ -267,6 +267,15 @@ class TextRun(reflow.TextRun):
         self.chunk = _TextRun("", font)
         self.line.spec.runs.append(self.chunk)
 
+    def setFont(self, font):
+        previous = getattr(self, "font", None)
+        super().setFont(font)
+        chunk = getattr(self, "chunk", None)
+        if chunk is not None and (
+            chunk.font is None or (not chunk.text and chunk.font is previous)
+        ):
+            chunk.font = font
+
     def _restart_chunk(self):
         self.chunk = _TextRun("", self.font)
         self.line.spec.runs.append(self.chunk)
@@ -2184,6 +2193,54 @@ class DocxBackend(reflow.Reflow):
             prev_end = glyph.x + glyph.width
             prev_font = glyph.font
         return self._normalize_runs(runs)
+
+    def _line_run_plain_text(self, run):
+        if isinstance(run, _TextRun):
+            return run.text
+        if isinstance(run, _InlineBoxRun):
+            return self._inline_box_text(run)
+        return ""
+
+    def _can_use_visual_text_runs(self, runs):
+        has_inline_box = False
+        for run in runs:
+            if isinstance(run, _TextRun):
+                continue
+            if isinstance(run, _InlineBoxRun):
+                has_inline_box = True
+                if self._inline_box_contains_math(run):
+                    return False
+                if self._inline_box_multiline_specs(run):
+                    return False
+                if self._math_source_field(run.box) is not None:
+                    return False
+                continue
+            return False
+        return has_inline_box
+
+    @staticmethod
+    def _compact_order_text(text):
+        return "".join(ch for ch in text if not ch.isspace())
+
+    def _visual_text_runs_for_line(self, line_spec, line_runs):
+        if not self._can_use_visual_text_runs(line_runs):
+            return None
+        box = getattr(line_spec, "box", None)
+        if box is None:
+            return None
+        glyphs: list[_Glyph] = []
+        self._capture_hlist(box, 0, 0, glyphs)
+        if not glyphs:
+            return None
+        current = self._compact_order_text(
+            "".join(self._line_run_plain_text(run) for run in line_runs)
+        )
+        visual = self._compact_order_text(
+            "".join(g.text for g in sorted(glyphs, key=lambda g: (g.x, g.y)))
+        )
+        if not current or current == visual:
+            return None
+        return self._runs_from_glyphs(glyphs)
 
     def _normalize_runs(self, runs):
         merged = []
@@ -4248,6 +4305,9 @@ class DocxBackend(reflow.Reflow):
             if wrote_line:
                 para._p.append(self._line_break_run_xml())
             line_runs = list(line_spec.runs)
+            visual_runs = self._visual_text_runs_for_line(line_spec, line_runs)
+            if visual_runs is not None:
+                line_runs = visual_runs
             if dominant_alignment is not None:
                 line_runs = self._trim_runs_for_alignment(
                     line_runs,
@@ -5126,9 +5186,9 @@ class DocxBackend(reflow.Reflow):
 
 
 def init(parser):
-    font_subst.installFontSubstitution(parser)
-    parser._docx_math_enabled = True
-    _install_docx_math_font_arrays(parser)
+#    font_subst.installFontSubstitution(parser)
+#    parser._docx_math_enabled = True
+#    _install_docx_math_font_arrays(parser)
     parser.shipout = DocxBackend(parser)
 
 

@@ -419,7 +419,11 @@ def collect(nodes: list, source: callable):
 def vlist_source(node):
     while True:
         s = getattr(node, "source", None)
-        if s is None or getattr(s, "source", None) is None:
+        if s is None:
+            return s
+        if getattr(s, "source", None) is None:
+            if isinstance(s, bx.Box):
+                return None
             return s
         node = s
 

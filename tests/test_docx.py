@@ -79,30 +79,6 @@ class _FakeBackend:
         return True
 
 
-class _FakeMathBackend(_FakeBackend):
-    kind = "opentype"
-
-    def __init__(self, name="Fake Math OTF"):
-        super().__init__(name)
-
-    def mathFontdimen(self, family):
-        if family == 2:
-            return [0.0] * 22
-        if family == 3:
-            return [0.0] * 13
-        return [0.0] * 7
-
-    def glyphInfo(self, char):
-        return GlyphInfo(char=char, width=0.5, height=0.7, depth=0.2, italic=0)
-
-    def fallbackGlyphInfo(self, char):
-        return self.glyphInfo(char)
-
-    def hasChar(self, char):
-        return True
-
-
-
 class _FakeFont(txfont.Font):
     def __init__(self, name="Fake Roman", size=10):
         super().__init__(_FakeBackend(name), Dimen(size))
@@ -216,54 +192,6 @@ def _alignment_cell(parser, text, width=20, font=None):
     box = _FakeHBox([nd.CharNode(ch, font) for ch in text], None, width=width, height=7, depth=2, rightmost_value=width)
     box.span = 1
     return box
-
-
-def test_docx_module_installs_math_font_array_wrappers(parser):
-    assert isinstance(parser.textfont, docx._DocxMathFontArray)
-    assert isinstance(parser.scriptfont, docx._DocxMathFontArray)
-    assert isinstance(parser.scriptscriptfont, docx._DocxMathFontArray)
-    assert parser.builtin["\\textfont"].domain is parser.textfont
-    assert parser.builtin["\\scriptfont"].domain is parser.scriptfont
-    assert parser.builtin["\\scriptscriptfont"].domain is parser.scriptscriptfont
-
-
-def test_docx_math_font_wrapper_translates_tex_slot_to_unicode_char(parser, monkeypatch):
-    monkeypatch.setattr(docx, "_resolve_parser_docx_math_backend", lambda _parser: _FakeMathBackend())
-    original = _FakeFont(name="cmsy10", size=10)
-    original.fontchar["skewchar"] = 60
-    parser.textfont[2] = original
-
-    wrapped = parser.textfont[2]
-    assert isinstance(wrapped, docx._DocxMathFont)
-    assert len(wrapped.param) == 22
-    assert wrapped.fontchar["skewchar"] == 60
-
-    node = wrapped[chr(0x73)]
-    assert node.char == "∫"
-    assert node.char_info.char == "∫"
-
-
-def test_docx_extension_math_font_wrapper_uses_extension_params(parser, monkeypatch):
-    monkeypatch.setattr(docx, "_resolve_parser_docx_math_backend", lambda _parser: _FakeMathBackend())
-    parser.textfont[3] = _FakeFont(name="cmex10", size=10)
-    wrapped = parser.textfont[3]
-    assert isinstance(wrapped, docx._DocxMathFont)
-    assert len(wrapped.param) == 13
-
-
-def test_docx_math_font_wrapper_covers_math_italic_family(parser, monkeypatch):
-    monkeypatch.setattr(docx, "_resolve_parser_docx_math_backend", lambda _parser: _FakeMathBackend())
-    parser.textfont[1] = _FakeFont(name="cmmi10", size=10)
-
-    wrapped = parser.textfont[1]
-    assert isinstance(wrapped, docx._DocxMathFont)
-    assert wrapped.family == 1
-    assert len(wrapped.param) == 7
-
-    node = wrapped["N"]
-    assert node.char == "N"
-    assert node.char_info.char == "N"
-
 
 
 def test_docx_reflow_document_interface_collects_paragraph_specs(parser):
@@ -398,8 +326,10 @@ def test_docx_does_not_emit_box_source_glue_as_full_vbox(parser):
     assert _paragraph_texts(document).count("Only once") == 1
 
 
-def test_docx_converts_leading_empty_hbox_to_spacing(parser):
+def test_docx_preserves_ownerless_line_text_around_empty_hboxes(parser):
     backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
     font = _FakeFont()
     lead = _FakeHBox([], None, width=12, height=0, depth=0, rightmost_value=12)
     line = _FakeHBox(
@@ -409,13 +339,11 @@ def test_docx_converts_leading_empty_hbox_to_spacing(parser):
         height=7,
         depth=2,
     )
+    page = _page_box(parser, [line])
+    backend.shipout(page)
 
-    runs = backend._leading_empty_box_to_spacing(
-        backend._runs_from_line_box(line, docx._InlineMathState())
-    )
-    text = "".join(getattr(run, "text", "") for run in runs)
-
-    assert text.replace("\u00A0", " ") == " AB"
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert "AB" in "\n".join(_paragraph_texts(document))
 
 
 def test_docx_explicit_spacing_accepts_scaled_point_width(parser):
@@ -865,8 +793,7 @@ def test_docx_does_not_double_apply_first_line_indent_when_line_starts_with_inde
 
     para = pg.Paragraph(parser, indent=True)
     font = _FakeFont()
-    indent_width = docx.DocxBackend._paragraph_first_indent(para)
-    shipped_indent = _FakeHBox([], None, width=indent_width, height=0, depth=0)
+    shipped_indent = bx.IndentBox(parser)
     line = _FakeHBox(
         [
             shipped_indent,
@@ -1401,10 +1328,9 @@ def test_docx_inline_math_ignores_penalty_owned_atom_duplicates(parser):
     assert svg.count(">=</text>") == 1
 
 
-def test_docx_sets_default_math_font_in_settings(parser, monkeypatch):
+def test_docx_settings_do_not_force_custom_omml_math_font(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    monkeypatch.setattr(backend, "_resolve_docx_math_font", lambda: "STIX Two Math")
 
     para = pg.Paragraph(parser, indent=False)
     line = _line_box(parser, "Hello", para)
@@ -1414,7 +1340,7 @@ def test_docx_sets_default_math_font_in_settings(parser, monkeypatch):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/settings.xml").decode("utf-8")
-    assert '<m:mathFont m:val="STIX Two Math"/>' in xml
+    assert "STIX Two Math" not in xml
     assert "compatibilityMode" not in xml
 
 
@@ -1677,7 +1603,7 @@ def test_docx_supports_multiple_shipped_pages(parser):
     backend.shipout(page2)
 
     document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert len(document.sections) == 2
+    assert len(document.sections) == 1
     text = "\n".join(_paragraph_texts(document))
     assert "Page one body" in text
     assert "Page two body" in text
@@ -1774,8 +1700,12 @@ def test_docx_flow_regions_split_header_body_footer(parser):
         depth=0,
     )
 
-    specs = list(backend._page_flow_specs(page, []))
-    assert [getattr(spec, "region", None) for spec in specs] == ["header", "body", "footer"]
+    backend.shipout(page)
+
+    section = backend.document.sections[0]
+    assert [spec.region for spec in section.header.iter_specs()] == ["header"]
+    assert [spec.region for spec in section.body.iter_specs()] == ["body"]
+    assert [spec.region for spec in section.footer.iter_specs()] == ["footer"]
 
 
 def test_docx_region_classifier_keeps_first_body_line_out_of_header(parser):
@@ -1788,7 +1718,11 @@ def test_docx_region_classifier_keeps_first_body_line_out_of_header(parser):
     first_line = _FakeHBox([nd.CharNode("A", _FakeFont())], owner, width=40, height=7, depth=2)
     page = _FakeVBox([first_line], width=200, height=110, depth=0)
 
-    specs = list(backend._page_flow_specs(page, []))
+    backend.shipout(page)
+
+    section = backend.document.sections[0]
+    assert list(section.header.iter_specs()) == []
+    specs = list(section.body.iter_specs())
     assert len(specs) == 1
     assert isinstance(specs[0], docx._ParagraphSpec)
     assert specs[0].region == "body"

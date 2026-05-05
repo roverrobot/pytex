@@ -166,88 +166,6 @@ class _StructuralBodySlot:
     path: list[tuple[object, int]] = field(default_factory=list)
 
 
-def _docx_font_backend_name(backend):
-    return font_subst.fontBackendName(backend)
-
-
-def _resolve_parser_docx_math_backend(parser):
-    if parser is None or not getattr(parser, "_docx_math_enabled", False):
-        return None
-    return font_subst.resolveMathFontBackend(parser)
-
-
-class _DocxMathFont(font_subst.MathFont):
-    @classmethod
-    def new(cls, parser, at, name, kind=None, family=0):
-        backend = parser.loadFontBackend(name, kind=kind)
-        return cls(backend, at, family)
-
-    def saveInfo(self):
-        init, state = super().saveInfo()
-        init["family"] = self.family
-        return init, state
-
-
-class _DocxMathFontArray(txfont.MathFontArray):
-    __slots__ = ("_backend",)
-
-    def __init__(self, name: str, state=None, default=None):
-        super().__init__(name, state=state, default=default)
-        self._backend = None
-
-    def _mathBackend(self):
-        if self._backend is False:
-            return None
-        if self._backend is not None:
-            return self._backend
-        parser = self.state
-        backend = _resolve_parser_docx_math_backend(parser) if parser is not None else None
-        self._backend = backend if backend is not None else False
-        return backend
-
-    def _wrapMathFont(self, index, value):
-        if index not in (0, 1, 2, 3):
-            return value
-        if not isinstance(value, txfont.Font) or isinstance(value, txfont.NullFont):
-            return value
-        if isinstance(value, _DocxMathFont) and value.family == index:
-            return value
-        backend = self._mathBackend()
-        if backend is None:
-            return value
-        return _DocxMathFont(backend, value.at, index, template=value)
-
-    def __setitem__(self, index, value):
-        super().__setitem__(index, self._wrapMathFont(index, value))
-
-    def setGlobal(self, index, value):
-        super().setGlobal(index, self._wrapMathFont(index, value))
-
-
-def _install_docx_math_font_arrays(parser):
-    for name in ("textfont", "scriptfont", "scriptscriptfont"):
-        current = getattr(parser, name, None)
-        if isinstance(current, _DocxMathFontArray):
-            current.state = parser
-            current._backend = None
-            continue
-        wrapped = _DocxMathFontArray(name, state=parser, default=txfont.nullfont)
-        if current is not None:
-            wrapped.list[:] = list(getattr(current, "list", wrapped.list))
-            wrapped.dict.update(getattr(current, "dict", {}))
-        setattr(parser, name, wrapped)
-        parser.arrays[name] = wrapped
-        accessor = parser.builtin.get("\\" + name)
-        if accessor is not None:
-            accessor.domain = wrapped
-
-
-for _font_domain in ("textfont", "scriptfont", "scriptscriptfont"):
-    txfont.mod.domains[_font_domain]["generator"] = (
-        lambda state, _name=_font_domain: _DocxMathFontArray(_name, state=state, default=txfont.nullfont)
-    )
-
-
 class _ContainerNode:
     def append(self, child):
         # Child ownership lives in reflow.Element.nodes. This is only a neutral
@@ -635,7 +553,9 @@ class Section(reflow.Element):
 
 class Document(reflow.Document):
     def __init__(self, backend, title: str, output=None):
-        super().__init__(_ContainerNode(), title, output)
+        document = WordDocument()
+        backend._remove_compatibility_mode(document)
+        super().__init__(document, title, output)
         self.backend = backend
         self.sections: list[Section] = []
         self.current_section: Section | None = None
@@ -680,17 +600,14 @@ class Document(reflow.Document):
         return None
 
     def save(self):
-        document = WordDocument()
-        self.backend._configure_math_settings(document)
-        self.backend._remove_compatibility_mode(document)
         if self.sections:
             for section_index, section_model in enumerate(self.sections):
                 if section_index == 0:
-                    section = document.sections[0]
+                    section = self._node.sections[0]
                 else:
-                    section = document.add_section(WD_SECTION_START.NEW_PAGE)
-                section_model.emit(document, section, section_index)
-        document.save(self.output)
+                    section = self._node.add_section(WD_SECTION_START.NEW_PAGE)
+                section_model.emit(self._node, section, section_index)
+        self._node.save(self.output)
         if hasattr(self.output, "close"):
             self.output.close()
 
@@ -713,12 +630,9 @@ class DocxBackend(reflow.Reflow):
 
     def __init__(self, parser, output=None):
         super().__init__(parser, paginate=True)
-        self.parser._docx_math_enabled = True
-        _install_docx_math_font_arrays(self.parser)
         self.output = output
         self.file = None
         self.finished = False
-        self._docx_math_font = None
         self._docx_next_drawing_id = 1
         self._docx_next_textbox_id = 1
         self.section = None
@@ -1412,36 +1326,6 @@ class DocxBackend(reflow.Reflow):
                 "</wp:inline>"
                 "</w:drawing>"
                 "</w:r>"
-            )
-        )
-
-    def _resolve_docx_math_font(self):
-        if self._docx_math_font is not None:
-            return self._docx_math_font
-        backend = _resolve_parser_docx_math_backend(self.parser)
-        if backend is not None:
-            self._docx_math_font = _docx_font_backend_name(backend) or ""
-            return self._docx_math_font
-        self._docx_math_font = ""
-        return self._docx_math_font
-
-    def _configure_math_settings(self, document):
-        font_name = self._resolve_docx_math_font()
-        if not font_name:
-            return
-        settings = document.settings._element
-        for child in list(settings):
-            if child.tag == qn("m:mathPr"):
-                settings.remove(child)
-        escaped_name = escape(font_name, {'"': "&quot;"})
-        settings.append(
-            parse_xml(
-                (
-                    "<m:mathPr "
-                    "xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
-                    f"<m:mathFont m:val=\"{escaped_name}\"/>"
-                    "</m:mathPr>"
-                )
             )
         )
 
@@ -4654,9 +4538,6 @@ class DocxBackend(reflow.Reflow):
 
 
 def init(parser):
-#    font_subst.installFontSubstitution(parser)
-#    parser._docx_math_enabled = True
-#    _install_docx_math_font_arrays(parser)
     parser.shipout = DocxBackend(parser)
 
 

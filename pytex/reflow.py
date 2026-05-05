@@ -82,12 +82,6 @@ class Element:
     def append(self, child):
         self.nodes.append(child)
 
-    def set(self, key, value):
-        self._node.set(key, value)
-
-    def get(self, key):
-        return self._node.get(key)
-
     def __len__(self):
         return len(self.nodes)
 
@@ -335,12 +329,6 @@ class Builder:
 
     def append(self, node):
         self.container.append(node)
-
-    def get(self, key, default=None):
-        return self.container.get(key, default)
-
-    def set(self, key, value):
-        self.container.set(key, value)
 
     def __getattr__(self, name):
         return getattr(self.container, name)

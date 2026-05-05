@@ -360,8 +360,9 @@ def test_html_reflow_hbox_renders_inside_builder_context(parser):
 
     rendered = _typeset_hbox(parser, row)
     html = _render(rendered)
-    assert "display:block;" in rendered.get("style")
-    assert "padding-left:0.0pt;" in rendered.get("style")
+    style = rendered._node.get("style")
+    assert "display:block;" in style
+    assert "padding-left:0.0pt;" in style
     assert ">A<" in html
     assert ">A <" not in html
 

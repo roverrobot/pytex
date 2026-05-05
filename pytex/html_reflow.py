@@ -263,7 +263,7 @@ class MFrac(reflow.Element):
         if not bar:
             thickness = 0
         if thickness is not None:
-            self.set("linethickness", reflow.PT(thickness))
+            self._node.set("linethickness", reflow.PT(thickness))
 
 
 class MRow(reflow.Element):
@@ -990,7 +990,7 @@ class HTMLReflowBackend(reflow.Reflow):
         with reflow.Builder(self, math):
             self.typesetMList(node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))
         if node.eqno is None:
-            math.set("style", f"padding-top:{reflow.PT(yspacing)};")
+            math.style["padding-top"] = reflow.PT(yspacing)
             self.builder.append(math)
             return
         eqno_list, left = node.eqno
@@ -1033,7 +1033,7 @@ class HTMLReflowBackend(reflow.Reflow):
         return "".join(out)
 
     def setTarget(self, name):
-        self.builder.container.set("id", name)
+        self.builder.container._node.set("id", name)
 
     def rawSpecial(self, text):
         Warning(f"unknown special: {text}")

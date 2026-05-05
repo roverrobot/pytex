@@ -254,19 +254,10 @@ for _font_domain in ("textfont", "scriptfont", "scriptscriptfont"):
 
 
 class _ContainerNode:
-    def __init__(self):
-        self.attrs = {}
-
     def append(self, child):
-        # Child ownership lives in reflow.Element.nodes. This node only carries
-        # ad-hoc properties for the neutral DOCX IR.
+        # Child ownership lives in reflow.Element.nodes. This is only a neutral
+        # placeholder for the DOCX IR until the final OOXML emission pass.
         pass
-
-    def set(self, key, value):
-        self.attrs[key] = value
-
-    def get(self, key, default=None):
-        return self.attrs.get(key, default)
 
 
 class TextRun(reflow.TextRun):

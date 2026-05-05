@@ -771,9 +771,10 @@ class HTMLReflowBackend(reflow.Reflow):
                         if char is None:
                             char = symbol.char
                         if char == "." and not has_dot:
-                            if not is_digit and letters:
-                                self.builder.append(reflow.Element(MI(letters, mathvariant="normal")))
-                                letters = ""
+                            if not is_digit:
+                                if letters:
+                                    self.builder.append(reflow.Element(MI(letters, mathvariant="normal")))
+                                    letters = ""
                                 is_digit = True
                             has_dot = True
                             letters += char

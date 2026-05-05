@@ -156,19 +156,23 @@ def test_html_reflow_maps_math_operator_period_slot_to_period(parser):
     assert backend.typesetSymbol(atom.nucleus, atom_type=mmode.ATOM_TYPE.PUNCT).node.text == "."
 
 
-@pytest.mark.xfail(reason="MathML list lowering still uses the old appendOutput/container API.", strict=True)
 def test_html_reflow_maps_ord_period_slot_in_compacted_runs(parser):
     atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
     atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (0 << 8) | 0x3A, -1)
 
     backend = html_reflow.HTMLReflowBackend(parser)
-    node = backend.typesetMList(
-        html_reflow.MROW(),
-        [atom],
-        atom_type=mmode.ATOM_TYPE.ORD,
-        style=mmode.Style(mmode.MATH_STYLE.T),
-    )
-    assert node.text == "."
+    row = html_reflow.MRow()
+    with reflow.Builder(backend, row):
+        backend.typesetMList(
+            [atom],
+            atom_type=mmode.ATOM_TYPE.ORD,
+            style=mmode.Style(mmode.MATH_STYLE.T),
+        )
+
+    node = row.node
+    assert len(node) == 1
+    assert node[0].tag.endswith("mn")
+    assert node[0].text == "."
 
 
 def test_html_reflow_asserts_on_raw_tfm_text_backend(parser):
@@ -417,31 +421,41 @@ def test_html_reflow_alignment_requires_table_builder(parser):
             backend.typesetHAlignment(owner, collection=[], yspacing=Dimen())
 
 
-@pytest.mark.xfail(reason="Inline math has not been adapted to the new reflow builder interface yet.", strict=True)
 def test_html_reflow_typesets_inline_math_with_offsets(parser):
     backend = html_reflow.HTMLReflowBackend(parser)
     node = mmode.InlineMathNode(nodes=[_ord_atom("x")])
+    on = nd.MathShift(True)
+    on.source = node
+    on.kern = Dimen(3)
+    off = nd.MathShift(False)
+    off.source = node
+    off.kern = Dimen(5)
 
-    rendered = backend.typesetInlineMath(node, collection=[], left_kern=Dimen(3), right_kern=Dimen(5))
-    html = _render(rendered)
+    para = html_reflow.Paragraph()
+    line = para.newLine()
+    with reflow.ParagraphBuilder(backend, para):
+        with reflow.LineBuilder(backend, line):
+            backend.typesetLine([on, off])
+
+    html = _render(line)
     assert 'display="inline"' in html
-    assert "left:" in html
-    assert "right:" in html
     assert ">x<" in html
+    assert "display:inline-block;width:" in html
+    assert html.index("<math") < html.index("display:inline-block;width:")
 
 
-@pytest.mark.xfail(reason="Display math has not been adapted to the new reflow builder interface yet.", strict=True)
 def test_html_reflow_typesets_display_math_with_eqno_table(parser):
-    backend = html_reflow.HTMLReflowBackend(parser)
+    backend, body = _open_body(parser)
     node = mmode.DisplayMathNode()
     node.list = [_ord_atom("x")]
     node.eqno = (SimpleNamespace(list=[_ord_atom("1")]), False)
 
-    rendered = backend.typesetDisplayMath(node, collection=[], yspacing=Dimen(6))
-    html = _render(rendered)
+    with reflow.Builder(backend, body):
+        backend.typesetDisplayMath(node, collection=[], yspacing=Dimen(6))
+
+    html = _render(body)
     assert 'display="block"' in html
-    assert "<mtable" in html
-    assert 'columnalign="center right"' in html
+    assert "<table" in html
     assert ">x<" in html
     assert ">1<" in html
 

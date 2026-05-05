@@ -369,6 +369,35 @@ def test_docx_backend_preserves_tex_line_breaks(parser):
     ]
 
 
+def test_docx_does_not_emit_box_source_glue_as_full_vbox(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    para = pg.Paragraph(parser, indent=False)
+    line = _line_box(parser, "Only once", para)
+    source_box = bx.VBox(parser, None, None)
+    source_box.list = [line]
+    source_box.width = Dimen(80)
+    source_box.height = Dimen(9)
+    source_box.depth = Dimen()
+
+    lead = nd.Glue(Glue(Dimen(3)), None)
+    lead.source = source_box
+    page = _page_box(
+        parser,
+        [
+            nd.Glue(Glue(Dimen(10)), "\\topskip"),
+            lead,
+            source_box,
+        ],
+    )
+
+    backend.shipout(page)
+
+    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    assert _paragraph_texts(document).count("Only once") == 1
+
+
 def test_docx_converts_leading_empty_hbox_to_spacing(parser):
     backend = docx.DocxBackend(parser)
     font = _FakeFont()
@@ -403,6 +432,69 @@ def test_docx_explicit_spacing_accepts_scaled_point_width(parser):
             spacing_twips=backend._spacing_twips(int(Dimen(1))),
         )
     ]
+
+
+def test_docx_updates_pending_text_run_font_after_leading_glue(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    font = _FakeFont(size=12)
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.Glue(Glue(Dimen(3)), None),
+            nd.CharNode("A", font),
+        ],
+        para,
+        width=40,
+        height=7,
+        depth=2,
+    )
+
+    backend.shipout(
+        _page_box(
+            parser,
+            [
+                nd.Glue(Glue(Dimen(10)), "\\topskip"),
+                line,
+            ],
+        )
+    )
+
+    specs = list(backend.document.nodes[0].body.iter_specs())
+    paragraph_spec = next(spec for spec in specs if isinstance(spec, docx._ParagraphSpec))
+    text_runs = [
+        run
+        for line_spec in paragraph_spec.lines
+        for run in line_spec.runs
+        if isinstance(run, docx._TextRun)
+    ]
+    assert any(run.text == "A" and run.font is font for run in text_runs)
+
+
+def test_docx_uses_visual_order_for_text_only_inline_boxes(parser, monkeypatch):
+    backend = docx.DocxBackend(parser)
+    font = _FakeFont(size=12)
+    number_box = _FakeHBox([nd.CharNode("1", font)], None, width=8, height=7, depth=2)
+    line_box = _FakeHBox([], None, width=40, height=7, depth=2)
+    line_spec = docx._LineSpec(
+        runs=[
+            docx._TextRun("Introduction", font),
+            docx._InlineBoxRun(number_box, [docx._TextRun("1", font)]),
+        ],
+        box=line_box,
+    )
+    glyphs = [
+        docx._Glyph("1", font, 0, 0, 10),
+        docx._Glyph("I", font, 10, 0, 10),
+        docx._Glyph("n", font, 20, 0, 10),
+    ]
+
+    monkeypatch.setattr(backend, "_capture_hlist", lambda _box, _h, _v, out: out.extend(glyphs))
+
+    visual = backend._visual_text_runs_for_line(line_spec, line_spec.runs)
+
+    assert "".join(run.text for run in visual) == "1In"
 
 
 def test_docx_unwraps_passthrough_hlist_for_text_runs(parser):
@@ -727,7 +819,7 @@ def test_docx_text_spaces_use_preserved_spaces(parser):
     assert 'xml:space="preserve"> </w:t>' not in xml
 
 
-def test_docx_nested_hbox_uses_inline_textbox(parser):
+def test_docx_text_only_nested_hbox_uses_visual_order(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
 
@@ -760,19 +852,11 @@ def test_docx_nested_hbox_uses_inline_textbox(parser):
     data = _docx_bytes(parser, backend)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<w:fitText" not in xml
-    assert re.search(r'<wp:extent cx="50610[23]"', xml)
-    assert 'anchor="t"' in xml
-    assert "<w:noProof/>" in xml
-    assert "<w:drawing>" in xml
-    assert "<wp:inline" in xml
-    assert "<wps:wsp>" in xml
-    assert re.search(r'<w:spacing w:before="0" w:after="0" w:lineRule="exact" w:line="34\d"/>', xml)
-    assert '<w:textAlignment w:val="baseline"/>' in xml
+    document = Document(io.BytesIO(data))
+    assert [text for text in _paragraph_texts(document) if text.strip()] == ["1 Figure"]
+    assert "<w:drawing>" not in xml
     assert 'w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"' in xml
     assert "<w:b/>" in xml
-    assert re.search(r"<wps:txbx[^>]*>.*?<w:t>1</w:t>.*?</wps:txbx>", xml, re.S)
-    assert "<w:t>Figure</w:t>" in xml
 
 
 def test_docx_does_not_double_apply_first_line_indent_when_line_starts_with_indent_box(parser):

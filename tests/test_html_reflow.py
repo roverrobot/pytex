@@ -95,8 +95,12 @@ def _open_body(parser, backend=None, jobname="html-reflow-test"):
     parser.jobname = jobname
     backend = backend or html_reflow.HTMLReflowBackend(parser)
     backend.document = backend.open()
-    backend.page = backend.document.newPage(Dimen(), Dimen())
+    backend.page = backend.document.newPage(_page_spec())
     return backend, backend.page.body
+
+
+def _page_spec(width=Dimen(), height=Dimen()):
+    return reflow.PageSpec(width, height, Dimen(), Dimen(), Dimen(), Dimen())
 
 
 def _typeset_hbox(parser, hbox, backend=None):
@@ -115,7 +119,7 @@ def _typeset_alignment(parser, owner, yspacing=Dimen(), backend=None):
 
 def test_reflow_generic_interface_builds_parent_created_tree():
     document = html_reflow.Document("tree")
-    page = document.newPage(Dimen(100), Dimen(200))
+    page = document.newPage(_page_spec(Dimen(100), Dimen(200)))
     block = page.body.newBlock(xspacing=Dimen(12), yspacing=Dimen(6))
     paragraph = block.newParagraph(justify="center")
     line = paragraph.newLine()
@@ -365,8 +369,9 @@ def test_html_reflow_hbox_renders_inside_builder_context(parser):
     rendered = _typeset_hbox(parser, row)
     html = _render(rendered)
     style = rendered._node.get("style")
-    assert "display:block;" in style
-    assert "padding-left:0.0pt;" in style
+    assert isinstance(rendered, html_reflow.Paragraph)
+    assert "padding-top:0.0pt;" in style
+    assert "width:100%;" in style
     assert ">A<" in html
     assert ">A <" not in html
 
@@ -384,6 +389,86 @@ def test_html_reflow_hbox_strips_edge_glue_used_for_justify(parser):
     assert ">A<" in html
     assert "> A<" not in html
     assert ">A <" not in html
+
+
+def test_html_reflow_hbox_keeps_unset_infinite_edge_glue_out_of_justify(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    hfil = glue.Glue(0, glue.Stretchness(1, 1))
+    row = box.HBox(parser, None, 0)
+    row.list = [nd.Glue(hfil, None), _char("A", font), nd.Glue(hfil, None)]
+    row = row.typeset(parser)
+
+    rendered = _typeset_hbox(parser, row)
+    html = _render(rendered)
+
+    assert "justify:justify;" in html
+    assert "justify:center;" not in html
+    assert ">A<" in html
+
+
+def test_html_reflow_hbox_keeps_finite_edge_glue(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    row = box.HBox(parser, None, 0)
+    row.list = [nd.Glue(glue.Glue(Dimen(9)), None), _char("A", font), nd.Glue(glue.Glue(Dimen(7)), None)]
+    row = row.typeset(parser)
+
+    html = _render(_typeset_hbox(parser, row))
+
+    assert "> A <" in html
+
+
+def test_html_reflow_nested_hbox_flattens_into_inline_flow(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    inner = _node_box(parser, [_char("B", font)])
+    outer = _node_box(parser, [_char("A", font), inner, _char("C", font)])
+
+    html = _render(_typeset_hbox(parser, outer))
+
+    assert ">ABC<" in html
+    assert "display:inline-block" not in html
+
+
+def test_html_reflow_nested_hbox_preserves_fixed_glue(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    inner = _node_box(
+        parser,
+        [_char("A", font), nd.Glue(glue.Glue(Dimen(12)), None), _char("B", font)],
+    )
+    outer = _node_box(parser, [inner, _char("C", font)])
+
+    html = _render(_typeset_hbox(parser, outer))
+
+    assert ">A<" in html
+    assert ">B" in html
+    width = reflow.PT(Dimen(12))
+    assert f"display:inline-block;width:{width};" in html
+    assert html.index(">A<") < html.index(f"width:{width};") < html.index(">B")
+
+
+def test_html_reflow_nested_indent_box_preserves_width(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    indent = box.IndentBox(parser, width=Dimen(15))
+    outer = _node_box(parser, [_char("A", font), indent, _char("B", font)])
+
+    html = _render(_typeset_hbox(parser, outer))
+
+    width = reflow.PT(Dimen(15))
+    assert f"display:inline-block;width:{width};" in html
+    assert html.index(">A<") < html.index(f"width:{width};") < html.index(">B")
+
+
+def test_html_reflow_nested_empty_hbox_preserves_width(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    spacer = box.HBox(parser, Dimen(18), None)
+    spacer.list = []
+    spacer = spacer.typeset(parser)
+    outer = _node_box(parser, [_char("A", font), spacer, _char("B", font)])
+
+    html = _render(_typeset_hbox(parser, outer))
+
+    width = reflow.PT(Dimen(18))
+    assert f"display:inline-block;width:{width};" in html
+    assert html.index(">A<") < html.index(f"width:{width};") < html.index(">B")
 
 
 def test_html_reflow_paragraph_keeps_tex_line_nodes_separate(parser):
@@ -539,3 +624,51 @@ def test_html_reflow_alignment_cell_uses_edge_glue_for_justify(parser):
     assert "justify:center;" in html
     assert ">r<" in html
     assert ">c<" in html
+
+
+def test_html_reflow_alignment_cell_inherits_unset_hbox_justification(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+
+    owner = align.HAlignment()
+    row = align.Row()
+    hfil = glue.Glue(0, glue.Stretchness(1, 1))
+    center = box.HBox(parser, None, 0)
+    center.list = [nd.Glue(hfil, None), _char("c", font), nd.Glue(hfil, None)]
+    center = center.typeset(parser)
+    center.span = 1
+    row.cells = [center]
+    owner.rows = [row]
+
+    table = _typeset_alignment(parser, owner, yspacing=Dimen())
+    html = _render(table)
+
+    assert "justify:center;" in html
+    assert "flex-grow" not in html
+    assert ">c<" in html
+
+
+def test_html_reflow_alignment_cell_strips_hfil_inside_template_spaces(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+
+    owner = align.HAlignment()
+    row = align.Row()
+    hfil = glue.Glue(0, glue.Stretchness(1, 1))
+    center = box.HBox(parser, None, 0)
+    center.list = [
+        nd.Glue(glue.Glue(Dimen(3)), None),
+        nd.Glue(hfil, None),
+        _char("c", font),
+        nd.Glue(hfil, None),
+        nd.Glue(glue.Glue(Dimen(3)), None),
+    ]
+    center = center.typeset(parser)
+    center.span = 1
+    row.cells = [center]
+    owner.rows = [row]
+
+    table = _typeset_alignment(parser, owner, yspacing=Dimen())
+    html = _render(table)
+
+    assert "justify:center;" in html
+    assert "flex-grow" not in html
+    assert "> c <" in html

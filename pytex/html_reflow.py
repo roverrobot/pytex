@@ -1042,19 +1042,6 @@ class HTMLReflowBackend(reflow.Reflow):
     def typesetSpring(self, ratio):
         pass
 
-    def typesetHBox(self, box, xspacing=Dimen(), yspacing=Dimen()):
-        div = super().typesetHBox(box, xspacing, yspacing)
-        # set width in %
-        if self.box_stack: # the top is this box
-            enclosing = self.box_stack[-1]
-            if int(enclosing.width) != 0 and int(box.width) != 0:
-                div.style["display"] = "flex"
-                div.style["align-items"] = "baseline"
-                div.style["flex-wrap"] = "nowrap"
-                div.style["white-space"] = "nowrap"
-                div.style["width"] =f"{float(box.width)/float(enclosing.width)*100}%"
-        return div
-
 def init(parser):
     font_subst.installFontSubstitution(parser)
     font_subst.installMathFontArrays(parser)

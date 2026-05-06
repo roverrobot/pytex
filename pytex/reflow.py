@@ -14,7 +14,7 @@ from pytex import mmode
 from pytex import align
 from pytex import paragraph
 from enum import IntEnum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import colorsys
 
 
@@ -283,6 +283,15 @@ class PageSpec:
         return f"w:{self.width};h:{self.height};l:{self.margin_left};t:{self.margin_top};r:{self.margin_right};b:{self.margin_bottom}"
 
 
+@dataclass
+class VBoxContext:
+    box: bx.Box
+    left: Dimen
+    top: Dimen
+    xspacing: Dimen = field(default_factory=Dimen)
+    yspacing: Dimen = field(default_factory=Dimen)
+
+
 class Document(Element):
     def __init__(self, node, title: str, output=None):
         """
@@ -446,7 +455,7 @@ class Reflow(shipout.Shipout):
         super().__init__(parser)
         self.paginate = paginate
         self.last_source = (None, None)
-        self.box_stack = []
+        self.vbox_stack: list[VBoxContext] = []
         self.document: Document = None
         self.builder_stack = []
         self.builder = None
@@ -641,7 +650,11 @@ class Reflow(shipout.Shipout):
     def typesetBody(self, tree):
         box = tree[-1]
         with Builder(self, self.document.body):
-            self.typesetVList(box.list, self._glue_state(box), top_level=True)
+            self._push_vbox(box, Dimen(), Dimen())
+            try:
+                self.typesetVList(box.list, self._glue_state(box), top_level=True)
+            finally:
+                self.vbox_stack.pop()
 
     def _require_builder(self, method, *capabilities):
         builder = self.builder
@@ -721,9 +734,7 @@ class Reflow(shipout.Shipout):
                 continue
             if n.node_type == nd.NODE_TYPE.HLIST:
                 # this hbox is manually constructed (i.e., without a source)
-                shifted = getattr(n, "shifted", None)
-                h = Dimen() if shifted is None else shifted
-                self.typesetHBox(n, xspacing=h, yspacing=spacing)
+                self.typesetHBox(n, yspacing=spacing)
                 spacing = Dimen()
                 if top_level:
                     self.last_source = (None, None)
@@ -741,32 +752,39 @@ class Reflow(shipout.Shipout):
                 spacing += n.kern
                 continue
 
+    def _push_vbox(self, box, xspacing=Dimen(), yspacing=Dimen()):
+        if self.vbox_stack:
+            parent = self.vbox_stack[-1]
+            left = parent.left + xspacing
+            top = parent.top + yspacing
+        else:
+            left = Dimen(xspacing)
+            top = Dimen(yspacing)
+        context = VBoxContext(box, left, top, Dimen(xspacing), Dimen(yspacing))
+        self.vbox_stack.append(context)
+        return context
+
     def typesetVBox(self, box, xspacing=Dimen(), yspacing=Dimen()):
         self._require_builder("typesetVBox", "newBlock")
-        self.box_stack.append(box)
+        self._push_vbox(box, xspacing, yspacing)
         vbox = self.builder.newBlock(xspacing, yspacing)
         glue_state = self._glue_state(box)
-        with Builder(self, vbox):
-            self.typesetVList(box.list, glue_state, top_level=False)
-        self.box_stack.pop()
+        try:
+            with Builder(self, vbox):
+                self.typesetVList(box.list, glue_state, top_level=False)
+        finally:
+            self.vbox_stack.pop()
         return vbox
 
     def typesetHBox(self, box: bx.HBox, xspacing=Dimen(), yspacing=Dimen()):
-        self._require_builder("typesetHBox", "newBlock")
-        # this method is called for a standalone (manually constructed) hbox. We treat it as paragraph.
-        self.box_stack.append(box)
-        shifted_value = getattr(box, "shifted", None)
-        shifted = Dimen() if shifted_value is None else shifted_value
-        h = xspacing + shifted
-        # we start a new paragraph:
-        div: Block = self.builder.newBlock(h, yspacing)
-        para = div.newParagraph(justify=self._hbox_justification(box))
+        self._require_builder("typesetHBox", "newParagraph")
+        # A standalone hbox in a vertical flow lowers like a single paragraph.
+        para = self.builder.newParagraph(spacing_before=yspacing, justify=self._hbox_justification(box))
         with ParagraphBuilder(self, para):
             line = para.newLine(box.height+box.depth, self.color)
             with LineBuilder(self, line):
                 self.typesetLine(box)
-        self.box_stack.pop()
-        return div
+        return para
 
     def typesetSpring(self, ratio):
         pass
@@ -814,12 +832,16 @@ class Reflow(shipout.Shipout):
                     self.builder.newCell(width=spacers[0])
                 col = 1
                 for cell in row.cells:
-                    td = self.builder.newCell(cell.span, justify=self._hbox_justification(cell))
+                    cell_alignment = self._hbox_alignment_glue_state(cell, allow_unset=True)
+                    td = self.builder.newCell(
+                        cell.span,
+                        justify=self._hbox_justification(cell, allow_unset=True),
+                    )
                     para = td.newParagraph()
                     with ParagraphBuilder(self, para):
                         line = para.newLine(cell.height+cell.depth, self.color)
                         with LineBuilder(self, line):
-                            self.typesetLine(cell)
+                            self.typesetLine(cell, alignment_state=cell_alignment)
                     if col < len(spacers):
                         self.builder.newCell(width=spacers[col])
                     col += cell.span
@@ -828,25 +850,41 @@ class Reflow(shipout.Shipout):
 
     _hlist_concrete_type = (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.HLIST)
 
-    def _hbox_justification(self, box):
+    def _hbox_alignment_glue_state(self, box, allow_unset=False):
+        glue_state = self._glue_state(box)
+        if glue_state is not None and glue_state["order"] > 0:
+            return glue_state
+        if not allow_unset:
+            return None
+        natural = getattr(box, "natural", None)
+        if natural is None or natural.stretch.order <= 0:
+            return None
+        return {"order": natural.stretch.order, "shrink": False}
+
+    def _hbox_justification(self, box, allow_unset=False):
         """
         if the box has no concrete node, return None. Otherwise, return "left"/"cneter"/"right"
         depending on whether there are nonzero glues on either side
         """
+        alignment_state = self._hbox_alignment_glue_state(box, allow_unset=allow_unset)
+        if alignment_state is None or alignment_state["order"] == 0:
+            return "justify"
+        order = alignment_state["order"]
+        shrink = alignment_state["shrink"]
+
+        def active_part(glue):
+            return glue.shrink if shrink else glue.stretch
+
         def find_glue(nodes, order):
             # returns the total glue and whether met a concrete node
             total = Glue()
             for n in nodes:
-                if n.node_type == nd.NODE_TYPE.GLUE and n.glue.stretch.order == order:
+                if n.node_type == nd.NODE_TYPE.GLUE and active_part(n.glue).order == order:
                     total += n.glue
                 elif n.node_type in self._hlist_concrete_type:
-                    return total.stretch.factor, True
-            return total.stretch.factor, False
+                    return active_part(total).factor, True
+            return active_part(total).factor, False
 
-        natural = getattr(box, "natural", None)
-        order = 0 if natural is None else natural.stretch.order
-        if order == 0:
-            return "justify"
         left, met = find_glue(box.list, order)
         if not met:
             return None
@@ -855,15 +893,38 @@ class Reflow(shipout.Shipout):
             return "justify"
         return "center" if int(right) > 0 else "right"
 
-    def _hbox_line_nodes(self, box):
+    def _hbox_line_nodes(self, box, alignment_state=None):
         nodes = list(box.list)
-        start = 0
-        end = len(nodes)
-        while start < end and getattr(nodes[start], "node_type", None) == nd.NODE_TYPE.GLUE:
-            start += 1
-        while end > start and getattr(nodes[end - 1], "node_type", None) == nd.NODE_TYPE.GLUE:
-            end -= 1
-        return nodes[start:end]
+        if alignment_state is None:
+            alignment_state = self._hbox_alignment_glue_state(box)
+        if alignment_state is None or alignment_state["order"] == 0:
+            return nodes
+        order = alignment_state["order"]
+        shrink = alignment_state["shrink"]
+
+        def is_alignment_glue(node):
+            if getattr(node, "node_type", None) != nd.NODE_TYPE.GLUE:
+                return False
+            part = node.glue.shrink if shrink else node.glue.stretch
+            return part.order == order and order > 0 and int(part.factor) != 0
+
+        first = None
+        last = None
+        for i, node in enumerate(nodes):
+            if getattr(node, "node_type", None) in self._hlist_concrete_type:
+                first = i
+                break
+        for i in range(len(nodes) - 1, -1, -1):
+            if getattr(nodes[i], "node_type", None) in self._hlist_concrete_type:
+                last = i
+                break
+        if first is None or last is None:
+            return [node for node in nodes if not is_alignment_glue(node)]
+        return (
+            [node for node in nodes[:first] if not is_alignment_glue(node)]
+            + nodes[first:last + 1]
+            + [node for node in nodes[last + 1:] if not is_alignment_glue(node)]
+        )
 
     def typesetParagraph(self,  para: Paragraph, _: paragraph.Paragraph, nodes: list, glue_state=None):
         if not nodes:
@@ -898,7 +959,14 @@ class Reflow(shipout.Shipout):
                 spacing = Dimen()
         pb.exit()
 
-    def typesetLine(self, line: bx.HBox, yspacing: Dimen=Dimen(), glue_state=None):
+    def typesetLine(
+        self,
+        line: bx.HBox,
+        yspacing: Dimen=Dimen(),
+        glue_state=None,
+        exact_spacing=False,
+        alignment_state=None,
+    ):
         def start_text_run():
             reset_text_run = getattr(self.builder, "resetTextRun", None)
             if reset_text_run is not None:
@@ -910,6 +978,11 @@ class Reflow(shipout.Shipout):
                 set_kern(kern)
             elif kern != 0:
                 text_run.setSpace(kern)
+
+        def as_dimen(value):
+            if isinstance(value, Dimen):
+                return value
+            return Dimen(integer=value)
 
         def typeset_inline_math(node: mmode.InlineMathNode, math_box, piece):
             if len(node.list) == 1:
@@ -953,7 +1026,10 @@ class Reflow(shipout.Shipout):
             nodes = list(line)
             natural = None
         else:
-            nodes = line.list if self.paginate else self._hbox_line_nodes(line)
+            if exact_spacing:
+                nodes = list(getattr(line, "list", ()))
+            else:
+                nodes = line.list if self.paginate else self._hbox_line_nodes(line, alignment_state=alignment_state)
             natural = getattr(line, "natural", None)
             if glue_state is None:
                 glue_state = self._glue_state(line)
@@ -963,6 +1039,7 @@ class Reflow(shipout.Shipout):
             glue_order = natural.stretch.order
             glue_total = int(natural.stretch.factor)
         inline_math_nodes = []
+        exact_advance = Dimen()
         for n in nodes:
             node_type = n.node_type
             if self.paragraph.inline_math_segment > 0:
@@ -982,28 +1059,47 @@ class Reflow(shipout.Shipout):
             if node_type == nd.NODE_TYPE.GLUE:
                 text_run = self.builder.text_run
                 width = self._glue_amount(n, None, glue_state) if glue_state is not None else n.glue.dimen
-                if n.glue.stretch.order == glue_order and glue_order > 0:
+                if exact_spacing:
+                    set_text_kern(text_run, width)
+                elif n.glue.stretch.order == glue_order and glue_order > 0:
                     percent = 0 if glue_total == 0 else int(n.glue.stretch.factor) / glue_total
                     text_run.setSpring(width, percent)
                 else:
                     text_run.setSpace(width)
+                exact_advance += as_dimen(width)
             elif node_type == nd.NODE_TYPE.KERN:
                 text_run = self.builder.text_run
                 set_text_kern(text_run, n.kern)
+                exact_advance += n.kern
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 self.builder.setFont(n.font)
                 text_run = self.builder.text_run
                 text_run.setChar(n)
+                exact_advance += n.width
             elif node_type == nd.NODE_TYPE.MATH:
                 assert n.on
                 text_run = self.builder.text_run
-                text_run.setSpace(n.kern)
+                if exact_spacing:
+                    set_text_kern(text_run, n.kern)
+                else:
+                    text_run.setSpace(n.kern)
+                exact_advance += n.kern
                 self.paragraph.inline_math_segment = 1
                 self.paragraph.inline_math_node = n.source
-            elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            elif node_type == nd.NODE_TYPE.HLIST:
+                nested = getattr(n, "list", None)
+                width = as_dimen(getattr(n, "width", Dimen()))
+                if not nested:
+                    text_run = self.builder.text_run
+                    set_text_kern(text_run, width)
+                else:
+                    self.typesetLine(n, glue_state=self._glue_state(n), exact_spacing=True)
+                exact_advance += width
+            elif node_type == nd.NODE_TYPE.VLIST:
                 text_run = self.builder.text_run
                 with Builder(self, text_run):
                     self.typesetInlineBox(n)
+                exact_advance += as_dimen(getattr(n, "width", Dimen()))
             elif n.node_type == nd.NODE_TYPE.WHATSIT:
                 # Specials can change annotation/color state, so they are explicit
                 # text-run boundaries in the source line.

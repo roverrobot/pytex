@@ -1,3 +1,4 @@
+from pytex import box as bx
 from pytex import glue
 from pytex import mmode
 from pytex import node as nd
@@ -31,10 +32,57 @@ class _ProbeParagraph(reflow.Element):
     def newTextRun(self, font, color):
         self.text_run = _ProbeTextRun()
         self.text_run.font = font
+        self.append(self.text_run)
         return self.text_run
+
+    def newLine(
+        self,
+        line_height=Dimen(),
+        color=reflow.Color.black,
+        force=False,
+        spacing_before=Dimen(),
+    ):
+        line = _ProbeLine()
+        self.append(line)
+        return line
+
+    def setJustify(self, justify):
+        self.justify = justify
 
     def setFont(self, font):
         self.font = font
+
+
+class _ProbeLine(_ProbeParagraph):
+    pass
+
+
+class _ProbeBlock(reflow.Element):
+    def __init__(self):
+        super().__init__("block")
+        self.paragraphs = []
+        self.blocks = []
+
+    def newParagraph(self, spacing_before=Dimen(), justify="left"):
+        paragraph = _ProbeParagraph()
+        paragraph.spacing_before = spacing_before
+        paragraph.justify = justify
+        self.paragraphs.append(paragraph)
+        self.append(paragraph)
+        return paragraph
+
+    def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
+        table = _ProbeBlock()
+        self.append(table)
+        return table
+
+    def newBlock(self, xspacing=Dimen(), yspacing=Dimen()):
+        block = _ProbeBlock()
+        block.xspacing = xspacing
+        block.yspacing = yspacing
+        self.blocks.append(block)
+        self.append(block)
+        return block
 
 
 class _ProbeBackend(reflow.Reflow):
@@ -44,6 +92,22 @@ class _ProbeBackend(reflow.Reflow):
 
     def typesetInlineMath(self, node, box, piece):
         self.inline_math.append((node, box, piece))
+
+
+class _StackProbeBackend(_ProbeBackend):
+    def __init__(self, parser):
+        super().__init__(parser)
+        self.hbox_stack_snapshots = []
+
+    def typesetHBox(self, box, xspacing=Dimen(), yspacing=Dimen()):
+        self.hbox_stack_snapshots.append(tuple(self.vbox_stack))
+        return super().typesetHBox(box, xspacing=xspacing, yspacing=yspacing)
+
+
+def _empty_hbox(parser):
+    hbox = bx.HBox(parser, None, 0)
+    hbox.list = []
+    return hbox.typeset(parser)
 
 
 def _pt(value):
@@ -118,3 +182,35 @@ def test_inline_math_fragment_ignores_inactive_glue_order(parser):
     assert tuple(math_box.glue_ratio) == (0, 0, 1)
     assert glue_state["factor_sum"] == 0
     assert glue_state["applied"] == 0
+
+
+def test_vbox_stack_tracks_only_vertical_boxes(parser):
+    backend = _StackProbeBackend(parser)
+    hbox = _empty_hbox(parser)
+    vbox = bx.VBox(parser, None, 0)
+    vbox.list = [hbox]
+    vbox = vbox.typeset(parser)
+    body = _ProbeBlock()
+
+    with reflow.Builder(backend, body):
+        backend.typesetVBox(vbox, xspacing=Dimen(3), yspacing=Dimen(5))
+
+    assert backend.vbox_stack == []
+    assert len(backend.hbox_stack_snapshots) == 1
+    (context,) = backend.hbox_stack_snapshots[0]
+    assert context.box is vbox
+    assert context.left == Dimen(3)
+    assert context.top == Dimen(5)
+
+
+def test_hbox_in_vertical_flow_lowers_to_paragraph(parser):
+    backend = _ProbeBackend(parser)
+    hbox = _empty_hbox(parser)
+    body = _ProbeBlock()
+
+    with reflow.Builder(backend, body):
+        paragraph = backend.typesetHBox(hbox, yspacing=Dimen(7))
+
+    assert paragraph in body.paragraphs
+    assert body.blocks == []
+    assert paragraph.spacing_before == Dimen(7)

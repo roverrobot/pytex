@@ -270,6 +270,19 @@ class Block(Element):
         pass
 
 
+@dataclass
+class PageSpec:
+    width: Dimen
+    height: Dimen
+    margin_left: Dimen
+    margin_top: Dimen
+    margin_right: Dimen
+    margin_bottom: Dimen
+
+    def signature(self):
+        return f"w:{self.width};h:{self.height};l:{self.margin_left};t:{self.margin_top};r:{self.margin_right};b:{self.margin_bottom}"
+
+
 class Document(Element):
     def __init__(self, node, title: str, output=None):
         """
@@ -292,7 +305,7 @@ class Document(Element):
     def footer(self):
         pass
 
-    def newPage(self, width: Dimen, height: Dimen):
+    def newPage(self, PageSpec):
         pass
 
     def setBackgroundColor(self, color: Color):
@@ -551,7 +564,17 @@ class Reflow(shipout.Shipout):
             self.document = None
 
     def begin_page(self, box):
-        self.document.newPage(box.width, box.height)
+        body_tree, margin_left, margin_top = self._find_body(box)
+        if body_tree is None:
+            # we have not found one box that is a vbox and contains \topskip
+            # in this case the body is body
+            body_tree = [box]
+        body = body_tree[-1]
+        margin_right = box.width - margin_left - body.width
+        margin_bottom = box.height + box.depth - margin_top - body.height - body.depth
+        page_spec = PageSpec(box.width, box.height, margin_left, margin_top, margin_right, margin_bottom)
+        self.document.newPage(page_spec)
+        return body_tree
 
     def end_page(self, box):
         pass
@@ -560,12 +583,7 @@ class Reflow(shipout.Shipout):
         self.pages.append(box)
         if self.document is None:
             self.document = self.open()
-        self.begin_page(box)
-        body_tree = self._find_body(box)
-        if body_tree is None:
-            # we have not found one box that is a vbox and contains \topskip
-            # in this case the body is body
-            body_tree = [box]
+        body_tree = self.begin_page(box)
         self.typesetHeader(body_tree)
         self.typesetBody(body_tree)
         self.typesetFooter(body_tree)
@@ -574,16 +592,45 @@ class Reflow(shipout.Shipout):
     def _find_body(self, box):
         """ return a box tree which leaf points to the page body """
         tree = [box]
+        x_offset = Dimen()
+        y_offset = Dimen()
+        vertical = box.node_type == nd.NODE_TYPE.VLIST
+        glue_state = self._glue_state(box)
         for n in box.list:
             if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                tail = self._find_body(n)
+                tail, xoff, yoff = self._find_body(n)
                 if tail is not None:
                     tree.extend(tail)
-                    return tree
+                    if vertical:
+                        x_offset += n.shifted
+                    else:
+                        y_offset += n.shifted
+                    return tree, x_offset + xoff, y_offset + yoff
+                if vertical:
+                    y_offset += n.height + n.depth
+                    x_offset += n.shifted
+                else:
+                    x_offset += n.width
+                    y_offset += n.shifted
                 continue
-            if box.node_type == nd.NODE_TYPE.VLIST and n.node_type == nd.NODE_TYPE.GLUE and n.name == "\\topskip":
-                return [box]
-        return None
+            if n.node_type == nd.NODE_TYPE.GLUE:
+                if n.name == "\\topskip":
+                    return [box], Dimen(), Dimen()
+                amount = Dimen(integer=self._glue_amount(n, box, glue_state))
+                if vertical:
+                    y_offset += amount
+                else:
+                    x_offset += amount
+                continue
+            if n.node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+                if vertical:
+                    y_offset += n.kern
+                else:
+                    x_offset += n.kern
+                continue
+            if not vertical and n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                x_offset += n.width
+        return None, Dimen(), Dimen()
 
     def typesetHeader(self, tree):
         pass

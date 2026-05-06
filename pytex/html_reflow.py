@@ -435,7 +435,7 @@ class Document(reflow.Document):
     def setBackgroundColor(self, color: reflow.Color):
         pass
 
-    def newPage(self, width: Dimen, height: Dimen):
+    def newPage(self, page_spec: reflow.PageSpec):
         return self
 
     def defineFont(self, font):

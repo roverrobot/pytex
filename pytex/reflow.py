@@ -850,6 +850,21 @@ class Reflow(shipout.Shipout):
 
     _hlist_concrete_type = (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.HLIST)
 
+    def _hlist_has_visible_content(self, box):
+        for node in getattr(box, "list", ()):
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.CHAR:
+                if not getattr(node, "char", "").isspace():
+                    return True
+            elif node_type == nd.NODE_TYPE.LIGATURE:
+                return True
+            elif node_type == nd.NODE_TYPE.HLIST:
+                if self._hlist_has_visible_content(node):
+                    return True
+            elif node_type in (nd.NODE_TYPE.VLIST, nd.NODE_TYPE.RULE, nd.NODE_TYPE.MATH):
+                return True
+        return False
+
     def _hbox_alignment_glue_state(self, box, allow_unset=False):
         glue_state = self._glue_state(box)
         if glue_state is not None and glue_state["order"] > 0:
@@ -1040,12 +1055,54 @@ class Reflow(shipout.Shipout):
             glue_total = int(natural.stretch.factor)
         inline_math_nodes = []
         exact_advance = Dimen()
+        leading_advance = Dimen()
+        leading_ops = []
+        leading_has_negative = False
+        seen_content = False
+
+        def apply_advance(text_run, width, exact=False, spring_percent=None):
+            width = as_dimen(width)
+            if spring_percent is not None:
+                text_run.setSpring(width, spring_percent)
+            elif exact:
+                set_text_kern(text_run, width)
+            else:
+                text_run.setSpace(width)
+
+        def emit_advance(text_run, width, exact=False, spring_percent=None):
+            nonlocal leading_advance, leading_has_negative
+            width = as_dimen(width)
+            if not seen_content:
+                leading_advance += width
+                if int(width) < 0:
+                    leading_has_negative = True
+                leading_ops.append((width, exact, spring_percent))
+                return
+            apply_advance(text_run, width, exact=exact, spring_percent=spring_percent)
+
+        def begin_content(text_run=None):
+            nonlocal leading_advance, leading_ops, leading_has_negative, seen_content
+            if text_run is None:
+                text_run = self.builder.text_run
+            if not seen_content:
+                if leading_has_negative:
+                    if int(leading_advance) > 0:
+                        set_text_kern(text_run, leading_advance)
+                else:
+                    for width, exact, spring_percent in leading_ops:
+                        apply_advance(text_run, width, exact=exact, spring_percent=spring_percent)
+                leading_advance = Dimen()
+                leading_ops = []
+                leading_has_negative = False
+                seen_content = True
+            return text_run
+
         for n in nodes:
             node_type = n.node_type
             if self.paragraph.inline_math_segment > 0:
                 if node_type == nd.NODE_TYPE.MATH:
                     assert not n.on
-                    text_run = self.builder.text_run
+                    text_run = begin_content()
                     math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
                     with Builder(self, text_run):
                         typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
@@ -1060,29 +1117,34 @@ class Reflow(shipout.Shipout):
                 text_run = self.builder.text_run
                 width = self._glue_amount(n, None, glue_state) if glue_state is not None else n.glue.dimen
                 if exact_spacing:
-                    set_text_kern(text_run, width)
+                    emit_advance(text_run, width, exact=True)
                 elif n.glue.stretch.order == glue_order and glue_order > 0:
                     percent = 0 if glue_total == 0 else int(n.glue.stretch.factor) / glue_total
-                    text_run.setSpring(width, percent)
+                    emit_advance(text_run, width, spring_percent=percent)
                 else:
-                    text_run.setSpace(width)
+                    emit_advance(text_run, width)
                 exact_advance += as_dimen(width)
             elif node_type == nd.NODE_TYPE.KERN:
                 text_run = self.builder.text_run
-                set_text_kern(text_run, n.kern)
+                emit_advance(text_run, n.kern, exact=True)
                 exact_advance += n.kern
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 self.builder.setFont(n.font)
-                text_run = self.builder.text_run
+                if node_type == nd.NODE_TYPE.CHAR and not seen_content and n.char.isspace():
+                    text_run = self.builder.text_run
+                    emit_advance(text_run, n.width)
+                    exact_advance += n.width
+                    continue
+                text_run = begin_content()
                 text_run.setChar(n)
                 exact_advance += n.width
             elif node_type == nd.NODE_TYPE.MATH:
                 assert n.on
                 text_run = self.builder.text_run
                 if exact_spacing:
-                    set_text_kern(text_run, n.kern)
+                    emit_advance(text_run, n.kern, exact=True)
                 else:
-                    text_run.setSpace(n.kern)
+                    emit_advance(text_run, n.kern)
                 exact_advance += n.kern
                 self.paragraph.inline_math_segment = 1
                 self.paragraph.inline_math_node = n.source
@@ -1091,12 +1153,17 @@ class Reflow(shipout.Shipout):
                 width = as_dimen(getattr(n, "width", Dimen()))
                 if not nested:
                     text_run = self.builder.text_run
-                    set_text_kern(text_run, width)
+                    emit_advance(text_run, width, exact=True)
+                elif not self._hlist_has_visible_content(n):
+                    self.typesetLine(n, glue_state=self._glue_state(n), exact_spacing=True)
+                    text_run = self.builder.text_run
+                    emit_advance(text_run, width, exact=True)
                 else:
+                    begin_content()
                     self.typesetLine(n, glue_state=self._glue_state(n), exact_spacing=True)
                 exact_advance += width
             elif node_type == nd.NODE_TYPE.VLIST:
-                text_run = self.builder.text_run
+                text_run = begin_content()
                 with Builder(self, text_run):
                     self.typesetInlineBox(n)
                 exact_advance += as_dimen(getattr(n, "width", Dimen()))
@@ -1108,7 +1175,7 @@ class Reflow(shipout.Shipout):
                 start_text_run()
         if self.paragraph.inline_math_segment > 0:
             # we finish a line inside an inline math
-            text_run = self.builder.text_run
+            text_run = begin_content()
             math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
             with Builder(self, text_run):
                 typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)

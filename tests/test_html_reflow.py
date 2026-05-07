@@ -221,6 +221,87 @@ def test_html_reflow_text_kern_is_real_inline_node_not_escaped_text():
     assert rendered.index(">A<") < rendered.index("display:inline-block;") < rendered.index(">B<")
 
 
+def test_html_reflow_drops_net_negative_spacing_before_first_content(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    leading = box.HBox(parser, Dimen(-12), None)
+    leading.list = []
+    leading = leading.typeset(parser)
+    hbox = _node_box(parser, [leading, nd.Kern(Dimen(-6)), _char("[", font), _char("1", font)])
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    assert "margin-left:-" not in html
+    assert ">[1<" in html
+
+
+def test_html_reflow_treats_leading_space_as_pre_content_spacing(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    hbox = _node_box(parser, [_char(" ", font), nd.Kern(Dimen(-12)), _char("[", font), _char("1", font)])
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    assert "margin-left:-" not in html
+    assert ">[1<" in html
+
+
+def test_html_reflow_treats_spacing_only_hbox_as_pre_content_spacing(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    positive = box.HBox(parser, Dimen(6), None)
+    positive.list = []
+    positive = positive.typeset(parser)
+    spacer = _node_box(parser, [positive, nd.Kern(Dimen(-12))])
+    hbox = _node_box(parser, [_char(" ", font), spacer, _char("[", font), _char("1", font)])
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    assert "margin-left:-" not in html
+    assert ">[1<" in html
+
+
+def test_html_reflow_walks_specials_inside_leading_spacing_only_hbox(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    spacer = _node_box(
+        parser,
+        [
+            nd.Special("pdf: dest (cite.one)[@thispage/XYZ @xpos @ypos null]"),
+            nd.Kern(Dimen(-12)),
+        ],
+    )
+    hbox = _node_box(parser, [spacer, _char("[", font), _char("1", font)])
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    assert 'id="cite.one"' in html
+    assert "margin-left:-" not in html
+    assert ">[1<" in html
+
+
+def test_html_reflow_clamps_leading_spacing_without_losing_net_indent(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    leading = box.HBox(parser, Dimen(10), None)
+    leading.list = []
+    leading = leading.typeset(parser)
+    hbox = _node_box(parser, [leading, nd.Kern(Dimen(-4)), _char("A", font)])
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    width = reflow.PT(Dimen(6))
+    assert f"display:inline-block;width:{width};" in html
+    assert "margin-left:-" not in html
+    assert html.index(f"width:{width};") < html.index(">A<")
+
+
+def test_html_reflow_preserves_interior_negative_line_kern(parser):
+    font = _fake_font(subst_font_name="Times New Roman")
+    hbox = _node_box(parser, [_char("A", font), nd.Kern(Dimen(-2)), _char("B", font)])
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    margin = reflow.PT(Dimen(-2))
+    assert f"margin-left:{margin};" in html
+    assert html.index(">A<") < html.index(f"margin-left:{margin};") < html.index(">B")
+
+
 def test_html_reflow_bundles_local_opentype_font(parser, tmp_path):
     parser.resolver.output_in_memory = False
     backend, _body = _open_body(parser, jobname="font-bundle")

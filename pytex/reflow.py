@@ -120,7 +120,7 @@ class TextRun(Element):
     def newText(self) -> Text:
         pass
 
-    def newInlineBlock(self, box: bx.Box):
+    def newInlineVBox(self, box: bx.Box):
         pass
 
     def newInlineMath(self):
@@ -261,9 +261,6 @@ class Block(Element):
         pass
 
     def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
-        pass
-
-    def newBlock(self, xspacing=Dimen(), yspacing=Dimen()):
         pass
 
     def newGraph(self, key, type, file):
@@ -679,15 +676,15 @@ class Reflow(shipout.Shipout):
             )
         return builder
 
-    def typesetVList(self, vlist: list, glue_state=None, top_level=False):
-        self._require_builder("typesetVList", "newParagraph", "newTable", "newBlock")
+    def typesetVList(self, vlist: list, glue_state=None, top_level=False, yspacing=Dimen()):
+        self._require_builder("typesetVList", "newParagraph", "newTable")
         # pagenate or not, if a source/raw node spans multiple paragraphs, we can always use the same
         # paragraph or table from the previous page to continue. For pagenation, if we control the vertical
         # layout correctly, continuation shoudl simply flow to the next page. For reflow, there is no page boundary.
         # If the vlist is not at the top_level (i.e., laying out a page), then we do not need to worry about page spanning.
         # for this reason, out .last_source should contain a pair of the source node and the container (paragraph)
         # For a table, it is fully laid out in the previous page, and so we shoudl ignore the continuation on the second page
-        spacing = Dimen()
+        spacing = Dimen(yspacing)
         collections = collect(vlist, vlist_source)
         for collection, n in collections:
             if n is None:
@@ -765,16 +762,13 @@ class Reflow(shipout.Shipout):
         return context
 
     def typesetVBox(self, box, xspacing=Dimen(), yspacing=Dimen()):
-        self._require_builder("typesetVBox", "newBlock")
         self._push_vbox(box, xspacing, yspacing)
-        vbox = self.builder.newBlock(xspacing, yspacing)
         glue_state = self._glue_state(box)
         try:
-            with Builder(self, vbox):
-                self.typesetVList(box.list, glue_state, top_level=False)
+            self.typesetVList(box.list, glue_state, top_level=False, yspacing=yspacing)
         finally:
             self.vbox_stack.pop()
-        return vbox
+        return self.builder
 
     def typesetHBox(self, box: bx.HBox, xspacing=Dimen(), yspacing=Dimen()):
         self._require_builder("typesetHBox", "newParagraph")
@@ -1011,7 +1005,7 @@ class Reflow(shipout.Shipout):
                                 is_align = True
                                 break
                         if is_align:
-                            self.typesetInlineBox(vbox)
+                            self.typesetInlineVBox(vbox)
                             return
             self.typesetInlineMath(node, math_box, piece)
 
@@ -1165,7 +1159,7 @@ class Reflow(shipout.Shipout):
             elif node_type == nd.NODE_TYPE.VLIST:
                 text_run = begin_content()
                 with Builder(self, text_run):
-                    self.typesetInlineBox(n)
+                    self.typesetInlineVBox(n)
                 exact_advance += as_dimen(getattr(n, "width", Dimen()))
             elif n.node_type == nd.NODE_TYPE.WHATSIT:
                 # Specials can change annotation/color state, so they are explicit
@@ -1182,16 +1176,10 @@ class Reflow(shipout.Shipout):
             # we increment the piece by 1 in the new line
             self.paragraph.inline_math_segment += 1
 
-    def typesetInlineBox(self, box: bx.Box):
-        self._require_builder("typesetInlineBox", "newInlineBlock")
-        block: Block = self.builder.newInlineBlock(box)
-        if box.node_type == nd.NODE_TYPE.HLIST:
-            para = block.newParagraph(justify=self._hbox_justification(box))
-            with ParagraphBuilder(self, para):
-                line = para.newLine(box.height+box.depth, self.color)
-                with LineBuilder(self, line):
-                    self.typesetLine(box)
-        else:
-            with Builder(self, block):
-                self.typesetVList(box.list, self._glue_state(box), top_level=False)
+    def typesetInlineVBox(self, box: bx.Box):
+        self._require_builder("typesetInlineVBox", "newInlineVBox")
+        block: Block = self.builder.newInlineVBox(box)
+        assert box.node_type == nd.NODE_TYPE.VLIST
+        with Builder(self, block):
+            self.typesetVList(box.list, self._glue_state(box), top_level=False)
         return block

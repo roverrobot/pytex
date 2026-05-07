@@ -120,16 +120,14 @@ def _typeset_alignment(parser, owner, yspacing=Dimen(), backend=None):
 def test_reflow_generic_interface_builds_parent_created_tree():
     document = html_reflow.Document("tree")
     page = document.newPage(_page_spec(Dimen(100), Dimen(200)))
-    block = page.body.newBlock(xspacing=Dimen(12), yspacing=Dimen(6))
-    paragraph = block.newParagraph(justify="center")
+    paragraph = page.body.newParagraph(spacing_before=Dimen(6), justify="center")
     line = paragraph.newLine()
     font = _fake_font(subst_font_name="Times New Roman")
     run = line.newTextRun(font, reflow.Color.black)
     run.setChar(_char("A", font))
 
     assert isinstance(document, reflow.Document)
-    assert page.body.nodes == [block]
-    assert block.nodes == [paragraph]
+    assert page.body.nodes == [paragraph]
     assert paragraph.nodes == [line]
     assert line.nodes == [run]
     assert ">A<" in _render(run)

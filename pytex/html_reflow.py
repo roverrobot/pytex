@@ -188,11 +188,9 @@ class TextRun(StyledNode, reflow.TextRun):
         self.text = None
         self.append(_kern(kern))
 
-    def newInlineBlock(self, box: bx.Box):
+    def newInlineVBox(self, box: bx.Box):
         self.text = None
         div = Div(inline=True)
-        if box.node_type == nd.NODE_TYPE.HLIST and int(box.width) != 0:
-            div.style["min-width"] = reflow.PT(box.width)
         self.append(div)
         return div
 
@@ -352,11 +350,6 @@ class Block(StyledNode, reflow.Block):
         table = Table(xspacing, yspacing)
         self.append(table)
         return table
-
-    def newBlock(self, xspacing=Dimen(), yspacing=Dimen()):
-        block = Div(inline=False, xspacing=xspacing, yspacing=yspacing)
-        self.append(block)
-        return block
 
     def newGraph(self, key, type, file):
         pass

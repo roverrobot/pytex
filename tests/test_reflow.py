@@ -61,7 +61,6 @@ class _ProbeBlock(reflow.Element):
     def __init__(self):
         super().__init__("block")
         self.paragraphs = []
-        self.blocks = []
 
     def newParagraph(self, spacing_before=Dimen(), justify="left"):
         paragraph = _ProbeParagraph()
@@ -75,14 +74,6 @@ class _ProbeBlock(reflow.Element):
         table = _ProbeBlock()
         self.append(table)
         return table
-
-    def newBlock(self, xspacing=Dimen(), yspacing=Dimen()):
-        block = _ProbeBlock()
-        block.xspacing = xspacing
-        block.yspacing = yspacing
-        self.blocks.append(block)
-        self.append(block)
-        return block
 
 
 class _ProbeBackend(reflow.Reflow):
@@ -212,5 +203,5 @@ def test_hbox_in_vertical_flow_lowers_to_paragraph(parser):
         paragraph = backend.typesetHBox(hbox, yspacing=Dimen(7))
 
     assert paragraph in body.paragraphs
-    assert body.blocks == []
+    assert body.nodes == [paragraph]
     assert paragraph.spacing_before == Dimen(7)

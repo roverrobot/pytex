@@ -156,11 +156,6 @@ class Text(reflow.Text):
             for n in char.source:
                 self.setChar(self, n)
 
-    def setSpace(self, width):
-        if int(width) == 0:
-            return
-        self._node.text += " "
-
 
 class TextRun(StyledNode, reflow.TextRun):
     def __init__(self, font: Font, color: reflow.Color=reflow.Color.black):
@@ -200,13 +195,6 @@ class TextRun(StyledNode, reflow.TextRun):
         self.append(math)
         return math
 
-    def setSpring(self, width, percent):
-        if percent != 0:
-            self.text = None
-            self.style["display"] = "inline-flex"
-            div = reflow.Element(builder.DIV(style=f"flex-grow:{percent}"))
-            self.append(div)
-
 
 class Line(StyledNode, reflow.Line):
     def __init__(self, line_height: Dimen, color: reflow.Color=reflow.Color.black):
@@ -218,6 +206,9 @@ class Line(StyledNode, reflow.Line):
         text_run = TextRun(font, color)
         self.append(text_run)
         return text_run
+    
+    def newSpace(self, width):
+        return reflow.Element(builder.SPAN(" "))
 
 
 class Paragraph(StyledNode, reflow.Paragraph):
@@ -364,15 +355,6 @@ class Div(Block):
         self.style["padding-top"] = reflow.PT(yspacing)
 
 
-class Body(Block):
-    def __init__(self):
-        super().__init__(builder.BODY(), inline=False, xspacing=None, yspacing=None)
-
-    @property
-    def style(self):
-        pass
-
-
 class Head(reflow.Element):
     def __init__(self, title):
         node = builder.HEAD(
@@ -409,9 +391,12 @@ class Document(reflow.Document):
         """
         super().__init__(builder.HTML(), title, output)
         self._head = Head(title)
-        self._body = Body()
+        self._body = reflow.Element(builder.BODY())
+        self._body_div = Div()
+        self._body.append(self._body_div)
         self.append(self._head)
         self.append(self._body)
+        self.margin_left = Dimen()
 
     @property
     def header(self) -> Block:
@@ -419,7 +404,7 @@ class Document(reflow.Document):
 
     @property
     def body(self) -> Block:
-        return self._body
+        return self._body_div
 
     @property
     def footer(self) -> Block:
@@ -429,6 +414,10 @@ class Document(reflow.Document):
         pass
 
     def newPage(self, page_spec: reflow.PageSpec):
+        if self.margin_left < page_spec.margin_left:
+            self.margin_left = page_spec.margin_left
+            self._body_div.style["padding-left"] = reflow.PT(page_spec.margin_left)
+            self._body_div.style["padding-right"] = reflow.PT(page_spec.margin_right)
         return self
 
     def defineFont(self, font):
@@ -1031,9 +1020,6 @@ class HTMLReflowBackend(reflow.Reflow):
 
     def rawSpecial(self, text):
         Warning(f"unknown special: {text}")
-
-    def typesetSpring(self, ratio):
-        pass
 
 def init(parser):
     font_subst.installFontSubstitution(parser)

@@ -136,16 +136,6 @@ class TextRun(Element):
             self.newText()
         self.text.setChar(char)
 
-    def setSpace(self, width):
-        if self.text is None:
-            self.newText()
-        self.text.setSpace(width)
-
-    def setSpring(self, width, percent):
-        if self.text is None:
-            self.newText()
-        self.text.setSpring(width, percent)
-
 
 class Line(Element):
     def __init__(self, node, line_height: Dimen, color: Color=Color.black):
@@ -155,25 +145,13 @@ class Line(Element):
         self._text_run = None
         self.lign_height = line_height
 
-    @property
-    def text_run(self):
-        if self._text_run is None:
-            self.startTextRun()
+    def textRun(self, new: bool=False):
+        if self._text_run is None or new:
+            self._text_run = self.newTextRun(self.font, self.color)
         return self._text_run
-
-    @text_run.setter
-    def text_run(self, text_run):
-        self._text_run = text_run
 
     def newTextRun(self, font, color) -> Text:
         pass
-
-    def startTextRun(self):
-        self.text_run = self.newTextRun(self.font, self.color)
-        return self.text_run
-
-    def resetTextRun(self):
-        self.text_run = None
 
     def setFont(self, font: Font):
         if self._text_run is None:
@@ -183,7 +161,7 @@ class Line(Element):
             self._text_run.setFont(font)
         elif self.font is not font:
             self.font = font
-            self.startTextRun()
+            self._text_run = self.newTextRun(self.font, self.color)
             return
         self.font = font
 
@@ -193,9 +171,16 @@ class Line(Element):
             return
         if self.color != color:
             self.color = color
-            self.startTextRun()
+            self._text_run = self.newTextRun(self.font, self.color)
             return
         self.color = color
+
+    def newSpace(self, width):
+        pass
+
+    def setSpace(self, width):
+        self._text_run = None
+        self.append(self.newSpace(width))
 
 
 class Paragraph(Element):
@@ -973,26 +958,9 @@ class Reflow(shipout.Shipout):
         line: bx.HBox,
         yspacing: Dimen=Dimen(),
         glue_state=None,
-        exact_spacing=False,
+        inline=False, # if inline is True, it is from an inline \hbox, and so we need to keep the right spacing
         alignment_state=None,
     ):
-        def start_text_run():
-            reset_text_run = getattr(self.builder, "resetTextRun", None)
-            if reset_text_run is not None:
-                reset_text_run()
-
-        def set_text_kern(text_run, kern):
-            set_kern = getattr(text_run, "setKern", None)
-            if set_kern is not None:
-                set_kern(kern)
-            elif kern != 0:
-                text_run.setSpace(kern)
-
-        def as_dimen(value):
-            if isinstance(value, Dimen):
-                return value
-            return Dimen(integer=value)
-
         def typeset_inline_math(node: mmode.InlineMathNode, math_box, piece):
             if len(node.list) == 1:
                 atom = node.list[0]
@@ -1030,77 +998,28 @@ class Reflow(shipout.Shipout):
             return math
 
         assert isinstance(self.builder, (LineBuilder, AnnotationBuilder)) or isinstance(line, (list, tuple))
-        self._require_builder("typesetLine", "newTextRun")
+        self._require_builder("typesetLine", "newTextRun", "setSpace")
         if isinstance(line, (list, tuple)):
             nodes = list(line)
-            natural = None
         else:
-            if exact_spacing:
+            if inline:
                 nodes = list(getattr(line, "list", ()))
             else:
                 nodes = line.list if self.paginate else self._hbox_line_nodes(line, alignment_state=alignment_state)
-            natural = getattr(line, "natural", None)
             if glue_state is None:
                 glue_state = self._glue_state(line)
-        glue_order = 0
-        glue_total = 0
-        if natural is not None:
-            glue_order = natural.stretch.order
-            glue_total = int(natural.stretch.factor)
         inline_math_nodes = []
-        exact_advance = Dimen()
-        leading_advance = Dimen()
-        leading_ops = []
-        leading_has_negative = False
-        seen_content = False
-
-        def apply_advance(text_run, width, exact=False, spring_percent=None):
-            width = as_dimen(width)
-            if spring_percent is not None:
-                text_run.setSpring(width, spring_percent)
-            elif exact:
-                set_text_kern(text_run, width)
-            else:
-                text_run.setSpace(width)
-
-        def emit_advance(text_run, width, exact=False, spring_percent=None):
-            nonlocal leading_advance, leading_has_negative
-            width = as_dimen(width)
-            if not seen_content:
-                leading_advance += width
-                if int(width) < 0:
-                    leading_has_negative = True
-                leading_ops.append((width, exact, spring_percent))
-                return
-            apply_advance(text_run, width, exact=exact, spring_percent=spring_percent)
-
-        def begin_content(text_run=None):
-            nonlocal leading_advance, leading_ops, leading_has_negative, seen_content
-            if text_run is None:
-                text_run = self.builder.text_run
-            if not seen_content:
-                if leading_has_negative:
-                    if int(leading_advance) > 0:
-                        set_text_kern(text_run, leading_advance)
-                else:
-                    for width, exact, spring_percent in leading_ops:
-                        apply_advance(text_run, width, exact=exact, spring_percent=spring_percent)
-                leading_advance = Dimen()
-                leading_ops = []
-                leading_has_negative = False
-                seen_content = True
-            return text_run
 
         for n in nodes:
             node_type = n.node_type
             if self.paragraph.inline_math_segment > 0:
                 if node_type == nd.NODE_TYPE.MATH:
                     assert not n.on
-                    text_run = begin_content()
                     math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
+                    text_run = self.builder.textRun()
                     with Builder(self, text_run):
                         typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
-                    set_text_kern(text_run, n.kern)
+                    text_run.setKern(n.kern)
                     inline_math_nodes = []
                     self.paragraph.inline_math_segment = 0
                     self.paragraph.inline_math_node = None
@@ -1108,65 +1027,32 @@ class Reflow(shipout.Shipout):
                     inline_math_nodes.append(n)
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
-                text_run = self.builder.text_run
-                width = self._glue_amount(n, None, glue_state) if glue_state is not None else n.glue.dimen
-                if exact_spacing:
-                    emit_advance(text_run, width, exact=True)
-                elif n.glue.stretch.order == glue_order and glue_order > 0:
-                    percent = 0 if glue_total == 0 else int(n.glue.stretch.factor) / glue_total
-                    emit_advance(text_run, width, spring_percent=percent)
+                width = Dimen(integer=self._glue_amount(n, None, glue_state)) if glue_state is not None else n.glue.dimen
+                if inline:
+                    self.builder.textRun().setKern(width)
                 else:
-                    emit_advance(text_run, width)
-                exact_advance += as_dimen(width)
+                    self.builder.setSpace(width)
             elif node_type == nd.NODE_TYPE.KERN:
-                text_run = self.builder.text_run
-                emit_advance(text_run, n.kern, exact=True)
-                exact_advance += n.kern
+                self.builder.textRun().setKern(n.kern)
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 self.builder.setFont(n.font)
-                if node_type == nd.NODE_TYPE.CHAR and not seen_content and n.char.isspace():
-                    text_run = self.builder.text_run
-                    emit_advance(text_run, n.width)
-                    exact_advance += n.width
-                    continue
-                text_run = begin_content()
-                text_run.setChar(n)
-                exact_advance += n.width
+                self.builder.textRun().setChar(n)
             elif node_type == nd.NODE_TYPE.MATH:
                 assert n.on
-                text_run = self.builder.text_run
-                if exact_spacing:
-                    emit_advance(text_run, n.kern, exact=True)
-                else:
-                    emit_advance(text_run, n.kern)
-                exact_advance += n.kern
+                self.builder.textRun().setKern(n.kern)
                 self.paragraph.inline_math_segment = 1
                 self.paragraph.inline_math_node = n.source
             elif node_type == nd.NODE_TYPE.HLIST:
-                nested = getattr(n, "list", None)
-                width = as_dimen(getattr(n, "width", Dimen()))
-                if not nested:
-                    text_run = self.builder.text_run
-                    emit_advance(text_run, width, exact=True)
-                elif not self._hlist_has_visible_content(n):
-                    self.typesetLine(n, glue_state=self._glue_state(n), exact_spacing=True)
-                    text_run = self.builder.text_run
-                    emit_advance(text_run, width, exact=True)
-                else:
-                    begin_content()
-                    self.typesetLine(n, glue_state=self._glue_state(n), exact_spacing=True)
-                exact_advance += width
+                nested = n.list
+                self.typesetLine(n, glue_state=self._glue_state(n), inline=True)
             elif node_type == nd.NODE_TYPE.VLIST:
-                text_run = begin_content()
-                with Builder(self, text_run):
+                with Builder(self, self.builder.textRun()):
                     self.typesetInlineVBox(n)
-                exact_advance += as_dimen(getattr(n, "width", Dimen()))
             elif n.node_type == nd.NODE_TYPE.WHATSIT:
                 # Specials can change annotation/color state, so they are explicit
                 # text-run boundaries in the source line.
-                start_text_run()
                 n.output(self.parser, self)
-                start_text_run()
+                self.builder.textRun(new=True)
         if self.paragraph.inline_math_segment > 0:
             # we finish a line inside an inline math
             text_run = begin_content()

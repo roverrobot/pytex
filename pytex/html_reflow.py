@@ -88,14 +88,6 @@ def _style(style: dict):
     return "".join([f"{key}:{val};" for key, val in style.items()])
 
 
-def _kern(kern: Dimen):
-    if int(kern) < 0:
-        style = f"display:inline-block;width:0;margin-left:{reflow.PT(kern)};height:1pt;"
-    else:
-        style = f"display:inline-block;width:{reflow.PT(kern)};height:1pt;"
-    return reflow.Element(builder.SPAN(style=style))
-
-
 class StyledNode:
     def __init__(self, node=None):
         self._style = None
@@ -145,10 +137,6 @@ class Text(reflow.Text):
         if self._node.text is None:
             self._node.text = ""
 
-    def setKern(self, kern: Dimen):
-        if int(kern) != 0:
-            self.append(_kern(kern))
-
     def setChar(self, char: nd.Node):
         if char.node_type == nd.NODE_TYPE.CHAR:
             self._node.text += char.char
@@ -177,12 +165,6 @@ class TextRun(StyledNode, reflow.TextRun):
         self.append(self.text)
         return self.text
 
-    def setKern(self, kern: Dimen):
-        if int(kern) == 0:
-            return
-        self.text = None
-        self.append(_kern(kern))
-
     def newInlineVBox(self, box: bx.Box):
         self.text = None
         div = Div(inline=True)
@@ -196,19 +178,32 @@ class TextRun(StyledNode, reflow.TextRun):
         return math
 
 
+class Space(StyledNode, reflow.Element):
+    def __init__(self, width: Dimen, breakable: bool):
+        space = "" if breakable else "\xa0"
+        StyledNode.__init__(self)
+        reflow.Element.__init__(self, builder.SPAN(space))
+        self.style["display"] = "inline-block"
+        if int(width) < 0:
+            self.style["margin-left"] = reflow.PT(width)
+        else:
+            self.style["width"] = reflow.PT(width)
+
+
 class Line(StyledNode, reflow.Line):
     def __init__(self, line_height: Dimen, color: reflow.Color=reflow.Color.black):
         StyledNode.__init__(self)
-        reflow.Line.__init__(self, builder.DIV(), line_height, color)
-        self.style["display"] = "inline"
+        reflow.Line.__init__(self, builder.SPAN(), line_height, color)
 
     def newTextRun(self, font, color):
         text_run = TextRun(font, color)
         self.append(text_run)
         return text_run
     
-    def newSpace(self, width):
-        return reflow.Element(builder.SPAN(" "))
+    def newSpace(self, width: Dimen, breakable: bool):
+        s =Space(width, breakable)
+        self.append(s)
+        return s
 
 
 class Paragraph(StyledNode, reflow.Paragraph):

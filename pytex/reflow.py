@@ -93,12 +93,6 @@ class Text(Element):
     def setChar(self, char: str):
         pass
 
-    def setKern(self, width: Dimen):
-        pass
-
-    def setSpace(self, width):
-        pass
-
     def setSpring(self, width, percent):
         """
         Here width is the typeset width of the infinite glue set by tex, and percent is its percentage in stretching
@@ -109,9 +103,9 @@ class Text(Element):
 class TextRun(Element):
     def __init__(self, node, font: Font=None, color: Color=Color.black):
         super().__init__(node)
-        self.setFont(font)
         self.color = color
         self.text: Text = None
+        self.setFont(font)
 
     def setFont(self, font):
         # the font may not have been known when the run is created
@@ -175,12 +169,12 @@ class Line(Element):
             return
         self.color = color
 
-    def newSpace(self, width):
+    def newSpace(self, width, breakable: bool):
         pass
 
-    def setSpace(self, width):
+    def setSpace(self, width, breakable: bool):
         self._text_run = None
-        self.append(self.newSpace(width))
+        self.newSpace(width, breakable)
 
 
 class Paragraph(Element):
@@ -1028,12 +1022,9 @@ class Reflow(shipout.Shipout):
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
                 width = Dimen(integer=self._glue_amount(n, None, glue_state)) if glue_state is not None else n.glue.dimen
-                if inline:
-                    self.builder.textRun().setKern(width)
-                else:
-                    self.builder.setSpace(width)
+                self.builder.setSpace(width, breakable=True)
             elif node_type == nd.NODE_TYPE.KERN:
-                self.builder.textRun().setKern(n.kern)
+                self.builder.setSpace(n.kern, breakable=False)
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 self.builder.setFont(n.font)
                 self.builder.textRun().setChar(n)
@@ -1043,7 +1034,9 @@ class Reflow(shipout.Shipout):
                 self.paragraph.inline_math_segment = 1
                 self.paragraph.inline_math_node = n.source
             elif node_type == nd.NODE_TYPE.HLIST:
-                nested = n.list
+                if not n.list:
+                    self.builder.setSpace(n.width, breakable=False)
+                    continue
                 self.typesetLine(n, glue_state=self._glue_state(n), inline=True)
             elif node_type == nd.NODE_TYPE.VLIST:
                 with Builder(self, self.builder.textRun()):

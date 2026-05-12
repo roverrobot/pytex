@@ -179,8 +179,9 @@ class Line(Element):
         pass
 
     def setSpace(self, width, breakable: bool):
-        self._text_run = None
-        self.newSpace(width, breakable)
+        if int(width) != 0:
+            self._text_run = None
+            self.newSpace(width, breakable)
 
 
 class Paragraph(Element):
@@ -910,10 +911,11 @@ class Reflow(shipout.Shipout):
                 break
         if first is None or last is None:
             return [node for node in nodes if not is_alignment_glue(node)]
+        # remove all leading and trailing glues
         return (
-            [node for node in nodes[:first] if not is_alignment_glue(node)]
+            [node for node in nodes[:first] if node.node_type != nd.NODE_TYPE.GLUE] 
             + nodes[first:last + 1]
-            + [node for node in nodes[last + 1:] if not is_alignment_glue(node)]
+            + [node for node in nodes[last + 1:] if node.node_type != nd.NODE_TYPE.GLUE]
         )
 
     def typesetParagraph(self,  para: Paragraph, _: paragraph.Paragraph, nodes: list, glue_state=None):
@@ -1051,7 +1053,7 @@ class Reflow(shipout.Shipout):
                 self.builder.textRun(new=True)
         if self.paragraph.inline_math_segment > 0:
             # we finish a line inside an inline math
-            text_run = begin_content()
+            text_run = self.builder.textRun()
             math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
             with Builder(self, text_run):
                 typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)

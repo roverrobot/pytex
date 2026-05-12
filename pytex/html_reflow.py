@@ -109,7 +109,10 @@ class AnnotationBuilder(reflow.AnnotationBuilder):
     def __init__(self, backend, parent, href):
         super().__init__(backend, parent, href)
         self.link = reflow.Element(builder.A(href=href))
-        self.container = Line(Dimen(), reflow.Color.red)
+        line_box = bx.HBox(self.backend.parser, None, None)
+        line_box.typeset(self.backend.parser, [])
+        line_spec = reflow.LineSpec(line_box, Dimen(), reflow.Color.red)
+        self.container = Line(line_spec)
         self.link.append(self.container)
 
     def beginAnnotation(self, name):
@@ -191,9 +194,9 @@ class Space(StyledNode, reflow.Element):
 
 
 class Line(StyledNode, reflow.Line):
-    def __init__(self, line_height: Dimen, color: reflow.Color=reflow.Color.black):
+    def __init__(self, line_spec: reflow.LineSpec):
         StyledNode.__init__(self)
-        reflow.Line.__init__(self, builder.SPAN(), line_height, color)
+        reflow.Line.__init__(self, builder.SPAN(), line_spec)
 
     def newTextRun(self, font, color):
         text_run = TextRun(font, color)
@@ -219,18 +222,10 @@ class Paragraph(StyledNode, reflow.Paragraph):
         self.style["text-align"] = justify
         self.justify = justify
 
-    def newLine(
-        self,
-        line_height: Dimen=Dimen(),
-        color: reflow.Color=reflow.Color.black,
-        force: bool=False,
-        spacing_before: Dimen=Dimen(),
-    ) -> Line:
-        if force:
-            self.append(reflow.Element(builder.BR()))
-        elif len(self) > 0:
+    def newLine(self, line_spec: reflow.LineSpec) -> Line:
+        if len(self) > 0:
             self.append(reflow.Element(builder.SPAN(" ")))
-        line = Line(line_height, color)
+        line = Line(line_spec)
         self.append(line)
         return line
 

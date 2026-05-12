@@ -131,13 +131,19 @@ class TextRun(Element):
         self.text.setChar(char)
 
 
+@dataclass
+class LineSpec:
+    line_box: bx.HBox
+    spacing_before: Dimen
+    color: Color
+
 class Line(Element):
-    def __init__(self, node, line_height: Dimen, color: Color=Color.black):
+    def __init__(self, node, line_spec: LineSpec):
         super().__init__(node)
-        self.color = color
+        self.color = line_spec.color
         self.font = None
         self._text_run = None
-        self.lign_height = line_height
+        self.lign_height = line_spec.line_box.height + line_spec.line_box.depth
 
     def textRun(self, new: bool=False):
         if self._text_run is None or new:
@@ -188,13 +194,7 @@ class Paragraph(Element):
     def setJustify(self, justify):
         pass
 
-    def newLine(
-        self,
-        line_height: Dimen=Dimen(),
-        color: Color=Color.black,
-        force: bool=False,
-        spacing_before: Dimen=Dimen(),
-    ) -> Line:
+    def newLine(self, line_spec: LineSpec) -> Line:
         pass
 
 
@@ -754,7 +754,8 @@ class Reflow(shipout.Shipout):
         # A standalone hbox in a vertical flow lowers like a single paragraph.
         para = self.builder.newParagraph(spacing_before=yspacing, justify=self._hbox_justification(box))
         with ParagraphBuilder(self, para):
-            line = para.newLine(box.height+box.depth, self.color)
+            line_spec = LineSpec(box, spacing_before=Dimen(), color=self.color)
+            line = para.newLine(line_spec)
             with LineBuilder(self, line):
                 self.typesetLine(box)
         return para
@@ -812,7 +813,8 @@ class Reflow(shipout.Shipout):
                     )
                     para = td.newParagraph()
                     with ParagraphBuilder(self, para):
-                        line = para.newLine(cell.height+cell.depth, self.color)
+                        line_spec = LineSpec(cell, spacing_before=Dimen(), color=self.color)
+                        line = para.newLine(line_spec)
                         with LineBuilder(self, line):
                             self.typesetLine(cell, alignment_state=cell_alignment)
                     if col < len(spacers):
@@ -941,7 +943,8 @@ class Reflow(shipout.Shipout):
                     para.inline_math_node = inline_math_node
                     pb = ParagraphBuilder(self, para)
                     pb.enter()
-                line = para.newLine(n.height + n.depth, self.color, spacing_before=spacing)
+                line_spec = LineSpec(n, spacing_before=spacing, color=self.color)
+                line = para.newLine(line_spec)
                 with LineBuilder(self, line):
                     self.typesetLine(n, spacing)
                 spacing = Dimen()

@@ -110,8 +110,8 @@ class TextRun(reflow.TextRun):
 
 class Space(TextRun):
     def __init__(self, para: WordParagraph, width: Dimen, breakable: bool, font: txfont.Font):
-        space = "\u200b" if breakable else "\u2060"
-        run = para.add_run(space+space)
+        space = " " if breakable else "\xa0"
+        run = para.add_run("\xa0")
         super().__init__(run, font)
         rPr = run._element.get_or_add_rPr()
         spacing_element = OxmlElement('w:spacing')
@@ -129,12 +129,15 @@ class Line(reflow.Line):
         None: WD_ALIGN_PARAGRAPH.LEFT,
     }
 
-    def __init__(self, para: WordParagraph, line_height, color: reflow.Color = reflow.Color.black, justify="justify"):
+    def __init__(self, para: WordParagraph, line_height, spacing_before, color: reflow.Color = reflow.Color.black, justify="justify"):
         super().__init__(para, line_height, color)
         self.justify = self.JUSTIFY[justify]
         para.alignment = self.justify
-        if line_height > 0:
-            para.paragraph_format.line_spacing = Pt(float(line_height) / 72.27 * 72)
+        fmt = para.paragraph_format
+        fmt.line_spacing = Pt(float(line_height) / 72.27 * 72)
+        fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+        fmt.space_before = Pt(float(spacing_before))
+        fmt.space_after = Pt(0)
         self.font = None
 
     def newTextRun(self, font, color) -> TextRun:
@@ -165,12 +168,9 @@ class Paragraph(reflow.Paragraph):
     ):
         para = self.story.add_paragraph()
         if self.spacing is not None:
-            if self.spacing > 0:
-                para.paragraph_format.space_before = Pt(float(self.spacing) / 72.27 * 72)
+            spacing_before += self.spacing
             self.spacing = None
-        if spacing_before > 0:
-            para.paragraph_format.space_before = Pt(float(spacing_before) / 72.27 * 72)
-        line = Line(para, line_height=line_height, color=color, justify=self.justify)
+        line = Line(para, line_height=line_height, spacing_before=spacing_before, color=color, justify=self.justify)
         self.append(line)
         return line
 

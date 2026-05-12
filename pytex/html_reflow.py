@@ -150,17 +150,16 @@ class Text(reflow.Text):
 
 class TextRun(StyledNode, reflow.TextRun):
     def __init__(self, font: Font, color: reflow.Color=reflow.Color.black):
-        span = builder.DIV()
+        span = builder.SPAN()
         StyledNode.__init__(self)
         reflow.TextRun.__init__(self, span, font, color)
         self.style["color"] = _color(color)
-        self.style["display"] = "inline"
 
     def setFont(self, font: Font):
         # TODO set font family properly
         super().setFont(font)
         if font is not None:
-            self.style["font-family"] = ""
+            self.style["font-family"] = font.backend.name
             self.style["font-size"] = reflow.PT(font.at)
 
     def newText(self) -> TextRun:
@@ -216,6 +215,7 @@ class Paragraph(StyledNode, reflow.Paragraph):
         reflow.Paragraph.__init__(self, node, spacing_before, justify)
         self.style["padding-top"] = reflow.PT(spacing_before)
         self.style["width"] = "100%"
+        self.last_line = None
 
     def setJustify(self, justify):
         self.style["justify"] = justify
@@ -223,9 +223,10 @@ class Paragraph(StyledNode, reflow.Paragraph):
         self.justify = justify
 
     def newLine(self, line_spec: reflow.LineSpec) -> Line:
-        if len(self) > 0:
-            self.append(reflow.Element(builder.SPAN(" ")))
+        if self.last_line is not None:
+            self.last_line.setSpace(self.last_line.font.param[1], breakable=True)
         line = Line(line_spec)
+        self.last_line = line
         self.append(line)
         return line
 
@@ -1012,9 +1013,10 @@ class HTMLReflowBackend(reflow.Reflow):
         Warning(f"unknown special: {text}")
 
 def init(parser):
-    font_subst.installFontSubstitution(parser)
-    font_subst.installMathFontArrays(parser)
+#    font_subst.installFontSubstitution(parser)
+#    font_subst.installMathFontArrays(parser)
     parser.shipout = HTMLReflowBackend(parser)
+    parser.font_size_in_bp = True
 
 
 mod = Module(

@@ -244,6 +244,8 @@ class FontDefineAccessor(EquitableAccessor):
             at = design * Fraction(parser.readInteger(), 1000) * mag
         else:
             at = design * mag
+        if parser.font_size_in_bp:
+            at = at / 72 * 72.27 #round to 0.5bp
         f = Font(backend, at)
         f.name = self.key
         f.fontchar["hyphenchar"] = parser.parameters["defaulthyphenchar"]
@@ -340,4 +342,7 @@ mod = Module("font",
         "fontname": FontName(),
         "nullfont": nullfont,
     },
+    attributes= {
+        "font_size_in_bp": False,
+    }
 )

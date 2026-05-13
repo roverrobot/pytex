@@ -136,6 +136,7 @@ class LineSpec:
     line_box: bx.HBox
     spacing_before: Dimen
     color: Color
+    default_font: Font
 
 class Line(Element):
     def __init__(self, node, line_spec: LineSpec):
@@ -755,7 +756,7 @@ class Reflow(shipout.Shipout):
         # A standalone hbox in a vertical flow lowers like a single paragraph.
         para = self.builder.newParagraph(spacing_before=yspacing, justify=self._hbox_justification(box))
         with ParagraphBuilder(self, para):
-            line_spec = LineSpec(box, spacing_before=Dimen(), color=self.color)
+            line_spec = LineSpec(box, spacing_before=Dimen(), color=self.color, default_font=self.parser.parameters["currentfont"])
             line = para.newLine(line_spec)
             with LineBuilder(self, line):
                 self.typesetLine(box)
@@ -814,7 +815,7 @@ class Reflow(shipout.Shipout):
                     )
                     para = td.newParagraph()
                     with ParagraphBuilder(self, para):
-                        line_spec = LineSpec(cell, spacing_before=Dimen(), color=self.color)
+                        line_spec = LineSpec(cell, spacing_before=Dimen(), color=self.color, default_font=self.parser.parameters["currentfont"])
                         line = para.newLine(line_spec)
                         with LineBuilder(self, line):
                             self.typesetLine(cell, alignment_state=cell_alignment)
@@ -945,7 +946,7 @@ class Reflow(shipout.Shipout):
                     para.inline_math_node = inline_math_node
                     pb = ParagraphBuilder(self, para)
                     pb.enter()
-                line_spec = LineSpec(n, spacing_before=spacing, color=self.color)
+                line_spec = LineSpec(n, spacing_before=spacing, color=self.color, default_font=self.parser.parameters["currentfont"])
                 line = para.newLine(line_spec)
                 with LineBuilder(self, line):
                     self.typesetLine(n, spacing)

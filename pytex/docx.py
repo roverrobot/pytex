@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
 from docx import Document as WordDocument
+from docx.table import Table as WordTable
 from docx.text.paragraph import Paragraph as WordParagraph
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.enum.section import WD_SECTION_START
@@ -15,6 +16,7 @@ from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_T
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
+from docx.oxml.table import CT_Tbl
 from docx.parts.image import ImagePart
 from docx.shared import Pt, RGBColor, Twips
 from fontTools.pens.svgPathPen import SVGPathPen
@@ -46,6 +48,10 @@ _MATH_OPERATORS_MAP = font_subst.MATH_OPERATORS_MAP
 _MATH_LETTERS_MAP = font_subst.MATH_LETTERS_MAP
 _MATH_SYMBOLS_MAP = font_subst.MATH_SYMBOLS_MAP
 _MATH_LARGE_SYMBOLS_MAP = font_subst.MATH_LARGE_SYMBOLS_MAP
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+_WPS_NS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
 
 
 def _color(color: reflow.Color):
@@ -69,8 +75,67 @@ def _twips(dimen: Dimen):
     return int(float(dimen) / 72.27 * 72 * 20)
 
 
+def _emu(dimen: Dimen):
+    return max(1, int(round(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN)))
+
+
 def half_pt(dimen: Dimen):
     return f"{int(float(dimen) / 72.27 * 72 * 2)}"
+
+
+def _textbox_xml(cx: int, cy: int, drawing_id: int):
+    return f"""
+<w:drawing
+    xmlns:w="{_W_NS}"
+    xmlns:wp="{_WP_NS}"
+    xmlns:a="{_A_NS}"
+    xmlns:wps="{_WPS_NS}">
+  <wp:inline distT="0" distB="0" distL="0" distR="0">
+    <wp:extent cx="{cx}" cy="{cy}"/>
+    <wp:effectExtent l="0" t="0" r="0" b="0"/>
+    <wp:docPr id="{drawing_id}" name="Inline VBox {drawing_id}"/>
+    <wp:cNvGraphicFramePr>
+      <a:graphicFrameLocks noChangeAspect="1"/>
+    </wp:cNvGraphicFramePr>
+    <a:graphic>
+      <a:graphicData uri="{_WPS_NS}">
+        <wps:wsp>
+          <wps:cNvSpPr txBox="1"/>
+          <wps:spPr>
+            <a:xfrm>
+              <a:off x="0" y="0"/>
+              <a:ext cx="{cx}" cy="{cy}"/>
+            </a:xfrm>
+            <a:prstGeom prst="rect">
+              <a:avLst/>
+            </a:prstGeom>
+            <a:noFill/>
+            <a:ln>
+              <a:noFill/>
+            </a:ln>
+          </wps:spPr>
+          <wps:txbx>
+            <w:txbxContent/>
+          </wps:txbx>
+          <wps:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0">
+            <a:noAutofit/>
+          </wps:bodyPr>
+        </wps:wsp>
+      </a:graphicData>
+    </a:graphic>
+  </wp:inline>
+</w:drawing>
+"""
+
+
+def _story_document(story):
+    document = getattr(story, "document", None)
+    if document is not None:
+        return document
+    table = getattr(story, "table", None)
+    if table is not None:
+        return table.document
+    raise AttributeError(f"{type(story).__name__} is not attached to a DOCX document")
 
 
 class Text(reflow.Text):
@@ -89,6 +154,56 @@ class Text(reflow.Text):
                 self.setChar(child)
         else:
             self._node.text += char.char
+
+
+class TextBoxStory(reflow.Block):
+    def __init__(self, document, drawing, node, box: bx.Box):
+        super().__init__(node, inline=True)
+        self.document = document
+        self.drawing = drawing
+        self.box = box
+
+    @property
+    def line_id(self):
+        return self.document.line_id
+
+    @property
+    def part(self):
+        return self.document._node.part
+
+    def _new_word_paragraph(self):
+        node = OxmlElement("w:p")
+        self._node.append(node)
+        return WordParagraph(node, self)
+
+    def _new_word_table(self):
+        node = CT_Tbl.new_tbl(0, 0, Twips(0))
+        self._node.append(node)
+        return WordTable(node, self)
+
+    def newParagraph(self, spacing_before=Dimen(), justify: str = "left") -> "Paragraph":
+        para = Paragraph(self, spacing_before=spacing_before, justify=justify)
+        self.nodes.append(para)
+        return para
+
+    def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
+        table = Table(
+            self.document,
+            self._new_word_table(),
+            xspacing=xspacing,
+            yspacing=yspacing,
+            full_width=self.box.width,
+        )
+        self.nodes.append(table)
+        return table
+
+    def newGraph(self, key, type, file):
+        return None
+
+    def finalizeContent(self):
+        for node in self.nodes:
+            if isinstance(node, Table):
+                node.setFullWidth(self.box.width)
 
 
 class TextRun(reflow.TextRun):
@@ -123,8 +238,15 @@ class TextRun(reflow.TextRun):
         return text
 
     def newInlineVBox(self, box: bx.Box):
-        block = Block(box, inline=True, xspacing=Dimen(), yspacing=Dimen())
-        self._node.append(block._node)
+        self.text = None
+        document = _story_document(self.line.story)
+        drawing_id = document.nextDrawingId()
+        drawing = parse_xml(_textbox_xml(_emu(box.width), _emu(box.height + box.depth), drawing_id))
+        content = drawing.find(f".//{{{_W_NS}}}txbxContent")
+        if content is None:
+            raise ValueError("DOCX inline textbox template is missing w:txbxContent")
+        block = TextBoxStory(document, drawing, content, box)
+        self._node._element.append(drawing)
         self.nodes.append(block)
         return block
 
@@ -153,8 +275,16 @@ class Line(reflow.Line):
         None: WD_ALIGN_PARAGRAPH.LEFT,
     }
 
-    def __init__(self, para: WordParagraph, line_id: int, line_spec: reflow.LineSpec, justify="justify"):
+    def __init__(
+        self,
+        para: WordParagraph,
+        line_id: int,
+        line_spec: reflow.LineSpec,
+        justify="justify",
+        story=None,
+    ):
         super().__init__(para, line_spec)
+        self.story = story
         self.justify = self.JUSTIFY[justify]
         para.alignment = self.justify
         fmt = para.paragraph_format
@@ -189,7 +319,7 @@ class Paragraph(reflow.Paragraph):
         if self.spacing is not None:
             line_spec.spacing_before += self.spacing
             self.spacing = None
-        line = Line(para, self.story.line_id, line_spec, justify=self.justify)
+        line = Line(para, self.story.line_id, line_spec, justify=self.justify, story=self.story)
         self.append(line)
         return line
 
@@ -267,23 +397,41 @@ class Row(reflow.Row):
 
 
 class Table(reflow.Table):
-    def __init__(self, document, node, xspacing=Dimen(), yspacing=Dimen()):
+    ALIGNMENT = {
+        "left": WD_TABLE_ALIGNMENT.LEFT,
+        "center": WD_TABLE_ALIGNMENT.CENTER,
+        "right": WD_TABLE_ALIGNMENT.RIGHT,
+    }
+
+    def __init__(
+        self,
+        document,
+        node,
+        xspacing=Dimen(),
+        yspacing=Dimen(),
+        full_width=None,
+        alignment="left",
+    ):
         super().__init__(node, xspacing=xspacing, yspacing=yspacing)
         self.document = document
         self.owner = None
         self.box = None
         self.space_before = Dimen(yspacing)
         self.region = "body"
-        self._node.autofit = True
+        self.full_width = None if full_width is None else Dimen(full_width)
+        self.alignment = alignment
+        self._node.autofit = self.full_width is None
         self._setAlignment()
         self._setCellMargins()
+        if self.full_width is not None:
+            self._setTableWidth("dxa", twips(self.full_width))
 
     @property
     def line_id(self):
         return self.document.line_id
 
     def _setAlignment(self):
-        self._node.alignment = WD_TABLE_ALIGNMENT.CENTER
+        self._node.alignment = self.ALIGNMENT.get(self.alignment, WD_TABLE_ALIGNMENT.LEFT)
 
     def _setCellMargins(self):
         tblPr = self._node._tbl.tblPr
@@ -300,13 +448,30 @@ class Table(reflow.Table):
             margin.set(qn("w:type"), "dxa")
             cellMar.append(margin)
 
+    def _setTableWidth(self, width_type, width):
+        tblPr = self._node._tbl.tblPr
+        tblW = tblPr.first_child_found_in("w:tblW")
+        if tblW is None:
+            tblW = OxmlElement("w:tblW")
+            tblPr.insert(0, tblW)
+        tblW.set(qn("w:type"), width_type)
+        tblW.set(qn("w:w"), str(width))
+
     @staticmethod
     def _columnWidth(width=None):
         if isinstance(width, Dimen):
             return Twips(max(1, _twips(width)))
         if isinstance(width, (int, float)):
             return Twips(max(1, int(1440 * float(width))))
-        return Twips(1440)
+        return Twips(1)
+
+    def _setColumnWidth(self, index, width):
+        if width is None:
+            return
+        width = self._columnWidth(width)
+        column = self._node.columns[index]
+        if column.width is None or int(column.width) < int(width):
+            column.width = width
 
     def _ensureColumns(self, count, width=None):
         while len(self._node.columns) < count:
@@ -314,11 +479,51 @@ class Table(reflow.Table):
 
     def _wordCell(self, row, index, span=1, width=None):
         span = max(1, int(span))
-        self._ensureColumns(index + span, width)
+        column_width = width
+        if isinstance(width, Dimen) and span > 1:
+            column_width = width / span
+        self._ensureColumns(index + span, column_width)
+        for column_index in range(index, index + span):
+            self._setColumnWidth(column_index, column_width)
         cell = row.cells[index]
         if span > 1:
             cell = cell.merge(row.cells[index + span - 1])
         return cell
+
+    def setFullWidth(self, width):
+        self.full_width = Dimen(width)
+        self._node.autofit = False
+        self._setTableWidth("dxa", twips(self.full_width))
+        grid = self._node._tbl.tblGrid
+        columns = list(grid.gridCol_lst)
+        if not columns:
+            return
+        current = []
+        for column in columns:
+            value = column.get(qn("w:w"))
+            current.append(max(1, int(value)) if value is not None else 1)
+        total = sum(current)
+        if total <= 0:
+            current = [1] * len(columns)
+        for column, value in zip(columns, current):
+            column.set(qn("w:w"), str(value))
+        self._setCellWidths(current)
+
+    def _setCellWidths(self, columns):
+        for row in self._node._tbl.tr_lst:
+            column_index = 0
+            for cell in row.tc_lst:
+                tcPr = cell.get_or_add_tcPr()
+                grid_span = tcPr.gridSpan
+                span = int(grid_span.val) if grid_span is not None else 1
+                width = sum(columns[column_index:column_index + span])
+                tcW = tcPr.tcW
+                if tcW is None:
+                    tcW = OxmlElement("w:tcW")
+                    tcPr.append(tcW)
+                tcW.set(qn("w:type"), "dxa")
+                tcW.set(qn("w:w"), str(max(1, width)))
+                column_index += span
 
     def newRow(self, row_box=None, spacing_before=Dimen()) -> Row:
         row = Row(self, self._node.add_row(), row_box=row_box, spacing_before=spacing_before)
@@ -412,11 +617,16 @@ class Document(reflow.Document):
         super().__init__(document, title, output)
         self.sections = []
         self._line_id = 0
+        self._drawing_id = 0
 
     @property
     def line_id(self):
         self._line_id += 1
         return self._line_id
+
+    def nextDrawingId(self):
+        self._drawing_id += 1
+        return self._drawing_id
 
     @property
     def header(self) -> Block:
@@ -493,6 +703,12 @@ class DocxBackend(reflow.Reflow):
         if not self.parser.resolver.output_in_memory:
             self.docx_path = Path(self.parser.resolver._outputPath(output))
         return Document(self.parser.jobname, self.parser.resolver.openOut(output, "shipout/docx"))
+
+    def typesetInlineVBox(self, box: bx.Box):
+        block = super().typesetInlineVBox(box)
+        if isinstance(block, TextBoxStory):
+            block.finalizeContent()
+        return block
 
 
 def init(parser):

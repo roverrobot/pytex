@@ -4,6 +4,7 @@ import zipfile
 
 import pytest
 from docx import Document as WordDocument
+from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from pytex import align
@@ -231,6 +232,88 @@ def test_docx_empty_hbox_width_becomes_nonbreaking_spacing(parser):
     assert document.paragraphs[0].text == "A\u00a0B"
 
 
+def test_docx_inline_vbox_emits_word_textbox_story(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    outer_para = pg.Paragraph(parser, indent=False)
+    inner_para = pg.Paragraph(parser, indent=False)
+    inner_line = _line_box("X", inner_para, font, width=16)
+    vbox = _FakeVBox([inner_line], width=18, height=9, depth=3)
+    line = _FakeHBox(
+        [nd.CharNode("A", font), vbox, nd.CharNode("B", font)],
+        outer_para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert "<w:drawing" in xml
+    assert "<wp:inline" in xml
+    assert "<w:txbxContent>" in xml
+    assert "<w:t>A</w:t>" in xml
+    assert "<w:t>X</w:t>" in xml
+    assert "<w:t>B</w:t>" in xml
+    assert f'cx="{docx._emu(vbox.width)}"' in xml
+    assert f'cy="{docx._emu(vbox.height + vbox.depth)}"' in xml
+
+
+def test_docx_inline_vbox_table_uses_exact_tex_widths(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    outer_para = pg.Paragraph(parser, indent=False)
+    owner = align.HAlignment()
+    owner.tabskips = [
+        Glue(Dimen(2), Stretchness(Dimen(1), 0)),
+        Glue(Dimen(3), Stretchness(Dimen(3), 0)),
+        Glue(Dimen(5)),
+    ]
+    row = align.Row()
+    row.cells = [_alignment_cell("a", font, width=10), _alignment_cell("b", font, width=20)]
+    owner.rows = [row]
+    natural = Glue(Dimen(40), Stretchness(Dimen(4), 0))
+    row_box = _FakeHBox(
+        [],
+        source=owner,
+        width=48,
+        height=8,
+        depth=2,
+        natural=natural,
+        glue_ratio=(1, int(Dimen(8)), int(Dimen(4))),
+    )
+    vbox = _FakeVBox(
+        [row_box],
+        width=48,
+        height=10,
+        depth=0,
+    )
+    line = _FakeHBox(
+        [nd.CharNode("A", font), vbox, nd.CharNode("B", font)],
+        outer_para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    table_width = re.search(r'<w:tblW\b[^>]*\bw:type="([^"]+)"[^>]*\bw:w="([^"]+)"', xml)
+    assert table_width.groups() == ("dxa", docx.twips(vbox.width))
+    grid_widths = [
+        int(value)
+        for value in re.findall(r'<w:gridCol\b[^>]*\bw:w="(\d+)"', xml)
+    ]
+    assert grid_widths == [
+        int(docx.twips(Dimen(4))),
+        int(docx.twips(Dimen(10))),
+        int(docx.twips(Dimen(9))),
+        int(docx.twips(Dimen(20))),
+        int(docx.twips(Dimen(5))),
+    ]
+    extent_width = int(re.search(r"<wp:extent[^>]* cx=\"(\d+)\"", xml).group(1))
+    assert extent_width == docx._emu(vbox.width)
+    assert 1440 not in grid_widths
+
+
 def test_docx_explicit_glue_emits_preserved_space_with_spacing_hint(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
@@ -330,6 +413,7 @@ def test_docx_alignment_should_emit_word_table(parser):
     data = _docx_bytes(parser, backend)
     document = WordDocument(io.BytesIO(data))
     assert len(document.tables) == 1
+    assert document.tables[0].alignment == WD_TABLE_ALIGNMENT.LEFT
     assert document.tables[0].cell(0, 1).text == "a"
     assert document.tables[0].cell(0, 3).text == "b"
     assert document.tables[0].cell(1, 1).text == "c"

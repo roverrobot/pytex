@@ -805,6 +805,26 @@ class Reflow(shipout.Shipout):
                 spacing = Dimen()
         return specs
 
+    def _alignment_tabskip_widths(self, node: align.HAlignment, row_box):
+        glue_state = self._glue_state(row_box) if row_box is not None else None
+        widths = []
+        for tabskip in node.tabskips:
+            glue_node = nd.Glue(tabskip, "\\tabskip")
+            if glue_state is None:
+                widths.append(tabskip.dimen)
+            else:
+                widths.append(Dimen(integer=self._glue_amount(glue_node, row_box, glue_state)))
+        return widths
+
+    def _alignment_cell_width(self, cell):
+        width = getattr(cell, "width", None)
+        if width is not None:
+            return width
+        rightmost = getattr(cell, "rightmost", None)
+        if callable(rightmost):
+            return rightmost()
+        return None
+
     def typesetHAlignment(self, node: align.HAlignment, collection, yspacing, glue_state=None):
         self._require_builder("typesetHAlignment", "newRow")
         def noalign(table, vlist, columns):
@@ -815,23 +835,24 @@ class Reflow(shipout.Shipout):
                 if n.node_type == nd.NODE_TYPE.WHATSIT:
                     n.output(self.parser, self)
 
-        spacers = self._alignment_spacers(node)
-        columns = node.columns() + len(spacers)
+        columns = node.columns() + len(node.tabskips)
         table: Table = self.builder
         row_specs = iter(self._alignment_row_specs(collection, yspacing, glue_state))
         if node.noalign:
             noalign(table, node.noalign, columns)
         for row in node.rows:
             row_box, spacing_before = next(row_specs, (None, Dimen()))
+            tabskips = self._alignment_tabskip_widths(node, row_box)
             tr = table.newRow(row_box=row_box, spacing_before=spacing_before)
             with Builder(self, tr):
-                if spacers:
-                    self.builder.newCell(width=spacers[0])
+                if tabskips:
+                    self.builder.newCell(width=tabskips[0])
                 col = 1
                 for cell in row.cells:
                     cell_alignment = self._hbox_alignment_glue_state(cell, allow_unset=True)
                     td = self.builder.newCell(
                         cell.span,
+                        width=self._alignment_cell_width(cell),
                         justify=self._hbox_justification(cell, allow_unset=True),
                     )
                     para = td.newParagraph()
@@ -840,8 +861,8 @@ class Reflow(shipout.Shipout):
                         line = para.newLine(line_spec)
                         with LineBuilder(self, line):
                             self.typesetLine(cell, alignment_state=cell_alignment)
-                    if col < len(spacers):
-                        self.builder.newCell(width=spacers[col])
+                    if col < len(tabskips):
+                        self.builder.newCell(width=tabskips[col])
                     col += cell.span
                 if row.noalign:
                     noalign(table, row.noalign, columns)

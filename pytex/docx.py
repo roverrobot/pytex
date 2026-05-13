@@ -16,7 +16,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.parts.image import ImagePart
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt, RGBColor, Twips
 from fontTools.pens.svgPathPen import SVGPathPen
 
 from pytex import align
@@ -63,6 +63,10 @@ class _ContainerNode:
 
 def twips(dimen: Dimen):
     return f"{int(float(dimen) / 72.27 * 72 * 20)}"
+
+
+def _twips(dimen: Dimen):
+    return int(float(dimen) / 72.27 * 72 * 20)
 
 
 def half_pt(dimen: Dimen):
@@ -154,9 +158,9 @@ class Line(reflow.Line):
         self.justify = self.JUSTIFY[justify]
         para.alignment = self.justify
         fmt = para.paragraph_format
-        fmt.line_spacing = Pt(float(line_spec.line_box.height + line_spec.line_box.depth) / 72.27 * 72)
+        fmt.line_spacing = Twips(max(1, _twips(line_spec.line_box.height + line_spec.line_box.depth)))
         fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-        fmt.space_before = Pt(float(line_spec.spacing_before) / 72.27 * 72)
+        fmt.space_before = Twips(_twips(line_spec.spacing_before))
         fmt.space_after = Pt(0)
         self.font = line_spec.default_font
         self.width = line_spec.line_box.rightmost()
@@ -181,7 +185,7 @@ class Paragraph(reflow.Paragraph):
         self.justify = justify
 
     def newLine(self, line_spec: reflow.LineSpec) -> Line:
-        para = self.story._node.add_paragraph()
+        para = self.story._new_word_paragraph()
         if self.spacing is not None:
             line_spec.spacing_before += self.spacing
             self.spacing = None
@@ -191,38 +195,133 @@ class Paragraph(reflow.Paragraph):
 
 
 class Cell(reflow.Cell):
-    def __init__(self, backend, span=1, width=None, justify: str = "justify"):
-        super().__init__(_ContainerNode(), span=span, width=width, justify=justify)
-        self.backend = backend
+    def __init__(self, row, node, span=1, width=None, justify: str = "justify"):
+        super().__init__(node, span=span, width=width, justify=justify)
+        self.row = row
+        self.table = row.table
+        self._used_initial_paragraph = False
+        self._used_row_spacing = False
+        node.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+        self._setWidth(width)
+
+    @property
+    def line_id(self):
+        return self.table.line_id
+
+    def _new_word_paragraph(self):
+        if not self._used_initial_paragraph:
+            self._used_initial_paragraph = True
+            paragraphs = self._node.paragraphs
+            if paragraphs and not paragraphs[0].text and not paragraphs[0].runs:
+                return paragraphs[0]
+        return self._node.add_paragraph()
+
+    def _setWidth(self, width):
+        if width is None:
+            return
+        tcPr = self._node._tc.get_or_add_tcPr()
+        tcW = tcPr.tcW
+        if tcW is None:
+            tcW = OxmlElement("w:tcW")
+            tcPr.append(tcW)
+        if isinstance(width, Dimen):
+            tcW.set(qn("w:type"), "dxa")
+            tcW.set(qn("w:w"), twips(width))
+            return
+        if isinstance(width, (int, float)):
+            tcW.set(qn("w:type"), "pct")
+            tcW.set(qn("w:w"), str(int(float(width) * 5000)))
 
     def newParagraph(self) -> Paragraph:
-        para = Paragraph(self.backend, justify=self.justify)
+        spacing_before = Dimen()
+        if not self._used_row_spacing:
+            spacing_before = self.row.spacing_before
+            self._used_row_spacing = True
+        para = Paragraph(self, spacing_before=spacing_before, justify=self.justify)
         self.nodes.append(para)
         return para
 
 
 class Row(reflow.Row):
-    def __init__(self, backend):
-        super().__init__(_ContainerNode())
-        self.backend = backend
+    def __init__(self, table, node, row_box=None, spacing_before=Dimen()):
+        super().__init__(node)
+        self.table = table
+        self._cell_index = 0
+        self.spacing_before = Dimen(spacing_before)
+        self.row_box = row_box
+        self._setHeight(row_box, self.spacing_before)
+
+    def _setHeight(self, row_box, spacing_before):
+        if row_box is None:
+            return
+        height = row_box.height + row_box.depth + spacing_before
+        self._node.height = Twips(max(1, _twips(height)))
+        self._node.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
 
     def newCell(self, span=1, width=None, justify="justify") -> Cell:
-        cell = Cell(self.backend, span=span, width=width, justify=justify)
+        node = self.table._wordCell(self._node, self._cell_index, span, width)
+        self._cell_index += span
+        cell = Cell(self, node, span=span, width=width, justify=justify)
         self.nodes.append(cell)
         return cell
 
 
 class Table(reflow.Table):
-    def __init__(self, backend, xspacing=Dimen(), yspacing=Dimen()):
-        super().__init__(_ContainerNode(), xspacing=xspacing, yspacing=yspacing)
-        self.backend = backend
+    def __init__(self, document, node, xspacing=Dimen(), yspacing=Dimen()):
+        super().__init__(node, xspacing=xspacing, yspacing=yspacing)
+        self.document = document
         self.owner = None
         self.box = None
         self.space_before = Dimen(yspacing)
         self.region = "body"
+        self._node.autofit = True
+        self._setAlignment()
+        self._setCellMargins()
 
-    def newRow(self) -> Row:
-        row = Row(self.backend)
+    @property
+    def line_id(self):
+        return self.document.line_id
+
+    def _setAlignment(self):
+        self._node.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    def _setCellMargins(self):
+        tblPr = self._node._tbl.tblPr
+        cellMar = tblPr.first_child_found_in("w:tblCellMar")
+        if cellMar is None:
+            cellMar = OxmlElement("w:tblCellMar")
+            tblPr.append(cellMar)
+        for side in ("top", "left", "bottom", "right"):
+            existing = cellMar.find(qn(f"w:{side}"))
+            if existing is not None:
+                cellMar.remove(existing)
+            margin = OxmlElement(f"w:{side}")
+            margin.set(qn("w:w"), "0")
+            margin.set(qn("w:type"), "dxa")
+            cellMar.append(margin)
+
+    @staticmethod
+    def _columnWidth(width=None):
+        if isinstance(width, Dimen):
+            return Twips(max(1, _twips(width)))
+        if isinstance(width, (int, float)):
+            return Twips(max(1, int(1440 * float(width))))
+        return Twips(1440)
+
+    def _ensureColumns(self, count, width=None):
+        while len(self._node.columns) < count:
+            self._node.add_column(self._columnWidth(width))
+
+    def _wordCell(self, row, index, span=1, width=None):
+        span = max(1, int(span))
+        self._ensureColumns(index + span, width)
+        cell = row.cells[index]
+        if span > 1:
+            cell = cell.merge(row.cells[index + span - 1])
+        return cell
+
+    def newRow(self, row_box=None, spacing_before=Dimen()) -> Row:
+        row = Row(self, self._node.add_row(), row_box=row_box, spacing_before=spacing_before)
         self.nodes.append(row)
         return row
 
@@ -243,9 +342,7 @@ class Block(reflow.Block):
         return para
 
     def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
-        node = self._node.add_table()
-        table = Table(node, xspacing=xspacing, yspacing=yspacing)
-        return table
+        raise NotImplementedError("DOCX inline block tables need a real story container")
 
     def newGraph(self, key, type, file):
         return None
@@ -261,9 +358,18 @@ class Story(reflow.Element):
         self.nodes.append(para)
         return para
 
+    def _new_word_paragraph(self):
+        return self._node.add_paragraph()
+
+    def _new_word_table(self):
+        try:
+            return self._node.add_table(rows=0, cols=0, width=Twips(0))
+        except TypeError:
+            return self._node.add_table(rows=0, cols=0)
+
     def newTable(self, xspacing=Dimen(), yspacing=Dimen()):
-        node = self._node.add_table()
-        table = Table(node, xspacing=xspacing, yspacing=yspacing)
+        table = Table(self.document, self._new_word_table(), xspacing=xspacing, yspacing=yspacing)
+        self.nodes.append(table)
         return table
 
     def newGraph(self, key, type, file):

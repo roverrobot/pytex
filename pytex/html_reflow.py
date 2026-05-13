@@ -309,7 +309,7 @@ class Table(StyledNode, reflow.Table):
         self.style["padding-left"] = reflow.PT(xspacing)
         self.style["padding-top"] = reflow.PT(yspacing)
 
-    def newRow(self) -> Row:
+    def newRow(self, row_box=None, spacing_before=Dimen()) -> Row:
         tr = Row()
         self.append(tr)
         return tr

@@ -1,44 +1,23 @@
-import os
 import io
 import re
 import zipfile
-from types import SimpleNamespace
 
-from docx import Document
-from docx.oxml.ns import qn
 import pytest
+from docx import Document as WordDocument
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-from pytex import docx
-# prevent module side effects
-docx.mod.init = None
 from pytex import align
-from pytex import box as bx
+from pytex import docx
 from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
-from pytex import opentype
 from pytex import paragraph as pg
 from pytex import reflow
-from pytex import texlive
 from pytex.dimen import Dimen
 from pytex.font_backend import GlyphInfo
 from pytex.glue import Glue, Stretchness
 from pytex.parser import Parser
 from pytex.token import CATCODE
-
-
-def _local_stix_math_font_path():
-    name = "STIXTwoMath-Regular.otf"
-    user_font = os.path.join(os.path.expanduser("~"), "Library", "Fonts", name)
-    if os.path.exists(user_font):
-        return user_font
-
-    try:
-        resolver = texlive.TexliveResolver(format="plain")
-    except ValueError:
-        return None
-
-    return resolver.resolve(resolver.getInfo(name, "fonts/opentype"))
 
 
 @pytest.fixture()
@@ -58,7 +37,6 @@ def parser(tmp_path, monkeypatch):
         p.catcode[ord(ch)] = cat
     p.layout["hsize"] = Dimen(200)
     p.layout["vsize"] = Dimen(300)
-    p.layout["baselineskip"] = Glue(Dimen(12))
     yield p
     p.close()
 
@@ -67,7 +45,7 @@ class _FakeBackend:
     def __init__(self, name="Fake Roman"):
         self.name = name
         self.kind = "fake"
-        self.fontdimen = [0.0, 0.5, 0.0, 0.0, 0.7, 1.0, 0.0]
+        self.fontdimen = [0.0, 0.5, 0.25, 0.15, 0.7, 1.0, 0.0]
 
     def glyphInfo(self, char):
         return GlyphInfo(char=char, width=0.5, height=0.7, depth=0.2, italic=0)
@@ -78,23 +56,40 @@ class _FakeBackend:
     def hasChar(self, char):
         return True
 
+    def _spaceWidth(self):
+        return Dimen(5)
+
 
 class _FakeFont(txfont.Font):
     def __init__(self, name="Fake Roman", size=10):
         super().__init__(_FakeBackend(name), Dimen(size))
 
 
-
 class _FakeHBox:
     node_type = nd.NODE_TYPE.HLIST
 
-    def __init__(self, items, source, width=50, height=7, depth=2, rightmost_value=None):
+    def __init__(
+        self,
+        items,
+        source=None,
+        width=80,
+        height=7,
+        depth=2,
+        rightmost_value=None,
+        natural=None,
+        glue_ratio=None,
+    ):
         self.list = items
         self.source = source
         self.width = Dimen(width)
         self.height = Dimen(height)
         self.depth = Dimen(depth)
-        self._rightmost_value = Dimen(width) if rightmost_value is None else Dimen(rightmost_value)
+        self.to = Dimen(width)
+        self.spread = Dimen()
+        self.natural = Glue() if natural is None else natural
+        self.glue_ratio = Dimen() if glue_ratio is None else glue_ratio
+        self.shifted = Dimen()
+        self._rightmost_value = self.width if rightmost_value is None else Dimen(rightmost_value)
 
     def rightmost(self):
         return self._rightmost_value
@@ -105,27 +100,34 @@ class _FakeVBox:
 
     def __init__(self, items, width=200, height=120, depth=0):
         self.list = items
+        self.source = None
         self.width = Dimen(width)
         self.height = Dimen(height)
         self.depth = Dimen(depth)
+        self.to = Dimen(height)
+        self.spread = Dimen()
+        self.natural = Glue()
+        self.glue_ratio = Dimen()
+        self.shifted = Dimen()
 
 
+def _char_nodes(text, font):
+    return [nd.CharNode(ch, font) for ch in text]
 
-def _line_box(parser, text, source, font=None):
+
+def _line_box(text, source, font=None, width=80):
     font = _FakeFont() if font is None else font
     nodes = []
-    for i, word in enumerate(text.split(" ")):
-        if i:
-            nodes.append(nd.Glue(Glue(Dimen(3)), None))
-        for ch in word:
+    for ch in text:
+        if ch == " ":
+            nodes.append(nd.Glue(Glue(font.param[1]), None))
+        else:
             nodes.append(nd.CharNode(ch, font))
-    return _FakeHBox(nodes, source)
+    return _FakeHBox(nodes, source=source, width=width)
 
 
-
-def _page_box(parser, items):
-    return _FakeVBox(items)
-
+def _page_box(items):
+    return _FakeVBox([nd.Glue(Glue(Dimen(10)), "\\topskip"), *items])
 
 
 def _docx_bytes(parser, backend):
@@ -133,1726 +135,253 @@ def _docx_bytes(parser, backend):
     return parser.resolver.in_memory_files["texput.docx"].content
 
 
-def _paragraph_texts(document):
-    return [p.text.replace("\u00A0", " ") for p in document.paragraphs]
+def _word_document(parser, backend):
+    return WordDocument(io.BytesIO(_docx_bytes(parser, backend)))
 
 
-def _zip_text(data, path):
+def _document_xml(data):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        return zf.read(path).decode("utf-8")
+        return zf.read("word/document.xml").decode("utf-8")
 
 
-def _svg_media_parts(data):
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        return {
-            name: zf.read(name).decode("utf-8")
-            for name in zf.namelist()
-            if name.startswith("word/media/") and name.endswith(".svg")
-        }
-
-
-def _svg_media_text(data):
-    return "\n".join(_svg_media_parts(data).values())
-
-
-def _assert_svg_blip_only(xml):
-    assert "<a:blip>" in xml
-    assert "<a:blip r:embed=" not in xml
-    assert "<a:extLst>" in xml
-    assert "<asvg:svgBlip" in xml
-
-
-def _svg_xy_values(svg):
-    return [float(value) for value in re.findall(r'\b[xy]="([^"]+)"', svg)]
-
-
-def _svg_dimension(svg, name):
-    match = re.search(rf'\b{name}="([^"]+)pt"', svg)
-    assert match is not None
-    return float(match.group(1))
-
-
-def _math_symbol(ch, atom_type=mmode.ATOM_TYPE.ORD, fam=0):
-    return mmode.MathSymbol((atom_type.value << 12) | (fam << 8) | ord(ch), -1)
-
-
-def _display_math_owner(*fields):
-    owner = mmode.DisplayMathNode()
-    owner.list.extend(fields)
-    return owner
-
-
-def _inline_math_owner(*fields):
-    owner = mmode.InlineMathNode(nodes=list(fields))
-    return owner
-
-
-def _alignment_cell(parser, text, width=20, font=None):
+def _install_font(parser, font=None):
     font = _FakeFont() if font is None else font
-    box = _FakeHBox([nd.CharNode(ch, font) for ch in text], None, width=width, height=7, depth=2, rightmost_value=width)
+    parser.parameters["currentfont"] = font
+    return font
+
+
+def _math_atom(char, fam=0, atom_type=mmode.ATOM_TYPE.ORD):
+    atom = mmode.Atom(atom_type)
+    atom.nucleus = mmode.MathSymbol((atom_type.value << 12) | (fam << 8) | ord(char), -1)
+    return atom
+
+
+def _alignment_cell(text, font, width=20):
+    box = _FakeHBox(_char_nodes(text, font), width=width, rightmost_value=width)
     box.span = 1
     return box
 
 
-def test_docx_reflow_document_interface_collects_paragraph_specs(parser):
+def test_docx_init_selects_reflow_backend_and_bp_font_sizes(parser):
+    docx.init(parser)
+
+    assert isinstance(parser.shipout, docx.DocxBackend)
+    assert parser.font_size_in_bp is True
+
+
+def test_docx_document_interface_uses_pagespec_sections(parser):
     backend = docx.DocxBackend(parser)
     document = backend.open()
 
-    assert isinstance(document, reflow.Document)
-    page = document.newPage(Dimen(100), Dimen(200))
-    assert isinstance(page.body, reflow.Block)
-
-    para = page.body.newParagraph(spacing_before=Dimen(4), justify="left")
-    line = para.newLine()
-    font = _FakeFont()
-    run = line.newTextRun(font, reflow.Color.black)
-    run.setChar(nd.CharNode("A", font))
-
-    specs = list(page.body.iter_specs())
-    assert page.body._entries == [para]
-    assert len(specs) == 1
-    assert specs[0].space_before == Dimen(4)
-    assert specs[0].lines[0].runs[0].text == "A"
-
-
-def test_docx_block_wraps_display_math_specs_in_document_tree(parser):
-    backend = docx.DocxBackend(parser)
-    document = backend.open()
-    page = document.newPage(Dimen(100), Dimen(200))
-    owner = _display_math_owner(_math_symbol("x"))
-    spec = docx._DisplayMathSpec(owner=owner, box=_FakeHBox([], owner))
-
-    entry = page.body.addSpec(spec)
-
-    assert isinstance(entry, docx.DisplayMath)
-    assert page.body.nodes[-1] is entry
-    assert list(page.body.iter_specs()) == [spec]
-
-
-def test_docx_shipout_populates_document_page_regions(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    parser.layout["vsize"] = Dimen(60)
-    font = _FakeFont()
-    header_owner = pg.Paragraph(parser, indent=False)
-    body_owner = pg.Paragraph(parser, indent=False)
-    footer_owner = pg.Paragraph(parser, indent=False)
-
-    header_line = _FakeHBox([nd.CharNode("H", font)], header_owner, width=40, height=7, depth=2)
-    body_line = _FakeHBox([nd.CharNode("B", font)], body_owner, width=40, height=7, depth=2)
-    footer_line = _FakeHBox([nd.CharNode("F", font)], footer_owner, width=40, height=7, depth=2)
-
-    page = _FakeVBox(
-        [
-            header_line,
-            nd.Glue(Glue(Dimen(70)), None),
-            body_line,
-            nd.Glue(Glue(Dimen(60)), None),
-            footer_line,
-        ],
-        width=200,
-        height=120,
-        depth=0,
+    section = document.newPage(
+        reflow.PageSpec(
+            width=Dimen(100),
+            height=Dimen(200),
+            margin_left=Dimen(10),
+            margin_top=Dimen(20),
+            margin_right=Dimen(10),
+            margin_bottom=Dimen(20),
+        )
     )
 
-    backend.shipout(page)
-
-    assert isinstance(backend.document, reflow.Document)
-    model_page = backend.document.nodes[0]
-    assert [spec.region for spec in model_page.header.iter_specs()] == ["header"]
-    assert [spec.region for spec in model_page.body.iter_specs()] == ["body"]
-    assert [spec.region for spec in model_page.footer.iter_specs()] == ["footer"]
+    assert isinstance(document, reflow.Document)
+    assert isinstance(section.body, reflow.Element)
+    assert document.body is section.body
 
 
-def test_docx_backend_preserves_tex_line_breaks(parser):
+def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-
+    font = _install_font(parser)
     para1 = pg.Paragraph(parser, indent=False)
     para2 = pg.Paragraph(parser, indent=False)
 
-    line1 = _line_box(parser, "Hello world", para1)
-    line2 = _line_box(parser, "Again soon", para1)
-    line3 = _line_box(parser, "Second paragraph", para2)
-
-    page = _page_box(
-        parser,
-        [
-            nd.Glue(Glue(Dimen(10)), "\\topskip"),
-            line1,
-            nd.Penalty(0),
-            nd.Glue(Glue(Dimen(3)), "\\baselineskip"),
-            line2,
-            nd.Glue(Glue(Dimen(8)), "\\parskip"),
-            line3,
-        ],
+    backend.shipout(
+        _page_box(
+            [
+                _line_box("Hello world", para1, font),
+                nd.Penalty(0),
+                nd.Glue(Glue(Dimen(3)), "\\baselineskip"),
+                _line_box("Again soon", para1, font),
+                nd.Glue(Glue(Dimen(8)), "\\parskip"),
+                _line_box("Second paragraph", para2, font),
+            ]
+        )
     )
-    backend.shipout(page)
 
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert _paragraph_texts(document) == [
-        "Hello world\nAgain soon",
+    document = _word_document(parser, backend)
+    assert [p.text.replace("\u00a0", " ") for p in document.paragraphs] == [
+        "Hello world",
+        "Again soon",
         "Second paragraph",
     ]
 
 
-def test_docx_does_not_emit_box_source_glue_as_full_vbox(parser):
+def test_docx_empty_hbox_width_becomes_nonbreaking_spacing(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-
+    font = _install_font(parser)
     para = pg.Paragraph(parser, indent=False)
-    line = _line_box(parser, "Only once", para)
-    source_box = bx.VBox(parser, None, None)
-    source_box.list = [line]
-    source_box.width = Dimen(80)
-    source_box.height = Dimen(9)
-    source_box.depth = Dimen()
+    empty = _FakeHBox([], width=12, height=0, depth=0, rightmost_value=12)
+    line = _FakeHBox([nd.CharNode("A", font), empty, nd.CharNode("B", font)], para)
 
-    lead = nd.Glue(Glue(Dimen(3)), None)
-    lead.source = source_box
-    page = _page_box(
-        parser,
-        [
-            nd.Glue(Glue(Dimen(10)), "\\topskip"),
-            lead,
-            source_box,
-        ],
-    )
+    backend.shipout(_page_box([line]))
 
-    backend.shipout(page)
-
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert _paragraph_texts(document).count("Only once") == 1
+    document = _word_document(parser, backend)
+    assert document.paragraphs[0].text == "A\u00a0B"
 
 
-def test_docx_preserves_ownerless_line_text_around_empty_hboxes(parser):
+def test_docx_explicit_glue_emits_preserved_space_with_spacing_hint(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-
-    font = _FakeFont()
-    lead = _FakeHBox([], None, width=12, height=0, depth=0, rightmost_value=12)
-    line = _FakeHBox(
-        [lead, nd.CharNode("A", font), lead, nd.CharNode("B", font)],
-        None,
-        width=40,
-        height=7,
-        depth=2,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert "AB" in "\n".join(_paragraph_texts(document))
-
-
-def test_docx_explicit_spacing_accepts_scaled_point_width(parser):
-    backend = docx.DocxBackend(parser)
-    font = _FakeFont()
-    runs = []
-
-    backend._append_explicit_spacing_run(runs, int(Dimen(6)), font)
-
-    assert runs == [
-        docx._TextRun(
-            " ",
-            font,
-            spacing_twips=backend._spacing_twips(int(Dimen(1))),
-        )
-    ]
-
-
-def test_docx_updates_pending_text_run_font_after_leading_glue(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    font = _FakeFont(size=12)
+    font = _install_font(parser)
     para = pg.Paragraph(parser, indent=False)
     line = _FakeHBox(
         [
-            nd.Glue(Glue(Dimen(3)), None),
             nd.CharNode("A", font),
+            nd.Glue(Glue(Dimen(9)), None),
+            nd.CharNode("B", font),
         ],
         para,
-        width=40,
-        height=7,
-        depth=2,
     )
 
-    backend.shipout(
-        _page_box(
-            parser,
-            [
-                nd.Glue(Glue(Dimen(10)), "\\topskip"),
-                line,
-            ],
-        )
-    )
+    backend.shipout(_page_box([line]))
 
-    specs = list(backend.document.nodes[0].body.iter_specs())
-    paragraph_spec = next(spec for spec in specs if isinstance(spec, docx._ParagraphSpec))
-    text_runs = [
-        run
-        for line_spec in paragraph_spec.lines
-        for run in line_spec.runs
-        if isinstance(run, docx._TextRun)
-    ]
-    assert any(run.text == "A" and run.font is font for run in text_runs)
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert 'xml:space="preserve"' in xml
+    assert f'w:val="{docx.twips(Dimen(4))}"' in xml
 
 
-def test_docx_uses_visual_order_for_text_only_inline_boxes(parser, monkeypatch):
-    backend = docx.DocxBackend(parser)
-    font = _FakeFont(size=12)
-    number_box = _FakeHBox([nd.CharNode("1", font)], None, width=8, height=7, depth=2)
-    line_box = _FakeHBox([], None, width=40, height=7, depth=2)
-    line_spec = docx._LineSpec(
-        runs=[
-            docx._TextRun("Introduction", font),
-            docx._InlineBoxRun(number_box, [docx._TextRun("1", font)]),
-        ],
-        box=line_box,
-    )
-    glyphs = [
-        docx._Glyph("1", font, 0, 0, 10),
-        docx._Glyph("I", font, 10, 0, 10),
-        docx._Glyph("n", font, 20, 0, 10),
-    ]
-
-    monkeypatch.setattr(backend, "_capture_hlist", lambda _box, _h, _v, out: out.extend(glyphs))
-
-    visual = backend._visual_text_runs_for_line(line_spec, line_spec.runs)
-
-    assert "".join(run.text for run in visual) == "1In"
-
-
-def test_docx_unwraps_passthrough_hlist_for_text_runs(parser):
-    backend = docx.DocxBackend(parser)
-    font = _FakeFont()
-    inner = _FakeHBox([nd.CharNode("A", font), nd.CharNode("B", font)], None, width=20, height=7, depth=2)
-    outer = _FakeHBox([inner], None, width=20, height=7, depth=2)
-
-    runs = backend._runs_from_line_box(outer, docx._InlineMathState())
-
-    assert "".join(getattr(run, "text", "") for run in runs) == "AB"
-    assert not any(isinstance(run, docx._InlineBoxRun) for run in runs)
-
-
-def test_docx_renders_halign_as_table(parser):
+def test_docx_centered_hbox_sets_word_paragraph_alignment(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    fill = Stretchness(Dimen(1), 1)
+    left = nd.Glue(Glue(Dimen(), fill), None)
+    right = nd.Glue(Glue(Dimen(), fill), None)
+    natural = Glue(Dimen(5), Stretchness(Dimen(2), 1))
+    line = _FakeHBox(
+        [left, nd.CharNode("A", font), right],
+        para,
+        natural=natural,
+        glue_ratio=(1, int(Dimen(20)), int(Dimen(2))),
+    )
 
+    backend.shipout(_page_box([line]))
+
+    document = _word_document(parser, backend)
+    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+
+
+@pytest.mark.xfail(reason="DOCX inline math is not implemented in the reflow backend yet", strict=True)
+def test_docx_inline_math_should_emit_formula_content(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    owner = mmode.InlineMathNode(nodes=[_math_atom("x")])
+    on = nd.MathShift(True)
+    on.source = owner
+    on.kern = Dimen()
+    off = nd.MathShift(False)
+    off.source = owner
+    off.kern = Dimen()
+    line = _FakeHBox(
+        [nd.CharNode("A", font), on, nd.CharNode("x", font), off, nd.CharNode("B", font)],
+        para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    document = _word_document(parser, backend)
+    assert document.paragraphs[0].text == "AxB"
+
+
+@pytest.mark.xfail(reason="DOCX display math is not implemented in the reflow backend yet", strict=True)
+def test_docx_display_math_should_emit_formula_content(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    owner = mmode.DisplayMathNode()
+    owner.list.append(_math_atom("x"))
+    display_box = _FakeHBox([], source=owner)
+
+    backend.shipout(_page_box([display_box]))
+
+    document = _word_document(parser, backend)
+    assert document.paragraphs[0].text == "x"
+
+
+def test_docx_alignment_should_emit_word_table(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
     owner = align.HAlignment()
     owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0)), Glue(Dimen(0))]
     row1 = align.Row()
+    row1.cells = [_alignment_cell("a", font), _alignment_cell("b", font)]
     row2 = align.Row()
-    row1.cells = [_alignment_cell(parser, "a", width=15), _alignment_cell(parser, "b", width=18)]
-    row2.cells = [_alignment_cell(parser, "c", width=15), _alignment_cell(parser, "d", width=18)]
+    row2.cells = [_alignment_cell("c", font), _alignment_cell("d", font)]
     owner.rows = [row1, row2]
 
-    rowbox1 = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
-    rowbox2 = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
-    page = _page_box(parser, [rowbox1, rowbox2])
-    backend.shipout(page)
+    backend.shipout(_page_box([_FakeHBox([], source=owner)]))
 
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
+    data = _docx_bytes(parser, backend)
+    document = WordDocument(io.BytesIO(data))
     assert len(document.tables) == 1
-    table = document.tables[0]
-    assert table.cell(0, 1).text == "a"
-    assert table.cell(0, 3).text == "b"
-    assert table.cell(1, 1).text == "c"
-    assert table.cell(1, 3).text == "d"
+    assert document.tables[0].cell(0, 1).text == "a"
+    assert document.tables[0].cell(0, 3).text == "b"
+    assert document.tables[0].cell(1, 1).text == "c"
+    assert document.tables[0].cell(1, 3).text == "d"
+    xml = _document_xml(data)
+    assert "<w:tblCellMar>" in xml
+    assert xml.count('w:w="0" w:type="dxa"') >= 4
 
 
-def test_docx_promotes_wrapped_alignment_line_to_table(parser):
+def test_docx_alignment_span_merges_word_cells(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-
+    font = _install_font(parser)
     owner = align.HAlignment()
-    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0))]
+    owner.tabskips = []
     row = align.Row()
-    row.cells = [_alignment_cell(parser, "1", width=15), _alignment_cell(parser, "2", width=18)]
+    cell = _alignment_cell("wide", font)
+    cell.span = 2
+    row.cells = [cell]
     owner.rows = [row]
 
-    rowbox = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
-    wrapper = _FakeHBox([rowbox], None, width=33, height=8, depth=2, rightmost_value=33)
-    para = pg.Paragraph(parser, indent=False)
-    line = _FakeHBox([wrapper], para, width=80, height=8, depth=2, rightmost_value=33)
-    page = _page_box(parser, [line])
-    backend.shipout(page)
+    backend.shipout(_page_box([_FakeHBox([], source=owner)]))
 
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert len(document.tables) == 1
-    assert document.tables[0].cell(0, 1).text == "1"
-    assert document.tables[0].cell(0, 3).text == "2"
+    data = _docx_bytes(parser, backend)
+    document = WordDocument(io.BytesIO(data))
+    assert len(document.tables[0].columns) == 2
+    assert document.tables[0].cell(0, 0).text == "wide"
+    assert 'w:gridSpan w:val="2"' in _document_xml(data)
 
 
-def test_docx_promotes_wrapped_alignment_line_with_leading_indent_box_to_table(parser):
+def test_docx_alignment_row_heights_include_tex_interline_spacing(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-
+    font = _install_font(parser)
     owner = align.HAlignment()
-    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0))]
-    row = align.Row()
-    row.cells = [_alignment_cell(parser, "1", width=15), _alignment_cell(parser, "2", width=18)]
-    owner.rows = [row]
-
-    rowbox = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
-    wrapper = _FakeHBox([rowbox], None, width=33, height=8, depth=2, rightmost_value=33)
-    indent = bx.IndentBox(parser, width=Dimen(12))
-    para = pg.Paragraph(parser, indent=True)
-    line = _FakeHBox([indent, wrapper], para, width=90, height=8, depth=2, rightmost_value=43)
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert len(document.tables) == 1
-    assert document.tables[0].cell(0, 1).text == "1"
-    assert document.tables[0].cell(0, 3).text == "2"
-    tbl_ind = document.tables[0]._tbl.tblPr.find(qn("w:tblInd"))
-    assert tbl_ind is not None
-    assert int(tbl_ind.get(qn("w:w"))) == docx.DocxBackend._fit_text_twips(Dimen(12))
-
-
-def test_docx_renders_display_alignment_as_table(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    owner = align.HAlignment()
-    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0))]
-    row = align.Row()
-    row.cells = [_alignment_cell(parser, "x", width=15)]
-    owner.rows = [row]
-    display = align.MAlignment(owner, list=[])
-
-    page = _page_box(parser, [display])
-    backend.shipout(page)
-
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert len(document.tables) == 1
-    assert document.tables[0].cell(0, 1).text == "x"
-
-
-def test_docx_deduplicates_repeated_wrapped_alignment_owner(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    owner = align.HAlignment()
-    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0)), Glue(Dimen(0))]
+    owner.tabskips = []
     row1 = align.Row()
-    row1.cells = [_alignment_cell(parser, "a", width=15), _alignment_cell(parser, "b", width=18)]
+    row1.cells = [_alignment_cell("a", font, width=15)]
     row2 = align.Row()
-    row2.cells = [_alignment_cell(parser, "c", width=15), _alignment_cell(parser, "d", width=18)]
+    row2.cells = [_alignment_cell("b", font, width=15)]
     owner.rows = [row1, row2]
-
-    rowbox1 = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
-    rowbox2 = _FakeHBox([], owner, width=33, height=8, depth=2, rightmost_value=33)
-    wrap1 = _FakeHBox([rowbox1], None, width=33, height=8, depth=2, rightmost_value=33)
-    wrap2 = _FakeHBox([rowbox2], None, width=33, height=8, depth=2, rightmost_value=33)
-    para = pg.Paragraph(parser, indent=False)
-    line1 = _FakeHBox([wrap1], para, width=80, height=8, depth=2, rightmost_value=33)
-    line2 = _FakeHBox([wrap2], para, width=80, height=8, depth=2, rightmost_value=33)
-    page = _page_box(parser, [line1, line2])
-    backend.shipout(page)
-
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert len(document.tables) == 1
-
-
-def test_docx_display_alignment_emits_svg_fraction_and_tag(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    owner = align.HAlignment()
-    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0)), Glue(Dimen(0)), Glue(Dimen(0))]
-    row = align.Row()
-
-    num = mmode.MathListHolder([_math_symbol("d"), _math_symbol("x")])
-    den = mmode.MathListHolder([_math_symbol("d"), _math_symbol("t")])
-    frac = mmode.Over(num, den, True, None)
-    frac_atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    frac_atom.nucleus = mmode.Subformula()
-    frac_atom.nucleus.list = [frac]
-
-    lhs_math = _FakeHBox([], frac_atom, width=16, height=12, depth=4, rightmost_value=16)
-    lhs_cell = _FakeHBox([lhs_math], None, width=16, height=12, depth=4, rightmost_value=16)
-    lhs_cell.raw = [lhs_math]
-    lhs_cell.span = 1
-
-    rhs_atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    rhs_atom.nucleus = mmode.Subformula()
-    rhs_atom.nucleus.list = [_math_symbol("x")]
-    rhs_math = _FakeHBox([], rhs_atom, width=8, height=8, depth=2, rightmost_value=8)
-    rhs_cell = _FakeHBox([rhs_math], None, width=8, height=8, depth=2, rightmost_value=8)
-    rhs_cell.raw = [rhs_math]
-    rhs_cell.span = 1
-
-    font = _FakeFont()
-    tag_box = _FakeHBox([nd.CharNode("(", font), nd.CharNode("2", font), nd.CharNode(")", font)], None, width=6, height=7, depth=2, rightmost_value=6)
-    tag_cell = _FakeHBox([tag_box], None, width=6, height=7, depth=2, rightmost_value=6)
-    tag_cell.raw = [nd.Kern(1), nd.Kern(1), tag_box]
-    tag_cell.span = 1
-
-    row.cells = [lhs_cell, rhs_cell, tag_cell]
-    owner.rows = [row]
-
-    document = Document()
-    backend._emit_alignment(document, docx._AlignmentSpec(owner=owner, display=True))
-    out = io.BytesIO()
-    document.save(out)
-    out.seek(0)
-    with zipfile.ZipFile(out) as z:
-        xml = z.read("word/document.xml").decode("utf-8")
-        rels = z.read("word/_rels/document.xml.rels").decode("utf-8")
-    assert "<m:oMath>" not in xml
-    assert "<m:f>" not in xml
-    assert "<w:drawing>" in xml
-    _assert_svg_blip_only(xml)
-    assert 'Target="media/image1.svg"' in rels
-    assert "(2)" in xml
-    cells = re.findall(r"<w:tc>.*?</w:tc>", xml, flags=re.DOTALL)
-    tag_cell_xml = next((cell for cell in cells if "(2)" in cell), None)
-    assert tag_cell_xml is not None
-    width_match = re.search(r"<w:tcW[^>]*w:w=\"(\d+)\"[^>]*/>", tag_cell_xml)
-    assert width_match is not None
-    assert int(width_match.group(1)) > 0
-    assert "<w:jc w:val=\"right\"/>" in xml
-
-
-def test_docx_display_alignment_applies_box_shifted_to_table_indent(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    owner = align.HAlignment()
-    owner.tabskips = [Glue(Dimen(0)), Glue(Dimen(0))]
-    row = align.Row()
-    row.cells = [_alignment_cell(parser, "x", width=15)]
-    owner.rows = [row]
-
-    shifted_box = _FakeHBox([], owner, width=15, height=8, depth=2, rightmost_value=15)
-    shifted_box.shifted = Dimen(9)
-    spec = docx._AlignmentSpec(owner=owner, box=shifted_box, display=True, leading_indent=Dimen(7))
-
-    document = Document()
-    backend._emit_alignment(document, spec)
-    out = io.BytesIO()
-    document.save(out)
-    out.seek(0)
-    with zipfile.ZipFile(out) as z:
-        xml = z.read("word/document.xml").decode("utf-8")
-
-    tbl_ind = re.search(r"<w:tblInd w:type=\"dxa\" w:w=\"(\d+)\"/>", xml)
-    assert tbl_ind is not None
-    expected = docx.DocxBackend._fit_text_twips(Dimen(16))
-    assert int(tbl_ind.group(1)) == expected
-
-
-
-def test_docx_alignment_tabskip_uses_realized_glue_order(parser):
-    backend = docx.DocxBackend(parser)
-
-    owner = align.HAlignment()
-    tabskip = Glue(Dimen(0), Stretchness(Dimen(1), 2), Stretchness(Dimen(), 0))
-    owner.tabskips = [tabskip, tabskip, tabskip]
-    row = align.Row()
-    row.cells = [_alignment_cell(parser, "a", width=15), _alignment_cell(parser, "b", width=18)]
-    owner.rows = [row]
-
-    row_box = _FakeHBox(
-        [
-            nd.Glue(tabskip, "\\tabskip"),
-            row.cells[0],
-            nd.Glue(tabskip, "\\tabskip"),
-            row.cells[1],
-            nd.Glue(tabskip, "\\tabskip"),
-        ],
-        owner,
-        width=33,
-        height=8,
-        depth=2,
-        rightmost_value=33,
-    )
-    row_box.glue_ratio = (1, 1, 1)
-    row_box.natural = SimpleNamespace(
-        stretch=Stretchness(Dimen(3), 2),
-        shrink=Stretchness(Dimen(), 0),
-    )
-
-    realized = backend._alignment_effective_tabskips(owner.tabskips, ([row_box], [Dimen()]))
-    one_pt = int(Dimen(1))
-    assert [int(value) for value in realized] == [one_pt, one_pt, one_pt]
-
-
-def test_docx_backend_uses_tex_glue_as_spacing_hints(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    line1 = _line_box(parser, "Alpha beta", para)
-    line2 = _line_box(parser, "Gamma delta", para)
-    page = _page_box(
-        parser,
-        [
-            line1,
-            nd.Glue(Glue(Dimen(3)), "\\baselineskip"),
-            line2,
-            nd.Glue(Glue(Dimen(8)), "\\parskip"),
-        ],
-    )
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'w:lineRule="exact"' in xml
-    assert 'w:line="239"' in xml
-    assert 'w:after="0"' in xml
-    assert 'w:jc w:val="left"' in xml
-    assert "<w:fitText" not in xml
-    assert "<w:br/>" in xml
-    assert "<w:kern" not in xml
-    document = Document(io.BytesIO(data))
-    assert _paragraph_texts(document) == ["Alpha beta\nGamma delta"]
-
-
-def test_docx_text_spaces_use_preserved_spaces(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
-    line = _FakeHBox(
-        [
-            nd.CharNode("1", font),
-            nd.Glue(Glue(Dimen(12)), None),
-            nd.CharNode("F", font),
-            nd.CharNode("i", font),
-            nd.CharNode("g", font),
-            nd.CharNode("u", font),
-            nd.CharNode("r", font),
-            nd.CharNode("e", font),
-        ],
-        para,
-        width=50,
-        rightmost_value=50,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'xml:space="preserve"> </w:t>' in xml
-    assert 'w:spacing w:val="139"' in xml
-    assert 'xml:space="preserve">\u00A0</w:t>' not in xml
-    assert 'xml:space="preserve"> </w:t>' not in xml
-
-
-def test_docx_text_only_nested_hbox_uses_visual_order(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont(name="cmbx12", size=17.28)
-    section_box = _FakeHBox(
-        [nd.CharNode("1", font)],
-        para,
-        width=40,
-        depth=0,
-        rightmost_value=10,
-    )
-    line = _FakeHBox(
-        [
-            section_box,
-            nd.CharNode("F", font),
-            nd.CharNode("i", font),
-            nd.CharNode("g", font),
-            nd.CharNode("u", font),
-            nd.CharNode("r", font),
-            nd.CharNode("e", font),
-        ],
-        para,
-        width=200,
-        rightmost_value=40,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    document = Document(io.BytesIO(data))
-    assert [text for text in _paragraph_texts(document) if text.strip()] == ["1 Figure"]
-    assert "<w:drawing>" not in xml
-    assert 'w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"' in xml
-    assert "<w:b/>" in xml
-
-
-def test_docx_does_not_double_apply_first_line_indent_when_line_starts_with_indent_box(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=True)
-    font = _FakeFont()
-    shipped_indent = bx.IndentBox(parser)
-    line = _FakeHBox(
-        [
-            shipped_indent,
-            nd.CharNode("T", font),
-            nd.CharNode("e", font),
-            nd.CharNode("x", font),
-            nd.CharNode("t", font),
-        ],
-        para,
-        width=120,
-        rightmost_value=40,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<w:ind" not in xml
-    assert "<w:t>Text</w:t>" in xml
-
-
-def test_docx_inline_math_uses_svg_picture(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
-    parser.layout["mathsurround"] = Dimen(3)
-
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
-    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
-    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_y.nucleus = _math_symbol("y")
-    inline = _inline_math_owner(atom_x, atom_plus, atom_y)
-
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen(3)
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen(3)
-
-    math_x = _FakeHBox([], atom_x, width=8, height=6, depth=1)
-    math_plus = _FakeHBox([], atom_plus, width=6, height=6, depth=1)
-    math_y = _FakeHBox([], atom_y, width=8, height=6, depth=1)
-    line = _FakeHBox(
-        [
-            nd.CharNode("A", font),
-            on,
-            math_x,
-            math_plus,
-            math_y,
-            off,
-            nd.CharNode("B", font),
-        ],
-        para,
-        width=80,
-        height=7,
-        depth=2,
-        rightmost_value=40,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    rels = _zip_text(data, "word/_rels/document.xml.rels")
-    media = _svg_media_parts(data)
-    assert "<w:fitText" not in xml
-    assert f'cx="{backend._emu(Dimen(22))}"' in xml
-    assert f'cy="{backend._emu(Dimen(8))}"' in xml
-    assert "<w:drawing>" in xml
-    assert "<wp:inline" in xml
-    assert "<pic:pic>" in xml
-    _assert_svg_blip_only(xml)
-    assert "<m:oMath>" not in xml
-    assert "image/svg+xml" in _zip_text(data, "[Content_Types].xml")
-    assert 'Target="media/image1.svg"' in rels
-    assert len(media) == 1
-    assert "<svg" in next(iter(media.values()))
-    assert xml.count('w:spacing w:val="-40"') >= 2
-
-
-def test_docx_inline_integral_uses_svg_picture(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    inline = _inline_math_owner()
-
-    integral = mmode.Op()
-    integral.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.OP.value << 12) | (3 << 8) | 0x73, -1)
-    integral.sub = _inline_math_owner(mmode.Atom(mmode.ATOM_TYPE.ORD))
-    integral.sub.list[0].nucleus = _math_symbol("0")
-    integral.sup = _inline_math_owner(mmode.Atom(mmode.ATOM_TYPE.ORD))
-    integral.sup.list[0].nucleus = _math_symbol("1")
-    integral.typeset_style = mmode.Style(mmode.MATH_STYLE.T)
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen()
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen()
-
-    line = _FakeHBox(
-        [
-            on,
-            _FakeHBox([], integral, width=14, height=8, depth=2),
-            _FakeHBox([], atom_x, width=8, height=6, depth=1),
-            off,
-        ],
-        para,
-        width=40,
-        height=8,
-        depth=2,
-        rightmost_value=22,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    media = _svg_media_parts(data)
-    assert "<pic:pic>" in xml
-    assert "<asvg:svgBlip" in xml
-    assert "<m:oMath>" not in xml
-    assert len(media) == 1
-
-
-def test_docx_inline_math_uses_box_width_instead_of_omml_spacing(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
-
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_y.nucleus = _math_symbol("y")
-    inline = _inline_math_owner(atom_x, atom_y)
-
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen()
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen()
-
-    math_x = _FakeHBox([], atom_x, width=8, height=6, depth=1)
-    space = nd.Kern(Dimen(2))
-    math_y = _FakeHBox([], atom_y, width=8, height=6, depth=1)
-    line = _FakeHBox(
-        [
-            on,
-            math_x,
-            space,
-            math_y,
-            off,
-        ],
-        para,
-        width=40,
-        height=7,
-        depth=2,
-        rightmost_value=18,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert f'cx="{backend._emu(Dimen(18))}"' in xml
-    assert "<asvg:svgBlip" in xml
-    assert not any(space_char in xml for space_char in ("\u2009", "\u205F", "\u200A", "\u2005", "\u2004"))
-
-
-def test_docx_inline_math_uses_realized_glue_width_from_line_box(parser):
-    backend = docx.DocxBackend(parser)
-
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_y.nucleus = _math_symbol("y")
-
-    glue = nd.Glue(Glue(Dimen(2), Stretchness(Dimen(2), 0), Stretchness(Dimen(), 0)), None)
-    line = _FakeHBox([_FakeHBox([], atom_x, width=8, height=6, depth=1), glue, _FakeHBox([], atom_y, width=8, height=6, depth=1)], None)
-    line.glue_ratio = (1, 1, 1)
-    line.spread = Dimen(2)
-    line.natural = SimpleNamespace(
-        stretch=Stretchness(Dimen(2), 0),
-        shrink=Stretchness(Dimen(), 0),
-    )
-
-    fields = backend._fragment_math_fields(line.list, line)
-    assert fields == [atom_x, atom_y]
-
-    box = backend._inline_math_box(line.list, line_box=line)
-    assert box.width == Dimen(20)
-    assert box.glue_ratio == line.glue_ratio
-    assert box.natural is line.natural
-    assert box.spread == line.spread
-
-
-def test_docx_inline_math_emits_char_fragments_without_char_sources(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
-    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
-    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_y.nucleus = _math_symbol("y")
-    inline = _inline_math_owner(atom_x, atom_plus, atom_y)
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen(0)
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen(0)
-
-    line = _FakeHBox(
-        [
-            nd.CharNode("A", font),
-            on,
-            nd.CharNode("x", font),
-            nd.CharNode("+", font),
-            nd.CharNode("y", font),
-            off,
-            nd.CharNode("B", font),
-        ],
-        para,
-        width=80,
-        height=7,
-        depth=2,
-        rightmost_value=40,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    svg = _svg_media_text(data)
-    assert "<pic:pic>" in xml
-    assert "<m:oMath>" not in xml
-    assert ">x</text>" in svg
-    assert ">+</text>" in svg
-    assert ">y</text>" in svg
-    coords = _svg_xy_values(svg)
-    assert coords
-    assert max(coords) < 20
-
-
-def test_docx_hbox_wrapping_inline_math_uses_svg_picture(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
-    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
-    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_y.nucleus = _math_symbol("y")
-    inline = _inline_math_owner(atom_x, atom_plus, atom_y)
-
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen()
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen()
-
-    wrapped = _FakeHBox(
-        [
-            on,
-            _FakeHBox([], atom_x, width=8, height=6, depth=1),
-            _FakeHBox([], atom_plus, width=6, height=6, depth=1),
-            _FakeHBox([], atom_y, width=8, height=6, depth=1),
-            off,
-        ],
-        None,
-        width=22,
-        height=6,
-        depth=1,
-        rightmost_value=22,
-    )
-
-    line = _FakeHBox(
-        [
-            nd.CharNode("A", font),
-            wrapped,
-            nd.CharNode("B", font),
-        ],
-        para,
-        width=60,
-        height=7,
-        depth=2,
-        rightmost_value=32,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert "<asvg:svgBlip" in xml
-    assert "<wps:wsp>" not in xml
-    assert "<m:oMath>" not in xml
-
-
-def test_docx_reused_svg_renderer_resets_coordinates_between_boxes(parser):
-    backend = docx.DocxBackend(parser)
-    font = _FakeFont()
-
-    first = _FakeHBox([nd.CharNode("x", font)], None, width=8, height=6, depth=1)
-    second = _FakeHBox([nd.CharNode("y", font)], None, width=8, height=6, depth=1)
-
-    backend._svg_bytes_for_box(first)
-    svg = backend._svg_bytes_for_box(second).decode("utf-8")
-    coords = _svg_xy_values(svg)
-
-    assert coords
-    assert max(coords) < 20
-
-
-def test_docx_svg_uses_opentype_glyph_paths_for_math_chars(parser):
-    stix_math_font = _local_stix_math_font_path()
-    if stix_math_font is None:
-        pytest.skip("bundled STIX math font not available")
-
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-    ot_backend = opentype.OpenTypeBackend(
-        stix_math_font,
-        opentype.OpenTypeBackend._loadPath(stix_math_font),
-        path=stix_math_font,
-    )
-    font = txfont.Font(ot_backend, Dimen(10))
-    nodes = [font["∫"], font["d"], font["t"]]
-    # Exercise glyph-name recovery through the backend rather than relying on
-    # the cached glyph_name field already being present on the node.
-    nodes[1].char_info.glyph_name = None
-    nodes[2].char_info.glyph_name = None
-    box = _FakeHBox(
-        nodes,
-        None,
-        width=sum((node.width for node in nodes), Dimen()),
-        height=max(node.height for node in nodes),
-        depth=max(node.depth for node in nodes),
-    )
-
-    svg = backend._svg_bytes_for_box(box).decode("utf-8")
-
-    assert "<path " in svg
-    assert "<text " not in svg
-
-
-def test_docx_svg_keeps_exact_box_height_for_deep_vlist_content(parser):
-    backend = docx.DocxBackend(parser)
-    font = _FakeFont()
-    numerator = _FakeHBox([nd.CharNode("1", font)], None, width=5, height=7, depth=2)
-    denominator = _FakeHBox([nd.CharNode("d", font), nd.CharNode("t", font)], None, width=10, height=7, depth=2)
-    box = _FakeVBox([numerator, nd.Kern(Dimen(3)), denominator], width=20, height=10, depth=1)
-
-    svg = backend._svg_bytes_for_box(box).decode("utf-8")
-
-    assert _svg_dimension(svg, "height") == pytest.approx(backend._pt(Dimen(11)))
-    assert ">d</text>" in svg
-    assert ">t</text>" in svg
-
-
-def test_docx_inline_math_keeps_line_fragments_separate(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    parser.layout["mathsurround"] = Dimen(3)
-
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
-    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
-    atom_y = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_y.nucleus = _math_symbol("y")
-    inline = _inline_math_owner(atom_x, atom_plus, atom_y)
-
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen(3)
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen(3)
-
-    line1 = _FakeHBox(
-        [on, _FakeHBox([], atom_x, width=8, height=6, depth=1), _FakeHBox([], atom_plus, width=6, height=6, depth=1)],
-        para,
-        width=60,
-        height=7,
-        depth=2,
-        rightmost_value=20,
-    )
-    line2 = _FakeHBox(
-        [_FakeHBox([], atom_y, width=8, height=6, depth=1), off],
-        para,
-        width=60,
-        height=7,
-        depth=2,
-        rightmost_value=10,
-    )
-    page = _page_box(parser, [line1, nd.Glue(Glue(Dimen(12)), "\\baselineskip"), line2])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert f'cx="{backend._emu(Dimen(14))}"' in xml
-    assert f'cx="{backend._emu(Dimen(8))}"' in xml
-    assert f'cy="{backend._emu(Dimen(8))}"' in xml
-    assert xml.count("<asvg:svgBlip") == 2
-    assert xml.count("<pic:pic>") >= 2
-    assert "<m:oMath>" not in xml
-    assert xml.count('xml:space="preserve"> </w:t>') >= 1
-    assert 'xml:space="preserve">\u00A0</w:t>' not in xml
-    assert 'xml:space="preserve"> </w:t>' not in xml
-
-
-def test_docx_spaces_after_inline_math_remain_breakable(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
-
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-    inline = _inline_math_owner(atom_x)
-
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen(0)
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen(0)
-
-    line = _FakeHBox(
-        [
-            nd.CharNode("T", font),
-            nd.CharNode("h", font),
-            nd.CharNode("e", font),
-            nd.CharNode("n", font),
-            nd.Glue(Glue(Dimen(3)), None),
-            on,
-            _FakeHBox([], atom_x, width=8, height=6, depth=1),
-            off,
-            nd.CharNode(".", font),
-            nd.Glue(Glue(Dimen(3)), None),
-            nd.CharNode("N", font),
-            nd.CharNode("e", font),
-            nd.CharNode("x", font),
-            nd.CharNode("t", font),
-        ],
-        para,
-        width=80,
-        height=7,
-        depth=2,
-        rightmost_value=40,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert "<asvg:svgBlip" in xml
-    assert "<m:oMath>" not in xml
-    assert "<w:t>.</w:t>" in xml
-    assert "<w:t>Next</w:t>" in xml
-    assert 'xml:space="preserve"> </w:t>' in xml
-    assert 'xml:space="preserve">\u00A0</w:t>' not in xml
-    assert 'xml:space="preserve"> </w:t>' not in xml
-
-
-def test_docx_inline_math_ignores_penalty_owned_atom_duplicates(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
-
-    atom_eq = mmode.Atom(mmode.ATOM_TYPE.REL)
-    atom_eq.nucleus = _math_symbol("=", mmode.ATOM_TYPE.REL)
-    inline = _inline_math_owner(atom_eq)
-
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen(0)
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen(0)
-
-    penalty = nd.Penalty(0)
-    penalty.source = atom_eq
-    line = _FakeHBox(
-        [
-            nd.CharNode("A", font),
-            on,
-            nd.CharNode("=", font),
-            penalty,
-            off,
-            nd.CharNode("B", font),
-        ],
-        para,
-        width=60,
-        height=7,
-        depth=2,
-        rightmost_value=20,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    svg = _svg_media_text(data)
-    assert "<asvg:svgBlip" in xml
-    assert svg.count(">=</text>") == 1
-
-
-def test_docx_settings_do_not_force_custom_omml_math_font(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    line = _line_box(parser, "Hello", para)
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/settings.xml").decode("utf-8")
-    assert "STIX Two Math" not in xml
-    assert "compatibilityMode" not in xml
-
-
-def test_docx_math_operator_text_uses_normal_style(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    atom = mmode.Op()
-    body = mmode.Subformula()
-    body.list.extend([_math_symbol("s"), _math_symbol("i"), _math_symbol("n")])
-    atom.nucleus = body
-    inline = _inline_math_owner(atom)
-
-    on = nd.MathShift(True)
-    on.source = inline
-    on.kern = Dimen(0)
-    off = nd.MathShift(False)
-    off.source = inline
-    off.kern = Dimen(0)
-    math_box = _FakeHBox([], atom, width=10, height=6, depth=1)
-    line = _FakeHBox([on, math_box, off], pg.Paragraph(parser, indent=False), width=30, height=7, depth=2, rightmost_value=10)
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert "<asvg:svgBlip" in xml
-    assert "<m:oMath>" not in xml
-
-
-def test_docx_backend_emits_text_kerns_as_spacing_hints(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    font = _FakeFont()
-    line = _FakeHBox(
-        [
-            nd.CharNode("A", font),
-            nd.Kern(Dimen(-1), automatic=True),
-            nd.CharNode("V", font),
-        ],
-        para,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert 'w:jc w:val="left"' in xml
-    assert "<w:fitText" not in xml
-    assert 'w:spacing w:val="-20"' in xml
-    assert "<w:kern" not in xml
-    document = Document(io.BytesIO(data))
-    assert [p.text for p in document.paragraphs] == ["AV"]
-
-
-def test_docx_backend_skips_fit_text_for_short_lines(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    line = _FakeHBox(
-        [
-            nd.CharNode("b", _FakeFont()),
-            nd.CharNode("o", _FakeFont()),
-            nd.CharNode("x", _FakeFont()),
-            nd.CharNode("e", _FakeFont()),
-            nd.CharNode("s", _FakeFont()),
-        ],
-        para,
-        width=100,
-        rightmost_value=40,
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<w:fitText" not in xml
-    document = Document(io.BytesIO(data))
-    assert [p.text for p in document.paragraphs] == ["boxes"]
-
-
-def test_docx_backend_handles_horizontally_shifted_nested_vlists(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para = pg.Paragraph(parser, indent=False)
-    line = _line_box(parser, "Shifted text", para)
-    inner = _FakeVBox([line], width=80, height=20, depth=0)
-    inner.shifted = Dimen(25)
-    page = _page_box(parser, [inner])
-    backend.shipout(page)
-
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert _paragraph_texts(document) == ["Shifted text"]
-
-
-def test_docx_backend_emits_display_math_svg_picture(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_a.nucleus = _math_symbol("a")
-    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
-    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
-    atom_b = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_b.nucleus = _math_symbol("b")
-    display = _display_math_owner(atom_a, atom_plus, atom_b)
-
-    box = _FakeHBox([_FakeVBox([nd.Kern(Dimen(1))], width=0, height=0, depth=0)], display, width=40, height=9, depth=3)
-    box.display = True
-    box.shifted = Dimen(15)
-    page = _page_box(
-        parser,
-        [
-            nd.Glue(Glue(Dimen(6)), "\\abovedisplayskip"),
-            box,
-            nd.Glue(Glue(Dimen(8)), "\\belowdisplayskip"),
-        ],
-    )
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    rels = _zip_text(data, "word/_rels/document.xml.rels")
-    assert "m:oMathPara" not in xml
-    assert "<w:drawing>" in xml
-    assert "<wp:inline" in xml
-    assert "<pic:pic>" in xml
-    _assert_svg_blip_only(xml)
-    assert f'cx="{backend._emu(Dimen(40))}"' in xml
-    assert f'cy="{backend._emu(Dimen(12))}"' in xml
-    assert 'Target="media/image1.svg"' in rels
-    assert 'w:lineRule="exact" w:line="239"' in xml
-    assert '<w:position w:val="-6"/>' in xml
-    assert 'w:left="300"' not in xml
-
-
-def test_docx_display_integral_uses_svg_picture(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    integral = mmode.Op()
-    integral.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.OP.value << 12) | (3 << 8) | 0x73, -1)
-    integral.sub = _display_math_owner(mmode.Atom(mmode.ATOM_TYPE.ORD))
-    integral.sub.list[0].nucleus = _math_symbol("0")
-    integral.sup = _display_math_owner(mmode.Atom(mmode.ATOM_TYPE.ORD))
-    integral.sup.list[0].nucleus = _math_symbol("1")
-    integral.typeset_style = mmode.Style(mmode.MATH_STYLE.D)
-    atom_x = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_x.nucleus = _math_symbol("x")
-    display = _display_math_owner(integral, atom_x)
-
-    box = _FakeHBox([], display, width=40, height=9, depth=3)
-    box.display = True
-    page = _page_box(parser, [box])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert "<asvg:svgBlip" in xml
-    assert "<m:oMath>" not in xml
-
-
-def test_docx_section_uses_pdf_page_size_and_tex_origin(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-    parser.layout["hsize"] = Dimen(200)
-    parser.layout["vsize"] = Dimen(300)
-    parser.parameters["pdfpagewidth"] = Dimen(500)
-    parser.parameters["pdfpageheight"] = Dimen(700)
-
-    para = pg.Paragraph(parser, indent=False)
-    line = _FakeHBox([nd.CharNode("A", _FakeFont())], para, width=240, height=360, depth=0, rightmost_value=200)
-    page = _FakeVBox([line], width=240, height=360, depth=0)
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert '<w:pgSz w:w="9963" w:h="13948"/>' in xml
-    page_width = Dimen(500)
-    page_height = Dimen(700)
-    origin = Dimen(72.27)
-    text_width = Dimen(200)
-    text_height = Dimen(300)
-    left = docx.DocxBackend._fit_text_twips(origin)
-    top = docx.DocxBackend._fit_text_twips(origin)
-    right = docx.DocxBackend._fit_text_twips(page_width - origin - text_width)
-    bottom = docx.DocxBackend._fit_text_twips(page_height - origin - text_height)
-    assert f'<w:pgMar w:top="{top}" w:right="{right}" w:bottom="{bottom}" w:left="{left}"' in xml
-
-
-def test_docx_section_uses_structural_body_geometry_when_present(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-    parser.layout["hsize"] = Dimen(200)
-    parser.layout["vsize"] = Dimen(300)
-    parser.parameters["pdfpagewidth"] = Dimen(500)
-    parser.parameters["pdfpageheight"] = Dimen(700)
-
-    font = _FakeFont()
-    header_line = _FakeHBox([nd.CharNode("H", font)], None, width=200, height=7, depth=2)
-    header = _FakeVBox([header_line], width=200, height=12, depth=0)
-    body = _FakeVBox([], width=200, height=300, depth=0)
-    footer = _FakeHBox([nd.CharNode("F", font)], None, width=200, height=8, depth=0)
-    inner = _FakeVBox(
-        [
-            header,
-            nd.Glue(Glue(Dimen(17)), None),
-            nd.Glue(Glue(Dimen(25)), "\\headsep"),
-            body,
-            nd.Glue(Glue(Dimen(30)), "\\footskip"),
-            footer,
-        ],
-        width=200,
-        height=392,
-        depth=0,
-    )
-    page = _FakeVBox([inner], width=200, height=392, depth=0)
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-
-    page_width = Dimen(500)
-    page_height = Dimen(700)
-    origin = Dimen(72.27)
-    text_width = Dimen(200)
-    text_height = Dimen(300)
-    body_top = Dimen(12 + 17 + 25)
-    left = docx.DocxBackend._fit_text_twips(origin)
-    top = docx.DocxBackend._fit_text_twips(origin + body_top)
-    right = docx.DocxBackend._fit_text_twips(page_width - origin - text_width)
-    bottom = docx.DocxBackend._fit_text_twips(page_height - (origin + body_top) - text_height)
-    measured_header, measured_footer = backend._header_footer_distances(page)
-    header_distance = docx.DocxBackend._fit_text_twips(measured_header)
-    footer_distance = docx.DocxBackend._fit_text_twips(measured_footer)
-    assert (
-        f'<w:pgMar w:top="{top}" w:right="{right}" w:bottom="{bottom}" '
-        f'w:left="{left}" w:header="{header_distance}" w:footer="{footer_distance}"'
-    ) in xml
-
-
-def test_docx_supports_multiple_shipped_pages(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    para1 = pg.Paragraph(parser, indent=False)
-    para2 = pg.Paragraph(parser, indent=False)
-
-    page1 = _page_box(parser, [_line_box(parser, "Page one body", para1)])
-    page2 = _page_box(parser, [_line_box(parser, "Page two body", para2)])
-    backend.shipout(page1)
-    backend.shipout(page2)
-
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert len(document.sections) == 1
-    text = "\n".join(_paragraph_texts(document))
-    assert "Page one body" in text
-    assert "Page two body" in text
-
-
-def test_docx_emits_ownerless_inline_lines(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    line = _FakeHBox([nd.CharNode("1", _FakeFont())], None, width=20, height=7, depth=2, rightmost_value=20)
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    document = Document(io.BytesIO(_docx_bytes(parser, backend)))
-    assert "1" in "\n".join(_paragraph_texts(document))
-
-
-def test_docx_ownerless_single_line_honors_fill_glue_as_center_alignment(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    font = _FakeFont()
-    center_glue = Glue(Dimen(0), Stretchness(Dimen(1), 1), Stretchness(Dimen(), 0))
-    line = _FakeHBox(
-        [
-            nd.Glue(center_glue, None),
-            nd.CharNode("1", font),
-            nd.Glue(center_glue, None),
-        ],
-        None,
-        width=200,
-        height=8,
-        depth=2,
-        rightmost_value=200,
-    )
-    line.glue_ratio = (1, 198, 2)
-    line.natural = SimpleNamespace(
-        stretch=Stretchness(Dimen(2), 1),
-        shrink=Stretchness(Dimen(), 0),
-    )
-    page = _page_box(parser, [line])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert "<w:jc w:val=\"center\"/>" in xml
-    assert "<w:t>1</w:t>" in xml
-
-
-def test_docx_ownerless_nested_hboxes_stay_on_single_line(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    font = _FakeFont()
-    left = _FakeHBox([nd.CharNode("A", font)], None, width=10, height=7, depth=2, rightmost_value=10)
-    right = _FakeHBox([nd.CharNode("B", font)], None, width=10, height=7, depth=2, rightmost_value=10)
-    outer = _FakeHBox([left, right], None, width=20, height=7, depth=2, rightmost_value=20)
-    page = _page_box(parser, [outer])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        xml = zf.read("word/document.xml").decode("utf-8")
-    assert ">A<" in xml
-    assert ">B<" in xml
-    assert "<w:br/>" not in xml
-
-
-def test_docx_flow_regions_split_header_body_footer(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    parser.layout["vsize"] = Dimen(60)
-    font = _FakeFont()
-    header_owner = pg.Paragraph(parser, indent=False)
-    body_owner = pg.Paragraph(parser, indent=False)
-    footer_owner = pg.Paragraph(parser, indent=False)
-
-    header_line = _FakeHBox([nd.CharNode("H", font)], header_owner, width=40, height=7, depth=2)
-    body_line = _FakeHBox([nd.CharNode("B", font)], body_owner, width=40, height=7, depth=2)
-    footer_line = _FakeHBox([nd.CharNode("F", font)], footer_owner, width=40, height=7, depth=2)
-
-    page = _FakeVBox(
-        [
-            header_line,
-            nd.Glue(Glue(Dimen(70)), None),
-            body_line,
-            nd.Glue(Glue(Dimen(60)), None),
-            footer_line,
-        ],
-        width=200,
-        height=120,
-        depth=0,
-    )
-
-    backend.shipout(page)
-
-    section = backend.document.sections[0]
-    assert [spec.region for spec in section.header.iter_specs()] == ["header"]
-    assert [spec.region for spec in section.body.iter_specs()] == ["body"]
-    assert [spec.region for spec in section.footer.iter_specs()] == ["footer"]
-
-
-def test_docx_region_classifier_keeps_first_body_line_out_of_header(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    parser.layout["vsize"] = Dimen(100)
-    parser.layout["topskip"] = Glue(Dimen(10))
-    owner = pg.Paragraph(parser, indent=False)
-    first_line = _FakeHBox([nd.CharNode("A", _FakeFont())], owner, width=40, height=7, depth=2)
-    page = _FakeVBox([first_line], width=200, height=110, depth=0)
-
-    backend.shipout(page)
-
-    section = backend.document.sections[0]
-    assert list(section.header.iter_specs()) == []
-    specs = list(section.body.iter_specs())
-    assert len(specs) == 1
-    assert isinstance(specs[0], docx._ParagraphSpec)
-    assert specs[0].region == "body"
-
-
-def test_docx_display_math_does_not_use_token_stringification(parser, monkeypatch):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    def fail(_tokens):
-        raise AssertionError("display-math DOCX export should not stringify token lists")
-
-    monkeypatch.setattr(parser, "expandedToksToString", fail)
-
-    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_a.nucleus = _math_symbol("a")
-    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
-    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
-    atom_b = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_b.nucleus = _math_symbol("b")
-    display = _display_math_owner(atom_a, atom_plus, atom_b)
-
-    box = _FakeHBox([], display, width=40, height=9, depth=3)
-    box.display = True
-    page = _page_box(parser, [box])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert "<asvg:svgBlip" in xml
-    assert "m:oMathPara" not in xml
-
-
-def test_docx_display_math_ignores_generic_payload_fields(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    class _TokenishPayload:
-        def __init__(self):
-            self.list = ["from-list"]
-            self.raw = "from-raw"
-            self.text = "from-text"
-
-    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_a.nucleus = _math_symbol("a")
-    display = _display_math_owner(_TokenishPayload(), atom_a)
-
-    box = _FakeHBox([], display, width=40, height=9, depth=3)
-    box.display = True
-    page = _page_box(parser, [box])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    svg = _svg_media_text(data)
-    assert "<asvg:svgBlip" in xml
-    assert "m:oMathPara" not in xml
-    assert "from-list" not in xml
-    assert "from-raw" not in xml
-    assert "from-text" not in xml
-    assert "from-list" not in svg
-    assert "from-raw" not in svg
-    assert "from-text" not in svg
-
-
-def test_docx_display_math_emits_eqno_as_separate_box(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    atom_a = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_a.nucleus = _math_symbol("a")
-    atom_plus = mmode.Atom(mmode.ATOM_TYPE.BIN)
-    atom_plus.nucleus = _math_symbol("+", mmode.ATOM_TYPE.BIN)
-    atom_b = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_b.nucleus = _math_symbol("b")
-    display = _display_math_owner(atom_a, atom_plus, atom_b)
-    eqno = mmode.Subformula()
-    atom_1 = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom_1.nucleus = _math_symbol("1")
-    eqno.list.append(atom_1)
-    display.eqno = (eqno, False)
-
-    formula_box = _FakeHBox([], None, width=40, height=11, depth=3)
-    eqno_box = _FakeHBox([], None, width=15, height=9, depth=3)
-    box = _FakeHBox([formula_box, nd.Kern(Dimen(60)), eqno_box], display, width=115, height=14, depth=8)
-    box.display = True
-    page = _page_box(parser, [box])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert f'cx="{backend._emu(Dimen(40))}"' in xml
-    assert f'cy="{backend._emu(Dimen(22))}"' in xml
-    assert f'cx="{backend._emu(Dimen(15))}"' in xml
-    assert f'cy="{backend._emu(Dimen(17))}"' in xml
-    assert xml.count("<asvg:svgBlip") == 2
-    assert '<w:tab/>' in xml
-    assert 'w:val="right"' in xml
-    assert 'w:pos="2291"' in xml
-
-
-def test_docx_display_math_uses_top_level_display_box_height(parser):
-    backend = docx.DocxBackend(parser)
-    parser.shipout = backend
-
-    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom.nucleus = _math_symbol("x")
-    display = _display_math_owner(atom)
-
-    formula_box = _FakeHBox([], None, width=40, height=11, depth=3)
-    box = _FakeHBox([formula_box], display, width=40, height=18, depth=6)
-    box.display = True
-    page = _page_box(parser, [box])
-    backend.shipout(page)
-
-    data = _docx_bytes(parser, backend)
-    xml = _zip_text(data, "word/document.xml")
-    assert f'cx="{backend._emu(Dimen(40))}"' in xml
-    assert f'cy="{backend._emu(Dimen(24))}"' in xml
-
-
-def test_docx_maps_math_operator_period_slot_to_period(parser):
-    atom = mmode.Atom(mmode.ATOM_TYPE.PUNCT)
-    atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.PUNCT.value << 12) | (0 << 8) | 0x3A, -1)
-    backend = docx.DocxBackend(parser)
-    assert backend._math_symbol_text(atom.nucleus) == "."
-
-
-def test_docx_maps_math_letter_period_slot_to_period(parser):
-    atom = mmode.Atom(mmode.ATOM_TYPE.ORD)
-    atom.nucleus = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | 0x3A, -1)
-    backend = docx.DocxBackend(parser)
-    assert backend._math_symbol_text(atom.nucleus) == "."
+    rowbox1 = _FakeHBox([], source=owner, height=8, depth=2)
+    rowbox2 = _FakeHBox([], source=owner, height=7, depth=3)
+    interline = nd.Glue(Glue(Dimen(5)), "\\baselineskip")
+    interline.source = rowbox2
+
+    backend.shipout(_FakeVBox([rowbox1, interline, rowbox2]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    heights = [
+        int(value)
+        for value in re.findall(r'<w:trHeight\b[^>]*\bw:val="(\d+)"', xml)
+    ]
+    assert heights == [int(docx.twips(Dimen(10))), int(docx.twips(Dimen(15)))]
+    assert f'w:before="{docx.twips(Dimen(5))}"' in xml

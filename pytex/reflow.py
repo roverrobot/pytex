@@ -226,7 +226,7 @@ class Table(Element):
     def __init__(self, node, xspacing=Dimen(), yspacing=Dimen()):
         super().__init__(node)
 
-    def newRow(self) -> Row:
+    def newRow(self, row_box=None, spacing_before=Dimen()) -> Row:
         pass
 
 
@@ -696,7 +696,7 @@ class Reflow(shipout.Shipout):
                     continue
                 table = self.builder.newTable(yspacing=spacing)
                 with Builder(self, table):
-                    self.typesetHAlignment(n, collection, yspacing=spacing)
+                    self.typesetHAlignment(n, collection, yspacing=spacing, glue_state=glue_state)
                 spacing = Dimen()
                 if top_level:
                     self.last_source = (n, table)
@@ -786,7 +786,26 @@ class Reflow(shipout.Shipout):
             return [0.0] * len(tabskips)
         return [float(g.dimen)/float(total.dimen) for g in tabskips]
 
-    def typesetHAlignment(self, node: align.HAlignment, collection, yspacing):
+    def _alignment_row_specs(self, collection, yspacing, glue_state=None):
+        spacing = Dimen(yspacing)
+        specs = []
+        for n in collection:
+            node_type = getattr(n, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                if glue_state is None:
+                    spacing += n.glue.dimen
+                else:
+                    spacing += Dimen(integer=self._glue_amount(n, None, glue_state))
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                spacing += n.kern
+                continue
+            if node_type == nd.NODE_TYPE.HLIST:
+                specs.append((n, spacing))
+                spacing = Dimen()
+        return specs
+
+    def typesetHAlignment(self, node: align.HAlignment, collection, yspacing, glue_state=None):
         self._require_builder("typesetHAlignment", "newRow")
         def noalign(table, vlist, columns):
             """
@@ -799,10 +818,12 @@ class Reflow(shipout.Shipout):
         spacers = self._alignment_spacers(node)
         columns = node.columns() + len(spacers)
         table: Table = self.builder
+        row_specs = iter(self._alignment_row_specs(collection, yspacing, glue_state))
         if node.noalign:
             noalign(table, node.noalign, columns)
         for row in node.rows:
-            tr = table.newRow()
+            row_box, spacing_before = next(row_specs, (None, Dimen()))
+            tr = table.newRow(row_box=row_box, spacing_before=spacing_before)
             with Builder(self, tr):
                 if spacers:
                     self.builder.newCell(width=spacers[0])

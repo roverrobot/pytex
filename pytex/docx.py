@@ -75,6 +75,10 @@ def _twips(dimen: Dimen):
     return int(float(dimen) / 72.27 * 72 * 20)
 
 
+def _length(dimen: Dimen):
+    return Twips(_twips(dimen))
+
+
 def _emu(dimen: Dimen):
     return max(1, int(round(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN)))
 
@@ -589,11 +593,22 @@ class Section:
     def __init__(self, document, spec: reflow.PageSpec):
         self.document = document
         self.spec = spec
+        self._section = document._node.sections[-1]
+        self._apply_spec()
         self._header_spec = document._node.part.add_header_part() # node, rel_id
         self._header = Story(document, self._header_spec[0])
         self._footer_spec = document._node.part.add_footer_part()
         self._footer = Story(document, self._footer_spec[0])
         self._body = Story(document, document._node._body)
+
+    def _apply_spec(self):
+        section = self._section
+        section.page_width = _length(self.spec.width)
+        section.page_height = _length(self.spec.height)
+        section.left_margin = _length(self.spec.margin_left)
+        section.top_margin = _length(self.spec.margin_top)
+        section.right_margin = _length(self.spec.margin_right)
+        section.bottom_margin = _length(self.spec.margin_bottom)
 
     @property
     def header(self) -> Block:

@@ -5,7 +5,7 @@ The base class for reflow shipout backends. providing common utilities for reflo
 from __future__ import annotations
 
 from pytex import box as bx
-from pytex.dimen import Dimen
+from pytex.dimen import Dimen, UNITS
 from pytex.font import Font
 from pytex.glue import Glue
 from pytex.typeset import shipout
@@ -20,6 +20,9 @@ import colorsys
 
 def PT(pt):
     return f"{round(float(pt) / 72.27 * 72 * 20) / 20 }pt"
+
+
+_ONE_INCH = Dimen(integer=Dimen._trunc_div(UNITS["in"][0] * Dimen.scale, UNITS["in"][1]))
 
 
 @dataclass
@@ -557,11 +560,37 @@ class Reflow(shipout.Shipout):
             # in this case the body is body
             body_tree = [box]
         body = body_tree[-1]
-        margin_right = box.width - margin_left - body.width
-        margin_bottom = box.height + box.depth - margin_top - body.height - body.depth
-        page_spec = PageSpec(box.width, box.height, margin_left, margin_top, margin_right, margin_bottom)
+        # _find_body returns the body offset inside the shipped box. Device
+        # output places that box at TeX's physical origin, so PageSpec margins
+        # need both pieces to match PDF/DVI placement.
+        page_width, page_height, origin_x, origin_y = self._page_geometry(box)
+        margin_left = origin_x + margin_left
+        margin_top = origin_y + margin_top
+        margin_right = page_width - margin_left - body.width
+        margin_bottom = page_height - margin_top - body.height - body.depth
+        page_spec = PageSpec(page_width, page_height, margin_left, margin_top, margin_right, margin_bottom)
         self.document.newPage(page_spec)
         return body_tree
+
+    def _page_geometry(self, box):
+        page_width = self._page_dimension_parameter("pdfpagewidth")
+        page_height = self._page_dimension_parameter("pdfpageheight")
+        origin_x = _ONE_INCH + self.parser.layout["hoffset"]
+        origin_y = _ONE_INCH + self.parser.layout["voffset"]
+        if page_width is None:
+            page_width = box.width + 2 * origin_x
+        if page_height is None:
+            page_height = box.height + box.depth + 2 * origin_y
+        return page_width, page_height, origin_x, origin_y
+
+    def _page_dimension_parameter(self, name):
+        try:
+            value = self.parser.parameters[name]
+        except KeyError:
+            return None
+        if value is None or int(value) <= 0:
+            return None
+        return Dimen(value)
 
     def end_page(self, box):
         pass

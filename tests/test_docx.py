@@ -188,6 +188,13 @@ def test_docx_document_interface_uses_pagespec_sections(parser):
     assert isinstance(document, reflow.Document)
     assert isinstance(section.body, reflow.Element)
     assert document.body is section.body
+    word_section = document._node.sections[0]
+    assert int(word_section.page_width) == int(docx._length(Dimen(100)))
+    assert int(word_section.page_height) == int(docx._length(Dimen(200)))
+    assert int(word_section.left_margin) == int(docx._length(Dimen(10)))
+    assert int(word_section.top_margin) == int(docx._length(Dimen(20)))
+    assert int(word_section.right_margin) == int(docx._length(Dimen(10)))
+    assert int(word_section.bottom_margin) == int(docx._length(Dimen(20)))
 
 
 def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):

@@ -21,7 +21,7 @@ from fontTools.pens.svgPathPen import SVGPathPen
 
 from pytex import align
 from pytex import box as bx
-from pytex import font as txfont
+from pytex.font import Font
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
@@ -70,8 +70,12 @@ def half_pt(dimen: Dimen):
 
 
 class Text(reflow.Text):
-    def __init__(self):
+    XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+    def __init__(self, preserve_space=False):
         node = OxmlElement("w:t")
+        if preserve_space:
+            node.set(self.XML_SPACE, "preserve")
         node.text = ""
         super().__init__(node)
 
@@ -84,15 +88,31 @@ class Text(reflow.Text):
 
 
 class TextRun(reflow.TextRun):
+    def __init__(self, line, text="", font = None, color = reflow.Color.black, preserve_space=False):
+        node = line._node.add_run()
+        self.line = line
+        super().__init__(node, font, color)
+        self.preserve_space = preserve_space
+        t = self.newText()
+        t._node.text = text
+        rPr = node._r.get_or_add_rPr()
+        kern = OxmlElement("w:kern")
+        rPr.append(kern)
+        kern.set(qn("w:val"), "1")
+        lig = OxmlElement("w14:ligatures")
+        rPr.append(lig)
+        lig.set(qn("w14:val"), "standard")
+
     def setFont(self, font):
         self.font = font
+        self.line.font = font
         if font is not None:
             self._node.font.name = font.backend.name
             self._node.font.size = Pt(round(float(font.at) / 72.27 * 72 * 2) / 2)
             self._node.font.color.rgb = _color(self.color)
 
     def newText(self) -> Text:
-        text = Text()
+        text = Text(self.preserve_space)
         self._node._element.append(text._node)
         self.nodes.append(text)
         self.text = text
@@ -109,15 +129,15 @@ class TextRun(reflow.TextRun):
 
 
 class Space(TextRun):
-    def __init__(self, para: WordParagraph, width: Dimen, breakable: bool, font: txfont.Font):
+    def __init__(self, line, width: Dimen, breakable: bool, font: Font):
         space = " " if breakable else "\xa0"
-        run = para.add_run("\xa0")
-        super().__init__(run, font)
-        rPr = run._element.get_or_add_rPr()
-        spacing_element = OxmlElement('w:spacing')
-        # 2. Set the spacing value in twips (e.g., "40" for 2 points of spacing)
-        spacing_element.set(qn('w:val'), twips(width))
-        rPr.append(spacing_element)
+        super().__init__(line, space, font, preserve_space=True)
+        diff = width-font.backend._spaceWidth()
+        if int(diff) != 0:
+            rPr = self._node._r.get_or_add_rPr()
+            spacing_element = OxmlElement('w:spacing')
+            spacing_element.set(qn('w:val'), twips(diff))
+            rPr.append(spacing_element)
 
 
 class Line(reflow.Line):
@@ -129,23 +149,24 @@ class Line(reflow.Line):
         None: WD_ALIGN_PARAGRAPH.LEFT,
     }
 
-    def __init__(self, para: WordParagraph, line_height, spacing_before, color: reflow.Color = reflow.Color.black, justify="justify"):
-        super().__init__(para, line_height, color)
+    def __init__(self, para: WordParagraph, line_id: int, line_spec: reflow.LineSpec, justify="justify"):
+        super().__init__(para, line_spec)
         self.justify = self.JUSTIFY[justify]
         para.alignment = self.justify
         fmt = para.paragraph_format
-        fmt.line_spacing = Pt(float(line_height) / 72.27 * 72)
+        fmt.line_spacing = Pt(float(line_spec.line_box.height + line_spec.line_box.depth) / 72.27 * 72)
         fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-        fmt.space_before = Pt(float(spacing_before))
+        fmt.space_before = Pt(float(line_spec.spacing_before) / 72.27 * 72)
         fmt.space_after = Pt(0)
-        self.font = None
+        self.font = line_spec.default_font
+        self.width = line_spec.line_box.rightmost()
+        self.line_id = line_id
 
     def newTextRun(self, font, color) -> TextRun:
-        self.font = font
-        return TextRun(self._node.add_run(), font, color)
+        return TextRun(self, font=font, color=color)
 
     def newSpace(self, width: Dimen, breakable: bool):
-        s = Space(self._node, width, breakable, self.font)
+        s = Space(self, width, breakable, self.font)
         return s
 
 
@@ -159,18 +180,12 @@ class Paragraph(reflow.Paragraph):
     def setJustify(self, justify):
         self.justify = justify
 
-    def newLine(
-        self,
-        line_height: Dimen=Dimen(),
-        color: reflow.Color=reflow.Color.black,
-        force: bool=False,
-        spacing_before: Dimen=Dimen(),
-    ):
-        para = self.story.add_paragraph()
+    def newLine(self, line_spec: reflow.LineSpec) -> Line:
+        para = self.story._node.add_paragraph()
         if self.spacing is not None:
-            spacing_before += self.spacing
+            line_spec.spacing_before += self.spacing
             self.spacing = None
-        line = Line(para, line_height=line_height, spacing_before=spacing_before, color=color, justify=self.justify)
+        line = Line(para, self.story.line_id, line_spec, justify=self.justify)
         self.append(line)
         return line
 
@@ -242,7 +257,7 @@ class Story(reflow.Element):
         self.document = document
 
     def newParagraph(self, spacing_before=Dimen(), justify: str = "left") -> Paragraph:
-        para = Paragraph(self._node, spacing_before=spacing_before, justify=justify)
+        para = Paragraph(self, spacing_before=spacing_before, justify=justify)
         self.nodes.append(para)
         return para
 
@@ -253,17 +268,21 @@ class Story(reflow.Element):
 
     def newGraph(self, key, type, file):
         return None
+    
+    @property
+    def line_id(self):
+        return self.document.line_id
 
 
 class Section:
     def __init__(self, document, spec: reflow.PageSpec):
         self.document = document
         self.spec = spec
-        self._header_spec = document.part.add_header_part() # node, rel_id
+        self._header_spec = document._node.part.add_header_part() # node, rel_id
         self._header = Story(document, self._header_spec[0])
-        self._footer_spec = document.part.add_footer_part()
+        self._footer_spec = document._node.part.add_footer_part()
         self._footer = Story(document, self._footer_spec[0])
-        self._body = Story(document, document._body)
+        self._body = Story(document, document._node._body)
 
     @property
     def header(self) -> Block:
@@ -286,6 +305,12 @@ class Document(reflow.Document):
         document = WordDocument()
         super().__init__(document, title, output)
         self.sections = []
+        self._line_id = 0
+
+    @property
+    def line_id(self):
+        self._line_id += 1
+        return self._line_id
 
     @property
     def header(self) -> Block:
@@ -309,7 +334,7 @@ class Document(reflow.Document):
         if is_new:
             if section_index > 0:
                 self.sections[-1].close(self._node, last_page=False)
-            section = Section(self._node, page_spec)
+            section = Section(self, page_spec)
             self.sections.append(section)
             return section
         return self.sections[-1]
@@ -351,7 +376,7 @@ class DocxBackend(reflow.Reflow):
         self._docx_next_textbox_id = 1
         self.section = None
         self.docx_path = None
-
+    
     def open(self):
         output = self.parser.jobname
         output = os.fspath(output)
@@ -366,6 +391,7 @@ class DocxBackend(reflow.Reflow):
 
 def init(parser):
     parser.shipout = DocxBackend(parser)
+    parser.font_size_in_bp = True
 
 
 mod = Module(

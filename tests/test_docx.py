@@ -8,6 +8,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from pytex import align
+from pytex import box as bx
 from pytex import docx
 from pytex import font as txfont
 from pytex import mmode
@@ -547,6 +548,94 @@ def test_docx_alignment_should_emit_word_table(parser):
     xml = _document_xml(data)
     assert "<w:tblCellMar>" in xml
     assert xml.count('w:w="0" w:type="dxa"') >= 4
+    assert xml.count("<w:noWrap/>") >= 4
+
+
+def test_docx_alignment_zero_width_overhang_cell_gets_visible_width(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(50)), Glue(Dimen(50))]
+    visible = bx.HBox(parser, None, 0)
+    visible.list = _char_nodes("1", font)
+    visible = visible.typeset(parser)
+    cell = bx.HBox(parser, Dimen(), None)
+    cell.list = [nd.Kern(-visible.width), visible]
+    cell = cell.typeset(parser)
+    cell.span = 1
+    row = align.Row()
+    row.cells = [cell]
+    owner.rows = [row]
+    row_box = _FakeHBox([], source=owner, width=100, height=10, depth=2)
+
+    backend.shipout(_page_box([row_box]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    cell_texts = re.findall(r'<w:t[^>]*>(.*?)</w:t>', xml)
+    grid_widths = [
+        value
+        for value in re.findall(r'<w:gridCol\b[^>]*\bw:w="(\d+)"', xml)
+    ]
+    assert grid_widths == [
+        docx.twips(Dimen(50) - visible.width),
+        docx.twips(visible.width),
+        docx.twips(Dimen(50)),
+    ]
+    assert '<w:tblLayout w:type="fixed"/>' in xml
+    assert ">1<" in xml
+    assert "\xa0" not in "".join(cell_texts)
+
+
+def test_docx_alignment_cell_inline_math_uses_table_row_baseline(parser, monkeypatch):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    owner = align.HAlignment()
+    math_owner = mmode.InlineMathNode(nodes=[_math_atom("x")])
+    on = nd.MathShift(True)
+    on.source = math_owner
+    on.kern = Dimen()
+    off = nd.MathShift(False)
+    off.source = math_owner
+    off.kern = Dimen()
+    cell = _FakeHBox([on, nd.CharNode("x", font), off], width=10, height=8, depth=3)
+    cell.span = 1
+    row = align.Row()
+    row.cells = [cell]
+    owner.rows = [row]
+    row_box = _FakeHBox([], source=owner, width=10, height=8, depth=3)
+
+    captured = {}
+
+    def fake_svg(box):
+        captured["box"] = box
+        return b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+
+    monkeypatch.setattr(backend, "inlineMathSvg", fake_svg)
+
+    backend.shipout(_page_box([row_box]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert "<w:drawing" in xml
+    assert f'<w:position w:val="-{docx.half_pt(captured["box"].depth)}"/>' in xml
+
+
+def test_docx_zero_width_inline_vbox_is_not_emitted(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    vbox = _FakeVBox([], width=0, height=8, depth=3)
+    line = _FakeHBox([nd.CharNode("A", font), vbox, nd.CharNode("B", font)], para)
+
+    backend.shipout(_page_box([line]))
+
+    data = _docx_bytes(parser, backend)
+    xml = _document_xml(data)
+    document = WordDocument(io.BytesIO(data))
+    assert "<w:drawing" not in xml
+    assert document.paragraphs[0].text == "AB"
 
 
 def test_docx_alignment_span_merges_word_cells(parser):

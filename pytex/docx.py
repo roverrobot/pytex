@@ -405,7 +405,8 @@ class TextRun(reflow.TextRun):
             raise ValueError("DOCX inline textbox template is missing w:txbxContent")
         block = TextBoxStory(document, drawing, content, box)
         self._node._element.append(drawing)
-        self._setPosition(-int(half_pt(box.depth)))
+        if not isinstance(self.line.story, Cell):
+            self._setPosition(-int(half_pt(box.depth)))
         self.nodes.append(block)
         return block
 
@@ -515,6 +516,7 @@ class Cell(reflow.Cell):
         self._used_row_spacing = False
         node.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
         self._setWidth(width)
+        self._setNoWrap()
 
     @property
     def line_id(self):
@@ -543,6 +545,11 @@ class Cell(reflow.Cell):
         if isinstance(width, (int, float)):
             tcW.set(qn("w:type"), "pct")
             tcW.set(qn("w:w"), str(int(float(width) * 5000)))
+
+    def _setNoWrap(self):
+        tcPr = self._node._tc.get_or_add_tcPr()
+        if tcPr.find(qn("w:noWrap")) is None:
+            tcPr.append(OxmlElement("w:noWrap"))
 
     def newParagraph(self) -> Paragraph:
         spacing_before = Dimen()
@@ -606,7 +613,7 @@ class Table(reflow.Table):
         self._setAlignment()
         self._setCellMargins()
         if self.full_width is not None:
-            self._setTableWidth("dxa", twips(self.full_width))
+            self.setFullWidth(self.full_width)
 
     @property
     def line_id(self):
@@ -638,6 +645,14 @@ class Table(reflow.Table):
             tblPr.insert(0, tblW)
         tblW.set(qn("w:type"), width_type)
         tblW.set(qn("w:w"), str(width))
+
+    def _setTableLayoutFixed(self):
+        tblPr = self._node._tbl.tblPr
+        tblLayout = tblPr.first_child_found_in("w:tblLayout")
+        if tblLayout is None:
+            tblLayout = OxmlElement("w:tblLayout")
+            tblPr.append(tblLayout)
+        tblLayout.set(qn("w:type"), "fixed")
 
     @staticmethod
     def _columnWidth(width=None):
@@ -676,6 +691,7 @@ class Table(reflow.Table):
         self.full_width = Dimen(width)
         self._node.autofit = False
         self._setTableWidth("dxa", twips(self.full_width))
+        self._setTableLayoutFixed()
         grid = self._node._tbl.tblGrid
         columns = list(grid.gridCol_lst)
         if not columns:
@@ -1135,7 +1151,139 @@ class DocxBackend(reflow.Reflow):
             self.docx_path = Path(self.parser.resolver._outputPath(output))
         return Document(self.parser.jobname, self.parser.resolver.openOut(output, "shipout/docx"))
 
+    def _hbox_extent(self, box):
+        x = Dimen()
+        left = None
+        right = None
+        glue_state = self._glue_state(box)
+        for node in getattr(box, "list", ()):
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                if glue_state is None:
+                    x += node.glue.dimen
+                else:
+                    x += Dimen(integer=self._glue_amount(node, None, glue_state))
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                x += node.kern
+                continue
+            if node_type == nd.NODE_TYPE.PENALTY:
+                continue
+            if node_type == nd.NODE_TYPE.MATH:
+                x += getattr(node, "kern", Dimen())
+                continue
+            node_left, node_right = self._node_extent(node)
+            if left is None or x + node_left < left:
+                left = x + node_left
+            if right is None or x + node_right > right:
+                right = x + node_right
+            width = getattr(node, "width", None)
+            if width is not None:
+                x += width
+        if left is None:
+            return Dimen(), Dimen()
+        return left, right
+
+    def _node_extent(self, node):
+        if getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST:
+            return self._hbox_extent(node)
+        width = getattr(node, "width", None)
+        if width is None:
+            return Dimen(), Dimen()
+        return Dimen(), Dimen(width)
+
+    def _visible_hbox_content(self, box):
+        content = []
+        for node in getattr(box, "list", ()):
+            node_type = getattr(node, "node_type", None)
+            if node_type in (nd.NODE_TYPE.GLUE, nd.NODE_TYPE.KERN, nd.NODE_TYPE.PENALTY):
+                continue
+            if node_type == nd.NODE_TYPE.HLIST:
+                left, right = self._hbox_extent(node)
+                if int(getattr(node, "width", Dimen())) == 0 and int(right - left) > 0:
+                    content.extend(self._visible_hbox_content(node))
+                else:
+                    content.append(node)
+                continue
+            content.append(node)
+        return content
+
+    def _alignment_cell_docx_box(self, cell):
+        width = self._alignment_cell_width(cell)
+        if width is None or int(width) != 0:
+            return cell, width, Dimen()
+        left, right = self._hbox_extent(cell)
+        visible = right - left
+        if int(visible) <= 0:
+            return cell, width, Dimen()
+        render = cell
+        if int(left) < 0 and hasattr(cell, "copy"):
+            content = self._visible_hbox_content(cell)
+            render = cell.copy(content=content) if content else cell.copy()
+            render.width = visible
+            render.to = visible
+            render.spread = Dimen()
+            render.glue_ratio = bx.GlueRatio(0, 0, 1)
+        return render, visible, -left if int(left) < 0 else Dimen()
+
+    def typesetHAlignment(self, node: align.HAlignment, collection, yspacing, glue_state=None):
+        self._require_builder("typesetHAlignment", "newRow")
+
+        def noalign(table, vlist, columns):
+            for n in vlist:
+                if n.node_type == nd.NODE_TYPE.WHATSIT:
+                    n.output(self.parser, self)
+
+        columns = node.columns() + len(node.tabskips)
+        table: Table = self.builder
+        row_specs = list(self._alignment_row_specs(collection, yspacing, glue_state))
+        if node.noalign:
+            noalign(table, node.noalign, columns)
+        full_width = None
+        for row_index, row in enumerate(node.rows):
+            row_box, spacing_before = row_specs[row_index] if row_index < len(row_specs) else (None, Dimen())
+            if row_box is not None and (full_width is None or row_box.width > full_width):
+                full_width = row_box.width
+            tabskips = self._alignment_tabskip_widths(node, row_box)
+            cell_specs = []
+            col = 1
+            for cell in row.cells:
+                render_cell, cell_width, left_overhang = self._alignment_cell_docx_box(cell)
+                if int(left_overhang) > 0:
+                    tabskip_index = col - 1
+                    if tabskip_index < len(tabskips):
+                        tabskips[tabskip_index] = max(Dimen(), tabskips[tabskip_index] - left_overhang)
+                cell_specs.append((cell, render_cell, cell_width, col))
+                col += cell.span
+            tr = table.newRow(row_box=row_box, spacing_before=spacing_before)
+            with reflow.Builder(self, tr):
+                if tabskips:
+                    self.builder.newCell(width=tabskips[0])
+                for cell, render_cell, cell_width, col in cell_specs:
+                    cell_alignment = self._hbox_alignment_glue_state(render_cell, allow_unset=True)
+                    td = self.builder.newCell(
+                        cell.span,
+                        width=cell_width,
+                        justify=self._hbox_justification(render_cell, allow_unset=True),
+                    )
+                    para = td.newParagraph()
+                    with reflow.ParagraphBuilder(self, para):
+                        line_box = row_box if row_box is not None else render_cell
+                        line_spec = reflow.LineSpec(line_box, spacing_before=Dimen(), color=self.color, default_font=self.parser.parameters["currentfont"])
+                        line = para.newLine(line_spec)
+                        with reflow.LineBuilder(self, line):
+                            self.typesetLine(render_cell, alignment_state=cell_alignment)
+                    if col < len(tabskips):
+                        self.builder.newCell(width=tabskips[col])
+                if row.noalign:
+                    noalign(table, row.noalign, columns)
+        if full_width is not None and hasattr(table, "setFullWidth"):
+            table.setFullWidth(full_width)
+        return table
+
     def typesetInlineVBox(self, box: bx.Box):
+        if int(box.width) == 0:
+            return None
         block = super().typesetInlineVBox(box)
         if isinstance(block, TextBoxStory):
             block.finalizeContent()

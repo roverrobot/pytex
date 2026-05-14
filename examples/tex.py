@@ -103,9 +103,7 @@ else:
         from pytex import svg
         parser.shipout = svg.SVGShipoutBackend(parser, file)
     elif args.output == "pdf":
-        from pytex import font_subst
-        font_subst.installFontSubstitution(parser)
-        font_subst.installMathFontArrays(parser)
+        parser.font_size_in_bp = True
     parser.resolver.format = args.format
     fmt = parser.resolver.openIn(engine_format_name(parser.resolver.format), "dump")
     if fmt is None:

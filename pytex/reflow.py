@@ -2,8 +2,6 @@
 The base class for reflow shipout backends. providing common utilities for reflow backends such as HTML and DOCX.
 """
 
-from __future__ import annotations
-
 from pytex import box as bx
 from pytex.dimen import Dimen, UNITS
 from pytex.font import Font
@@ -446,6 +444,8 @@ class Reflow(shipout.Shipout):
         self.pending_annotation = None
         self.in_line = False
 
+    support_annotation = False
+
     def open(self):
         raise NotImplementedError("should be implemented by each subclass")
 
@@ -524,6 +524,8 @@ class Reflow(shipout.Shipout):
         pass
 
     def annotate(self, kind, name=None, dimensions=None, payload=None):
+        if not self.support_annotation:
+            return
         if kind == "begin":
             builder = self.newAnnotationBuilder(name=name, payload=payload)
             builder.enter()

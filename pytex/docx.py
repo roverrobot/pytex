@@ -313,6 +313,15 @@ class TextRun(reflow.TextRun):
         if content is None:
             raise ValueError("DOCX inline textbox template is missing w:txbxContent")
         block = TextBoxStory(document, drawing, content, box)
+        position = -int(half_pt(box.depth))
+        if position:
+            rPr = self._node._r.get_or_add_rPr()
+            existing = rPr.find(qn("w:position"))
+            if existing is not None:
+                rPr.remove(existing)
+            position_element = OxmlElement("w:position")
+            position_element.set(qn("w:val"), str(position))
+            rPr.append(position_element)
         self._node._element.append(drawing)
         self.nodes.append(block)
         return block

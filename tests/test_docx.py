@@ -303,6 +303,7 @@ def test_docx_inline_vbox_emits_word_textbox_story(parser):
     assert "<w:t>B</w:t>" in xml
     assert f'cx="{docx._emu(vbox.width)}"' in xml
     assert f'cy="{docx._emu(vbox.height + vbox.depth)}"' in xml
+    assert f'<w:position w:val="-{docx.half_pt(vbox.depth)}"/>' in xml
 
 
 def test_docx_inline_vbox_table_uses_exact_tex_widths(parser):

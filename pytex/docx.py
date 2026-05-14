@@ -3,23 +3,24 @@
 from __future__ import annotations
 
 import os
+import re
+import uuid
+import zipfile
+import xml.etree.ElementTree as ET
+from io import BytesIO
 from pathlib import Path
-from dataclasses import dataclass, field
-from xml.sax.saxutils import escape
+from dataclasses import dataclass
 
 from docx import Document as WordDocument
 from docx.table import Table as WordTable
 from docx.text.paragraph import Paragraph as WordParagraph
-from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.enum.section import WD_SECTION_START
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.oxml.table import CT_Tbl
-from docx.parts.image import ImagePart
 from docx.shared import Pt, RGBColor, Twips
-from fontTools.pens.svgPathPen import SVGPathPen
 
 from pytex import align
 from pytex import box as bx
@@ -49,9 +50,23 @@ _MATH_LETTERS_MAP = font_subst.MATH_LETTERS_MAP
 _MATH_SYMBOLS_MAP = font_subst.MATH_SYMBOLS_MAP
 _MATH_LARGE_SYMBOLS_MAP = font_subst.MATH_LARGE_SYMBOLS_MAP
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 _WPS_NS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+_MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+_W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
+_FONT_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"
+_OBFUSCATED_FONT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.obfuscatedFont"
+
+
+ET.register_namespace("w", _W_NS)
+ET.register_namespace("r", _R_NS)
+ET.register_namespace("mc", _MC_NS)
+ET.register_namespace("w14", _W14_NS)
+ET.register_namespace("", _REL_NS)
 
 
 def _color(color: reflow.Color):
@@ -142,6 +157,45 @@ def _story_document(story):
     raise AttributeError(f"{type(story).__name__} is not attached to a DOCX document")
 
 
+def _font_path(backend):
+    path = getattr(backend, "path", None)
+    if path:
+        return path
+    wrapped = getattr(backend, "_backend", None)
+    return None if wrapped is None else getattr(wrapped, "path", None)
+
+
+def _font_number(backend):
+    wrapped = getattr(backend, "_backend", None)
+    return getattr(backend, "font_number", getattr(wrapped, "font_number", 0))
+
+
+def _font_kind(backend):
+    return getattr(backend, "kind", getattr(getattr(backend, "_backend", None), "kind", None))
+
+
+def _docx_font_name(backend):
+    return font_subst.fontBackendName(backend) or getattr(backend, "name", None)
+
+
+def _font_key_bytes(font_key):
+    data = bytes.fromhex(re.sub(r"[{}-]", "", font_key))
+    guid_memory = data[3::-1] + data[5:3:-1] + data[7:5:-1] + data[8:16]
+    return guid_memory[::-1]
+
+
+def _obfuscate_font(data, font_key):
+    out = bytearray(data)
+    key = _font_key_bytes(font_key)
+    for index in range(min(32, len(out))):
+        out[index] ^= key[index % 16]
+    return bytes(out)
+
+
+def _xml_bytes(node):
+    return b"<?xml version='1.0' encoding='UTF-8' standalone='yes'?>\n" + ET.tostring(node, encoding="utf-8")
+
+
 class Text(reflow.Text):
     XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
@@ -230,7 +284,16 @@ class TextRun(reflow.TextRun):
         self.font = font
         self.line.font = font
         if font is not None:
-            self._node.font.name = font.backend.name
+            font_name = _docx_font_name(font.backend)
+            if font_name is not None:
+                self._node.font.name = font_name
+                rPr = self._node._r.get_or_add_rPr()
+                rFonts = rPr.rFonts
+                if rFonts is None:
+                    rFonts = OxmlElement("w:rFonts")
+                    rPr.insert(0, rFonts)
+                for attr in ("ascii", "hAnsi", "cs", "eastAsia"):
+                    rFonts.set(qn(f"w:{attr}"), font_name)
             self._node.font.size = Pt(round(float(font.at) / 72.27 * 72 * 2) / 2)
             self._node.font.color.rgb = _color(self.color)
 
@@ -261,7 +324,7 @@ class TextRun(reflow.TextRun):
 class Space(TextRun):
     def __init__(self, line, width: Dimen, breakable: bool, font: Font):
         space = " " if breakable else "\xa0"
-        super().__init__(line, space, font, preserve_space=True)
+        super().__init__(line, "\xa0", font, preserve_space=True)
         diff = width-font.backend._spaceWidth()
         if int(diff) != 0:
             rPr = self._node._r.get_or_add_rPr()
@@ -626,6 +689,13 @@ class Section:
         document.add_section(WD_SECTION_START.NEW_PAGE)
 
 
+@dataclass
+class EmbeddedFont:
+    name: str
+    path: str
+    font_number: int = 0
+
+
 class Document(reflow.Document):
     def __init__(self, title: str, output=None):
         document = WordDocument()
@@ -633,6 +703,7 @@ class Document(reflow.Document):
         self.sections = []
         self._line_id = 0
         self._drawing_id = 0
+        self._embedded_fonts = {}
 
     @property
     def line_id(self):
@@ -671,15 +742,161 @@ class Document(reflow.Document):
         return self.sections[-1]
 
     def defineFont(self, font):
-        return None
+        if font is None:
+            return None
+        backend = getattr(font, "backend", None)
+        if backend is None:
+            return None
+        name = _docx_font_name(backend)
+        if not name:
+            return None
+        path = _font_path(backend)
+        if _font_kind(backend) == "opentype" and isinstance(path, str) and os.path.isfile(path):
+            path = os.path.realpath(path)
+            key = (name, path, _font_number(backend))
+            if key not in self._embedded_fonts:
+                self._embedded_fonts[key] = EmbeddedFont(name, path, _font_number(backend))
+        return name
 
     def definePicture(self, key, type, path):
         return None
 
     def save(self):
-        self._node.save(self.output)
+        buffer = BytesIO()
+        self._node.save(buffer)
+        data = buffer.getvalue()
+        if self._embedded_fonts:
+            data = self._embedFonts(data)
+        self.output.write(data)
         if hasattr(self.output, "close"):
             self.output.close()
+
+    def _embedFonts(self, data):
+        with zipfile.ZipFile(BytesIO(data), "r") as zin:
+            font_table = ET.fromstring(zin.read("word/fontTable.xml"))
+            settings = ET.fromstring(zin.read("word/settings.xml"))
+            content_types = ET.fromstring(zin.read("[Content_Types].xml"))
+            try:
+                rels = ET.fromstring(zin.read("word/_rels/fontTable.xml.rels"))
+            except KeyError:
+                rels = ET.Element(f"{{{_REL_NS}}}Relationships")
+            replacements, font_parts = self._fontPackageParts(
+                zin,
+                font_table,
+                settings,
+                content_types,
+                rels,
+            )
+            out = BytesIO()
+            with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+                skip = set(replacements) | set(font_parts)
+                for item in zin.infolist():
+                    if item.filename in skip:
+                        continue
+                    zout.writestr(item, zin.read(item.filename))
+                for name, payload in replacements.items():
+                    zout.writestr(name, payload)
+                for name, payload in font_parts.items():
+                    zout.writestr(name, payload)
+            return out.getvalue()
+
+    def _fontPackageParts(self, package, font_table, settings, content_types, rels):
+        existing_font_parts = {
+            name for name in package.namelist()
+            if name.startswith("word/fonts/font") and name.rsplit(".", 1)[-1] in {"odttf", "odttc"}
+        }
+        next_font = self._nextNumber(existing_font_parts, r"font(\d+)\.odtt[fc]$")
+        next_rid = self._nextRelationshipId(rels)
+        font_parts = {}
+        extensions = set()
+        for embedded in self._embedded_fonts.values():
+            font_key = "{" + str(uuid.uuid4()).upper() + "}"
+            suffix = ".odttc" if Path(embedded.path).suffix.lower() in {".ttc", ".otc"} else ".odttf"
+            part_name = f"word/fonts/font{next_font}{suffix}"
+            next_font += 1
+            target = f"fonts/{Path(part_name).name}"
+            rid = f"rId{next_rid}"
+            next_rid += 1
+            with open(embedded.path, "rb") as font_file:
+                font_parts[part_name] = _obfuscate_font(font_file.read(), font_key)
+            extensions.add(suffix[1:])
+            self._appendFontRelationship(rels, rid, target)
+            self._appendFontTableEntry(font_table, embedded.name, rid, font_key)
+        for extension in extensions:
+            self._ensureContentType(content_types, extension)
+        self._ensureEmbedTrueTypeFonts(settings)
+        self._preserveIgnorableNamespace(font_table, "w14", _W14_NS)
+        return {
+            "word/fontTable.xml": _xml_bytes(font_table),
+            "word/_rels/fontTable.xml.rels": _xml_bytes(rels),
+            "word/settings.xml": _xml_bytes(settings),
+            "[Content_Types].xml": _xml_bytes(content_types),
+        }, font_parts
+
+    @staticmethod
+    def _nextNumber(names, pattern):
+        values = []
+        regex = re.compile(pattern)
+        for name in names:
+            match = regex.search(name)
+            if match is not None:
+                values.append(int(match.group(1)))
+        return max(values, default=0) + 1
+
+    @staticmethod
+    def _nextRelationshipId(rels):
+        ids = []
+        for rel in rels.findall(f"{{{_REL_NS}}}Relationship"):
+            rid = rel.get("Id")
+            if rid and rid.startswith("rId") and rid[3:].isdigit():
+                ids.append(int(rid[3:]))
+        return max(ids, default=0) + 1
+
+    @staticmethod
+    def _appendFontRelationship(rels, rid, target):
+        rel = ET.SubElement(rels, f"{{{_REL_NS}}}Relationship")
+        rel.set("Id", rid)
+        rel.set("Type", _FONT_REL_TYPE)
+        rel.set("Target", target)
+
+    @staticmethod
+    def _appendFontTableEntry(font_table, name, rid, font_key):
+        font = None
+        for candidate in font_table.findall(f"{{{_W_NS}}}font"):
+            if candidate.get(f"{{{_W_NS}}}name") == name:
+                font = candidate
+                break
+        if font is None:
+            font = ET.SubElement(font_table, f"{{{_W_NS}}}font")
+            font.set(f"{{{_W_NS}}}name", name)
+        for child in list(font):
+            if child.tag == f"{{{_W_NS}}}embedRegular":
+                font.remove(child)
+        embed = ET.SubElement(font, f"{{{_W_NS}}}embedRegular")
+        embed.set(f"{{{_R_NS}}}id", rid)
+        embed.set(f"{{{_W_NS}}}fontKey", font_key)
+
+    @staticmethod
+    def _ensureContentType(content_types, extension):
+        for default in content_types.findall(f"{{{_CT_NS}}}Default"):
+            if default.get("Extension") == extension:
+                default.set("ContentType", _OBFUSCATED_FONT_CONTENT_TYPE)
+                return
+        default = ET.SubElement(content_types, f"{{{_CT_NS}}}Default")
+        default.set("Extension", extension)
+        default.set("ContentType", _OBFUSCATED_FONT_CONTENT_TYPE)
+
+    @staticmethod
+    def _ensureEmbedTrueTypeFonts(settings):
+        tag = f"{{{_W_NS}}}embedTrueTypeFonts"
+        if settings.find(tag) is None:
+            settings.append(ET.Element(tag))
+
+    @staticmethod
+    def _preserveIgnorableNamespace(node, prefix, uri):
+        ignorable = node.get(f"{{{_MC_NS}}}Ignorable")
+        if ignorable and prefix in ignorable.split():
+            node.set(f"xmlns:{prefix}", uri)
 
 
 class DocxBackend(reflow.Reflow):
@@ -724,6 +941,11 @@ class DocxBackend(reflow.Reflow):
         if isinstance(block, TextBoxStory):
             block.finalizeContent()
         return block
+
+    def define_font(self, font):
+        if self.document is None:
+            return None
+        return self.document.defineFont(font)
 
 
 def init(parser):

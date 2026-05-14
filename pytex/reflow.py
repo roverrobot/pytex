@@ -456,6 +456,15 @@ class Reflow(shipout.Shipout):
     def define_font(self, font):
         raise NotImplementedError("should be implemented by each subclass")
 
+    def _define_font_once(self, font):
+        if font is None:
+            return
+        key = id(font)
+        if key in self._defined_fonts:
+            return
+        self.define_font(font)
+        self._defined_fonts.add(key)
+
     def select_font(self, font):
         pass
 
@@ -1103,6 +1112,7 @@ class Reflow(shipout.Shipout):
             elif node_type == nd.NODE_TYPE.KERN:
                 self.builder.setSpace(n.kern, breakable=False)
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                self._define_font_once(n.font)
                 self.builder.setFont(n.font)
                 self.builder.textRun().setChar(n)
             elif node_type == nd.NODE_TYPE.MATH:

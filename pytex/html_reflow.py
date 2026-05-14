@@ -40,6 +40,10 @@ _DEFAULT_FONT_ROLE = {
 }
 
 
+def _font_family_name(backend):
+    return font_subst.fontBackendName(backend) or getattr(backend, "name", None)
+
+
 _CSS_POINTS_PER_TEX_POINT_NUM = 7200
 _CSS_POINTS_PER_TEX_POINT_DEN = 7227
 _PDF_STRING_ESCAPES = {
@@ -159,7 +163,7 @@ class TextRun(StyledNode, reflow.TextRun):
         # TODO set font family properly
         super().setFont(font)
         if font is not None:
-            self.style["font-family"] = font.backend.name
+            self.style["font-family"] = _font_family_name(font.backend)
             self.style["font-size"] = reflow.PT(font.at)
 
     def newText(self) -> TextRun:
@@ -606,7 +610,7 @@ class HTMLReflowBackend(reflow.Reflow):
         ):
             face = self._font_faces.get(key)
             if face is None:
-                family = self._next_font_family()
+                family = _font_family_name(backend) or self._next_font_family()
                 face = {
                     "family": family,
                     "path": os.path.realpath(path),

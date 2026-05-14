@@ -43,9 +43,11 @@ def parser(tmp_path, monkeypatch):
 
 
 class _FakeBackend:
-    def __init__(self, name="Fake Roman"):
+    def __init__(self, name="Fake Roman", kind="fake", path=None, font_number=0):
         self.name = name
-        self.kind = "fake"
+        self.kind = kind
+        self.path = path
+        self.font_number = font_number
         self.fontdimen = [0.0, 0.5, 0.25, 0.15, 0.7, 1.0, 0.0]
 
     def glyphInfo(self, char):
@@ -62,8 +64,8 @@ class _FakeBackend:
 
 
 class _FakeFont(txfont.Font):
-    def __init__(self, name="Fake Roman", size=10):
-        super().__init__(_FakeBackend(name), Dimen(size))
+    def __init__(self, name="Fake Roman", size=10, kind="fake", path=None, font_number=0):
+        super().__init__(_FakeBackend(name, kind=kind, path=path, font_number=font_number), Dimen(size))
 
 
 class _FakeHBox:
@@ -195,6 +197,44 @@ def test_docx_document_interface_uses_pagespec_sections(parser):
     assert int(word_section.top_margin) == int(docx._length(Dimen(20)))
     assert int(word_section.right_margin) == int(docx._length(Dimen(10)))
     assert int(word_section.bottom_margin) == int(docx._length(Dimen(20)))
+
+
+def test_docx_shipout_embeds_filesystem_opentype_fonts(parser, tmp_path):
+    font_bytes = bytes(range(64))
+    font_path = tmp_path / "DemoFont.otf"
+    font_path.write_bytes(font_bytes)
+    font = _FakeFont("Demo Embedded", kind="opentype", path=str(font_path))
+    _install_font(parser, font)
+    owner = pg.Paragraph(parser, indent=False)
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    backend.shipout(_page_box([_line_box("Hi", owner, font)]))
+    data = _docx_bytes(parser, backend)
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = set(zf.namelist())
+        assert "word/fonts/font1.odttf" in names
+        font_xml = zf.read("word/fontTable.xml").decode("utf-8")
+        rels_xml = zf.read("word/_rels/fontTable.xml.rels").decode("utf-8")
+        content_types = zf.read("[Content_Types].xml").decode("utf-8")
+        settings_xml = zf.read("word/settings.xml").decode("utf-8")
+        obfuscated = zf.read("word/fonts/font1.odttf")
+
+    assert 'w:name="Demo Embedded"' in font_xml
+    assert "<w:embedRegular" in font_xml
+    font_key = re.search(r'w:fontKey="([^"]+)"', font_xml).group(1)
+    assert font_key.startswith("{") and font_key.endswith("}")
+    assert 'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"' in rels_xml
+    assert 'Target="fonts/font1.odttf"' in rels_xml
+    assert 'Extension="odttf"' in content_types
+    assert "application/vnd.openxmlformats-officedocument.obfuscatedFont" in content_types
+    assert "<w:embedTrueTypeFonts" in settings_xml
+    key = docx._font_key_bytes(font_key)
+    restored = bytearray(obfuscated)
+    for index in range(32):
+        restored[index] ^= key[index % 16]
+    assert bytes(restored) == font_bytes
 
 
 def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):

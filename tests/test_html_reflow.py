@@ -307,13 +307,13 @@ def test_html_reflow_bundles_local_opentype_font(parser, tmp_path):
     source.write_bytes(b"not-a-real-font")
     font = _fake_font(kind="opentype", name="Custom Font", path=str(source))
 
-    assert backend.define_font(font) == "pytex-font-1"
+    assert backend.define_font(font) == "Custom Font"
     backend.close()
 
     html = (tmp_path / "font-bundle.html").read_text()
-    copied = tmp_path / "font-bundle.assets" / "fonts" / "pytex-font-1.otf"
-    assert '@font-face{font-family:"pytex-font-1";' in html
-    assert 'url("font-bundle.assets/fonts/pytex-font-1.otf")' in html
+    copied = tmp_path / "font-bundle.assets" / "fonts" / "Custom Font.otf"
+    assert '@font-face{font-family:"Custom Font";' in html
+    assert 'url("font-bundle.assets/fonts/Custom Font.otf")' in html
     assert copied.read_bytes() == b"not-a-real-font"
 
 
@@ -325,13 +325,13 @@ def test_html_reflow_reuses_bundled_font_face_for_same_file(parser, tmp_path):
 
     first = _fake_font(kind="opentype", name="Custom Font", at=10, path=str(source))
     second = _fake_font(kind="opentype", name="Custom Font", at=12, path=str(source))
-    assert backend.define_font(first) == "pytex-font-1"
-    assert backend.define_font(second) == "pytex-font-1"
+    assert backend.define_font(first) == "Custom Font"
+    assert backend.define_font(second) == "Custom Font"
     backend.close()
 
     html = (tmp_path / "font-reuse.html").read_text()
     assert html.count("@font-face{") == 1
-    assert html.count('font-family:"pytex-font-1"') == 1
+    assert html.count('font-family:"Custom Font"') == 1
 
 
 def test_html_reflow_emits_destination_anchor_for_pdf_dest_special(parser):

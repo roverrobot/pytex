@@ -407,9 +407,16 @@ class TextRun(reflow.TextRun):
         block = TextBoxStory(document, drawing, content, box)
         self._node._element.append(drawing)
         if not isinstance(self.line.story, Cell):
-            self._setPosition(-int(half_pt(box.depth)))
+            position = self._inlineVBoxPosition(box)
+            if position is not None:
+                self._setPosition(position)
         self.nodes.append(block)
         return block
+
+    def _inlineVBoxPosition(self, box: bx.Box):
+        if isinstance(box, bx.VTop):
+            return -int(half_pt(box.height))
+        return -int(half_pt(box.depth))
 
     def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, box: bx.Box, piece: int):
         self.text = None

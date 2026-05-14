@@ -706,6 +706,46 @@ def test_docx_zero_width_inline_vbox_is_not_emitted(parser):
     assert document.paragraphs[0].text == "AB"
 
 
+def test_docx_inline_vbox_uses_depth_position(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    vbox = _FakeVBox([], width=20, height=8, depth=3)
+    line = _FakeHBox([nd.CharNode("A", font), vbox], para, height=8, depth=3)
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert "<w:drawing" in xml
+    assert f'<w:position w:val="-{docx.half_pt(vbox.depth)}"/>' in xml
+
+
+def test_docx_inline_vtop_is_lowered_by_height(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    vtop = bx.VTop(parser, None, 0)
+    vtop.list = []
+    vtop.width = Dimen(20)
+    vtop.height = Dimen(8)
+    vtop.depth = Dimen(30)
+    vtop.to = vtop.height
+    vtop.spread = Dimen()
+    vtop.natural = Glue()
+    vtop.glue_ratio = bx.GlueRatio(0, 0, 1)
+    vtop.shifted = Dimen()
+    line = _FakeHBox([vtop], para, width=20, height=8, depth=30)
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert "<w:drawing" in xml
+    assert f'<w:position w:val="-{docx.half_pt(vtop.height)}"/>' in xml
+    assert f'<w:position w:val="-{docx.half_pt(vtop.depth)}"/>' not in xml
+
+
 def test_docx_alignment_span_merges_word_cells(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend

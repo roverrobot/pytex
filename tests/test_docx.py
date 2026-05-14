@@ -356,6 +356,9 @@ def test_docx_inline_vbox_table_uses_exact_tex_widths(parser):
         int(docx.twips(Dimen(20))),
         int(docx.twips(Dimen(5))),
     ]
+    textbox_xml = re.search(r"<w:txbxContent>(.*)</w:txbxContent>", xml, re.DOTALL).group(1)
+    line_heights = re.findall(r'<w:spacing\b[^>]*\bw:line="(\d+)"', textbox_xml)
+    assert line_heights == [docx.twips(row_box.height + row_box.depth)] * 2
     extent_width = int(re.search(r"<wp:extent[^>]* cx=\"(\d+)\"", xml).group(1))
     assert extent_width == docx._emu(vbox.width)
     assert 1440 not in grid_widths

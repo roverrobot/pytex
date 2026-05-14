@@ -895,7 +895,8 @@ class Reflow(shipout.Shipout):
                     )
                     para = td.newParagraph()
                     with ParagraphBuilder(self, para):
-                        line_spec = LineSpec(cell, spacing_before=Dimen(), color=self.color, default_font=self.parser.parameters["currentfont"])
+                        line_box = row_box if row_box is not None else cell
+                        line_spec = LineSpec(line_box, spacing_before=Dimen(), color=self.color, default_font=self.parser.parameters["currentfont"])
                         line = para.newLine(line_spec)
                         with LineBuilder(self, line):
                             self.typesetLine(cell, alignment_state=cell_alignment)

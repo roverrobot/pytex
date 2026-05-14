@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
@@ -32,6 +33,7 @@ from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.module import Module
 from pytex import font_subst
 from pytex import reflow
+from pytex import svg
 
 
 _ONE_INCH_PT = 72.0
@@ -54,18 +56,24 @@ _R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 _WPS_NS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+_PIC_NS = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+_ASVG_NS = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
 _REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
 _FONT_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"
+_IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 _OBFUSCATED_FONT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.obfuscatedFont"
+_SVG_CONTENT_TYPE = "image/svg+xml"
 
 
 ET.register_namespace("w", _W_NS)
 ET.register_namespace("r", _R_NS)
 ET.register_namespace("mc", _MC_NS)
 ET.register_namespace("w14", _W14_NS)
+ET.register_namespace("pic", _PIC_NS)
+ET.register_namespace("asvg", _ASVG_NS)
 ET.register_namespace("", _REL_NS)
 
 
@@ -98,11 +106,15 @@ def _emu(dimen: Dimen):
     return max(1, int(round(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN)))
 
 
+def _emu0(dimen: Dimen):
+    return int(round(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN))
+
+
 def half_pt(dimen: Dimen):
     return f"{int(float(dimen) / 72.27 * 72 * 2)}"
 
 
-def _textbox_xml(cx: int, cy: int, drawing_id: int):
+def _textbox_xml(cx: int, layout_cy: int, visual_cy: int, depth_cy: int, drawing_id: int):
     return f"""
 <w:drawing
     xmlns:w="{_W_NS}"
@@ -110,8 +122,8 @@ def _textbox_xml(cx: int, cy: int, drawing_id: int):
     xmlns:a="{_A_NS}"
     xmlns:wps="{_WPS_NS}">
   <wp:inline distT="0" distB="0" distL="0" distR="0">
-    <wp:extent cx="{cx}" cy="{cy}"/>
-    <wp:effectExtent l="0" t="0" r="0" b="0"/>
+    <wp:extent cx="{cx}" cy="{layout_cy}"/>
+    <wp:effectExtent l="0" t="0" r="0" b="{depth_cy}"/>
     <wp:docPr id="{drawing_id}" name="Inline VBox {drawing_id}"/>
     <wp:cNvGraphicFramePr>
       <a:graphicFrameLocks noChangeAspect="1"/>
@@ -123,7 +135,7 @@ def _textbox_xml(cx: int, cy: int, drawing_id: int):
           <wps:spPr>
             <a:xfrm>
               <a:off x="0" y="0"/>
-              <a:ext cx="{cx}" cy="{cy}"/>
+              <a:ext cx="{cx}" cy="{visual_cy}"/>
             </a:xfrm>
             <a:prstGeom prst="rect">
               <a:avLst/>
@@ -140,6 +152,71 @@ def _textbox_xml(cx: int, cy: int, drawing_id: int):
             <a:noAutofit/>
           </wps:bodyPr>
         </wps:wsp>
+      </a:graphicData>
+    </a:graphic>
+  </wp:inline>
+</w:drawing>
+"""
+
+
+def _picture_xml(
+    cx: int,
+    layout_cy: int,
+    visual_cy: int,
+    offset_y: int,
+    effect_top: int,
+    depth_cy: int,
+    relationship_id: str,
+    drawing_id: int,
+    name: str,
+):
+    return f"""
+<w:drawing
+    xmlns:w="{_W_NS}"
+    xmlns:r="{_R_NS}"
+    xmlns:wp="{_WP_NS}"
+    xmlns:a="{_A_NS}"
+    xmlns:pic="{_PIC_NS}"
+    xmlns:asvg="{_ASVG_NS}">
+  <wp:inline distT="0" distB="0" distL="0" distR="0">
+    <wp:extent cx="{cx}" cy="{layout_cy}"/>
+    <wp:effectExtent l="0" t="{effect_top}" r="0" b="{depth_cy}"/>
+    <wp:docPr id="{drawing_id}" name="Inline Math {drawing_id}"/>
+    <wp:cNvGraphicFramePr>
+      <a:graphicFrameLocks noChangeAspect="1"/>
+    </wp:cNvGraphicFramePr>
+    <a:graphic>
+      <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+        <pic:pic>
+          <pic:nvPicPr>
+            <pic:cNvPr id="{drawing_id}" name="{name}"/>
+            <pic:cNvPicPr/>
+          </pic:nvPicPr>
+          <pic:blipFill>
+            <a:blip r:embed="{relationship_id}">
+              <a:extLst>
+                <a:ext uri="{{96DAC541-7B7A-43D3-8B79-37D633B846F1}}">
+                  <asvg:svgBlip r:embed="{relationship_id}"/>
+                </a:ext>
+              </a:extLst>
+            </a:blip>
+            <a:stretch>
+              <a:fillRect/>
+            </a:stretch>
+          </pic:blipFill>
+          <pic:spPr>
+            <a:xfrm>
+              <a:off x="0" y="{offset_y}"/>
+              <a:ext cx="{cx}" cy="{visual_cy}"/>
+            </a:xfrm>
+            <a:prstGeom prst="rect">
+              <a:avLst/>
+            </a:prstGeom>
+            <a:ln>
+              <a:noFill/>
+            </a:ln>
+          </pic:spPr>
+        </pic:pic>
       </a:graphicData>
     </a:graphic>
   </wp:inline>
@@ -304,30 +381,63 @@ class TextRun(reflow.TextRun):
         self.text = text
         return text
 
+    def _setPosition(self, position):
+        if not position:
+            return
+        rPr = self._node._r.get_or_add_rPr()
+        existing = rPr.find(qn("w:position"))
+        if existing is not None:
+            rPr.remove(existing)
+        position_element = OxmlElement("w:position")
+        position_element.set(qn("w:val"), str(position))
+        rPr.append(position_element)
+
     def newInlineVBox(self, box: bx.Box):
         self.text = None
         document = _story_document(self.line.story)
         drawing_id = document.nextDrawingId()
-        drawing = parse_xml(_textbox_xml(_emu(box.width), _emu(box.height + box.depth), drawing_id))
+        drawing = parse_xml(
+            _textbox_xml(
+                _emu(box.width),
+                _emu(box.height),
+                _emu(box.height + box.depth),
+                _emu0(box.depth),
+                drawing_id,
+            )
+        )
         content = drawing.find(f".//{{{_W_NS}}}txbxContent")
         if content is None:
             raise ValueError("DOCX inline textbox template is missing w:txbxContent")
         block = TextBoxStory(document, drawing, content, box)
-        position = -int(half_pt(box.depth))
-        if position:
-            rPr = self._node._r.get_or_add_rPr()
-            existing = rPr.find(qn("w:position"))
-            if existing is not None:
-                rPr.remove(existing)
-            position_element = OxmlElement("w:position")
-            position_element.set(qn("w:val"), str(position))
-            rPr.append(position_element)
         self._node._element.append(drawing)
         self.nodes.append(block)
         return block
 
-    def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, nodes: list):
-        return None
+    def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, box: bx.Box, piece: int):
+        self.text = None
+        document = _story_document(self.line.story)
+        payload = backend.inlineMathSvg(box)
+        placeholder, media_name = document.defineInlineSvg(payload)
+        drawing_id = document.nextDrawingId()
+        visual_height = box.height + box.depth
+        drawing = parse_xml(
+            _picture_xml(
+                _emu(box.width),
+                _emu(visual_height),
+                _emu(visual_height),
+                0,
+                0,
+                0,
+                placeholder,
+                drawing_id,
+                media_name,
+            )
+        )
+        self._setPosition(-int(half_pt(box.depth)))
+        self._node._element.append(drawing)
+        picture = reflow.Element(drawing)
+        self.nodes.append(picture)
+        return picture
 
 
 class Space(TextRun):
@@ -705,6 +815,13 @@ class EmbeddedFont:
     font_number: int = 0
 
 
+@dataclass
+class InlineSvgPicture:
+    placeholder: str
+    media_name: str
+    payload: bytes
+
+
 class Document(reflow.Document):
     def __init__(self, title: str, output=None):
         document = WordDocument()
@@ -713,6 +830,7 @@ class Document(reflow.Document):
         self._line_id = 0
         self._drawing_id = 0
         self._embedded_fonts = {}
+        self._inline_svg_pictures = {}
 
     @property
     def line_id(self):
@@ -770,12 +888,21 @@ class Document(reflow.Document):
     def definePicture(self, key, type, path):
         return None
 
+    def defineInlineSvg(self, payload: bytes):
+        index = len(self._inline_svg_pictures) + 1
+        placeholder = f"pytexInlineSvg{index}"
+        media_name = f"pytex-inline-math-{index}.svg"
+        self._inline_svg_pictures[placeholder] = InlineSvgPicture(placeholder, media_name, payload)
+        return placeholder, media_name
+
     def save(self):
         buffer = BytesIO()
         self._node.save(buffer)
         data = buffer.getvalue()
         if self._embedded_fonts:
             data = self._embedFonts(data)
+        if self._inline_svg_pictures:
+            data = self._embedPictures(data)
         self.output.write(data)
         if hasattr(self.output, "close"):
             self.output.close()
@@ -808,6 +935,56 @@ class Document(reflow.Document):
                 for name, payload in font_parts.items():
                     zout.writestr(name, payload)
             return out.getvalue()
+
+    def _embedPictures(self, data):
+        with zipfile.ZipFile(BytesIO(data), "r") as zin:
+            content_types = ET.fromstring(zin.read("[Content_Types].xml"))
+            document_xml = zin.read("word/document.xml").decode("utf-8")
+            try:
+                rels = ET.fromstring(zin.read("word/_rels/document.xml.rels"))
+            except KeyError:
+                rels = ET.Element(f"{{{_REL_NS}}}Relationships")
+            replacements, media_parts = self._picturePackageParts(
+                zin,
+                document_xml,
+                content_types,
+                rels,
+            )
+            out = BytesIO()
+            with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+                skip = set(replacements) | set(media_parts)
+                for item in zin.infolist():
+                    if item.filename in skip:
+                        continue
+                    zout.writestr(item, zin.read(item.filename))
+                for name, payload in replacements.items():
+                    zout.writestr(name, payload)
+                for name, payload in media_parts.items():
+                    zout.writestr(name, payload)
+            return out.getvalue()
+
+    def _picturePackageParts(self, package, document_xml, content_types, rels):
+        next_rid = self._nextRelationshipId(rels)
+        existing_media = {
+            name for name in package.namelist()
+            if name.startswith("word/media/")
+        }
+        media_parts = {}
+        for picture in self._inline_svg_pictures.values():
+            rid = f"rId{next_rid}"
+            next_rid += 1
+            media_name = self._uniqueMediaName(picture.media_name, existing_media | set(media_parts))
+            target = f"media/{media_name}"
+            part_name = f"word/{target}"
+            document_xml = document_xml.replace(picture.placeholder, rid)
+            media_parts[part_name] = picture.payload
+            self._appendImageRelationship(rels, rid, target)
+        self._ensureContentType(content_types, "svg", _SVG_CONTENT_TYPE)
+        return {
+            "word/document.xml": document_xml.encode("utf-8"),
+            "word/_rels/document.xml.rels": _xml_bytes(rels),
+            "[Content_Types].xml": _xml_bytes(content_types),
+        }, media_parts
 
     def _fontPackageParts(self, package, font_table, settings, content_types, rels):
         existing_font_parts = {
@@ -843,6 +1020,16 @@ class Document(reflow.Document):
         }, font_parts
 
     @staticmethod
+    def _uniqueMediaName(name, used):
+        base, suffix = os.path.splitext(name)
+        candidate = name
+        index = 2
+        while f"word/media/{candidate}" in used:
+            candidate = f"{base}-{index}{suffix}"
+            index += 1
+        return candidate
+
+    @staticmethod
     def _nextNumber(names, pattern):
         values = []
         regex = re.compile(pattern)
@@ -869,6 +1056,13 @@ class Document(reflow.Document):
         rel.set("Target", target)
 
     @staticmethod
+    def _appendImageRelationship(rels, rid, target):
+        rel = ET.SubElement(rels, f"{{{_REL_NS}}}Relationship")
+        rel.set("Id", rid)
+        rel.set("Type", _IMAGE_REL_TYPE)
+        rel.set("Target", target)
+
+    @staticmethod
     def _appendFontTableEntry(font_table, name, rid, font_key):
         font = None
         for candidate in font_table.findall(f"{{{_W_NS}}}font"):
@@ -886,14 +1080,14 @@ class Document(reflow.Document):
         embed.set(f"{{{_W_NS}}}fontKey", font_key)
 
     @staticmethod
-    def _ensureContentType(content_types, extension):
+    def _ensureContentType(content_types, extension, content_type=_OBFUSCATED_FONT_CONTENT_TYPE):
         for default in content_types.findall(f"{{{_CT_NS}}}Default"):
             if default.get("Extension") == extension:
-                default.set("ContentType", _OBFUSCATED_FONT_CONTENT_TYPE)
+                default.set("ContentType", content_type)
                 return
         default = ET.SubElement(content_types, f"{{{_CT_NS}}}Default")
         default.set("Extension", extension)
-        default.set("ContentType", _OBFUSCATED_FONT_CONTENT_TYPE)
+        default.set("ContentType", content_type)
 
     @staticmethod
     def _ensureEmbedTrueTypeFonts(settings):
@@ -950,6 +1144,25 @@ class DocxBackend(reflow.Reflow):
         if isinstance(block, TextBoxStory):
             block.finalizeContent()
         return block
+
+    def typesetInlineMath(self, node: mmode.InlineMathNode, box: bx.Box, piece: int):
+        self._require_builder("typesetInlineMath", "newInlineMath")
+        return self.builder.newInlineMath(self, node, box, piece)
+
+    def inlineMathSvg(self, box: bx.Box):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            prefix = Path(tmpdir) / "inline-math"
+            hoffset = self.parser.layout["hoffset"]
+            voffset = self.parser.layout["voffset"]
+            try:
+                self.parser.layout["hoffset"] = Dimen()
+                self.parser.layout["voffset"] = Dimen()
+                backend = svg.SVGShipoutBackend(self.parser, os.fspath(prefix))
+                backend.shipout(box)
+            finally:
+                self.parser.layout["hoffset"] = hoffset
+                self.parser.layout["voffset"] = voffset
+            return Path(f"{prefix}-1.svg").read_bytes()
 
     def define_font(self, font):
         if self.document is None:

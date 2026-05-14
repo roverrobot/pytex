@@ -301,9 +301,16 @@ def test_docx_inline_vbox_emits_word_textbox_story(parser):
     assert "<w:t>A</w:t>" in xml
     assert "<w:t>X</w:t>" in xml
     assert "<w:t>B</w:t>" in xml
-    assert f'cx="{docx._emu(vbox.width)}"' in xml
-    assert f'cy="{docx._emu(vbox.height + vbox.depth)}"' in xml
-    assert f'<w:position w:val="-{docx.half_pt(vbox.depth)}"/>' in xml
+    wp_extent = re.search(r'<wp:extent\b[^>]*\bcx="([^"]+)"[^>]*\bcy="([^"]+)"', xml)
+    effect = re.search(r'<wp:effectExtent\b[^>]*\bb="([^"]+)"', xml)
+    shape_extent = re.search(r'<a:xfrm><a:off x="0" y="0"/><a:ext cx="([^"]+)" cy="([^"]+)"/>', xml)
+    assert wp_extent.groups() == (str(docx._emu(vbox.width)), str(docx._emu(vbox.height)))
+    assert effect.group(1) == str(docx._emu0(vbox.depth))
+    assert shape_extent.groups() == (
+        str(docx._emu(vbox.width)),
+        str(docx._emu(vbox.height + vbox.depth)),
+    )
+    assert "<w:position" not in xml
 
 
 def test_docx_inline_vbox_table_uses_exact_tex_widths(parser):
@@ -429,8 +436,7 @@ def test_docx_centered_hbox_sets_word_paragraph_alignment(parser):
     assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
 
 
-@pytest.mark.xfail(reason="DOCX inline math is not implemented in the reflow backend yet", strict=True)
-def test_docx_inline_math_should_emit_formula_content(parser):
+def test_docx_inline_math_embeds_svg_picture(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
     font = _install_font(parser)
@@ -445,12 +451,57 @@ def test_docx_inline_math_should_emit_formula_content(parser):
     line = _FakeHBox(
         [nd.CharNode("A", font), on, nd.CharNode("x", font), off, nd.CharNode("B", font)],
         para,
+        height=12,
+        depth=4,
     )
+    captured = {}
+
+    def fake_svg(box):
+        captured["box"] = box
+        return b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+
+    monkeypatch.setattr(backend, "inlineMathSvg", fake_svg)
 
     backend.shipout(_page_box([line]))
 
     document = _word_document(parser, backend)
-    assert document.paragraphs[0].text == "AxB"
+    assert document.paragraphs[0].text == "AB"
+    data = _docx_bytes(parser, backend)
+    xml = _document_xml(data)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = set(zf.namelist())
+        rels_xml = zf.read("word/_rels/document.xml.rels").decode("utf-8")
+        content_types = zf.read("[Content_Types].xml").decode("utf-8")
+        svg_payload = zf.read("word/media/pytex-inline-math-1.svg")
+    assert captured["box"].list[0].char == "x"
+    assert "word/media/pytex-inline-math-1.svg" in names
+    assert svg_payload == b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+    assert "<w:drawing" in xml
+    assert "<pic:pic>" in xml
+    assert "<asvg:svgBlip" in xml
+    assert "<a:noFill/>" in xml
+    assert "pytexInlineSvg" not in xml
+    wp_extent = re.search(r'<wp:extent\b[^>]*\bcx="([^"]+)"[^>]*\bcy="([^"]+)"', xml)
+    effect = re.search(r'<wp:effectExtent\b[^>]*\bt="([^"]+)"[^>]*\bb="([^"]+)"', xml)
+    transform = re.search(
+        r'<a:xfrm><a:off x="0" y="([^"]+)"/><a:ext cx="([^"]+)" cy="([^"]+)"/>',
+        xml,
+    )
+    assert wp_extent.groups() == (
+        str(docx._emu(captured["box"].width)),
+        str(docx._emu(captured["box"].height + captured["box"].depth)),
+    )
+    assert effect.groups() == ("0", "0")
+    assert transform.groups() == (
+        "0",
+        str(docx._emu(captured["box"].width)),
+        str(docx._emu(captured["box"].height + captured["box"].depth)),
+    )
+    assert f'<w:position w:val="-{docx.half_pt(captured["box"].depth)}"/>' in xml
+    assert 'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"' in rels_xml
+    assert 'Target="media/pytex-inline-math-1.svg"' in rels_xml
+    assert 'Extension="svg"' in content_types
+    assert "image/svg+xml" in content_types
 
 
 @pytest.mark.xfail(reason="DOCX display math is not implemented in the reflow backend yet", strict=True)

@@ -11,6 +11,8 @@ from fontTools.pens.transformPen import TransformPen
 
 
 def _float(x):
+    if not isinstance(x, Dimen):
+        x = Dimen(integer=x)
     return float(x) * 72 / 72.27
 
 
@@ -18,21 +20,31 @@ class GlyphCache(dict):
     def __init__(self, font):
         self.font = font.backend.font
         self.glyph_set = self.font.getGlyphSet()
-        self.cmap = getattr(self.font, "getBestCmap", None)
-        if self.cmap is None:
+        get_best_cmap = getattr(self.font, "getBestCmap", None)
+        if get_best_cmap is None:
             self.cmap = self.font.font["Encoding"]
             self.scale = _float(font.at) / 1000
         else:
+            self.cmap = get_best_cmap() or {}
             self.scale = _float(font.at) / self.font['head'].unitsPerEm
-        self.svg_pen = SVGPathPen(self.glyph_set)
 
     def __getitem__(self, char):
-        try:
-            name = self.cmap[ord(char.char)]
-        except:
-            name = char.char_info.glyph_name
+        name = getattr(char.char_info, "glyph_name", None)
+        if name is None:
+            try:
+                name = self.cmap[ord(char.char)]
+            except Exception:
+                name = char.char
         return self.glyph_set[name]
-        
+
+
+def _font_key(font):
+    return (
+        getattr(font, "name", None)
+        or getattr(getattr(font, "backend", None), "name", None)
+        or str(id(font))
+    )
+
 
 class SVGShipoutBackend(Shipout):
     def __init__(self, parser, output=None):
@@ -53,30 +65,25 @@ class SVGShipoutBackend(Shipout):
         self.page += 1
 
     def define_font(self, font):
-        name = font.name
+        name = _font_key(font)
         if name not in self.cache:
             self.cache[name] = GlyphCache(font)
 
     def select_font(self, font):
-        self.font = self.cache[font.name]
+        self.font = self.cache[_font_key(font)]
 
     def move_to(self, h, v):
-        self.x =_float(Dimen(integer=h))
-        self.y = _float(Dimen(integer=v))
+        self.x = _float(h)
+        self.y = _float(v)
 
     def set_char(self, node):
         self.select_font(node.font)
         glyph = self.font[node]
-        # 2. Define the Matrix: (scale, 0, 0, -scale, x_offset, y_offset)
-        # We use -scale for Y to flip the glyph upright.
-        # y_offset is 15 because that is where the baseline sits.
         transform = (self.font.scale, 0, 0, -self.font.scale, self.x, self.y)
-        # 3. Draw the glyph through the transform
-        t_pen = TransformPen(self.font.svg_pen, transform)
-        glyph.draw(t_pen)        
-        # 4. Append to canvas
-        self.canvas.append(draw.Path(d=self.font.svg_pen.getCommands(), fill='black'))
-        # 5. Move current_x forward by the glyph's width
+        svg_pen = SVGPathPen(self.font.glyph_set)
+        t_pen = TransformPen(svg_pen, transform)
+        glyph.draw(t_pen)
+        self.canvas.append(draw.Path(d=svg_pen.getCommands(), fill='black'))
         self.x += glyph.width * self.font.scale
 
     def set_rule(self, node, box, move):

@@ -32,12 +32,15 @@ class Shipout:
         h = int(self.parser.layout["hoffset"])
         v = int(self.parser.layout["voffset"])
         self._position_stack = []
-        self.move_to(h, v)
         if box.node_type == nd.NODE_TYPE.VLIST:
-            self.move_to(h, v)
+            self.h = h
+            self.v = v
+            self.move_to(self.h, self.v)
             self._ship_vlist(box)
         else:
-            self.move_to(h, v + box.height)
+            self.h = h
+            self.v = v + int(box.height)
+            self.move_to(self.h, self.v)
             self._ship_hlist(box)       
         self.end_page(box)
 

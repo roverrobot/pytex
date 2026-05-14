@@ -244,6 +244,8 @@ def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):
     font = _install_font(parser)
     para1 = pg.Paragraph(parser, indent=False)
     para2 = pg.Paragraph(parser, indent=False)
+    empty_source_glue = nd.Glue(Glue(Dimen()), None)
+    empty_source_glue.source = pg.Paragraph(parser, indent=False)
 
     backend.shipout(
         _page_box(
@@ -251,6 +253,7 @@ def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):
                 _line_box("Hello world", para1, font),
                 nd.Penalty(0),
                 nd.Glue(Glue(Dimen(3)), "\\baselineskip"),
+                empty_source_glue,
                 _line_box("Again soon", para1, font),
                 nd.Glue(Glue(Dimen(8)), "\\parskip"),
                 _line_box("Second paragraph", para2, font),
@@ -264,6 +267,8 @@ def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):
         "Again soon",
         "Second paragraph",
     ]
+    assert int(document.paragraphs[1].paragraph_format.space_before) == int(docx._length(Dimen(3)))
+    assert int(document.paragraphs[2].paragraph_format.space_before) == int(docx._length(Dimen(8)))
 
 
 def test_docx_empty_hbox_width_becomes_nonbreaking_spacing(parser):

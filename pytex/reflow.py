@@ -721,7 +721,19 @@ class Reflow(shipout.Shipout):
                     self.last_source = (None, None)
                 continue
             if isinstance(n, paragraph.Paragraph):
-                if top_level and self.last_source[0] is n:
+                if not any(node.node_type == nd.NODE_TYPE.HLIST for node in collection):
+                    for node in collection:
+                        if node.node_type == nd.NODE_TYPE.KERN:
+                            spacing += node.kern
+                        elif node.node_type == nd.NODE_TYPE.GLUE:
+                            if glue_state is None:
+                                spacing += node.glue.dimen
+                            else:
+                                spacing += Dimen(integer=self._glue_amount(node, None, glue_state))
+                        elif node.node_type == nd.NODE_TYPE.WHATSIT:
+                            node.output(self.parser, self)
+                    continue
+                if top_level and self.last_source[0] is n and int(spacing) == 0:
                     para = self.last_source[1]
                 else:
                     para = self.builder.newParagraph(spacing_before=spacing)

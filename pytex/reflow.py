@@ -712,8 +712,8 @@ class Reflow(shipout.Shipout):
                 # here the display math may have equation numbers, which may be implemented by a table.
                 # alternatively, this can also be implemented as an SVG picture
                 # so we let typesetDisplayMath to determine how to build it without specifying a container
-                self.typesetDisplayMath(n, collection, yspacing=spacing)
-                spacing = Dimen()
+                display_spacing = self.typesetDisplayMath(n, collection, yspacing=spacing)
+                spacing = Dimen() if display_spacing is None else display_spacing
                 # display math node does not span multiple pages
                 if top_level:
                     self.last_source = (None, None)

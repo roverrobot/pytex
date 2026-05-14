@@ -508,19 +508,45 @@ def test_docx_inline_math_embeds_svg_picture(parser, monkeypatch):
     assert "image/svg+xml" in content_types
 
 
-@pytest.mark.xfail(reason="DOCX display math is not implemented in the reflow backend yet", strict=True)
-def test_docx_display_math_should_emit_formula_content(parser):
+def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    _install_font(parser)
+    font = _install_font(parser)
     owner = mmode.DisplayMathNode()
     owner.list.append(_math_atom("x"))
-    display_box = _FakeHBox([], source=owner)
+    before = nd.Glue(Glue(Dimen(6)), "\\abovedisplayskip")
+    before.source = owner
+    after = nd.Glue(Glue(Dimen(4)), "\\belowdisplayskip")
+    after.source = owner
+    display_box = _FakeHBox([nd.CharNode("x", font)], source=owner, width=50, height=12, depth=3)
+    display_box.shifted = Dimen(20)
+    para = pg.Paragraph(parser, indent=False)
+    captured = []
 
-    backend.shipout(_page_box([display_box]))
+    def fake_svg(box):
+        captured.append(box)
+        return b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+
+    monkeypatch.setattr(backend, "inlineMathSvg", fake_svg)
+
+    backend.shipout(_page_box([before, display_box, after, _line_box("After", para, font)]))
 
     document = _word_document(parser, backend)
-    assert document.paragraphs[0].text == "x"
+    assert document.paragraphs[0].text == ""
+    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
+    assert document.paragraphs[1].text == "After"
+    assert int(document.paragraphs[1].paragraph_format.space_before) == int(docx._length(Dimen(4)))
+    assert len(captured) == 1
+    assert captured[0].node_type == nd.NODE_TYPE.VLIST
+    assert captured[0].list == [display_box]
+    assert captured[0].width == display_box.shifted + display_box.width
+    data = _docx_bytes(parser, backend)
+    xml = _document_xml(data)
+    assert "<w:drawing" in xml
+    assert "<asvg:svgBlip" in xml
+    assert f'cx="{docx._emu(display_box.shifted + display_box.width)}"' in xml
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        assert zf.read("word/media/pytex-inline-math-1.svg") == b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
 
 
 def test_docx_alignment_should_emit_word_table(parser):

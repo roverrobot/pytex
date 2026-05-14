@@ -30,6 +30,7 @@ from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
+from pytex.glue import Glue
 from pytex.module import Module
 from pytex import font_subst
 from pytex import reflow
@@ -834,6 +835,28 @@ class InlineSvgPicture:
     payload: bytes
 
 
+class DisplayMathPictureBox:
+    node_type = nd.NODE_TYPE.VLIST
+
+    def __init__(self, box: bx.Box):
+        self.list = [box]
+        self.source = getattr(box, "source", None)
+        shifted = Dimen(getattr(box, "shifted", Dimen()))
+        self.width = Dimen(getattr(box, "width", Dimen()))
+        if shifted > 0:
+            self.width += shifted
+        self.height = Dimen(getattr(box, "height", Dimen()))
+        self.depth = Dimen(getattr(box, "depth", Dimen()))
+        self.to = self.height
+        self.spread = Dimen()
+        self.natural = Glue()
+        self.glue_ratio = bx.GlueRatio(0, 0, 1)
+        self.shifted = Dimen()
+
+    def rightmost(self):
+        return self.width
+
+
 class Document(reflow.Document):
     def __init__(self, title: str, output=None):
         document = WordDocument()
@@ -1292,6 +1315,50 @@ class DocxBackend(reflow.Reflow):
     def typesetInlineMath(self, node: mmode.InlineMathNode, box: bx.Box, piece: int):
         self._require_builder("typesetInlineMath", "newInlineMath")
         return self.builder.newInlineMath(self, node, box, piece)
+
+    def typesetDisplayMath(self, node: mmode.DisplayMathNode, collection, yspacing: Dimen=Dimen()):
+        self._require_builder("typesetDisplayMath", "newParagraph")
+        display_boxes, trailing_spacing = self._display_math_boxes(collection, yspacing)
+        for box, spacing_before in display_boxes:
+            self._typesetDisplayMathBox(node, box, spacing_before)
+        return trailing_spacing
+
+    def _display_math_boxes(self, collection, yspacing):
+        boxes = []
+        pending_spacing = Dimen(yspacing)
+        for n in collection:
+            node_type = getattr(n, "node_type", None)
+            if node_type == nd.NODE_TYPE.HLIST:
+                boxes.append((n, pending_spacing))
+                pending_spacing = Dimen()
+                continue
+            if node_type == nd.NODE_TYPE.GLUE:
+                glue = getattr(n, "glue", None)
+                if glue is not None:
+                    pending_spacing += glue.dimen
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                pending_spacing += n.kern
+                continue
+            if node_type == nd.NODE_TYPE.WHATSIT:
+                n.output(self.parser, self)
+        return boxes, pending_spacing
+
+    def _typesetDisplayMathBox(self, node, box, spacing_before):
+        picture_box = DisplayMathPictureBox(box)
+        para = self.builder.newParagraph(spacing_before=spacing_before, justify="left")
+        with reflow.ParagraphBuilder(self, para):
+            line_spec = reflow.LineSpec(
+                picture_box,
+                spacing_before=Dimen(),
+                color=self.color,
+                default_font=self.parser.parameters["currentfont"],
+            )
+            line = para.newLine(line_spec)
+            with reflow.LineBuilder(self, line):
+                text_run = self.builder.textRun()
+                with reflow.Builder(self, text_run):
+                    self.typesetInlineMath(node, picture_box, 1)
 
     def inlineMathSvg(self, box: bx.Box):
         with tempfile.TemporaryDirectory() as tmpdir:

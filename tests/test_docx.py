@@ -508,6 +508,48 @@ def test_docx_inline_math_embeds_svg_picture(parser, monkeypatch):
     assert "image/svg+xml" in content_types
 
 
+def test_docx_inline_svg_placeholders_do_not_collide_after_ninth_picture(parser, monkeypatch):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    nodes = []
+    for _ in range(12):
+        owner = mmode.InlineMathNode(nodes=[_math_atom("x")])
+        on = nd.MathShift(True)
+        on.source = owner
+        on.kern = Dimen()
+        off = nd.MathShift(False)
+        off.source = owner
+        off.kern = Dimen()
+        nodes.extend([on, nd.CharNode("x", font), off, nd.Glue(Glue(Dimen(2)), None)])
+    line = _FakeHBox(nodes, para, width=120, height=12, depth=4)
+
+    def fake_svg(box):
+        return b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+
+    monkeypatch.setattr(backend, "inlineMathSvg", fake_svg)
+
+    backend.shipout(_page_box([line]))
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = set(zf.namelist())
+        document_xml = zf.read("word/document.xml").decode("utf-8")
+        rels_xml = zf.read("word/_rels/document.xml.rels").decode("utf-8")
+    embed_ids = set(re.findall(r'r:embed="([^"]+)"', document_xml))
+    image_rel_ids = set(
+        re.findall(
+            r'<Relationship Id="([^"]+)" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"',
+            rels_xml,
+        )
+    )
+    assert "pytexInlineSvg" not in document_xml
+    assert len(embed_ids) == 12
+    assert embed_ids <= image_rel_ids
+    assert len([name for name in names if name.startswith("word/media/") and name.endswith(".svg")]) == 12
+
+
 def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend

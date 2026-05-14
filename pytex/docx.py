@@ -1005,15 +1005,18 @@ class Document(reflow.Document):
             if name.startswith("word/media/")
         }
         media_parts = {}
+        relationship_ids = {}
         for picture in self._inline_svg_pictures.values():
             rid = f"rId{next_rid}"
             next_rid += 1
             media_name = self._uniqueMediaName(picture.media_name, existing_media | set(media_parts))
             target = f"media/{media_name}"
             part_name = f"word/{target}"
-            document_xml = document_xml.replace(picture.placeholder, rid)
+            relationship_ids[picture.placeholder] = rid
             media_parts[part_name] = picture.payload
             self._appendImageRelationship(rels, rid, target)
+        for placeholder, rid in sorted(relationship_ids.items(), key=lambda item: len(item[0]), reverse=True):
+            document_xml = document_xml.replace(placeholder, rid)
         self._ensureContentType(content_types, "svg", _SVG_CONTENT_TYPE)
         return {
             "word/document.xml": document_xml.encode("utf-8"),

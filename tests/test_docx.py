@@ -304,13 +304,16 @@ def test_docx_inline_vbox_emits_word_textbox_story(parser):
     wp_extent = re.search(r'<wp:extent\b[^>]*\bcx="([^"]+)"[^>]*\bcy="([^"]+)"', xml)
     effect = re.search(r'<wp:effectExtent\b[^>]*\bb="([^"]+)"', xml)
     shape_extent = re.search(r'<a:xfrm><a:off x="0" y="0"/><a:ext cx="([^"]+)" cy="([^"]+)"/>', xml)
-    assert wp_extent.groups() == (str(docx._emu(vbox.width)), str(docx._emu(vbox.height)))
-    assert effect.group(1) == str(docx._emu0(vbox.depth))
+    assert wp_extent.groups() == (
+        str(docx._emu(vbox.width)),
+        str(docx._emu(vbox.height + vbox.depth)),
+    )
+    assert effect.group(1) == "0"
     assert shape_extent.groups() == (
         str(docx._emu(vbox.width)),
         str(docx._emu(vbox.height + vbox.depth)),
     )
-    assert "<w:position" not in xml
+    assert f'<w:position w:val="-{docx.half_pt(vbox.depth)}"/>' in xml
 
 
 def test_docx_inline_vbox_table_uses_exact_tex_widths(parser):

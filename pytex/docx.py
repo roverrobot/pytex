@@ -106,15 +106,11 @@ def _emu(dimen: Dimen):
     return max(1, int(round(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN)))
 
 
-def _emu0(dimen: Dimen):
-    return int(round(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN))
-
-
 def half_pt(dimen: Dimen):
     return f"{int(float(dimen) / 72.27 * 72 * 2)}"
 
 
-def _textbox_xml(cx: int, layout_cy: int, visual_cy: int, depth_cy: int, drawing_id: int):
+def _textbox_xml(cx: int, cy: int, drawing_id: int):
     return f"""
 <w:drawing
     xmlns:w="{_W_NS}"
@@ -122,8 +118,8 @@ def _textbox_xml(cx: int, layout_cy: int, visual_cy: int, depth_cy: int, drawing
     xmlns:a="{_A_NS}"
     xmlns:wps="{_WPS_NS}">
   <wp:inline distT="0" distB="0" distL="0" distR="0">
-    <wp:extent cx="{cx}" cy="{layout_cy}"/>
-    <wp:effectExtent l="0" t="0" r="0" b="{depth_cy}"/>
+    <wp:extent cx="{cx}" cy="{cy}"/>
+    <wp:effectExtent l="0" t="0" r="0" b="0"/>
     <wp:docPr id="{drawing_id}" name="Inline VBox {drawing_id}"/>
     <wp:cNvGraphicFramePr>
       <a:graphicFrameLocks noChangeAspect="1"/>
@@ -135,7 +131,7 @@ def _textbox_xml(cx: int, layout_cy: int, visual_cy: int, depth_cy: int, drawing
           <wps:spPr>
             <a:xfrm>
               <a:off x="0" y="0"/>
-              <a:ext cx="{cx}" cy="{visual_cy}"/>
+              <a:ext cx="{cx}" cy="{cy}"/>
             </a:xfrm>
             <a:prstGeom prst="rect">
               <a:avLst/>
@@ -396,12 +392,11 @@ class TextRun(reflow.TextRun):
         self.text = None
         document = _story_document(self.line.story)
         drawing_id = document.nextDrawingId()
+        cy = _emu(box.height + box.depth)
         drawing = parse_xml(
             _textbox_xml(
                 _emu(box.width),
-                _emu(box.height),
-                _emu(box.height + box.depth),
-                _emu0(box.depth),
+                cy,
                 drawing_id,
             )
         )
@@ -410,6 +405,7 @@ class TextRun(reflow.TextRun):
             raise ValueError("DOCX inline textbox template is missing w:txbxContent")
         block = TextBoxStory(document, drawing, content, box)
         self._node._element.append(drawing)
+        self._setPosition(-int(half_pt(box.depth)))
         self.nodes.append(block)
         return block
 

@@ -60,7 +60,7 @@ class _FakeBackend:
         return True
 
     def _spaceWidth(self):
-        return Dimen(5)
+        return 0.5
 
 
 class _FakeFont(txfont.Font):
@@ -380,6 +380,27 @@ def test_docx_explicit_glue_emits_preserved_space_with_spacing_hint(parser):
     xml = _document_xml(_docx_bytes(parser, backend))
     assert 'xml:space="preserve"' in xml
     assert f'w:val="{docx.twips(Dimen(4))}"' in xml
+
+
+def test_docx_spacing_uses_scaled_font_space_width(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser, _FakeFont(size=20))
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.CharNode("A", font),
+            nd.Glue(Glue(Dimen(12)), None),
+            nd.CharNode("B", font),
+        ],
+        para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert f'w:val="{docx.twips(Dimen(2))}"' in xml
+    assert f'w:val="{docx.twips(Dimen(7))}"' not in xml
 
 
 def test_docx_centered_hbox_sets_word_paragraph_alignment(parser):

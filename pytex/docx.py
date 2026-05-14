@@ -324,8 +324,8 @@ class TextRun(reflow.TextRun):
 class Space(TextRun):
     def __init__(self, line, width: Dimen, breakable: bool, font: Font):
         space = " " if breakable else "\xa0"
-        super().__init__(line, "\xa0", font, preserve_space=True)
-        diff = width-font.backend._spaceWidth()
+        super().__init__(line, space, font, preserve_space=True)
+        diff = width - font.at * font.backend._spaceWidth()
         if int(diff) != 0:
             rPr = self._node._r.get_or_add_rPr()
             spacing_element = OxmlElement('w:spacing')

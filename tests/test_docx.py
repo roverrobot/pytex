@@ -285,6 +285,56 @@ def test_docx_empty_hbox_width_becomes_nonbreaking_spacing(parser):
     assert document.paragraphs[0].text == "A\u00a0B"
 
 
+def test_docx_paginated_leading_glue_becomes_paragraph_indent(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.Glue(Glue(Dimen(18)), "\\parindent"),
+            nd.CharNode("A", font),
+        ],
+        para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    document = _word_document(parser, backend)
+    assert document.paragraphs[0].text == "A"
+    assert int(document.paragraphs[0].paragraph_format.left_indent) == int(docx._length(Dimen(18)))
+
+
+def test_docx_paginated_hanging_label_collapses_leading_glue(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    label = _FakeHBox(
+        [
+            nd.Glue(Glue(Dimen(-18)), None),
+            *[nd.CharNode(ch, font) for ch in "[1]"],
+            nd.Glue(Glue(Dimen(6)), None),
+        ],
+        width=0,
+        rightmost_value=0,
+    )
+    line = _FakeHBox(
+        [
+            nd.Glue(Glue(Dimen(18)), "\\parindent"),
+            label,
+            nd.CharNode("A", font),
+        ],
+        para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    document = _word_document(parser, backend)
+    assert document.paragraphs[0].text == "[1] A"
+    assert document.paragraphs[0].paragraph_format.left_indent is None
+
+
 def test_docx_inline_vbox_emits_word_textbox_story(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
@@ -660,6 +710,20 @@ def test_docx_vlist_tail_negative_glue_reduces_last_line_layout(parser, monkeypa
         str(docx._emu(display_box.width)),
         str(docx._emu(Dimen(18))),
     )
+
+
+def test_docx_vlist_tail_positive_glue_does_not_expand_last_line(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(_char_nodes("Final", font), source=para, height=9, depth=3)
+
+    backend.shipout(_page_box([line, nd.Glue(Glue(Dimen(200)), None)]))
+
+    document = _word_document(parser, backend)
+    assert len(document.paragraphs) == 1
+    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(docx._length(Dimen(12)))
 
 
 def test_docx_alignment_should_emit_word_table(parser):

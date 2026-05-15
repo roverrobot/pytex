@@ -378,6 +378,10 @@ class TextRun(reflow.TextRun):
         self.text = text
         return text
 
+    def setChar(self, char: nd.Node):
+        self.line.applyLeadingSpacing()
+        super().setChar(char)
+
     def _setPosition(self, position):
         if not position:
             return
@@ -390,6 +394,7 @@ class TextRun(reflow.TextRun):
         rPr.append(position_element)
 
     def newInlineVBox(self, box: bx.Box):
+        self.line.applyLeadingSpacing()
         self.text = None
         document = _story_document(self.line.story)
         drawing_id = document.nextDrawingId()
@@ -419,6 +424,7 @@ class TextRun(reflow.TextRun):
         return -int(half_pt(box.depth))
 
     def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, box: bx.Box, piece: int):
+        self.line.applyLeadingSpacing()
         self.text = None
         document = _story_document(self.line.story)
         payload = backend.inlineMathSvg(box)
@@ -481,6 +487,8 @@ class Line(reflow.Line):
         para.alignment = self.justify
         self.line_height = line_spec.line_box.height + line_spec.line_box.depth
         self.inline_drawings = []
+        self.leading_spacing = Dimen()
+        self.has_visible_content = False
         self._setLineHeight(self.line_height)
         fmt = para.paragraph_format
         fmt.space_before = Twips(_twips(line_spec.spacing_before))
@@ -527,8 +535,19 @@ class Line(reflow.Line):
         return TextRun(self, font=font, color=color)
 
     def newSpace(self, width: Dimen, breakable: bool):
+        if not self.has_visible_content:
+            self.leading_spacing += width
+            return None
         s = Space(self, width, breakable, self.font)
         return s
+
+    def applyLeadingSpacing(self):
+        if self.has_visible_content:
+            return
+        if int(self.leading_spacing) != 0:
+            self._node.paragraph_format.left_indent = Twips(_twips(self.leading_spacing))
+            self.leading_spacing = Dimen()
+        self.has_visible_content = True
 
 
 class Paragraph(reflow.Paragraph):
@@ -1373,7 +1392,7 @@ class DocxBackend(reflow.Reflow):
         return self.builder.newInlineMath(self, node, box, piece)
 
     def typesetTrailingVListSpacing(self, spacing: Dimen, top_level: bool=False):
-        if not top_level:
+        if not top_level or int(spacing) >= 0:
             return
         apply_spacing = getattr(self.builder, "applyTrailingSpacing", None)
         if apply_spacing is not None:

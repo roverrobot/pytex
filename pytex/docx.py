@@ -13,8 +13,10 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from docx import Document as WordDocument
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.table import Table as WordTable
 from docx.text.paragraph import Paragraph as WordParagraph
+from docx.text.run import Run as WordRun
 from docx.enum.section import WD_SECTION_START
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
@@ -67,6 +69,22 @@ _FONT_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relation
 _IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 _OBFUSCATED_FONT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.obfuscatedFont"
 _SVG_CONTENT_TYPE = "image/svg+xml"
+_GOTO_RE = re.compile(r"/S\s*/GoTo\b.*?/D\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
+_GOTOR_RE = re.compile(
+    r"/S\s*/GoToR\b.*?/F\s*\(([^()]*)\)(?:.*?/D\s*\(([^()]*)\))?",
+    re.IGNORECASE | re.DOTALL,
+)
+_URI_RE = re.compile(r"/S\s*/URI\b.*?/URI\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
+_PDF_STRING_ESCAPES = {
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "b": "\b",
+    "f": "\f",
+    "\\": "\\",
+    "(": "(",
+    ")": ")",
+}
 
 
 ET.register_namespace("w", _W_NS)
@@ -270,6 +288,49 @@ def _xml_bytes(node):
     return b"<?xml version='1.0' encoding='UTF-8' standalone='yes'?>\n" + ET.tostring(node, encoding="utf-8")
 
 
+def _decode_pdf_string(token):
+    if len(token) < 2 or token[0] != "(" or token[-1] != ")":
+        return token
+    out = []
+    i = 1
+    while i < len(token) - 1:
+        ch = token[i]
+        if ch == "\\" and i + 1 < len(token) - 1:
+            i += 1
+            esc = token[i]
+            out.append(_PDF_STRING_ESCAPES.get(esc, esc))
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _annotation_info(payload):
+    goto = _GOTO_RE.search(payload)
+    if goto is not None:
+        return {
+            "kind": "goto",
+            "destination": _decode_pdf_string(f"({goto.group(1)})"),
+        }
+    gotor = _GOTOR_RE.search(payload)
+    if gotor is not None:
+        return {
+            "kind": "gotor",
+            "file": _decode_pdf_string(f"({gotor.group(1)})"),
+            "destination": None if gotor.group(2) is None else _decode_pdf_string(f"({gotor.group(2)})"),
+        }
+    uri = _URI_RE.search(payload)
+    if uri is not None:
+        return {
+            "kind": "uri",
+            "url": _decode_pdf_string(f"({uri.group(1)})"),
+        }
+    return {
+        "kind": "raw",
+        "payload": payload,
+    }
+
+
 class Text(reflow.Text):
     XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
@@ -357,6 +418,9 @@ class TextRun(reflow.TextRun):
     def setFont(self, font):
         self.font = font
         self.line.font = font
+        parent_line = getattr(self.line, "parent", None)
+        if parent_line is not None:
+            parent_line.font = font
         if font is not None:
             font_name = _docx_font_name(font.backend)
             if font_name is not None:
@@ -553,6 +617,82 @@ class Line(reflow.Line):
             self._node.paragraph_format.left_indent = Twips(_twips(self.leading_spacing))
             self.leading_spacing = Dimen()
         self.has_visible_content = True
+
+
+class HyperlinkRunContainer:
+    def __init__(self, paragraph: WordParagraph, element):
+        self.paragraph = paragraph
+        self._element = element
+
+    @property
+    def part(self):
+        return self.paragraph.part
+
+    def add_run(self):
+        run = OxmlElement("w:r")
+        self._element.append(run)
+        return WordRun(run, self.paragraph)
+
+
+class AnnotationLine(reflow.Line):
+    def __init__(self, parent: Line, element):
+        self.parent = parent
+        self.story = parent.story
+        self._node = HyperlinkRunContainer(parent._node, element)
+        self.nodes = []
+        self.color = parent.color
+        self.font = parent.font
+        self._text_run = None
+        self.lign_height = getattr(parent, "lign_height", None)
+        self.line_height = parent.line_height
+        self.leading_spacing = Dimen()
+        self.has_visible_content = False
+
+    def newTextRun(self, font, color) -> TextRun:
+        return TextRun(self, font=font, color=color)
+
+    def newSpace(self, width: Dimen, breakable: bool):
+        if not self.has_visible_content and not self.parent.has_visible_content:
+            self.parent.newSpace(width, breakable)
+            return None
+        return Space(self, width, breakable, self.font)
+
+    def applyLeadingSpacing(self):
+        if not self.parent.has_visible_content:
+            self.parent.applyLeadingSpacing()
+        self.has_visible_content = True
+
+    def addInlineDrawing(self, drawing):
+        self.parent.addInlineDrawing(drawing)
+
+    def applyTrailingSpacing(self, spacing: Dimen):
+        self.parent.applyTrailingSpacing(spacing)
+
+
+class AnnotationBuilder(reflow.AnnotationBuilder):
+    def __init__(self, backend, parent, name, anchor=None, href=None):
+        super().__init__(backend, parent, name)
+        self.anchor = anchor
+        self.href = href
+        self.element = None
+
+    def beginAnnotation(self, name):
+        line = self.parent.container
+        if not self.href and not self.anchor:
+            self.container = line
+            return
+        hyperlink = OxmlElement("w:hyperlink")
+        if self.href:
+            rid = line._node.part.relate_to(self.href, RT.HYPERLINK, is_external=True)
+            hyperlink.set(qn("r:id"), rid)
+        elif self.anchor:
+            hyperlink.set(qn("w:anchor"), self.anchor)
+        line._node._p.append(hyperlink)
+        self.element = hyperlink
+        self.container = AnnotationLine(line, hyperlink)
+
+    def endAnnotation(self, name):
+        pass
 
 
 class Paragraph(reflow.Paragraph):
@@ -941,6 +1081,7 @@ class Document(reflow.Document):
         self.sections = []
         self._line_id = 0
         self._drawing_id = 0
+        self._bookmark_id = 0
         self._embedded_fonts = {}
         self._inline_svg_pictures = {}
 
@@ -952,6 +1093,11 @@ class Document(reflow.Document):
     def nextDrawingId(self):
         self._drawing_id += 1
         return self._drawing_id
+
+    def nextBookmarkId(self):
+        bookmark_id = self._bookmark_id
+        self._bookmark_id += 1
+        return bookmark_id
 
     @property
     def header(self) -> Block:
@@ -1233,6 +1379,8 @@ class DocxBackend(reflow.Reflow):
     paragraph spacing hints.
     """
 
+    support_annotation = True
+
     def __init__(self, parser, output=None):
         super().__init__(parser, paginate=True)
         self.output = output
@@ -1253,6 +1401,55 @@ class DocxBackend(reflow.Reflow):
         if not self.parser.resolver.output_in_memory:
             self.docx_path = Path(self.parser.resolver._outputPath(output))
         return Document(self.parser.jobname, self.parser.resolver.openOut(output, "shipout/docx"))
+
+    def _annotation_link(self, name=None, payload=None):
+        anchor = None
+        href = None
+        if payload:
+            info = _annotation_info(payload)
+            kind = info.get("kind")
+            if kind == "goto":
+                anchor = info["destination"]
+            elif kind == "gotor":
+                href = info["file"]
+                if info.get("destination"):
+                    href += "#" + info["destination"]
+            elif kind == "uri":
+                href = info["url"]
+        if anchor is None and href is None and name is not None:
+            if name.startswith("#"):
+                anchor = name[1:]
+            elif "#" in name or ":" in name:
+                href = name
+            else:
+                anchor = name.lstrip("@")
+        reopen_name = href or (None if anchor is None else "#" + anchor) or name or ""
+        return reopen_name, anchor, href
+
+    def newAnnotationBuilder(self, name=None, payload=None):
+        reopen_name, anchor, href = self._annotation_link(name=name, payload=payload)
+        return AnnotationBuilder(self, self.builder, reopen_name, anchor=anchor, href=href)
+
+    def newFixedAnnotation(self, name, w, h):
+        return None
+
+    def setTarget(self, name):
+        if self.document is None or self.builder is None:
+            return
+        container = getattr(self.builder, "container", None)
+        paragraph = getattr(container, "_node", None)
+        if isinstance(container, AnnotationLine):
+            paragraph = container.parent._node
+        if paragraph is None or not hasattr(paragraph, "_p"):
+            return
+        bookmark_id = str(self.document.nextBookmarkId())
+        start = OxmlElement("w:bookmarkStart")
+        start.set(qn("w:id"), bookmark_id)
+        start.set(qn("w:name"), name)
+        end = OxmlElement("w:bookmarkEnd")
+        end.set(qn("w:id"), bookmark_id)
+        paragraph._p.append(start)
+        paragraph._p.append(end)
 
     def _hbox_extent(self, box):
         x = Dimen()

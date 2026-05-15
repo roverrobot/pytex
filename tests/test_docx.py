@@ -149,6 +149,16 @@ def _document_xml(data):
         return zf.read("word/document.xml").decode("utf-8")
 
 
+def _document_root(data):
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return ET.fromstring(zf.read("word/document.xml"))
+
+
+def _document_relationships_root(data):
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return ET.fromstring(zf.read("word/_rels/document.xml.rels"))
+
+
 def _install_font(parser, font=None):
     font = _FakeFont() if font is None else font
     parser.parameters["currentfont"] = font
@@ -334,6 +344,120 @@ def test_docx_paginated_hanging_label_collapses_leading_glue(parser):
     document = _word_document(parser, backend)
     assert document.paragraphs[0].text == "[1] A"
     assert document.paragraphs[0].paragraph_format.left_indent is None
+
+
+def test_docx_emits_destination_bookmark_for_pdf_dest_special(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.Special("pdf: dest (target.1)[@thispage/XYZ @xpos @ypos null]"),
+            nd.CharNode("A", font),
+        ],
+        para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    root = _document_root(_docx_bytes(parser, backend))
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    bookmark = root.find(".//w:bookmarkStart", ns)
+    assert bookmark is not None
+    assert bookmark.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}name") == "target.1"
+    assert root.find(".//w:bookmarkEnd", ns) is not None
+
+
+def test_docx_wraps_internal_goto_annotation_as_hyperlink(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.Special("pdf: beginann <</Type/Annot/Subtype/Link/A<</S/GoTo/D(target.1)>>>>"),
+            nd.CharNode("A", font),
+            nd.Special("pdf: endann"),
+            nd.Glue(Glue(Dimen(4)), None),
+            nd.CharNode("B", font),
+        ],
+        para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    root = _document_root(_docx_bytes(parser, backend))
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    hyperlink = root.find(".//w:hyperlink", ns)
+    assert hyperlink is not None
+    assert hyperlink.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}anchor") == "target.1"
+    assert "".join(t.text or "" for t in hyperlink.findall(".//w:t", ns)) == "A"
+    assert "".join(t.text or "" for t in root.findall(".//w:t", ns)) == "A B"
+
+
+def test_docx_wraps_uri_annotation_as_external_hyperlink(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.Special("pdf: beginann <</Type/Annot/Subtype/Link/A<</S/URI/URI(https://example.test/path)>>>>"),
+            nd.CharNode("A", font),
+            nd.Special("pdf: endann"),
+        ],
+        para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    data = _docx_bytes(parser, backend)
+    root = _document_root(data)
+    rels = _document_relationships_root(data)
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    hyperlink = root.find(".//w:hyperlink", ns)
+    rid = hyperlink.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+    rel = next(
+        node for node in rels
+        if node.get("Id") == rid
+    )
+    assert rel.get("Target") == "https://example.test/path"
+    assert rel.get("TargetMode") == "External"
+
+
+def test_docx_reopens_line_spanning_annotation_per_line(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    line1 = _FakeHBox(
+        [
+            nd.Special("pdf: beginann <</Type/Annot/Subtype/Link/A<</S/GoTo/D(target.1)>>>>"),
+            nd.CharNode("A", font),
+        ],
+        para,
+    )
+    line2 = _FakeHBox(
+        [
+            nd.CharNode("B", font),
+            nd.Special("pdf: endann"),
+            nd.CharNode("C", font),
+        ],
+        para,
+    )
+
+    backend.shipout(_page_box([line1, line2]))
+
+    root = _document_root(_docx_bytes(parser, backend))
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    hyperlinks = root.findall(".//w:hyperlink", ns)
+    assert [
+        link.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}anchor")
+        for link in hyperlinks
+    ] == ["target.1", "target.1"]
+    assert ["".join(t.text or "" for t in link.findall(".//w:t", ns)) for link in hyperlinks] == ["A", "B"]
+    assert "".join(t.text or "" for t in root.findall(".//w:t", ns)) == "ABC"
 
 
 def test_docx_inline_vbox_emits_word_textbox_story(parser):

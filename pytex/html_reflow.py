@@ -963,7 +963,7 @@ class HTMLReflowBackend(reflow.Reflow):
             with reflow.Builder(self, math):
                 self.typesetMList(node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.T))
 
-    def typesetDisplayMath(self, node, collection, yspacing: Dimen=Dimen()):
+    def typesetDisplayMath(self, node, collection, yspacing: Dimen=Dimen(), glue_state=None):
         math = Math(inline=False)
         with reflow.Builder(self, math):
             self.typesetMList(node.list, atom_type=mmode.ATOM_TYPE.ORD, style=mmode.Style(mmode.MATH_STYLE.D))

@@ -596,6 +596,72 @@ def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
         assert zf.read("word/media/pytex-inline-math-1.svg") == b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
 
 
+def test_docx_display_math_uses_page_glue_state_for_display_skip(parser, monkeypatch):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    owner = mmode.DisplayMathNode()
+    before = nd.Glue(
+        Glue(Dimen(12), shrink=Stretchness(Dimen(12), 0)),
+        "\\abovedisplayskip",
+    )
+    before.source = owner
+    display_box = _FakeHBox([nd.CharNode("x", font)], source=owner, width=50, height=12, depth=3)
+    page = _FakeVBox([before, display_box], width=200, height=60)
+    page.natural = Glue(Dimen(), shrink=Stretchness(Dimen(12), 0))
+    page.glue_ratio = bx.GlueRatio(-1, int(Dimen(6)), int(Dimen(12)))
+
+    def fake_svg(box):
+        return b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+
+    monkeypatch.setattr(backend, "inlineMathSvg", fake_svg)
+
+    backend.shipout(page)
+
+    document = _word_document(parser, backend)
+    assert len(document.paragraphs) == 1
+    assert int(document.paragraphs[0].paragraph_format.space_before) == int(docx._length(Dimen(6)))
+
+
+def test_docx_vlist_tail_negative_glue_reduces_last_line_layout(parser, monkeypatch):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    owner = mmode.DisplayMathNode()
+    before = nd.Glue(Glue(Dimen(6)), "\\abovedisplayskip")
+    before.source = owner
+    after = nd.Glue(Glue(Dimen(-4)), None)
+    display_box = _FakeHBox([nd.CharNode("x", font)], source=owner, width=50, height=12, depth=6)
+
+    def fake_svg(box):
+        return b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+
+    monkeypatch.setattr(backend, "inlineMathSvg", fake_svg)
+
+    backend.shipout(_page_box([before, display_box, after]))
+
+    document = _word_document(parser, backend)
+    assert len(document.paragraphs) == 1
+    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(docx._length(Dimen(14)))
+    xml = _document_xml(_docx_bytes(parser, backend))
+    wp_extent = re.search(r'<wp:extent\b[^>]*\bcx="([^"]+)"[^>]*\bcy="([^"]+)"', xml)
+    effect = re.search(r'<wp:effectExtent\b[^>]*\bt="([^"]+)"[^>]*\bb="([^"]+)"', xml)
+    transform = re.search(
+        r'<a:xfrm><a:off x="0" y="([^"]+)"/><a:ext cx="([^"]+)" cy="([^"]+)"/>',
+        xml,
+    )
+    assert wp_extent.groups() == (
+        str(docx._emu(display_box.width)),
+        str(docx._emu(Dimen(14))),
+    )
+    assert effect.groups() == ("0", str(docx._emu(Dimen(4))))
+    assert transform.groups() == (
+        "0",
+        str(docx._emu(display_box.width)),
+        str(docx._emu(Dimen(18))),
+    )
+
+
 def test_docx_alignment_should_emit_word_table(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend

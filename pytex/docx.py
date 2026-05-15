@@ -440,6 +440,7 @@ class TextRun(reflow.TextRun):
         )
         self._setPosition(-int(half_pt(box.depth)))
         self._node._element.append(drawing)
+        self.line.addInlineDrawing(drawing)
         picture = reflow.Element(drawing)
         self.nodes.append(picture)
         return picture
@@ -478,14 +479,49 @@ class Line(reflow.Line):
         self.story = story
         self.justify = self.JUSTIFY[justify]
         para.alignment = self.justify
+        self.line_height = line_spec.line_box.height + line_spec.line_box.depth
+        self.inline_drawings = []
+        self._setLineHeight(self.line_height)
         fmt = para.paragraph_format
-        fmt.line_spacing = Twips(max(1, _twips(line_spec.line_box.height + line_spec.line_box.depth)))
-        fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
         fmt.space_before = Twips(_twips(line_spec.spacing_before))
         fmt.space_after = Pt(0)
         self.font = line_spec.default_font
         self.width = line_spec.line_box.rightmost()
         self.line_id = line_id
+
+    def _setLineHeight(self, height):
+        fmt = self._node.paragraph_format
+        fmt.line_spacing = Twips(max(1, _twips(height)))
+        fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+
+    def addInlineDrawing(self, drawing):
+        self.inline_drawings.append(drawing)
+
+    def applyTrailingSpacing(self, spacing: Dimen):
+        adjusted = self.line_height + spacing
+        if int(adjusted) <= 0:
+            adjusted = Dimen(integer=1)
+        reduction = self.line_height - adjusted
+        self.line_height = adjusted
+        self._setLineHeight(adjusted)
+        if int(reduction) > 0:
+            self._shrinkLastDrawingLayout(reduction)
+
+    def _shrinkLastDrawingLayout(self, reduction: Dimen):
+        if not self.inline_drawings:
+            return
+        drawing = self.inline_drawings[-1]
+        extent = drawing.find(f".//{{{_WP_NS}}}extent")
+        effect = drawing.find(f".//{{{_WP_NS}}}effectExtent")
+        if extent is None:
+            return
+        old_cy = int(extent.get("cy", "1"))
+        new_cy = max(1, old_cy - _emu(reduction))
+        actual_reduction = old_cy - new_cy
+        extent.set("cy", str(new_cy))
+        if effect is not None and actual_reduction > 0:
+            bottom = int(effect.get("b", "0"))
+            effect.set("b", str(bottom + actual_reduction))
 
     def newTextRun(self, font, color) -> TextRun:
         return TextRun(self, font=font, color=color)
@@ -513,6 +549,12 @@ class Paragraph(reflow.Paragraph):
         line = Line(para, self.story.line_id, line_spec, justify=self.justify, story=self.story)
         self.append(line)
         return line
+
+    def applyTrailingSpacing(self, spacing: Dimen):
+        if self.nodes:
+            self.nodes[-1].applyTrailingSpacing(spacing)
+        elif self.spacing is not None:
+            self.spacing += spacing
 
 
 class Cell(reflow.Cell):
@@ -789,6 +831,10 @@ class Story(reflow.Element):
     @property
     def line_id(self):
         return self.document.line_id
+
+    def applyTrailingSpacing(self, spacing: Dimen):
+        if self.nodes and hasattr(self.nodes[-1], "applyTrailingSpacing"):
+            self.nodes[-1].applyTrailingSpacing(spacing)
 
 
 class Section:
@@ -1326,14 +1372,21 @@ class DocxBackend(reflow.Reflow):
         self._require_builder("typesetInlineMath", "newInlineMath")
         return self.builder.newInlineMath(self, node, box, piece)
 
-    def typesetDisplayMath(self, node: mmode.DisplayMathNode, collection, yspacing: Dimen=Dimen()):
+    def typesetTrailingVListSpacing(self, spacing: Dimen, top_level: bool=False):
+        if not top_level:
+            return
+        apply_spacing = getattr(self.builder, "applyTrailingSpacing", None)
+        if apply_spacing is not None:
+            apply_spacing(spacing)
+
+    def typesetDisplayMath(self, node: mmode.DisplayMathNode, collection, yspacing: Dimen=Dimen(), glue_state=None):
         self._require_builder("typesetDisplayMath", "newParagraph")
-        display_boxes, trailing_spacing = self._display_math_boxes(collection, yspacing)
+        display_boxes, trailing_spacing = self._display_math_boxes(collection, yspacing, glue_state=glue_state)
         for box, spacing_before in display_boxes:
             self._typesetDisplayMathBox(node, box, spacing_before)
         return trailing_spacing
 
-    def _display_math_boxes(self, collection, yspacing):
+    def _display_math_boxes(self, collection, yspacing, glue_state=None):
         boxes = []
         pending_spacing = Dimen(yspacing)
         for n in collection:
@@ -1345,7 +1398,10 @@ class DocxBackend(reflow.Reflow):
             if node_type == nd.NODE_TYPE.GLUE:
                 glue = getattr(n, "glue", None)
                 if glue is not None:
-                    pending_spacing += glue.dimen
+                    if glue_state is None:
+                        pending_spacing += glue.dimen
+                    else:
+                        pending_spacing += Dimen(integer=self._glue_amount(n, None, glue_state))
                 continue
             if node_type == nd.NODE_TYPE.KERN:
                 pending_spacing += n.kern

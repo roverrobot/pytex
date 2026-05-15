@@ -714,7 +714,7 @@ class Reflow(shipout.Shipout):
                 # here the display math may have equation numbers, which may be implemented by a table.
                 # alternatively, this can also be implemented as an SVG picture
                 # so we let typesetDisplayMath to determine how to build it without specifying a container
-                display_spacing = self.typesetDisplayMath(n, collection, yspacing=spacing)
+                display_spacing = self.typesetDisplayMath(n, collection, yspacing=spacing, glue_state=glue_state)
                 spacing = Dimen() if display_spacing is None else display_spacing
                 # display math node does not span multiple pages
                 if top_level:
@@ -781,6 +781,8 @@ class Reflow(shipout.Shipout):
             if n.node_type == nd.NODE_TYPE.KERN:
                 spacing += n.kern
                 continue
+        if int(spacing) != 0:
+            self.typesetTrailingVListSpacing(spacing, top_level=top_level)
 
     def _push_vbox(self, box, xspacing=Dimen(), yspacing=Dimen()):
         if self.vbox_stack:
@@ -817,7 +819,10 @@ class Reflow(shipout.Shipout):
     def typesetSpring(self, ratio):
         pass
 
-    def typesetDisplayMath(self, node, collection, yspacing:Dimen=Dimen()):
+    def typesetTrailingVListSpacing(self, spacing: Dimen, top_level: bool=False):
+        pass
+
+    def typesetDisplayMath(self, node, collection, yspacing:Dimen=Dimen(), glue_state=None):
         pass
 
     def typesetInlineMath(self, node, box, piece):

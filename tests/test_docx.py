@@ -1,6 +1,7 @@
 import io
 import re
 import zipfile
+import xml.etree.ElementTree as ET
 
 import pytest
 from docx import Document as WordDocument
@@ -372,6 +373,43 @@ def test_docx_inline_vbox_emits_word_textbox_story(parser):
     assert f'<w:position w:val="-{docx.half_pt(vbox.depth)}"/>' in xml
 
 
+def test_docx_inline_vbox_preserves_local_center_alignment(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    outer_para = pg.Paragraph(parser, indent=False)
+    inner_para = pg.Paragraph(parser, indent=False)
+    fill = Stretchness(Dimen(1), 1)
+    inner_line = _FakeHBox(
+        [
+            nd.Glue(Glue(Dimen(), fill), None),
+            nd.CharNode("A", font),
+            nd.Glue(Glue(Dimen(), fill), None),
+        ],
+        inner_para,
+        natural=Glue(Dimen(5), Stretchness(Dimen(2), 1)),
+        glue_ratio=(1, int(Dimen(20)), int(Dimen(2))),
+    )
+    vbox = _FakeVBox([inner_line], width=80, height=9, depth=3)
+    line = _FakeHBox([vbox], outer_para)
+
+    backend.shipout(_page_box([line]))
+
+    data = _docx_bytes(parser, backend)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    word_ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    textbox_paragraphs = root.findall(".//w:txbxContent//w:p", ns)
+    jc_values = [
+        jc.get(f"{word_ns}val")
+        for p in textbox_paragraphs
+        for jc in [p.find("w:pPr/w:jc", ns)]
+        if jc is not None
+    ]
+    assert "center" in jc_values
+
+
 def test_docx_inline_vbox_table_uses_exact_tex_widths(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
@@ -473,7 +511,7 @@ def test_docx_spacing_uses_scaled_font_space_width(parser):
     assert f'w:val="{docx.twips(Dimen(7))}"' not in xml
 
 
-def test_docx_centered_hbox_sets_word_paragraph_alignment(parser):
+def test_docx_centered_hbox_uses_tex_glue_not_word_alignment(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
     font = _install_font(parser)
@@ -492,7 +530,8 @@ def test_docx_centered_hbox_sets_word_paragraph_alignment(parser):
     backend.shipout(_page_box([line]))
 
     document = _word_document(parser, backend)
-    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
+    assert int(document.paragraphs[0].paragraph_format.left_indent) == int(docx._length(Dimen(10)))
 
 
 def test_docx_inline_math_embeds_svg_picture(parser, monkeypatch):
@@ -630,7 +669,7 @@ def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
 
     document = _word_document(parser, backend)
     assert document.paragraphs[0].text == ""
-    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
+    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
     assert document.paragraphs[1].text == "After"
     assert int(document.paragraphs[1].paragraph_format.space_before) == int(docx._length(Dimen(4)))
     assert len(captured) == 1

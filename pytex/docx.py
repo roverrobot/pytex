@@ -483,7 +483,7 @@ class Line(reflow.Line):
     ):
         super().__init__(para, line_spec)
         self.story = story
-        self.justify = self.JUSTIFY[justify]
+        self.justify = self._wordJustify(justify)
         para.alignment = self.justify
         self.line_height = line_spec.line_box.height + line_spec.line_box.depth
         self.inline_drawings = []
@@ -496,6 +496,11 @@ class Line(reflow.Line):
         self.font = line_spec.default_font
         self.width = line_spec.line_box.rightmost()
         self.line_id = line_id
+
+    def _wordJustify(self, justify):
+        if isinstance(self.story, Story):
+            return WD_ALIGN_PARAGRAPH.JUSTIFY
+        return self.JUSTIFY[justify]
 
     def _setLineHeight(self, height):
         fmt = self._node.paragraph_format

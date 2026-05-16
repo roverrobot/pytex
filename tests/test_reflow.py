@@ -136,9 +136,23 @@ class _StackProbeBackend(_ProbeBackend):
         return super().typesetHBox(box, xspacing=xspacing, yspacing=yspacing)
 
 
-class _StrictRegionSpecialBackend(_ProbeBackend):
+class _RegionTargetBackend(_ProbeBackend):
+    def __init__(self, parser):
+        super().__init__(parser)
+        self.targets = []
+
     def setTarget(self, name):
-        raise AssertionError("visual destination special escaped unsupported region scan")
+        self.targets.append(name)
+
+
+class _UnsupportedRegionAnnotationBackend(_ProbeBackend):
+    support_annotation = True
+
+    def newAnnotationBuilder(self, name=None, payload=None):
+        raise AssertionError("unsupported-region annotation tried to create a line builder")
+
+    def newFixedAnnotation(self, name, w, h):
+        raise AssertionError("unsupported-region fixed annotation tried to create a rendered link")
 
 
 def _empty_hbox(parser):
@@ -308,8 +322,8 @@ def test_shipout_scans_unsupported_region_whatsits_once(parser):
     assert backend.specials == ["header", "left", "body", "right", "footer"]
 
 
-def test_unsupported_region_scan_skips_visual_pdf_specials(parser):
-    backend = _StrictRegionSpecialBackend(parser)
+def test_unsupported_region_scan_executes_pdf_specials_by_default(parser):
+    backend = _RegionTargetBackend(parser)
     header = _fixed_vbox(
         parser,
         [
@@ -324,7 +338,26 @@ def test_unsupported_region_scan_skips_visual_pdf_specials(parser):
 
     backend.shipout(page)
 
+    assert backend.targets == ["header.target"]
     assert backend.specials == ["ordinary"]
+
+
+def test_unsupported_region_annotations_do_not_require_line_builder(parser):
+    backend = _UnsupportedRegionAnnotationBackend(parser)
+    header = _fixed_vbox(
+        parser,
+        [
+            nd.Special("pdf: beginann <</Type/Annot/Subtype/Link/A<</S/GoTo/D(target.1)>>>>"),
+            nd.Special("pdf: endann"),
+            nd.Special("pdf: ann @note width 3pt height 4pt << /Type /Annot /Subtype /Text >>"),
+        ],
+        width=10,
+        height=5,
+    )
+    body = _body_vbox(parser, width=50, height=40)
+    page = _fixed_vbox(parser, [header, body], width=50, height=45)
+
+    backend.shipout(page)
 
 
 def test_typeset_line_packs_inline_math_with_line_glue_state(parser):

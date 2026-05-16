@@ -1011,7 +1011,12 @@ class HTMLReflowBackend(reflow.Reflow):
         return "".join(out)
 
     def setTarget(self, name):
-        self.builder.container._node.set("id", name)
+        if self.builder is None:
+            return
+        container = getattr(self.builder, "container", None)
+        if container is None:
+            return
+        container._node.set("id", name)
 
     def rawSpecial(self, text):
         Warning(f"unknown special: {text}")

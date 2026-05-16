@@ -14,7 +14,6 @@ from pytex import paragraph
 from enum import IntEnum
 from dataclasses import dataclass, field
 import colorsys
-import re
 
 
 def PT(pt):
@@ -22,16 +21,6 @@ def PT(pt):
 
 
 _ONE_INCH = Dimen(integer=Dimen._trunc_div(UNITS["in"][0] * Dimen.scale, UNITS["in"][1]))
-_REGION_VISUAL_PDF_SPECIAL_RE = re.compile(
-    r"^\s*pdf:\s*"
-    r"(?:"
-    r"dest|"
-    r"setcolor|scolor|sc|begincolor|bcolor|bc|endcolor|ecolor|ec|bgcolor|bbc|bgc|"
-    r"annotate|annot|ann|beginann|bann|bannot|endann|eann|eannot|"
-    r"beginxobj|bxobj|endxobj|exobj|usexobj|uxobj|image"
-    r")\b",
-    re.IGNORECASE,
-)
 
 
 @dataclass
@@ -563,6 +552,8 @@ class Reflow(shipout.Shipout):
         if not self.support_annotation:
             return
         if kind == "begin":
+            if self.builder is None or not self.in_line:
+                return
             builder = self.newAnnotationBuilder(name=name, payload=payload)
             builder.enter()
         elif kind == "end":
@@ -571,12 +562,16 @@ class Reflow(shipout.Shipout):
                     assert self.pending_annotation == name
                 self.pending_annotation = None
                 return
+            if self.builder is None or not self.in_line:
+                return
             assert isinstance(self.builder, AnnotationBuilder)
             if name is not None:
                 assert self.builder.name == name
             self.builder.exit()
         else:
             assert kind == "fixed", "kind can only be begin, end, fixed"
+            if self.builder is None:
+                return
             assert dimensions is not None
             for key, value in dimensions:
                 if key == "width":
@@ -789,19 +784,12 @@ class Reflow(shipout.Shipout):
         for node in nodes:
             node_type = getattr(node, "node_type", None)
             if node_type == nd.NODE_TYPE.WHATSIT:
-                if self._skipUnsupportedRegionWhatsit(node):
-                    continue
-                node.output(self.parser, self)
+                self.handleUnsupportedRegionWhatsit(node)
             elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 self.scanWhatsits(getattr(node, "list", ()))
 
-    def _skipUnsupportedRegionWhatsit(self, node):
-        text = getattr(node, "text", None)
-        if text is None:
-            return False
-        if isinstance(text, list):
-            text = self.parser.expandedToksToString(text)
-        return _REGION_VISUAL_PDF_SPECIAL_RE.match(text) is not None
+    def handleUnsupportedRegionWhatsit(self, node):
+        node.output(self.parser, self)
 
     def typesetBodyBox(self, box):
         with Builder(self, self.document.body):

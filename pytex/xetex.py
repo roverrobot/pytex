@@ -6,21 +6,28 @@ primitives required by expl3, and the font-name parsing needed to route XeTeX
 font declarations to the existing font backends.
 """
 
+import os
 import re
 
 from pytex import etex  # registers the e-TeX layer
 from pytex.pdftex import expandable as pdftex_expandable  # registers pdfTeX utilities
 from pytex.pdftex import sys as pdftex_sys  # registers timer/shell utilities
 from pytex import accessor
+from pytex import box as bx
+from pytex import lists
 from pytex import mmode
+from pytex import node as nd
 from pytex import token
 from pytex.define import EquitableAccessor
+from pytex.dimen import Dimen, UNITS
 from pytex.etex import StringCommand
 from pytex.font_backend import FontSpec
+from pytex.glue import Glue
 from pytex.integer import FixedInteger
 from pytex.serialization import Serializable
 from pytex.module import Module
 from pytex.state import Array
+from pytex.typeset.dvipdfm import _encode_pdf_string, serialize_xObject
 
 
 version = "0.999995"
@@ -40,6 +47,7 @@ UCHARCAT_CATCODES = {
     token.CATCODE.ACTIVE,
 }
 COLLECTION_FONT_RE = re.compile(r"^(.+\.(?:otc|ttc|dfont)):(\d+)$", re.IGNORECASE)
+PDF_FILE_FALLBACK_SIZE = Dimen(1)
 
 
 def _read_unicode_scalar(parser, primitive):
@@ -131,6 +139,81 @@ def parseFontName(parser, name):
     return FontSpec(name, lookup="auto")
 
 
+def _dimen_option(value):
+    return f"{Dimen(value)}pt"
+
+
+def _number_option(value):
+    value = float(value)
+    if value.is_integer():
+        return str(int(value))
+    return repr(value)
+
+
+def _special_tokens(text):
+    return [
+        token.Token.token(" ", token.CATCODE.SPACE)
+        if ch.isspace()
+        else token.Token.token(ch, token.CATCODE.OTHER)
+        for ch in text
+    ]
+
+
+def _bp_to_dimen(value):
+    num, den = UNITS["bp"]
+    scaled = round(float(value) * 1000000)
+    return Dimen(integer=Dimen._trunc_div(scaled * num * Dimen.scale, den * 1000000))
+
+
+def _read_pdf_page_box(parser, filename, page_number):
+    try:
+        path = parser.resolver._sourcePath(filename)
+    except ValueError:
+        return None
+    if not os.path.exists(path):
+        return None
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(path)
+        page = reader.pages[page_number - 1]
+        llx, lly, urx, ury = tuple(map(float, page.cropbox))
+    except Exception:
+        return None
+    width = _bp_to_dimen(urx - llx)
+    height = _bp_to_dimen(ury - lly)
+    bbox = tuple(_number_option(v) for v in (llx, lly, urx, ury))
+    return width, height, bbox
+
+
+class XeTeXPDFFileBox(bx.HBox):
+    """
+    Pre-packed box used by \\XeTeXpdffile.
+
+    The contained WHATSIT performs the later shipout work; this box exists only
+    to reserve TeX layout space while keeping the primitive backend-neutral.
+    """
+
+    def copy(self, content=None):
+        box = super().copy(content)
+        if content is None and self._packed is self:
+            box._packed = box
+        return box
+
+
+def _new_pdf_file_box(parser, width, height, depth, special):
+    node = nd.Special(_special_tokens(special))
+    box = XeTeXPDFFileBox(parser, width, Dimen())
+    box.width = Dimen(width)
+    box.height = Dimen(height)
+    box.depth = Dimen(depth)
+    box.natural = Glue(width)
+    box.list = [node]
+    box.raw = [node]
+    box._packed = box
+    return box
+
+
 class UChar(token.Command):
     r"""
     \Uchar <integer> expands to a Unicode character token.
@@ -151,6 +234,83 @@ class UCharCat(token.Command):
         char_code = _read_unicode_scalar(parser, "\\Ucharcat")
         catcode = _read_ucharcat_catcode(parser)
         parser.input.pushTokenList([_character_token(parser, char_code, catcode)])
+
+
+class XeTeXPDFFile(lists.ModeDependentCommand):
+    r"""
+    \XeTeXpdffile <filename> [page <integer>] [width <dimen>] [height <dimen>] [depth <dimen>].
+    """
+
+    def readPDFFileBox(self, parser):
+        filename = parser.readFileName()
+        page_number = 1
+        width = None
+        height = None
+        depth = None
+        options = []
+        while True:
+            keyword = parser.readKeyword({"page", "width", "height", "depth"})
+            if keyword is None:
+                break
+            if keyword == "page":
+                page_number = parser.readInteger()
+                options.append(("page", str(page_number)))
+            elif keyword == "width":
+                width = parser.readDimen()
+                options.append(("width", _dimen_option(width)))
+            elif keyword == "height":
+                height = parser.readDimen()
+                options.append(("height", _dimen_option(height)))
+            elif keyword == "depth":
+                depth = parser.readDimen()
+                options.append(("depth", _dimen_option(depth)))
+
+        if page_number < 1:
+            raise ValueError("\\XeTeXpdffile page number must be positive", parser.input.position())
+        natural = _read_pdf_page_box(parser, filename, page_number)
+        if natural is not None:
+            natural_width, natural_height, bbox = natural
+            options.append(("bbox", bbox))
+            if width is None and height is None:
+                width = natural_width
+                height = natural_height
+            elif width is None and natural_height != 0:
+                width = natural_width * (float(height) / float(natural_height))
+            elif height is None and natural_width != 0:
+                height = natural_height * (float(width) / float(natural_width))
+            elif width is None:
+                width = PDF_FILE_FALLBACK_SIZE
+                options.append(("width", _dimen_option(width)))
+            elif height is None:
+                height = PDF_FILE_FALLBACK_SIZE
+                options.append(("height", _dimen_option(height)))
+        else:
+            # Controlled fallback: keep the node non-zero if the source cannot
+            # be inspected. Explicit dimensions still win.
+            if width is None:
+                width = PDF_FILE_FALLBACK_SIZE
+                options.append(("width", _dimen_option(width)))
+            if height is None:
+                height = PDF_FILE_FALLBACK_SIZE
+                options.append(("height", _dimen_option(height)))
+
+        if depth is None:
+            depth = Dimen()
+        special = serialize_xObject(
+            "epdf",
+            options=options,
+            source=_encode_pdf_string(filename),
+        )
+        return _new_pdf_file_box(parser, width, height, depth, special)
+
+    def _append(self, parser, state):
+        state.append(self.readPDFFileBox(parser))
+
+    def horizontal(self, parser, hlist):
+        self._append(parser, hlist)
+
+    def vertical(self, parser, vlist):
+        self._append(parser, vlist)
 
 
 class UMathCodeArray(Array):
@@ -403,6 +563,7 @@ mod = Module(
     commands={
         "Uchar": UChar(),
         "Ucharcat": UCharCat(),
+        "XeTeXpdffile": XeTeXPDFFile(),
         "Umathchar": UMathChar(),
         "Umathcharnum": UMathCharNum(),
         "Umathcode": UMathCode(),

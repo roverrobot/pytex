@@ -1,10 +1,17 @@
-import pytest
+from pathlib import Path
 
+import pytest
+from pypdf import PdfReader
+from reportlab.pdfgen import canvas
+
+from pytex import dvi
 from pytex import opentype
 from pytex import font_subst
+from pytex import pdf
 from pytex import texlive  # noqa: F401
 from pytex import mmode
 from pytex import lists
+from pytex.dimen import Dimen
 from pytex.font_backend import FontSpec
 from pytex.token import CATCODE
 
@@ -17,6 +24,76 @@ def _enable_xetex_module():
 def test_xetex_version_primitives_expand_like_engine_identity(collector):
     collector.parse("\\number\\XeTeXversion\\XeTeXrevision")
     assert collector.getString().strip() == "0.999995"
+
+
+def _write_test_pdf(path):
+    c = canvas.Canvas(str(path), pagesize=(200, 100))
+    c.drawString(20, 50, "FIG")
+    c.save()
+
+
+def test_xetex_pdffile_builds_sized_hbox_with_epdf_special(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    _write_test_pdf(fig)
+
+    parser.parse(
+        r'\setbox0=\hbox{\XeTeXpdffile "'
+        + str(fig)
+        + r'" width 72pt height 36pt depth 3pt}'
+    )
+
+    outer = parser.box[0]
+    graphic = outer.list[0]
+    assert graphic.width == Dimen(72)
+    assert graphic.height == Dimen(36)
+    assert graphic.depth == Dimen(3)
+    special = parser.expandedToksToString(graphic.list[0].text)
+    assert special.startswith("pdf: epdf")
+    assert "width 72.0pt" in special
+    assert "height 36.0pt" in special
+    assert "depth 3.0pt" in special
+
+
+def test_xetex_pdffile_dvi_contains_epdf_special(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    _write_test_pdf(fig)
+    out = tmp_path / "xetex-pdffile"
+
+    parser.shipout = dvi.DVIBackend(parser, str(out))
+    parser.parse(
+        r'\shipout\hbox{\XeTeXpdffile "'
+        + str(fig)
+        + r'" width 72pt height 36pt depth 3pt}',
+        jobname="xetex-pdffile",
+    )
+    parser.end()
+
+    data = Path(str(out) + ".dvi").read_bytes()
+    assert parser.shipout.max_width == int(Dimen(72))
+    assert parser.shipout.max_height == int(Dimen(39))
+    assert b"pdf: epdf" in data
+    assert b"width 72.0pt" in data
+    assert b"height 36.0pt" in data
+    assert b"depth 3.0pt" in data
+    assert str(fig).encode() in data
+
+
+def test_xetex_pdffile_pdf_backend_includes_figure(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    _write_test_pdf(fig)
+    out = tmp_path / "xetex-pdffile-pdf"
+
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(
+        r'\shipout\hbox{\XeTeXpdffile "'
+        + str(fig)
+        + r'" width 72pt height 36pt}',
+        jobname="xetex-pdffile-pdf",
+    )
+    parser.end()
+
+    reader = PdfReader(str(out) + ".pdf")
+    assert "FIG" in (reader.pages[0].extract_text() or "")
 
 
 def test_xetex_font_name_parser_marks_bracketed_file_specs(parser):

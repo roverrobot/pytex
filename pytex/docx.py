@@ -555,6 +555,7 @@ class Line(reflow.Line):
         self.has_visible_content = False
         self._setLineHeight(self.line_height)
         fmt = para.paragraph_format
+        assert int(line_spec.spacing_before) >= 0, f"negative spacing{line_spec.spacing_before}"
         fmt.space_before = Twips(_twips(line_spec.spacing_before))
         fmt.space_after = Pt(0)
         self.font = line_spec.default_font
@@ -1007,10 +1008,10 @@ class Section:
         self.spec = spec
         self._section = document._node.sections[-1]
         self._apply_spec()
-        self._header_spec = document._node.part.add_header_part() # node, rel_id
-        self._header = Story(document, self._header_spec[0])
-        self._footer_spec = document._node.part.add_footer_part()
-        self._footer = Story(document, self._footer_spec[0])
+        self._section.header.is_linked_to_previous = False
+        self._section.footer.is_linked_to_previous = False
+        self._header = Story(document, self._section.header)
+        self._footer = Story(document, self._section.footer)
         self._body = Story(document, document._node._body)
 
     def _apply_spec(self):
@@ -1086,6 +1087,22 @@ class Section:
         previous_pPr.append(sectPr)
         parent.remove(break_p)
         return True
+
+    @staticmethod
+    def _minimize_section_break_paragraph(document):
+        """Make python-docx's empty section-break paragraph take minimal space."""
+        paragraphs = document.paragraphs
+        if not paragraphs:
+            return
+        paragraph = paragraphs[-1]
+        pPr = paragraph._p.pPr
+        if pPr is None or pPr.find(qn("w:sectPr")) is None:
+            return
+        fmt = paragraph.paragraph_format
+        fmt.space_before = Pt(0)
+        fmt.space_after = Pt(0)
+        fmt.line_spacing = Twips(1)
+        fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
 
 
 @dataclass
@@ -1569,6 +1586,42 @@ class DocxBackend(reflow.Reflow):
             render.spread = Dimen()
             render.glue_ratio = bx.GlueRatio(0, 0, 1)
         return render, visible, -left if int(left) < 0 else Dimen()
+
+    def typesetHeaderRegion(self, items):
+        self._typesetVModePageRegion(self.document.header, items)
+
+    def typesetFooterRegion(self, items):
+        self._typesetVModePageRegion(self.document.footer, items)
+
+    def _typesetVModePageRegion(self, story, items):
+        region_items = [
+            item for item in items
+            if getattr(item.node, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.WHATSIT)
+        ]
+        if not region_items:
+            return
+
+        box_items = [
+            item for item in region_items
+            if getattr(item.node, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
+        ]
+        base_x = min((item.x for item in box_items), default=Dimen())
+
+        with reflow.Builder(self, story):
+            for item in region_items:
+                node = item.node
+                node_type = getattr(node, "node_type", None)
+                if node_type == nd.NODE_TYPE.WHATSIT:
+                    node.output(self.parser, self)
+                    continue
+                spacing = item.y
+                if int(spacing) < 0:
+                    spacing = Dimen()
+                xspacing = item.x - base_x
+                if node_type == nd.NODE_TYPE.VLIST:
+                    self.typesetVBox(node, xspacing=xspacing, yspacing=spacing)
+                elif node_type == nd.NODE_TYPE.HLIST:
+                    self.typesetHBox(node, xspacing=xspacing, yspacing=spacing)
 
     def typesetHAlignment(self, node: align.HAlignment, collection, yspacing, glue_state=None):
         self._require_builder("typesetHAlignment", "newRow")

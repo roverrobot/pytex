@@ -265,14 +265,18 @@ class PageSpec:
 @dataclass
 class VModeRegionItem:
     node: nd.Node
+    # Horizontal position of this item in the extracted vertical region.
     x: Dimen = field(default_factory=Dimen)
+    # Vertical advance before this item in the extracted vertical region.
     y: Dimen = field(default_factory=Dimen)
 
 
 @dataclass
 class HModeRegionItem:
     node: nd.Node
+    # Horizontal advance before this item in the extracted horizontal region.
     x: Dimen = field(default_factory=Dimen)
+    # Vertical position of this item in the extracted horizontal region.
     y: Dimen = field(default_factory=Dimen)
 
 
@@ -751,16 +755,56 @@ class Reflow(shipout.Shipout):
         return Dimen()
 
     def _vmode_region_items(self, positioned):
-        return [
-            VModeRegionItem(node, Dimen(x), Dimen(y))
-            for node, x, y in positioned
-        ]
+        """Convert page-positioned vmode items to region-flow items.
+
+        The page walker uses absolute page coordinates internally to find the
+        body and classify page regions. Header/footer consumers, however, are
+        reflow stories. They need the vertical advance before each visible item,
+        not an absolute page y coordinate. Region-level glue/kern therefore
+        contributes only through the coordinate difference before the next
+        visible box; trailing positioning resets are ignored.
+        """
+        if not positioned:
+            return []
+        cursor_bottom = self._vmode_region_top(positioned[0])
+        items = []
+        for node, x, y in positioned:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.WHATSIT:
+                items.append(VModeRegionItem(node, Dimen(x), Dimen()))
+                continue
+            if node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                continue
+            top = self._vmode_region_top((node, x, y))
+            items.append(VModeRegionItem(node, Dimen(x), top - cursor_bottom))
+            cursor_bottom = top + node.height + node.depth
+        return items
+
+    @staticmethod
+    def _vmode_region_top(positioned_item):
+        node, _, y = positioned_item
+        if getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST:
+            return Dimen(y) - node.height
+        return Dimen(y)
 
     def _hmode_region_items(self, positioned):
-        return [
-            HModeRegionItem(node, Dimen(x), Dimen(y))
-            for node, x, y in positioned
-        ]
+        """Convert page-positioned hmode items to region-flow items."""
+        if not positioned:
+            return []
+        cursor_right = Dimen(positioned[0][1])
+        items = []
+        for node, x, y in positioned:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.WHATSIT:
+                items.append(HModeRegionItem(node, Dimen(), Dimen(y)))
+                continue
+            if node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                continue
+            x = Dimen(x)
+            items.append(HModeRegionItem(node, x - cursor_right, Dimen(y)))
+            width = getattr(node, "width", Dimen())
+            cursor_right = x + width
+        return items
 
     def typesetHeaderRegion(self, items):
         self.scanVModeRegionItems(items)

@@ -1036,6 +1036,56 @@ class Section:
 
     def close(self, document, last_page):
         document.add_section(WD_SECTION_START.NEW_PAGE)
+        if not self._move_section_break_to_previous_paragraph(document):
+            self._minimize_section_break_paragraph(document)
+
+    @staticmethod
+    def _move_section_break_to_previous_paragraph(document):
+        """Attach the section break to the preceding paragraph when possible.
+
+        python-docx creates a standalone empty paragraph to hold the section
+        break. That paragraph still participates in Word layout and can disturb
+        tight page endings. If the previous body element is a paragraph, move
+        the generated w:sectPr onto that paragraph and remove the empty one.
+        If the previous element is a table, keep the generated paragraph and
+        let the caller minimize it instead, because section properties cannot
+        be attached directly to a table.
+        """
+        paragraphs = document.paragraphs
+        if len(paragraphs) < 2:
+            return False
+        break_paragraph = paragraphs[-1]
+        break_p = break_paragraph._p
+        break_pPr = break_p.pPr
+        if break_pPr is None:
+            return False
+        sectPr = break_pPr.find(qn("w:sectPr"))
+        if sectPr is None:
+            return False
+        parent = break_p.getparent()
+        if parent is None:
+            return False
+        children = list(parent)
+        try:
+            index = children.index(break_p)
+        except ValueError:
+            return False
+        if index == 0:
+            return False
+        previous = children[index - 1]
+        if previous.tag != qn("w:p"):
+            return False
+        previous_pPr = previous.find(qn("w:pPr"))
+        if previous_pPr is None:
+            previous_pPr = OxmlElement("w:pPr")
+            previous.insert(0, previous_pPr)
+        existing = previous_pPr.find(qn("w:sectPr"))
+        if existing is not None:
+            previous_pPr.remove(existing)
+        break_pPr.remove(sectPr)
+        previous_pPr.append(sectPr)
+        parent.remove(break_p)
+        return True
 
 
 @dataclass
@@ -1112,19 +1162,13 @@ class Document(reflow.Document):
         return self.sections[-1].footer
 
     def newPage(self, page_spec: reflow.PageSpec) -> Section:
+        """Start a new DOCX section for each shipped TeX page."""
         section_index = len(self.sections)
-        if section_index == 0:
-            is_new = True
-        else:
-            current_section: Section = self.sections[-1]
-            is_new = current_section.spec.signature() != page_spec.signature()
-        if is_new:
-            if section_index > 0:
-                self.sections[-1].close(self._node, last_page=False)
-            section = Section(self, page_spec)
-            self.sections.append(section)
-            return section
-        return self.sections[-1]
+        if section_index > 0:
+            self.sections[-1].close(self._node, last_page=False)
+        section = Section(self, page_spec)
+        self.sections.append(section)
+        return section
 
     def defineFont(self, font):
         if font is None:

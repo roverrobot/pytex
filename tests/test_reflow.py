@@ -16,6 +16,9 @@ class _ProbeTextRun(reflow.Element):
     def setSpace(self, width, breakable=True):
         self.spaces.append(width)
 
+    def setKern(self, kern):
+        pass
+
     def setChar(self, char):
         pass
 
@@ -34,6 +37,14 @@ class _ProbeParagraph(reflow.Element):
         self.text_run.font = font
         self.append(self.text_run)
         return self.text_run
+
+    def textRun(self, new=False):
+        if new:
+            return self.newTextRun(self.font, self.color)
+        return self.text_run
+
+    def setSpace(self, width, breakable=True):
+        self.textRun().setSpace(width, breakable=breakable)
 
     def newLine(
         self,
@@ -76,10 +87,40 @@ class _ProbeBlock(reflow.Element):
         return table
 
 
+class _ProbeDocument(reflow.Document):
+    def __init__(self):
+        super().__init__("document", "probe")
+        self._body = _ProbeBlock()
+        self.page_specs = []
+
+    @property
+    def body(self):
+        return self._body
+
+    @property
+    def header(self):
+        return _ProbeBlock()
+
+    @property
+    def footer(self):
+        return _ProbeBlock()
+
+    def newPage(self, page_spec):
+        self.page_specs.append(page_spec)
+        return page_spec
+
+    def save(self):
+        pass
+
+
 class _ProbeBackend(reflow.Reflow):
     def __init__(self, parser):
         super().__init__(parser, paginate=True)
         self.inline_math = []
+        self.specials = []
+
+    def open(self):
+        return _ProbeDocument()
 
     def typesetInlineMath(self, node, box, piece):
         self.inline_math.append((node, box, piece))
@@ -95,16 +136,195 @@ class _StackProbeBackend(_ProbeBackend):
         return super().typesetHBox(box, xspacing=xspacing, yspacing=yspacing)
 
 
+class _StrictRegionSpecialBackend(_ProbeBackend):
+    def setTarget(self, name):
+        raise AssertionError("visual destination special escaped unsupported region scan")
+
+
 def _empty_hbox(parser):
     hbox = bx.HBox(parser, None, 0)
     hbox.list = []
     return hbox.typeset(parser)
 
 
+def _fixed_hbox(parser, items=None, width=0, height=0, depth=0, shifted=0):
+    hbox = bx.HBox(parser, None, 0)
+    hbox.list = list(items or [])
+    hbox = hbox.typeset(parser)
+    hbox.width = Dimen(width)
+    hbox.height = Dimen(height)
+    hbox.depth = Dimen(depth)
+    hbox.to = hbox.width
+    hbox.shifted = Dimen(shifted)
+    return hbox
+
+
+def _fixed_vbox(parser, items=None, width=0, height=0, depth=0, shifted=0):
+    vbox = bx.VBox(parser, None, 0)
+    vbox.list = list(items or [])
+    vbox = vbox.typeset(parser)
+    vbox.width = Dimen(width)
+    vbox.height = Dimen(height)
+    vbox.depth = Dimen(depth)
+    vbox.to = vbox.height
+    vbox.shifted = Dimen(shifted)
+    return vbox
+
+
+def _body_vbox(parser, items=None, width=80, height=60, depth=0):
+    return _fixed_vbox(
+        parser,
+        [nd.Glue(glue.Glue(Dimen(4)), "\\topskip"), *(items or [])],
+        width=width,
+        height=height,
+        depth=depth,
+    )
+
+
+class _ProbeWhatsit(nd.Node):
+    node_type = nd.NODE_TYPE.WHATSIT
+
+    def __init__(self, name):
+        self.name = name
+
+    def output(self, parser, backend):
+        backend.specials.append(self.name)
+
+
 def _pt(value):
     if isinstance(value, int):
         return float(Dimen(integer=value))
     return float(value)
+
+
+def test_walk_page_collects_vmode_header_and_body(parser):
+    backend = _ProbeBackend(parser)
+    header = _fixed_hbox(parser, width=30, height=6, depth=2)
+    body = _body_vbox(parser, width=100, height=80)
+    page = _fixed_vbox(parser, [header, body], width=100, height=88)
+
+    regions = backend.walkPage(page)
+
+    assert regions.body is body
+    assert regions.body_x == Dimen()
+    assert regions.body_y == Dimen(8)
+    assert [item.node for item in regions.header] == [header]
+    assert regions.header[0].x == Dimen()
+    assert regions.header[0].y == Dimen(6)
+    assert regions.footer == []
+    assert regions.left_margin == []
+    assert regions.right_margin == []
+
+
+def test_walk_page_classifies_vmode_and_hmode_siblings(parser):
+    backend = _ProbeBackend(parser)
+    header = _fixed_hbox(parser, width=40, height=7, depth=3, shifted=2)
+    left = _fixed_hbox(parser, width=10, height=5, depth=1, shifted=4)
+    body = _body_vbox(parser, width=100, height=80)
+    right = _fixed_hbox(parser, width=20, height=4, depth=2, shifted=-3)
+    footer = _fixed_hbox(parser, width=50, height=6, depth=2, shifted=5)
+    row = _fixed_hbox(
+        parser,
+        [left, body, right],
+        width=130,
+        height=80,
+        depth=0,
+    )
+    page = _fixed_vbox(parser, [header, row, footer], width=140, height=98)
+
+    regions = backend.walkPage(page)
+
+    assert regions.body is body
+    assert regions.body_x == Dimen(10)
+    assert regions.body_y == Dimen(10)
+    assert [item.node for item in regions.header] == [header]
+    assert regions.header[0].x == Dimen(2)
+    assert regions.header[0].y == Dimen(7)
+    assert [item.node for item in regions.left_margin] == [left]
+    assert regions.left_margin[0].x == Dimen()
+    assert regions.left_margin[0].y == Dimen(90 + 4)
+    assert [item.node for item in regions.right_margin] == [right]
+    assert regions.right_margin[0].x == Dimen(110)
+    assert regions.right_margin[0].y == Dimen(90 - 3)
+    assert [item.node for item in regions.footer] == [footer]
+    assert regions.footer[0].x == Dimen(5)
+    assert regions.footer[0].y == Dimen(96)
+
+
+def test_walk_page_uses_root_hlist_baseline_for_nested_body(parser):
+    backend = _ProbeBackend(parser)
+    body = _body_vbox(parser, width=40, height=30)
+    page = _fixed_hbox(parser, [body], width=40, height=30, depth=5)
+
+    regions = backend.walkPage(page)
+
+    assert regions.body is body
+    assert regions.body_y == Dimen()
+
+
+def test_walk_page_region_order_is_fifo_for_nested_regions(parser):
+    backend = _ProbeBackend(parser)
+    outer_header = _fixed_hbox(parser, width=10, height=2, depth=1)
+    inner_header = _fixed_hbox(parser, width=10, height=3, depth=1)
+    body = _body_vbox(parser)
+    inner_footer = _fixed_hbox(parser, width=10, height=4, depth=1)
+    outer_footer = _fixed_hbox(parser, width=10, height=5, depth=1)
+    inner = _fixed_vbox(
+        parser,
+        [inner_header, body, inner_footer],
+        width=80,
+        height=68,
+    )
+    page = _fixed_vbox(
+        parser,
+        [outer_header, inner, outer_footer],
+        width=80,
+        height=77,
+    )
+
+    regions = backend.walkPage(page)
+
+    assert [item.node for item in regions.header] == [outer_header, inner_header]
+    assert [item.node for item in regions.footer] == [inner_footer, outer_footer]
+
+
+def test_shipout_scans_unsupported_region_whatsits_once(parser):
+    backend = _ProbeBackend(parser)
+    header_special = _ProbeWhatsit("header")
+    left_special = _ProbeWhatsit("left")
+    body_special = _ProbeWhatsit("body")
+    right_special = _ProbeWhatsit("right")
+    footer_special = _ProbeWhatsit("footer")
+    header = _fixed_vbox(parser, [header_special], width=10, height=5)
+    left = _fixed_hbox(parser, [left_special], width=10, height=0)
+    body = _body_vbox(parser, [body_special], width=50, height=40)
+    right = _fixed_hbox(parser, [right_special], width=10, height=0)
+    footer = _fixed_vbox(parser, [footer_special], width=10, height=5)
+    row = _fixed_hbox(parser, [left, body, right], width=70, height=40)
+    page = _fixed_vbox(parser, [header, row, footer], width=70, height=50)
+
+    backend.shipout(page)
+
+    assert backend.specials == ["header", "left", "body", "right", "footer"]
+
+
+def test_unsupported_region_scan_skips_visual_pdf_specials(parser):
+    backend = _StrictRegionSpecialBackend(parser)
+    header = _fixed_vbox(
+        parser,
+        [
+            nd.Special("pdf: dest (header.target)[@thispage/XYZ @xpos @ypos null]"),
+            _ProbeWhatsit("ordinary"),
+        ],
+        width=10,
+        height=5,
+    )
+    body = _body_vbox(parser, width=50, height=40)
+    page = _fixed_vbox(parser, [header, body], width=50, height=45)
+
+    backend.shipout(page)
+
+    assert backend.specials == ["ordinary"]
 
 
 def test_typeset_line_packs_inline_math_with_line_glue_state(parser):

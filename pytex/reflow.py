@@ -14,6 +14,7 @@ from pytex import paragraph
 from enum import IntEnum
 from dataclasses import dataclass, field
 import colorsys
+import re
 
 
 def PT(pt):
@@ -21,6 +22,16 @@ def PT(pt):
 
 
 _ONE_INCH = Dimen(integer=Dimen._trunc_div(UNITS["in"][0] * Dimen.scale, UNITS["in"][1]))
+_REGION_VISUAL_PDF_SPECIAL_RE = re.compile(
+    r"^\s*pdf:\s*"
+    r"(?:"
+    r"dest|"
+    r"setcolor|scolor|sc|begincolor|bcolor|bc|endcolor|ecolor|ec|bgcolor|bbc|bgc|"
+    r"annotate|annot|ann|beginann|bann|bannot|endann|eann|eannot|"
+    r"beginxobj|bxobj|endxobj|exobj|usexobj|uxobj|image"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -260,6 +271,31 @@ class PageSpec:
 
     def signature(self):
         return f"w:{self.width};h:{self.height};l:{self.margin_left};t:{self.margin_top};r:{self.margin_right};b:{self.margin_bottom}"
+
+
+@dataclass
+class VModeRegionItem:
+    node: nd.Node
+    x: Dimen = field(default_factory=Dimen)
+    y: Dimen = field(default_factory=Dimen)
+
+
+@dataclass
+class HModeRegionItem:
+    node: nd.Node
+    x: Dimen = field(default_factory=Dimen)
+    y: Dimen = field(default_factory=Dimen)
+
+
+@dataclass
+class PageRegions:
+    body: object = None
+    body_x: Dimen = field(default_factory=Dimen)
+    body_y: Dimen = field(default_factory=Dimen)
+    header: list[VModeRegionItem] = field(default_factory=list)
+    footer: list[VModeRegionItem] = field(default_factory=list)
+    left_margin: list[HModeRegionItem] = field(default_factory=list)
+    right_margin: list[HModeRegionItem] = field(default_factory=list)
 
 
 @dataclass
@@ -564,24 +600,18 @@ class Reflow(shipout.Shipout):
             self.document.save()
             self.document = None
 
-    def begin_page(self, box):
-        body_tree, margin_left, margin_top = self._find_body(box)
-        if body_tree is None:
-            # we have not found one box that is a vbox and contains \topskip
-            # in this case the body is body
-            body_tree = [box]
-        body = body_tree[-1]
-        # _find_body returns the body offset inside the shipped box. Device
-        # output places that box at TeX's physical origin, so PageSpec margins
-        # need both pieces to match PDF/DVI placement.
-        page_width, page_height, origin_x, origin_y = self._page_geometry(box)
-        margin_left = origin_x + margin_left
-        margin_top = origin_y + margin_top
+    def begin_page(self, box, page_spec=None):
+        if page_spec is None:
+            page_spec = self._page_spec_for_body(box, box, Dimen(), Dimen())
+        self.document.newPage(page_spec)
+
+    def _page_spec_for_body(self, page_box, body, body_x, body_y):
+        page_width, page_height, origin_x, origin_y = self._page_geometry(page_box)
+        margin_left = origin_x + body_x
+        margin_top = origin_y + body_y
         margin_right = page_width - margin_left - body.width
         margin_bottom = page_height - margin_top - body.height - body.depth
-        page_spec = PageSpec(page_width, page_height, margin_left, margin_top, margin_right, margin_bottom)
-        self.document.newPage(page_spec)
-        return body_tree
+        return PageSpec(page_width, page_height, margin_left, margin_top, margin_right, margin_bottom)
 
     def _page_geometry(self, box):
         page_width = self._page_dimension_parameter("pdfpagewidth")
@@ -610,11 +640,185 @@ class Reflow(shipout.Shipout):
         self.pages.append(box)
         if self.document is None:
             self.document = self.open()
-        body_tree = self.begin_page(box)
-        self.typesetHeader(body_tree)
-        self.typesetBody(body_tree)
-        self.typesetFooter(body_tree)
+        regions = self.walkPage(box)
+        page_spec = self._page_spec_for_body(box, regions.body, regions.body_x, regions.body_y)
+        self.begin_page(box, page_spec)
+        self.typesetHeaderRegion(regions.header)
+        self.typesetLeftMarginRegion(regions.left_margin)
+        self.typesetBodyBox(regions.body)
+        self.typesetRightMarginRegion(regions.right_margin)
+        self.typesetFooterRegion(regions.footer)
         self.end_page(box)
+
+    def _is_body_vlist(self, box):
+        if getattr(box, "node_type", None) != nd.NODE_TYPE.VLIST:
+            return False
+        return any(
+            getattr(node, "node_type", None) == nd.NODE_TYPE.GLUE
+            and getattr(node, "name", None) == "\\topskip"
+            for node in getattr(box, "list", ())
+        )
+
+    def walkPage(self, box):
+        start_y = box.height if getattr(box, "node_type", None) == nd.NODE_TYPE.HLIST else Dimen()
+        regions = self._walkPageBox(box, Dimen(), start_y)
+        if regions.body is None:
+            regions.body = box
+            regions.body_x = Dimen()
+            regions.body_y = Dimen()
+        return regions
+
+    def _walkPageBox(self, box, x, y):
+        node_type = getattr(box, "node_type", None)
+        if node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            return PageRegions()
+        if self._is_body_vlist(box):
+            return PageRegions(body=box, body_x=Dimen(x), body_y=Dimen(y))
+
+        positioned = self._page_region_positions(box, x, y)
+        for index, (node, item_x, item_y) in enumerate(positioned):
+            child_type = getattr(node, "node_type", None)
+            if child_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                continue
+            child_regions = self._walkPageBox(node, item_x, item_y)
+            if child_regions.body is None:
+                continue
+            before = positioned[:index]
+            after = positioned[index + 1:]
+            if node_type == nd.NODE_TYPE.VLIST:
+                child_regions.header = self._vmode_region_items(before) + child_regions.header
+                child_regions.footer = child_regions.footer + self._vmode_region_items(after)
+            else:
+                child_regions.left_margin = self._hmode_region_items(before) + child_regions.left_margin
+                child_regions.right_margin = child_regions.right_margin + self._hmode_region_items(after)
+            return child_regions
+        return PageRegions()
+
+    def _node_shift(self, node):
+        return Dimen(getattr(node, "shifted", Dimen()))
+
+    def _page_region_positions(self, box, x, y):
+        items = []
+        node_type = getattr(box, "node_type", None)
+        vertical = node_type == nd.NODE_TYPE.VLIST
+        glue_state = self._glue_state(box)
+        cursor_x = Dimen(x)
+        cursor_y = Dimen(y)
+        for node in getattr(box, "list", ()):
+            if vertical:
+                item_x, item_y = self._vmode_item_position(node, cursor_x, cursor_y)
+                items.append((node, item_x, item_y))
+                cursor_y += self._vertical_advance(box, node, glue_state)
+            else:
+                item_x, item_y = self._hmode_item_position(node, cursor_x, cursor_y)
+                items.append((node, item_x, item_y))
+                cursor_x += self._horizontal_advance(box, node, glue_state)
+        return items
+
+    def _vmode_item_position(self, node, x, y):
+        node_type = getattr(node, "node_type", None)
+        if node_type == nd.NODE_TYPE.HLIST:
+            return x + self._node_shift(node), y + node.height
+        if node_type == nd.NODE_TYPE.VLIST:
+            return x + self._node_shift(node), Dimen(y)
+        return Dimen(x), Dimen(y)
+
+    def _hmode_item_position(self, node, x, y):
+        node_type = getattr(node, "node_type", None)
+        if node_type == nd.NODE_TYPE.HLIST:
+            return Dimen(x), y + self._node_shift(node)
+        if node_type == nd.NODE_TYPE.VLIST:
+            return Dimen(x), y + self._node_shift(node) - node.height
+        return Dimen(x), Dimen(y)
+
+    def _vertical_advance(self, box, node, glue_state):
+        node_type = getattr(node, "node_type", None)
+        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            return node.height + node.depth
+        if node_type == nd.NODE_TYPE.GLUE:
+            return Dimen(integer=self._glue_amount(node, box, glue_state))
+        if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+            return node.kern
+        if node_type == nd.NODE_TYPE.RULE:
+            return node.height
+        return Dimen()
+
+    def _horizontal_advance(self, box, node, glue_state):
+        node_type = getattr(node, "node_type", None)
+        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            return node.width
+        if node_type == nd.NODE_TYPE.GLUE:
+            return Dimen(integer=self._glue_amount(node, box, glue_state))
+        if node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+            return node.kern
+        if node_type == nd.NODE_TYPE.RULE:
+            return node.width
+        return Dimen()
+
+    def _vmode_region_items(self, positioned):
+        return [
+            VModeRegionItem(node, Dimen(x), Dimen(y))
+            for node, x, y in positioned
+        ]
+
+    def _hmode_region_items(self, positioned):
+        return [
+            HModeRegionItem(node, Dimen(x), Dimen(y))
+            for node, x, y in positioned
+        ]
+
+    def typesetHeaderRegion(self, items):
+        self.scanVModeRegionItems(items)
+
+    def typesetFooterRegion(self, items):
+        self.scanVModeRegionItems(items)
+
+    def typesetLeftMarginRegion(self, items):
+        self.scanHModeRegionItems(items)
+
+    def typesetRightMarginRegion(self, items):
+        self.scanHModeRegionItems(items)
+
+    def scanVModeRegionItems(self, items):
+        self.scanWhatsits([item.node for item in items])
+
+    def scanHModeRegionItems(self, items):
+        self.scanWhatsits([item.node for item in items])
+
+    def scanWhatsits(self, nodes):
+        for node in nodes:
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.WHATSIT:
+                if self._skipUnsupportedRegionWhatsit(node):
+                    continue
+                node.output(self.parser, self)
+            elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+                self.scanWhatsits(getattr(node, "list", ()))
+
+    def _skipUnsupportedRegionWhatsit(self, node):
+        text = getattr(node, "text", None)
+        if text is None:
+            return False
+        if isinstance(text, list):
+            text = self.parser.expandedToksToString(text)
+        return _REGION_VISUAL_PDF_SPECIAL_RE.match(text) is not None
+
+    def typesetBodyBox(self, box):
+        with Builder(self, self.document.body):
+            self._push_vbox(box, Dimen(), Dimen())
+            try:
+                self.typesetVList(box.list, self._glue_state(box), top_level=True)
+            finally:
+                self.vbox_stack.pop()
+
+    def typesetHeader(self, tree):
+        pass
+
+    def typesetFooter(self, tree):
+        pass
+
+    def typesetBody(self, tree):
+        self.typesetBodyBox(tree[-1])
 
     def _find_body(self, box):
         """ return a box tree which leaf points to the page body """
@@ -658,21 +862,6 @@ class Reflow(shipout.Shipout):
             if not vertical and n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 x_offset += n.width
         return None, Dimen(), Dimen()
-
-    def typesetHeader(self, tree):
-        pass
-
-    def typesetFooter(self, tree):
-        pass
-
-    def typesetBody(self, tree):
-        box = tree[-1]
-        with Builder(self, self.document.body):
-            self._push_vbox(box, Dimen(), Dimen())
-            try:
-                self.typesetVList(box.list, self._glue_state(box), top_level=True)
-            finally:
-                self.vbox_stack.pop()
 
     def _require_builder(self, method, *capabilities):
         builder = self.builder

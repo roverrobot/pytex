@@ -820,49 +820,6 @@ class Reflow(shipout.Shipout):
     def typesetBody(self, tree):
         self.typesetBodyBox(tree[-1])
 
-    def _find_body(self, box):
-        """ return a box tree which leaf points to the page body """
-        tree = [box]
-        x_offset = Dimen()
-        y_offset = Dimen()
-        vertical = box.node_type == nd.NODE_TYPE.VLIST
-        glue_state = self._glue_state(box)
-        for n in box.list:
-            if n.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
-                tail, xoff, yoff = self._find_body(n)
-                if tail is not None:
-                    tree.extend(tail)
-                    if vertical:
-                        x_offset += n.shifted
-                    else:
-                        y_offset += n.shifted
-                    return tree, x_offset + xoff, y_offset + yoff
-                if vertical:
-                    y_offset += n.height + n.depth
-                    x_offset += n.shifted
-                else:
-                    x_offset += n.width
-                    y_offset += n.shifted
-                continue
-            if n.node_type == nd.NODE_TYPE.GLUE:
-                if n.name == "\\topskip":
-                    return [box], Dimen(), Dimen()
-                amount = Dimen(integer=self._glue_amount(n, box, glue_state))
-                if vertical:
-                    y_offset += amount
-                else:
-                    x_offset += amount
-                continue
-            if n.node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
-                if vertical:
-                    y_offset += n.kern
-                else:
-                    x_offset += n.kern
-                continue
-            if not vertical and n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                x_offset += n.width
-        return None, Dimen(), Dimen()
-
     def _require_builder(self, method, *capabilities):
         builder = self.builder
         assert builder is not None, f"{method} requires a current reflow builder"

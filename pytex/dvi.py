@@ -5,7 +5,7 @@ import os
 
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.module import Module
-from pytex.typeset.dvipdfm import serialize_annotate, serialize_setColor, serialize_target, serialize_xObject
+from pytex.typeset.dvipdfm import serialize_annotate, serialize_graphic, serialize_setColor, serialize_target, serialize_xObject
 from pytex.typeset.shipout import Shipout
 
 
@@ -232,6 +232,9 @@ class DVIBackend(Shipout):
 
     def xObject(self, kind, name=None, options=None, source=None):
         self.rawSpecial(serialize_xObject(kind, name=name, options=options, source=source))
+
+    def graphic(self, spec):
+        self.rawSpecial(serialize_graphic(spec))
 
     def close(self):
         if not self.file:

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from pytex import xdv
+from pytex.graphics import GraphicSpec
 
 
 def _native_font_def_payload(data):
@@ -166,3 +167,20 @@ def test_xdv_native_font_chars_emit_xdv_glyphs(parser):
     assert payload["positions"] == [(0, 0)]
     assert payload["glyphs"] == [27]
     assert shipout.dvi_h == 12345
+
+
+def test_xdv_graphic_special_is_serialized(parser):
+    output = BytesIO()
+    shipout = xdv.XDVBackend(parser, output)
+    shipout.file = output
+
+    shipout.graphic(
+        GraphicSpec(
+            kind="epdf",
+            source="figure.pdf",
+            options=(("bbox", ("0", "0", "10", "20")), ("width", "5pt")),
+            format="pdf",
+        )
+    )
+
+    assert b"pdf: epdf bbox 0 0 10 20 width 5pt (figure.pdf)" in output.getvalue()

@@ -36,6 +36,7 @@ from fontTools.pens.reportLabPen import ReportLabPen
 
 from pytex import node as nd
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, UNITS
+from pytex.graphics import GraphicSpec
 from pytex.module import Module
 from pytex.typeset.shipout import Shipout
 
@@ -242,7 +243,10 @@ class PDFBackend(Shipout):
 
     @classmethod
     def _source_path(cls, parser, source):
-        name = cls._decode_pdf_string(source)
+        return cls._source_path_name(parser, cls._decode_pdf_string(source))
+
+    @staticmethod
+    def _source_path_name(parser, name):
         try:
             path = parser.resolver._sourcePath(name)
         except ValueError:
@@ -361,7 +365,7 @@ class PDFBackend(Shipout):
         reader = self._pdf_sources.get(name)
         if reader is not None:
             return reader
-        _decoded, path = self._source_path(self.parser, f"({name})")
+        _decoded, path = self._source_path_name(self.parser, name)
         if path is None:
             raise FileNotFoundError(name)
         reader = PdfReader(path)
@@ -1164,10 +1168,10 @@ class PDFBackend(Shipout):
                 return
         self._note_ignored(f"annotate ignored: {kind}")
 
-    def xObject(self, kind, name=None, options=None, source=None):
-        options = self._options_map(options)
-        if kind == "image" and source:
-            decoded, path = self._source_path(self.parser, source)
+    def graphic(self, spec: GraphicSpec):
+        options = spec.option_map
+        if spec.kind == "image" and spec.source:
+            decoded, path = self._source_path_name(self.parser, spec.source)
             if path is None:
                 self._note_ignored(f"xObject image missing: {decoded}")
                 return
@@ -1179,15 +1183,27 @@ class PDFBackend(Shipout):
             if self._active_annotations:
                 self._grow_annotation_rect(x, y, x + target_width, y + target_height)
             return
-        if kind == "epdf" and source:
-            decoded = self._decode_pdf_string(source)
-            self._queue_epdf_overlay(options, decoded)
+        if spec.kind == "epdf" and spec.source:
+            self._queue_epdf_overlay(options, spec.source)
             if self._active_annotations:
                 bbox = self._bbox_from_options(options)
                 target_width, target_height = self._target_size(options, bbox)
                 x = self._x(self.h)
                 y = self._page_y(self.v)
                 self._grow_annotation_rect(x, y, x + target_width, y + target_height)
+            return
+        self._note_ignored(f"graphic ignored: {spec.kind}")
+
+    def xObject(self, kind, name=None, options=None, source=None):
+        if kind in ("image", "epdf") and source:
+            self.graphic(
+                GraphicSpec.from_dvipdfm(
+                    kind,
+                    name=name,
+                    options=options,
+                    source=self._decode_pdf_string(source),
+                )
+            )
             return
         self._note_ignored(f"xObject ignored: {kind}")
 

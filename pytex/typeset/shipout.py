@@ -268,6 +268,9 @@ class Shipout:
     def xObject(self, kind, name=None, options=None, source=None):
         pass
 
+    def graphic(self, spec):
+        pass
+
     def __enter__(self):
         self.open()
         return self

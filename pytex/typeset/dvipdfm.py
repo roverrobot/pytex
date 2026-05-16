@@ -1,6 +1,9 @@
 """Minimal dvipdfm special parsing and serialization helpers."""
 
 
+from pytex.graphics import GraphicSpec
+
+
 _PDF_STRING_ESCAPES = {
     "n": "\n",
     "r": "\r",
@@ -205,6 +208,10 @@ def serialize_xObject(kind, name=None, options=None, source=None):
     return " ".join(parts)
 
 
+def serialize_graphic(spec: GraphicSpec):
+    return serialize_xObject(spec.kind, name=spec.name, options=spec.options, source=_encode_pdf_string(spec.source))
+
+
 class DVIPDFmSpecialParser:
     """Parse a small dvipdfm special subset and emit backend IR ops."""
 
@@ -314,5 +321,14 @@ class DVIPDFmSpecialParser:
                 raise ValueError("xobject source required")
         elif text[index:].strip():
             raise ValueError("unexpected trailing xobject text")
+        if kind in ("image", "epdf"):
+            spec = GraphicSpec.from_dvipdfm(
+                kind,
+                name=name,
+                options=options,
+                source=_decode_pdf_string(source),
+            )
+            self.device.graphic(spec)
+            return True
         self.device.xObject(kind, name=name, options=options, source=source)
         return True

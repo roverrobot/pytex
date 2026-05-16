@@ -1,6 +1,7 @@
 from pytex.typeset.shipout import Shipout
 from pytex import node as nd
 from pytex.dimen import Dimen
+from pytex.graphics import GraphicSpec
 
 
 class _CaptureShipout(Shipout):
@@ -22,6 +23,9 @@ class _CaptureShipout(Shipout):
 
     def xObject(self, kind, name=None, options=None, source=None):
         self.calls.append(("xobject", kind, name, options, source))
+
+    def graphic(self, spec):
+        self.calls.append(("graphic", spec))
 
 
 class _FakeHBox:
@@ -82,16 +86,20 @@ def test_shipout_parses_dvipdfm_destination_special(parser):
     assert shipout.calls == [("target", "target.1")]
 
 
-def test_shipout_parses_dvipdfm_xobject_special(parser):
+def test_shipout_parses_dvipdfm_graphic_special(parser):
     shipout = _CaptureShipout(parser)
     shipout.special("pdf: image @fig width 4in rotate 45 (figure.png)")
+    spec = GraphicSpec(
+        kind="image",
+        name="@fig",
+        options=(("width", "4in"), ("rotate", "45")),
+        source="figure.png",
+        format="png",
+    )
     assert shipout.calls == [
         (
-            "xobject",
-            "image",
-            "@fig",
-            [("width", "4in"), ("rotate", "45")],
-            "(figure.png)",
+            "graphic",
+            spec,
         )
     ]
 

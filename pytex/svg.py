@@ -114,3 +114,6 @@ class SVGShipoutBackend(Shipout):
 
     def xObject(self, kind, name=None, options=None, source=None):
         pass
+
+    def graphic(self, spec):
+        pass

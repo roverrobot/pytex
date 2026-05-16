@@ -971,6 +971,15 @@ class Story(reflow.Element):
         super().__init__(node)
         self.document = document
 
+    def clear(self):
+        element = getattr(self._node, "_element", None)
+        if element is None:
+            return
+        for child in list(element):
+            if child.tag in (qn("w:p"), qn("w:tbl")):
+                element.remove(child)
+        self.nodes.clear()
+
     def newParagraph(self, spacing_before=Dimen(), justify: str = "left") -> Paragraph:
         para = Paragraph(self, spacing_before=spacing_before, justify=justify)
         self.nodes.append(para)
@@ -1022,6 +1031,10 @@ class Section:
         section.top_margin = _length(self.spec.margin_top)
         section.right_margin = _length(self.spec.margin_right)
         section.bottom_margin = _length(self.spec.margin_bottom)
+        if self.spec.header_distance is not None:
+            section.header_distance = _length(self.spec.header_distance)
+        if self.spec.footer_distance is not None:
+            section.footer_distance = _length(self.spec.footer_distance)
 
     @property
     def header(self) -> Block:
@@ -1605,6 +1618,12 @@ class DocxBackend(reflow.Reflow):
             item for item in region_items
             if getattr(item.node, "node_type", None) in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST)
         ]
+        render_box_items = [
+            item for item in box_items
+            if self._region_node_has_layout(item.node)
+        ]
+        if render_box_items and hasattr(story, "clear"):
+            story.clear()
         base_x = min((item.x for item in box_items), default=Dimen())
 
         with reflow.Builder(self, story):
@@ -1613,6 +1632,9 @@ class DocxBackend(reflow.Reflow):
                 node_type = getattr(node, "node_type", None)
                 if node_type == nd.NODE_TYPE.WHATSIT:
                     node.output(self.parser, self)
+                    continue
+                if not self._region_node_has_layout(node):
+                    self.scanWhatsits([node])
                     continue
                 spacing = item.y
                 if int(spacing) < 0:

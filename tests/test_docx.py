@@ -196,6 +196,8 @@ def test_docx_document_interface_uses_pagespec_sections(parser):
             margin_top=Dimen(20),
             margin_right=Dimen(10),
             margin_bottom=Dimen(20),
+            header_distance=Dimen(8),
+            footer_distance=Dimen(12),
         )
     )
 
@@ -209,6 +211,8 @@ def test_docx_document_interface_uses_pagespec_sections(parser):
     assert int(word_section.top_margin) == int(docx._length(Dimen(20)))
     assert int(word_section.right_margin) == int(docx._length(Dimen(10)))
     assert int(word_section.bottom_margin) == int(docx._length(Dimen(20)))
+    assert int(word_section.header_distance) == int(docx._length(Dimen(8)))
+    assert int(word_section.footer_distance) == int(docx._length(Dimen(12)))
 
 
 def test_docx_shipout_embeds_filesystem_opentype_fonts(parser, tmp_path):

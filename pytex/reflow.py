@@ -257,9 +257,16 @@ class PageSpec:
     margin_top: Dimen
     margin_right: Dimen
     margin_bottom: Dimen
+    header_distance: object = None
+    footer_distance: object = None
 
     def signature(self):
-        return f"w:{self.width};h:{self.height};l:{self.margin_left};t:{self.margin_top};r:{self.margin_right};b:{self.margin_bottom}"
+        signature = f"w:{self.width};h:{self.height};l:{self.margin_left};t:{self.margin_top};r:{self.margin_right};b:{self.margin_bottom}"
+        if self.header_distance is not None:
+            signature += f";hd:{self.header_distance}"
+        if self.footer_distance is not None:
+            signature += f";fd:{self.footer_distance}"
+        return signature
 
 
 @dataclass
@@ -285,6 +292,8 @@ class PageRegions:
     body: object = None
     body_x: Dimen = field(default_factory=Dimen)
     body_y: Dimen = field(default_factory=Dimen)
+    header_y: object = None
+    footer_y: object = None
     header: list[VModeRegionItem] = field(default_factory=list)
     footer: list[VModeRegionItem] = field(default_factory=list)
     left_margin: list[HModeRegionItem] = field(default_factory=list)
@@ -604,13 +613,38 @@ class Reflow(shipout.Shipout):
             page_spec = self._page_spec_for_body(box, box, Dimen(), Dimen())
         self.document.newPage(page_spec)
 
-    def _page_spec_for_body(self, page_box, body, body_x, body_y):
+    def _page_spec_for_body(self, page_box, body, body_x, body_y, regions=None):
         page_width, page_height, origin_x, origin_y = self._page_geometry(page_box)
         margin_left = origin_x + body_x
         margin_top = origin_y + body_y
         margin_right = page_width - margin_left - body.width
         margin_bottom = page_height - margin_top - body.height - body.depth
-        return PageSpec(page_width, page_height, margin_left, margin_top, margin_right, margin_bottom)
+        header_distance = None
+        footer_distance = None
+        if regions is not None:
+            if regions.header_y is not None:
+                header_distance = origin_y + regions.header_y
+            if regions.footer_y is not None:
+                footer_distance = page_height - origin_y - regions.footer_y
+        return PageSpec(
+            page_width,
+            page_height,
+            margin_left,
+            margin_top,
+            margin_right,
+            margin_bottom,
+            self._nonnegative_dimen(header_distance),
+            self._nonnegative_dimen(footer_distance),
+        )
+
+    @staticmethod
+    def _nonnegative_dimen(value):
+        if value is None:
+            return None
+        value = Dimen(value)
+        if int(value) < 0:
+            return Dimen()
+        return value
 
     def _page_geometry(self, box):
         page_width = self._page_dimension_parameter("pdfpagewidth")
@@ -640,7 +674,7 @@ class Reflow(shipout.Shipout):
         if self.document is None:
             self.document = self.open()
         regions = self.walkPage(box)
-        page_spec = self._page_spec_for_body(box, regions.body, regions.body_x, regions.body_y)
+        page_spec = self._page_spec_for_body(box, regions.body, regions.body_x, regions.body_y, regions)
         self.begin_page(box, page_spec)
         self.typesetHeaderRegion(regions.header)
         self.typesetLeftMarginRegion(regions.left_margin)
@@ -687,11 +721,28 @@ class Reflow(shipout.Shipout):
             if node_type == nd.NODE_TYPE.VLIST:
                 child_regions.header = self._vmode_region_items(before) + child_regions.header
                 child_regions.footer = child_regions.footer + self._vmode_region_items(after)
+                child_regions.header_y = self._merge_region_y(
+                    child_regions.header_y,
+                    self._vmode_region_start(before),
+                )
+                child_regions.footer_y = self._merge_region_y(
+                    child_regions.footer_y,
+                    self._vmode_region_first_layout_bottom(after),
+                )
             else:
                 child_regions.left_margin = self._hmode_region_items(before) + child_regions.left_margin
                 child_regions.right_margin = child_regions.right_margin + self._hmode_region_items(after)
             return child_regions
         return PageRegions()
+
+    @staticmethod
+    def _merge_region_y(current, candidate):
+        if candidate is None:
+            return current
+        candidate = Dimen(candidate)
+        if current is None or candidate < current:
+            return candidate
+        return current
 
     def _node_shift(self, node):
         return Dimen(getattr(node, "shifted", Dimen()))
@@ -766,7 +817,10 @@ class Reflow(shipout.Shipout):
         """
         if not positioned:
             return []
-        cursor_bottom = self._vmode_region_top(positioned[0])
+        region_start = self._vmode_region_start(positioned)
+        cursor_bottom = region_start
+        if cursor_bottom is None:
+            cursor_bottom = self._vmode_region_top(positioned[0])
         items = []
         for node, x, y in positioned:
             node_type = getattr(node, "node_type", None)
@@ -776,6 +830,13 @@ class Reflow(shipout.Shipout):
             if node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 continue
             top = self._vmode_region_top((node, x, y))
+            if (
+                region_start is not None
+                and top < region_start
+                and not self._region_node_has_layout(node)
+            ):
+                items.append(VModeRegionItem(node, Dimen(x), Dimen()))
+                continue
             items.append(VModeRegionItem(node, Dimen(x), top - cursor_bottom))
             cursor_bottom = top + node.height + node.depth
         return items
@@ -786,6 +847,55 @@ class Reflow(shipout.Shipout):
         if getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST:
             return Dimen(y) - node.height
         return Dimen(y)
+
+    def _vmode_region_start(self, positioned):
+        first_layout = None
+        for index, (node, _, _) in enumerate(positioned):
+            if self._region_node_has_layout(node):
+                first_layout = index
+                break
+        if first_layout is None:
+            return None
+
+        start = first_layout
+        while start > 0 and self._is_region_spacing_node(positioned[start - 1][0]):
+            start -= 1
+        return self._vmode_region_top(positioned[start])
+
+    def _vmode_region_first_layout_bottom(self, positioned):
+        for node, x, y in positioned:
+            if self._region_node_has_layout(node):
+                top = self._vmode_region_top((node, x, y))
+                return top + node.height + node.depth
+        return None
+
+    @staticmethod
+    def _is_region_spacing_node(node):
+        return getattr(node, "node_type", None) in (
+            nd.NODE_TYPE.GLUE,
+            nd.NODE_TYPE.KERN,
+            nd.NODE_TYPE.MATH,
+        )
+
+    def _region_node_has_layout(self, node):
+        node_type = getattr(node, "node_type", None)
+        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
+            if (
+                int(getattr(node, "width", Dimen())) != 0
+                or int(getattr(node, "height", Dimen())) != 0
+                or int(getattr(node, "depth", Dimen())) != 0
+            ):
+                return True
+            return any(self._region_node_has_layout(child) for child in getattr(node, "list", ()))
+        if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            return True
+        if node_type == nd.NODE_TYPE.RULE:
+            return (
+                int(getattr(node, "width", Dimen())) != 0
+                or int(getattr(node, "height", Dimen())) != 0
+                or int(getattr(node, "depth", Dimen())) != 0
+            )
+        return False
 
     def _hmode_region_items(self, positioned):
         """Convert page-positioned hmode items to region-flow items."""

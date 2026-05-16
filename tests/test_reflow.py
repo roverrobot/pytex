@@ -224,7 +224,8 @@ def test_walk_page_collects_vmode_header_and_body(parser):
     assert regions.body_y == Dimen(8)
     assert [item.node for item in regions.header] == [header]
     assert regions.header[0].x == Dimen()
-    assert regions.header[0].y == Dimen(6)
+    assert regions.header[0].y == Dimen()
+    assert regions.header_y == Dimen()
     assert regions.footer == []
     assert regions.left_margin == []
     assert regions.right_margin == []
@@ -253,16 +254,18 @@ def test_walk_page_classifies_vmode_and_hmode_siblings(parser):
     assert regions.body_y == Dimen(10)
     assert [item.node for item in regions.header] == [header]
     assert regions.header[0].x == Dimen(2)
-    assert regions.header[0].y == Dimen(7)
+    assert regions.header[0].y == Dimen()
+    assert regions.header_y == Dimen()
     assert [item.node for item in regions.left_margin] == [left]
     assert regions.left_margin[0].x == Dimen()
     assert regions.left_margin[0].y == Dimen(90 + 4)
     assert [item.node for item in regions.right_margin] == [right]
-    assert regions.right_margin[0].x == Dimen(110)
+    assert regions.right_margin[0].x == Dimen()
     assert regions.right_margin[0].y == Dimen(90 - 3)
     assert [item.node for item in regions.footer] == [footer]
     assert regions.footer[0].x == Dimen(5)
-    assert regions.footer[0].y == Dimen(96)
+    assert regions.footer[0].y == Dimen()
+    assert regions.footer_y == Dimen(98)
 
 
 def test_walk_page_uses_root_hlist_baseline_for_nested_body(parser):

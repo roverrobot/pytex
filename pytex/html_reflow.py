@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import os
 from pathlib import Path
 import platform
 import re
 import shutil
+import warnings
 
 from pytex import align
 from pytex import box as bx
@@ -22,22 +22,12 @@ from lxml.html import builder
 from lxml import etree
 from lxml.builder import ElementMaker
 
-_SPACE_RE = re.compile(r"\s+")
-_EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
-_BEGINANN_RE = re.compile(r"^\s*pdf:\s*(?:beginann|bann|annotate|annot|ann)\b", re.IGNORECASE)
-_ENDANN_RE = re.compile(r"^\s*pdf:\s*(?:endann|eann|eannot)\b", re.IGNORECASE)
 _GOTO_RE = re.compile(r"/S\s*/GoTo\b.*?/D\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
 _GOTOR_RE = re.compile(
     r"/S\s*/GoToR\b.*?/F\s*\(([^()]*)\)(?:.*?/D\s*\(([^()]*)\))?",
     re.IGNORECASE | re.DOTALL,
 )
 _URI_RE = re.compile(r"/S\s*/URI\b.*?/URI\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
-_DEFAULT_FONT_ROLE = {
-    "family": "serif",
-    "weight": "normal",
-    "style": "normal",
-    "variant": "normal",
-}
 
 
 def _font_family_name(backend):
@@ -75,7 +65,6 @@ MOVER = E.mover
 MSQRT = E.msqrt
 MTEXT = E.mtext
 MTABLE = E.mtable
-MLABELEDTR = E.mlabeledtr
 MTR = E.mtr
 MTD = E.mtd
 
@@ -149,7 +138,7 @@ class Text(reflow.Text):
             self._node.text += char.char
         elif char.node_type == nd.NODE_TYPE.LIGATURE:
             for n in char.source:
-                self.setChar(self, n)
+                self.setChar(n)
 
 
 class TextRun(StyledNode, reflow.TextRun):
@@ -814,26 +803,6 @@ class HTMLReflowBackend(reflow.Reflow):
     operator_types = (mmode.ATOM_TYPE.BIN, mmode.ATOM_TYPE.REL, mmode.ATOM_TYPE.OP,
                       mmode.ATOM_TYPE.OPEN, mmode.ATOM_TYPE.CLOSE, mmode.ATOM_TYPE.PUNCT)
 
-    @staticmethod
-    def _glue_stretch_order(glue):
-        if glue is None:
-            return None
-        stretch = getattr(glue, "stretch", None)
-        if stretch is not None and getattr(stretch, "factor", 0) != 0:
-            return int(getattr(stretch, "order", 0))
-        return None
-
-    def _edge_stretch_order(self, nodes):
-        order = None
-        for node in nodes:
-            if getattr(node, "node_type", None) != nd.NODE_TYPE.GLUE:
-                continue
-            current = self._glue_stretch_order(getattr(node, "glue", None))
-            if current is None:
-                continue
-            if order is None or current > order:
-                order = current
-        return order
 
     def typesetMList(self, nodes, atom_type: mmode.ATOM_TYPE, style: mmode.Style):
         # we need to consider the atom type (class) and family
@@ -1145,7 +1114,7 @@ class HTMLReflowBackend(reflow.Reflow):
         container._node.set("id", name)
 
     def rawSpecial(self, text):
-        Warning(f"unknown special: {text}")
+        warnings.warn(f"unknown special: {text}")
 
 def init(parser):
 #    font_subst.installFontSubstitution(parser)

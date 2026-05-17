@@ -5,7 +5,18 @@ import os
 
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex.module import Module
-from pytex.typeset.dvipdfm import serialize_annotate, serialize_graphic, serialize_setColor, serialize_target, serialize_xObject
+from pytex.typeset.dvipdfm import (
+    serialize_annotate,
+    serialize_begin_transform,
+    serialize_end_transform,
+    serialize_graphic,
+    serialize_rotate_transform,
+    serialize_scale_transform,
+    serialize_setColor,
+    serialize_target,
+    serialize_translate_transform,
+    serialize_xObject,
+)
 from pytex.typeset.shipout import Shipout
 
 
@@ -223,6 +234,21 @@ class DVIBackend(Shipout):
 
     def setColor(self, mode, space=None, values=None):
         self.rawSpecial(serialize_setColor(mode, space, values))
+
+    def beginTransform(self):
+        self.rawSpecial(serialize_begin_transform())
+
+    def scaleTransform(self, sx, sy):
+        self.rawSpecial(serialize_scale_transform(sx, sy))
+
+    def rotateTransform(self, angle):
+        self.rawSpecial(serialize_rotate_transform(angle))
+
+    def translateTransform(self, dx, dy):
+        self.rawSpecial(serialize_translate_transform(dx, dy))
+
+    def endTransform(self):
+        self.rawSpecial(serialize_end_transform())
 
     def setTarget(self, name):
         self.rawSpecial(serialize_target(name))

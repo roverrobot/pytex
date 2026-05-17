@@ -259,6 +259,21 @@ class Shipout:
     def setColor(self, mode, space=None, values=None):
         pass
 
+    def beginTransform(self):
+        pass
+
+    def scaleTransform(self, sx, sy):
+        pass
+
+    def rotateTransform(self, angle):
+        pass
+
+    def translateTransform(self, dx, dy):
+        pass
+
+    def endTransform(self):
+        pass
+
     def setTarget(self, name):
         pass
 

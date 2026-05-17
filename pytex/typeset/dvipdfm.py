@@ -56,6 +56,7 @@ _XOBJECT_COMMANDS = {
 
 _DIMENSION_KEYS = {"width", "height", "depth"}
 _XOBJECT_OPTION_KEYS = _DIMENSION_KEYS | {"scale", "xscale", "yscale", "rotate", "bbox", "page", "pagebox", "clip"}
+_TRANSFORM_COMMANDS = {"scale", "rotate", "translate"}
 
 
 def _skip_spaces(text, index):
@@ -212,6 +213,26 @@ def serialize_graphic(spec: GraphicSpec):
     return serialize_xObject(spec.kind, name=spec.name, options=spec.options, source=_encode_pdf_string(spec.source))
 
 
+def serialize_begin_transform():
+    return "pdf:btrans"
+
+
+def serialize_end_transform():
+    return "pdf:etrans"
+
+
+def serialize_scale_transform(sx, sy):
+    return f"x:scale {sx} {sy}"
+
+
+def serialize_rotate_transform(angle):
+    return f"x:rotate {angle}"
+
+
+def serialize_translate_transform(dx, dy):
+    return f"x:translate {dx} {dy}"
+
+
 class DVIPDFmSpecialParser:
     """Parse a small dvipdfm special subset and emit backend IR ops."""
 
@@ -220,6 +241,15 @@ class DVIPDFmSpecialParser:
 
     def emit(self, text):
         index = _skip_spaces(text, 0)
+        if text.startswith("x:", index):
+            index = _skip_spaces(text, index + 2)
+            command, index = _read_word(text, index)
+            if command is None:
+                return False
+            try:
+                return self._emit_x_transform(command.lower(), text, index)
+            except ValueError:
+                return False
         if not text.startswith("pdf:", index):
             return False
         index = _skip_spaces(text, index + 4)
@@ -232,6 +262,10 @@ class DVIPDFmSpecialParser:
                 return self._emit_color(_COLOR_COMMANDS[command], text, index)
             if command == "dest":
                 return self._emit_target(text, index)
+            if command == "btrans":
+                return self._emit_begin_transform(text, index)
+            if command == "etrans":
+                return self._emit_end_transform(text, index)
             if command in _ANNOTATE_COMMANDS:
                 return self._emit_annotate(_ANNOTATE_COMMANDS[command], text, index)
             if command in _XOBJECT_COMMANDS:
@@ -254,6 +288,57 @@ class DVIPDFmSpecialParser:
     def _emit_target(self, text, index):
         name, index = _read_token(text, index)
         self.device.setTarget(_decode_pdf_string(name))
+        return True
+
+    def _parse_transform_ops(self, text, index):
+        ops = []
+        while True:
+            command, index = _read_word(text, index)
+            if command is None:
+                return ops
+            command = command.lower()
+            if command == "scale":
+                sx, index = _read_token(text, index)
+                sy, index = _read_token(text, index)
+                ops.append((command, (sx, sy)))
+            elif command == "rotate":
+                angle, index = _read_token(text, index)
+                ops.append((command, (angle,)))
+            elif command == "translate":
+                dx, index = _read_token(text, index)
+                dy, index = _read_token(text, index)
+                ops.append((command, (dx, dy)))
+            else:
+                raise ValueError(f"unsupported transform command {command}")
+
+    def _apply_transform_ops(self, ops):
+        for command, args in ops:
+            if command == "scale":
+                self.device.scaleTransform(*args)
+            elif command == "rotate":
+                self.device.rotateTransform(*args)
+            elif command == "translate":
+                self.device.translateTransform(*args)
+            else:
+                raise ValueError(f"unsupported transform command {command}")
+
+    def _emit_begin_transform(self, text, index):
+        if text[index:].strip():
+            raise ValueError("btrans transform arguments are not supported yet")
+        self.device.beginTransform()
+        return True
+
+    def _emit_end_transform(self, text, index):
+        if text[index:].strip():
+            raise ValueError("etrans takes no argument")
+        self.device.endTransform()
+        return True
+
+    def _emit_x_transform(self, command, text, index):
+        if command not in _TRANSFORM_COMMANDS:
+            return False
+        ops = self._parse_transform_ops(f"x:{command} {text[index:]}", 2)
+        self._apply_transform_ops(ops)
         return True
 
     def _emit_annotate(self, kind, text, index):

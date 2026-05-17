@@ -479,6 +479,7 @@ class Reflow(shipout.Shipout):
         self.paragraph = None
         self.color: Color = Color.black
         self.color_stack: list = []
+        self.transform_stack = [(1.0, 1.0)]
         self.pending_annotation = None
         self.in_line = False
 
@@ -521,6 +522,20 @@ class Reflow(shipout.Shipout):
 
     def rawSpecial(self, text):
         pass
+
+    def currentTransformScale(self):
+        return self.transform_stack[-1]
+
+    def beginTransform(self):
+        self.transform_stack.append(self.transform_stack[-1])
+
+    def scaleTransform(self, sx, sy):
+        curx, cury = self.transform_stack[-1]
+        self.transform_stack[-1] = (curx * float(sx), cury * float(sy))
+
+    def endTransform(self):
+        if len(self.transform_stack) > 1:
+            self.transform_stack.pop()
 
     def setColor(self, mode, space=None, values=None):
         color = self.color

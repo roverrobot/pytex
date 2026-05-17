@@ -223,3 +223,17 @@ def test_dvi_dvipdfm_xobject_special_is_emitted(cmr10, tmp_path):
     cmr10.end()
     data = Path(str(out) + ".dvi").read_bytes()
     assert b"pdf: image @fig width 4in rotate 45 (figure.png)" in data
+
+
+def test_dvi_xdvipdfmx_transform_specials_are_emitted(cmr10, tmp_path):
+    out = tmp_path / "pdf-transform"
+    cmr10.shipout = dvi.DVIBackend(cmr10, str(out))
+    cmr10.parse(
+        r"\shipout\vbox{\special{pdf:btrans}\special{x:scale 0.5 0.25}\special{pdf:etrans}\hbox{a}}",
+        jobname="pdf-transform",
+    )
+    cmr10.end()
+    data = Path(str(out) + ".dvi").read_bytes()
+    assert b"pdf:btrans" in data
+    assert b"x:scale 0.5 0.25" in data
+    assert b"pdf:etrans" in data

@@ -15,6 +15,15 @@ class _CaptureShipout(Shipout):
     def setColor(self, mode, space=None, values=None):
         self.calls.append(("color", mode, space, values))
 
+    def beginTransform(self):
+        self.calls.append(("begin-transform",))
+
+    def scaleTransform(self, sx, sy):
+        self.calls.append(("scale-transform", sx, sy))
+
+    def endTransform(self):
+        self.calls.append(("end-transform",))
+
     def setTarget(self, name):
         self.calls.append(("target", name))
 
@@ -64,6 +73,19 @@ def test_shipout_parses_dvipdfm_color_special(parser):
     shipout = _CaptureShipout(parser)
     shipout.special(" pdf: bc [ 1 0 0 ] ")
     assert shipout.calls == [("color", "push", "rgb", ("1", "0", "0"))]
+
+
+def test_shipout_parses_xdvipdfmx_scale_transform_specials(parser):
+    shipout = _CaptureShipout(parser)
+    shipout.special("pdf:btrans")
+    shipout.special("x:scale 0.5 0.25")
+    shipout.special("pdf:etrans")
+
+    assert shipout.calls == [
+        ("begin-transform",),
+        ("scale-transform", "0.5", "0.25"),
+        ("end-transform",),
+    ]
 
 
 def test_shipout_parses_dvipdfm_annotation_special(parser):

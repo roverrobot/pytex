@@ -48,6 +48,13 @@ UCHARCAT_CATCODES = {
 }
 COLLECTION_FONT_RE = re.compile(r"^(.+\.(?:otc|ttc|dfont)):(\d+)$", re.IGNORECASE)
 PDF_FILE_FALLBACK_SIZE = Dimen(1)
+PDF_FILE_PAGEBOX_KEYWORDS = {
+    "media": "mediabox",
+    "crop": "cropbox",
+    "bleed": "bleedbox",
+    "trim": "trimbox",
+    "art": "artbox",
+}
 
 
 def _read_unicode_scalar(parser, primitive):
@@ -159,13 +166,33 @@ def _special_tokens(text):
     ]
 
 
+def _read_option_word(parser):
+    try:
+        first = parser.skipSpaces()
+    except EOFError:
+        raise ValueError("expecting an option value", parser.input.position())
+    toks = [first]
+    while True:
+        try:
+            t = parser.token_expand()
+        except EOFError:
+            break
+        if t.isSpace(True):
+            break
+        if t.catcode is None or t.catcode in (token.CATCODE.BEGIN_GROUP, token.CATCODE.END_GROUP):
+            parser.input.unread(t)
+            break
+        toks.append(t)
+    return parser.expandedToksToString(toks)
+
+
 def _bp_to_dimen(value):
     num, den = UNITS["bp"]
     scaled = round(float(value) * 1000000)
     return Dimen(integer=Dimen._trunc_div(scaled * num * Dimen.scale, den * 1000000))
 
 
-def _read_pdf_page_box(parser, filename, page_number):
+def _read_pdf_page_box(parser, filename, page_number, pagebox="cropbox"):
     try:
         path = parser.resolver._sourcePath(filename)
     except ValueError:
@@ -177,13 +204,29 @@ def _read_pdf_page_box(parser, filename, page_number):
 
         reader = PdfReader(path)
         page = reader.pages[page_number - 1]
-        llx, lly, urx, ury = tuple(map(float, page.cropbox))
+        box = getattr(page, pagebox, page.cropbox)
+        llx, lly, urx, ury = tuple(map(float, box))
     except Exception:
         return None
     width = _bp_to_dimen(urx - llx)
     height = _bp_to_dimen(ury - lly)
     bbox = tuple(_number_option(v) for v in (llx, lly, urx, ury))
     return width, height, bbox
+
+
+def _bbox_size(bbox):
+    try:
+        llx, lly, urx, ury = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+    return _bp_to_dimen(urx - llx), _bp_to_dimen(ury - lly)
+
+
+def _scaled_option(value):
+    factor = value / 1000
+    if factor.is_integer():
+        return str(int(factor))
+    return repr(factor)
 
 
 class XeTeXPDFFileBox(bx.HBox):
@@ -238,23 +281,65 @@ class UCharCat(token.Command):
 
 class XeTeXPDFFile(lists.ModeDependentCommand):
     r"""
-    \XeTeXpdffile <filename> [page <integer>] [width <dimen>] [height <dimen>] [depth <dimen>].
+    \XeTeXpdffile <filename> [page <integer>] [crop|media|bleed|trim|art] [scaled <integer>]
+    [xscaled <integer>] [yscaled <integer>] [rotated <number>] [width <dimen>] [height <dimen>]
+    [depth <dimen>].
     """
 
     def readPDFFileBox(self, parser):
         filename = parser.readFileName()
         page_number = 1
+        pagebox = "cropbox"
+        scale = 1.0
+        xscale = 1.0
+        yscale = 1.0
         width = None
         height = None
         depth = None
+        bbox = None
         options = []
         while True:
-            keyword = parser.readKeyword({"page", "width", "height", "depth"})
+            keyword = parser.readKeyword({
+                "page",
+                "media",
+                "crop",
+                "bleed",
+                "trim",
+                "art",
+                "bbox",
+                "scaled",
+                "xscaled",
+                "yscaled",
+                "rotated",
+                "width",
+                "height",
+                "depth",
+            })
             if keyword is None:
                 break
             if keyword == "page":
                 page_number = parser.readInteger()
                 options.append(("page", str(page_number)))
+            elif keyword in PDF_FILE_PAGEBOX_KEYWORDS:
+                pagebox = PDF_FILE_PAGEBOX_KEYWORDS[keyword]
+                options.append(("pagebox", pagebox))
+            elif keyword == "bbox":
+                bbox = tuple(_read_option_word(parser) for _ in range(4))
+                options.append(("bbox", bbox))
+            elif keyword == "scaled":
+                value = parser.readInteger()
+                scale = value / 1000
+                options.append(("scale", _scaled_option(value)))
+            elif keyword == "xscaled":
+                value = parser.readInteger()
+                xscale = value / 1000
+                options.append(("xscale", _scaled_option(value)))
+            elif keyword == "yscaled":
+                value = parser.readInteger()
+                yscale = value / 1000
+                options.append(("yscale", _scaled_option(value)))
+            elif keyword == "rotated":
+                options.append(("rotate", _read_option_word(parser)))
             elif keyword == "width":
                 width = parser.readDimen()
                 options.append(("width", _dimen_option(width)))
@@ -267,10 +352,17 @@ class XeTeXPDFFile(lists.ModeDependentCommand):
 
         if page_number < 1:
             raise ValueError("\\XeTeXpdffile page number must be positive", parser.input.position())
-        natural = _read_pdf_page_box(parser, filename, page_number)
+        natural = None
+        if bbox is not None:
+            size = _bbox_size(bbox)
+            if size is not None:
+                natural = (*size, bbox)
+        if natural is None:
+            natural = _read_pdf_page_box(parser, filename, page_number, pagebox)
         if natural is not None:
             natural_width, natural_height, bbox = natural
-            options.append(("bbox", bbox))
+            if not any(key == "bbox" for key, _value in options):
+                options.append(("bbox", bbox))
             if width is None and height is None:
                 width = natural_width
                 height = natural_height
@@ -296,6 +388,9 @@ class XeTeXPDFFile(lists.ModeDependentCommand):
 
         if depth is None:
             depth = Dimen()
+        width = width * (scale * xscale)
+        height = height * (scale * yscale)
+        depth = depth * (scale * yscale)
         special = serialize_xObject(
             "epdf",
             options=options,

@@ -78,6 +78,65 @@ def test_xetex_pdffile_dvi_contains_epdf_special(parser, tmp_path):
     assert str(fig).encode() in data
 
 
+def test_xetex_pdffile_accepts_crop_bbox_before_size(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    _write_test_pdf(fig)
+
+    parser.parse(
+        r'\setbox0=\hbox{\XeTeXpdffile "'
+        + str(fig)
+        + r'" crop bbox 0 0 200 100 width 50pt}'
+    )
+
+    graphic = parser.box[0].list[0]
+    special = parser.expandedToksToString(graphic.list[0].text)
+    assert graphic.width == Dimen(50)
+    assert round(float(graphic.height), 4) == 25.0
+    assert "pagebox cropbox" in special
+    assert "bbox 0 0 200 100" in special
+    assert "width 50.0pt" in special
+
+
+def test_xetex_pdffile_maps_pagebox_keywords(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    _write_test_pdf(fig)
+
+    expected = {
+        "media": "mediabox",
+        "crop": "cropbox",
+        "bleed": "bleedbox",
+        "trim": "trimbox",
+        "art": "artbox",
+    }
+    for keyword, pagebox in expected.items():
+        parser.parse(
+            r'\setbox0=\hbox{\XeTeXpdffile "'
+            + str(fig)
+            + f'" {keyword} width 10pt height 10pt}}'
+        )
+        graphic = parser.box[0].list[0]
+        special = parser.expandedToksToString(graphic.list[0].text)
+        assert f"pagebox {pagebox}" in special
+
+
+def test_xetex_pdffile_scaled_affects_box_and_special(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    _write_test_pdf(fig)
+
+    parser.parse(
+        r'\setbox0=\hbox{\XeTeXpdffile "'
+        + str(fig)
+        + r'" bbox 0 0 200 100 scaled 500 width 50pt}'
+    )
+
+    graphic = parser.box[0].list[0]
+    special = parser.expandedToksToString(graphic.list[0].text)
+    assert graphic.width == Dimen(25)
+    assert round(float(graphic.height), 4) == 12.5
+    assert "scale 0.5" in special
+    assert "width 50.0pt" in special
+
+
 def test_xetex_pdffile_pdf_backend_includes_figure(parser, tmp_path):
     fig = tmp_path / "fig.pdf"
     _write_test_pdf(fig)
@@ -94,6 +153,26 @@ def test_xetex_pdffile_pdf_backend_includes_figure(parser, tmp_path):
 
     reader = PdfReader(str(out) + ".pdf")
     assert "FIG" in (reader.pages[0].extract_text() or "")
+
+
+def test_xetex_pdffile_pdf_backend_honors_width_after_bbox(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    _write_test_pdf(fig)
+    out = tmp_path / "xetex-pdffile-bbox-width"
+
+    parser.shipout = pdf.PDFBackend(parser, str(out))
+    parser.parse(
+        r'\shipout\hbox{\XeTeXpdffile "'
+        + str(fig)
+        + r'" crop bbox 0 0 200 100 width 50pt}',
+        jobname="xetex-pdffile-bbox-width",
+    )
+    parser.end()
+
+    reader = PdfReader(str(out) + ".pdf")
+    content = reader.pages[0].get_contents().get_data().decode("latin1", "replace")
+    assert "FIG" in (reader.pages[0].extract_text() or "")
+    assert "0.25 0.0 0.0 0.25" in content
 
 
 def test_xetex_font_name_parser_marks_bracketed_file_specs(parser):

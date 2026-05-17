@@ -184,6 +184,29 @@ def test_pdf_epdf_special_includes_pdf_figure(cmr10, tmp_path):
     assert "FIG" in (reader.pages[0].extract_text() or "")
 
 
+def test_pdf_epdf_special_honors_xdvipdfmx_scale_transform(cmr10, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    c = canvas.Canvas(str(fig), pagesize=(200, 100))
+    c.drawString(20, 50, "FIG")
+    c.save()
+    out = tmp_path / "epdf-transform"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse(
+        r"\shipout\vbox{\hbox{"
+        r"\special{pdf:btrans}"
+        r"\special{x:scale 0.5 0.5}"
+        r"\special{pdf: epdf bbox 0 0 200 100 (fig.pdf)}"
+        r"\special{pdf:etrans}"
+        r"\kern100bp}}",
+        jobname="epdf-transform",
+    )
+    cmr10.end()
+    reader = PdfReader(str(out) + ".pdf")
+    content = reader.pages[0].get_contents().get_data().decode("latin1", "replace")
+    assert "FIG" in (reader.pages[0].extract_text() or "")
+    assert "0.5 0.0 0.0 0.5" in content
+
+
 def test_pdf_dvipdfm_color_special_is_emitted(cmr10, tmp_path):
     out = tmp_path / "pdf-color"
     cmr10.shipout = pdf.PDFBackend(cmr10, str(out))

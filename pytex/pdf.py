@@ -126,6 +126,7 @@ class PDFBackend(Shipout):
         self._origin_y = int(_ONE_INCH)
         self._page_overlays = []
         self._pdf_sources = {}
+        self._graphics_scale_stack = [(1.0, 1.0)]
         self._active_annotations = []
         self._reportlab_bug_warnings = set()
 
@@ -284,11 +285,16 @@ class PDFBackend(Shipout):
         height *= scale * yscale
         return width, height
 
+    def _transformed_target_size(self, options, bbox):
+        width, height = self._target_size(options, bbox)
+        sx, sy = self._graphics_scale_stack[-1]
+        return width * sx, height * sy
+
     def _queue_epdf_overlay(self, options, source):
         page_number = int(options.get("page", "1"))
         pagebox = str(options.get("pagebox", "cropbox")).lower()
         bbox = self._bbox_from_options(options)
-        target_width, target_height = self._target_size(options, bbox)
+        target_width, target_height = self._transformed_target_size(options, bbox)
         x = self._x(self.h)
         y = self._page_y(self.v) - target_height
         self._page_overlays[-1].append(
@@ -946,6 +952,7 @@ class PDFBackend(Shipout):
         self.current_font_name = None
         self._color_stack = []
         self._current_color = ("gray", ("0",))
+        self._graphics_scale_stack = [(1.0, 1.0)]
         self._page_overlays.append([])
         self._page_raw_fonts.append(set())
         self._page_raw_type1_fonts.append(set())
@@ -1121,6 +1128,17 @@ class PDFBackend(Shipout):
             return
         raise ValueError(f"unsupported color mode {mode}")
 
+    def beginTransform(self):
+        self._graphics_scale_stack.append(self._graphics_scale_stack[-1])
+
+    def scaleTransform(self, sx, sy):
+        curx, cury = self._graphics_scale_stack[-1]
+        self._graphics_scale_stack[-1] = (curx * float(sx), cury * float(sy))
+
+    def endTransform(self):
+        if len(self._graphics_scale_stack) > 1:
+            self._graphics_scale_stack.pop()
+
     def setTarget(self, name):
         self.canvas.bookmarkHorizontalAbsolute(name, self._page_y(self.v), left=self._x(self.h))
 
@@ -1176,7 +1194,7 @@ class PDFBackend(Shipout):
                 self._note_ignored(f"xObject image missing: {decoded}")
                 return
             bbox = self._bbox_from_options(options)
-            target_width, target_height = self._target_size(options, bbox)
+            target_width, target_height = self._transformed_target_size(options, bbox)
             x = self._x(self.h)
             y = self._page_y(self.v)
             self.canvas.drawImage(path, x, y, width=target_width, height=target_height)
@@ -1187,7 +1205,7 @@ class PDFBackend(Shipout):
             self._queue_epdf_overlay(options, spec.source)
             if self._active_annotations:
                 bbox = self._bbox_from_options(options)
-                target_width, target_height = self._target_size(options, bbox)
+                target_width, target_height = self._transformed_target_size(options, bbox)
                 x = self._x(self.h)
                 y = self._page_y(self.v)
                 self._grow_annotation_rect(x, y, x + target_width, y + target_height)

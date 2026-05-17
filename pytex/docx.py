@@ -487,7 +487,7 @@ class TextRun(reflow.TextRun):
             return -int(half_pt(box.height))
         return -int(half_pt(box.depth))
 
-    def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, box: bx.Box, piece: int):
+    def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, box: bx.Box, piece: int, baseline_position: bool = True):
         self.line.applyLeadingSpacing()
         self.text = None
         document = _story_document(self.line.story)
@@ -508,7 +508,8 @@ class TextRun(reflow.TextRun):
                 media_name,
             )
         )
-        self._setPosition(-int(half_pt(box.depth)))
+        if baseline_position:
+            self._setPosition(-int(half_pt(box.depth)))
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
         picture = reflow.Element(drawing)
@@ -1750,9 +1751,9 @@ class DocxBackend(reflow.Reflow):
             block.finalizeContent()
         return block
 
-    def typesetInlineMath(self, node: mmode.InlineMathNode, box: bx.Box, piece: int):
+    def typesetInlineMath(self, node: mmode.InlineMathNode, box: bx.Box, piece: int, baseline_position: bool = True):
         self._require_builder("typesetInlineMath", "newInlineMath")
-        return self.builder.newInlineMath(self, node, box, piece)
+        return self.builder.newInlineMath(self, node, box, piece, baseline_position=baseline_position)
 
     def typesetGraphicAsset(self, asset, request):
         if asset.format != "svg" or self.builder is None:
@@ -1836,7 +1837,7 @@ class DocxBackend(reflow.Reflow):
             with reflow.LineBuilder(self, line):
                 text_run = self.builder.textRun()
                 with reflow.Builder(self, text_run):
-                    self.typesetInlineMath(node, picture_box, 1)
+                    self.typesetInlineMath(node, picture_box, 1, baseline_position=False)
 
     def inlineMathSvg(self, box: bx.Box):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -8,6 +8,7 @@ font declarations to the existing font backends.
 
 import os
 import re
+from dataclasses import dataclass
 
 from pytex import etex  # registers the e-TeX layer
 from pytex.pdftex import expandable as pdftex_expandable  # registers pdfTeX utilities
@@ -147,7 +148,7 @@ def parseFontName(parser, name):
 
 
 def _dimen_option(value):
-    return f"{Dimen(value)}pt"
+    return f"{repr(Dimen(value))}pt"
 
 
 def _number_option(value):
@@ -222,16 +223,17 @@ def _bbox_size(bbox):
     return _bp_to_dimen(urx - llx), _bp_to_dimen(ury - lly)
 
 
-def _scaled_option(value):
-    factor = value / 1000
-    if factor.is_integer():
-        return str(int(factor))
-    return repr(factor)
+def _bbox_ratio(bbox):
+    try:
+        llx, lly, urx, ury = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+    return urx - llx, ury - lly
 
 
-class XeTeXPDFFileBox(bx.HBox):
+class XeTeXGraphicFileBox(bx.HBox):
     """
-    Pre-packed box used by \\XeTeXpdffile.
+    Pre-packed box used by XeTeX graphic file primitives.
 
     The contained WHATSIT performs the later shipout work; this box exists only
     to reserve TeX layout space while keeping the primitive backend-neutral.
@@ -244,9 +246,9 @@ class XeTeXPDFFileBox(bx.HBox):
         return box
 
 
-def _new_pdf_file_box(parser, width, height, depth, special):
+def _new_graphic_file_box(parser, width, height, depth, special):
     node = nd.Special(_special_tokens(special))
-    box = XeTeXPDFFileBox(parser, width, Dimen())
+    box = XeTeXGraphicFileBox(parser, width, Dimen())
     box.width = Dimen(width)
     box.height = Dimen(height)
     box.depth = Dimen(depth)
@@ -255,6 +257,40 @@ def _new_pdf_file_box(parser, width, height, depth, special):
     box.raw = [node]
     box._packed = box
     return box
+
+
+def _read_image_size(parser, filename):
+    try:
+        path = parser.resolver._sourcePath(filename)
+    except ValueError:
+        return None
+    if not os.path.exists(path):
+        return None
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            width, height = image.size
+    except Exception:
+        return None
+    bbox = tuple(_number_option(v) for v in (0, 0, width, height))
+    return Dimen(width), Dimen(height), bbox
+
+
+@dataclass
+class XeTeXGraphicSpec:
+    filename: str
+    kind: str
+    page_number: object = 1
+    pagebox: object = None
+    bbox: object = None
+    scale: object = 1.0
+    xscale: object = 1.0
+    yscale: object = 1.0
+    rotate: object = None
+    width: object = None
+    height: object = None
+    depth: object = None
 
 
 class UChar(token.Command):
@@ -279,133 +315,194 @@ class UCharCat(token.Command):
         parser.input.pushTokenList([_character_token(parser, char_code, catcode)])
 
 
-class XeTeXPDFFile(lists.ModeDependentCommand):
+class XeTeXGraphicFile(lists.ModeDependentCommand):
     r"""
-    \XeTeXpdffile <filename> [page <integer>] [crop|media|bleed|trim|art] [scaled <integer>]
-    [xscaled <integer>] [yscaled <integer>] [rotated <number>] [width <dimen>] [height <dimen>]
-    [depth <dimen>].
+    Base class for XeTeX graphic file primitives.
     """
 
-    def readPDFFileBox(self, parser):
-        filename = parser.readFileName()
-        page_number = 1
-        pagebox = "cropbox"
-        scale = 1.0
-        xscale = 1.0
-        yscale = 1.0
-        width = None
-        height = None
-        depth = None
-        bbox = None
-        options = []
+    kind = None
+    primitive = None
+    default_pagebox = None
+    keyword_spec = {
+        "width": ("width", "_read_dimen"),
+        "height": ("height", "_read_dimen"),
+        "scaled": ("scale", "_read_scaled"),
+        "xscaled": ("xscale", "_read_scaled"),
+        "yscaled": ("yscale", "_read_scaled"),
+        "rotated": ("rotate", "_read_word"),
+    }
+
+    def _read_options(self, parser, spec):
+        keywords = set(self.keyword_spec)
         while True:
-            keyword = parser.readKeyword({
-                "page",
-                "media",
-                "crop",
-                "bleed",
-                "trim",
-                "art",
-                "bbox",
-                "scaled",
-                "xscaled",
-                "yscaled",
-                "rotated",
-                "width",
-                "height",
-                "depth",
-            })
+            keyword = parser.readKeyword(keywords)
             if keyword is None:
                 break
-            if keyword == "page":
-                page_number = parser.readInteger()
-                options.append(("page", str(page_number)))
-            elif keyword in PDF_FILE_PAGEBOX_KEYWORDS:
-                pagebox = PDF_FILE_PAGEBOX_KEYWORDS[keyword]
-                options.append(("pagebox", pagebox))
-            elif keyword == "bbox":
-                bbox = tuple(_read_option_word(parser) for _ in range(4))
-                options.append(("bbox", bbox))
-            elif keyword == "scaled":
-                value = parser.readInteger()
-                scale = value / 1000
-                options.append(("scale", _scaled_option(value)))
-            elif keyword == "xscaled":
-                value = parser.readInteger()
-                xscale = value / 1000
-                options.append(("xscale", _scaled_option(value)))
-            elif keyword == "yscaled":
-                value = parser.readInteger()
-                yscale = value / 1000
-                options.append(("yscale", _scaled_option(value)))
-            elif keyword == "rotated":
-                options.append(("rotate", _read_option_word(parser)))
-            elif keyword == "width":
-                width = parser.readDimen()
-                options.append(("width", _dimen_option(width)))
-            elif keyword == "height":
-                height = parser.readDimen()
-                options.append(("height", _dimen_option(height)))
-            elif keyword == "depth":
-                depth = parser.readDimen()
-                options.append(("depth", _dimen_option(depth)))
+            attr, reader_name = self.keyword_spec[keyword]
+            setattr(spec, attr, getattr(self, reader_name)(parser, keyword))
 
-        if page_number < 1:
-            raise ValueError("\\XeTeXpdffile page number must be positive", parser.input.position())
-        natural = None
-        if bbox is not None:
-            size = _bbox_size(bbox)
-            if size is not None:
-                natural = (*size, bbox)
-        if natural is None:
-            natural = _read_pdf_page_box(parser, filename, page_number, pagebox)
+    def _read_dimen(self, parser, keyword):
+        return parser.readDimen()
+
+    def _read_integer(self, parser, keyword):
+        return parser.readInteger()
+
+    def _read_scaled(self, parser, keyword):
+        return parser.readInteger() / 1000
+
+    def _read_word(self, parser, keyword):
+        return _read_option_word(parser)
+
+    def _read_bbox(self, parser, keyword):
+        return tuple(_read_option_word(parser) for _ in range(4))
+
+    def _read_pagebox(self, parser, keyword):
+        return PDF_FILE_PAGEBOX_KEYWORDS[keyword]
+
+    def _natural_size(self, parser, spec):
+        return None
+
+    def _complete_size(self, parser, spec):
+        natural = self._natural_size(parser, spec)
         if natural is not None:
             natural_width, natural_height, bbox = natural
-            if not any(key == "bbox" for key, _value in options):
-                options.append(("bbox", bbox))
-            if width is None and height is None:
-                width = natural_width
-                height = natural_height
-            elif width is None and natural_height != 0:
-                width = natural_width * (float(height) / float(natural_height))
-            elif height is None and natural_width != 0:
-                height = natural_height * (float(width) / float(natural_width))
-            elif width is None:
-                width = PDF_FILE_FALLBACK_SIZE
-                options.append(("width", _dimen_option(width)))
-            elif height is None:
-                height = PDF_FILE_FALLBACK_SIZE
-                options.append(("height", _dimen_option(height)))
-        else:
-            # Controlled fallback: keep the node non-zero if the source cannot
-            # be inspected. Explicit dimensions still win.
-            if width is None:
-                width = PDF_FILE_FALLBACK_SIZE
-                options.append(("width", _dimen_option(width)))
-            if height is None:
-                height = PDF_FILE_FALLBACK_SIZE
-                options.append(("height", _dimen_option(height)))
+            if spec.bbox is None:
+                spec.bbox = bbox
+            bbox_ratio = _bbox_ratio(spec.bbox)
+            if spec.width is None and spec.height is None:
+                spec.width = natural_width
+                spec.height = natural_height
+            elif spec.width is None and bbox_ratio is not None and bbox_ratio[1] != 0:
+                spec.width = spec.height * (bbox_ratio[0] / bbox_ratio[1])
+            elif spec.width is None and natural_height != 0:
+                spec.width = natural_width * (float(spec.height) / float(natural_height))
+            elif spec.height is None and bbox_ratio is not None and bbox_ratio[0] != 0:
+                spec.height = spec.width * (bbox_ratio[1] / bbox_ratio[0])
+            elif spec.height is None and natural_width != 0:
+                spec.height = natural_height * (float(spec.width) / float(natural_width))
 
-        if depth is None:
-            depth = Dimen()
-        width = width * (scale * xscale)
-        height = height * (scale * yscale)
-        depth = depth * (scale * yscale)
-        special = serialize_xObject(
-            "epdf",
-            options=options,
-            source=_encode_pdf_string(filename),
+        if spec.width is None:
+            spec.width = PDF_FILE_FALLBACK_SIZE
+        if spec.height is None:
+            spec.height = PDF_FILE_FALLBACK_SIZE
+        if spec.depth is None:
+            spec.depth = Dimen()
+
+        spec.width = spec.width * (spec.scale * spec.xscale)
+        spec.height = spec.height * (spec.scale * spec.yscale)
+        spec.depth = spec.depth * (spec.scale * spec.yscale)
+
+    def _special_options(self, spec):
+        options = [
+            ("width", _dimen_option(spec.width)),
+            ("height", _dimen_option(spec.height)),
+        ]
+        if spec.depth is not None and int(spec.depth) != 0:
+            options.append(("depth", _dimen_option(spec.depth)))
+        if spec.rotate is not None:
+            options.append(("rotate", spec.rotate))
+        return options
+
+    def _serialize_special(self, spec):
+        return serialize_xObject(
+            spec.kind,
+            options=self._special_options(spec),
+            source=_encode_pdf_string(spec.filename),
         )
-        return _new_pdf_file_box(parser, width, height, depth, special)
+
+    def readGraphicFileBox(self, parser):
+        spec = XeTeXGraphicSpec(
+            filename=parser.readFileName(),
+            kind=self.kind,
+            pagebox=self.default_pagebox,
+        )
+        self._read_options(parser, spec)
+        self._complete_size(parser, spec)
+        return _new_graphic_file_box(
+            parser,
+            spec.width,
+            spec.height,
+            spec.depth or Dimen(),
+            self._serialize_special(spec),
+        )
 
     def _append(self, parser, state):
-        state.append(self.readPDFFileBox(parser))
+        state.append(self.readGraphicFileBox(parser))
 
     def horizontal(self, parser, hlist):
         self._append(parser, hlist)
 
     def vertical(self, parser, vlist):
         self._append(parser, vlist)
+
+
+class XeTeXPDFFile(XeTeXGraphicFile):
+    r"""
+    \XeTeXpdffile <filename> [page <integer>] [crop|media|bleed|trim|art] [scaled <integer>]
+    [xscaled <integer>] [yscaled <integer>] [rotated <number>] [width <dimen>] [height <dimen>]
+    [depth <dimen>].
+    """
+
+    kind = "epdf"
+    primitive = "\\XeTeXpdffile"
+    default_pagebox = "cropbox"
+    keyword_spec = {
+        **XeTeXGraphicFile.keyword_spec,
+        "page": ("page_number", "_read_integer"),
+        "depth": ("depth", "_read_dimen"),
+        "bbox": ("bbox", "_read_bbox"),
+        **{
+            keyword: ("pagebox", "_read_pagebox")
+            for keyword in PDF_FILE_PAGEBOX_KEYWORDS
+        },
+    }
+
+    def _natural_size(self, parser, spec):
+        if spec.page_number < 1:
+            raise ValueError(f"{self.primitive} page number must be positive", parser.input.position())
+        if spec.bbox is not None:
+            size = _bbox_size(spec.bbox)
+            if size is not None:
+                return (*size, spec.bbox)
+        return _read_pdf_page_box(parser, spec.filename, spec.page_number, spec.pagebox)
+
+    def _special_options(self, spec):
+        options = []
+        if spec.page_number != 1:
+            options.append(("page", str(spec.page_number)))
+        if spec.pagebox is not None:
+            options.append(("pagebox", spec.pagebox))
+        if spec.bbox is not None:
+            options.append(("bbox", spec.bbox))
+        options.extend(super()._special_options(spec))
+        return options
+
+    def readPDFFileBox(self, parser):
+        return self.readGraphicFileBox(parser)
+
+
+class XeTeXPicFile(XeTeXGraphicFile):
+    r"""
+    \XeTeXpicfile <filename> [scaled <integer>] [xscaled <integer>] [yscaled <integer>]
+    [rotated <number>] [width <dimen>] [height <dimen>].
+    """
+
+    kind = "image"
+    primitive = "\\XeTeXpicfile"
+
+    def _natural_size(self, parser, spec):
+        return _read_image_size(parser, spec.filename)
+
+    def _special_options(self, spec):
+        options = [
+            ("width", _dimen_option(spec.width)),
+            ("height", _dimen_option(spec.height)),
+        ]
+        if spec.rotate is not None:
+            options.append(("rotate", spec.rotate))
+        if spec.bbox is not None:
+            options.append(("bbox", spec.bbox))
+        return options
 
 
 class UMathCodeArray(Array):
@@ -659,6 +756,7 @@ mod = Module(
         "Uchar": UChar(),
         "Ucharcat": UCharCat(),
         "XeTeXpdffile": XeTeXPDFFile(),
+        "XeTeXpicfile": XeTeXPicFile(),
         "Umathchar": UMathChar(),
         "Umathcharnum": UMathCharNum(),
         "Umathcode": UMathCode(),

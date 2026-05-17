@@ -26,10 +26,18 @@ def test_xetex_version_primitives_expand_like_engine_identity(collector):
     assert collector.getString().strip() == "0.999995"
 
 
-def _write_test_pdf(path):
+def _write_test_pdf(path, pages=1):
     c = canvas.Canvas(str(path), pagesize=(200, 100))
-    c.drawString(20, 50, "FIG")
+    for page in range(pages):
+        c.drawString(20, 50, f"FIG {page + 1}")
+        if page + 1 < pages:
+            c.showPage()
     c.save()
+
+
+def _write_test_png(path):
+    Image = pytest.importorskip("PIL.Image")
+    Image.new("RGB", (200, 100), "white").save(path)
 
 
 def test_xetex_pdffile_builds_sized_hbox_with_epdf_special(parser, tmp_path):
@@ -119,6 +127,26 @@ def test_xetex_pdffile_maps_pagebox_keywords(parser, tmp_path):
         assert f"pagebox {pagebox}" in special
 
 
+def test_xetex_pdffile_accepts_page_crop_and_explicit_size(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    _write_test_pdf(fig, pages=2)
+
+    parser.parse(
+        r'\setbox0=\hbox{\XeTeXpdffile "'
+        + str(fig)
+        + r'" page 2 crop width 100pt height 50pt}'
+    )
+
+    graphic = parser.box[0].list[0]
+    special = parser.expandedToksToString(graphic.list[0].text)
+    assert graphic.width == Dimen(100)
+    assert graphic.height == Dimen(50)
+    assert "page 2" in special
+    assert "pagebox cropbox" in special
+    assert "width 100.0pt" in special
+    assert "height 50.0pt" in special
+
+
 def test_xetex_pdffile_scaled_affects_box_and_special(parser, tmp_path):
     fig = tmp_path / "fig.pdf"
     _write_test_pdf(fig)
@@ -133,8 +161,74 @@ def test_xetex_pdffile_scaled_affects_box_and_special(parser, tmp_path):
     special = parser.expandedToksToString(graphic.list[0].text)
     assert graphic.width == Dimen(25)
     assert round(float(graphic.height), 4) == 12.5
-    assert "scale 0.5" in special
-    assert "width 50.0pt" in special
+    assert "scale 0.5" not in special
+    assert "width 25.0pt" in special
+    assert "height 12.5pt" in special
+
+
+def test_xetex_picfile_builds_sized_hbox_with_image_special(parser, tmp_path):
+    img = tmp_path / "fig.png"
+    _write_test_png(img)
+
+    parser.parse(
+        r'\setbox0=\hbox{\XeTeXpicfile "'
+        + str(img)
+        + r'" width 100pt height 50pt}'
+    )
+
+    graphic = parser.box[0].list[0]
+    special = parser.expandedToksToString(graphic.list[0].text)
+    assert graphic.width == Dimen(100)
+    assert graphic.height == Dimen(50)
+    assert graphic.depth == Dimen()
+    assert special.startswith("pdf: image")
+    assert "width 100.0pt" in special
+    assert "height 50.0pt" in special
+    assert "bbox 0 0 200 100" in special
+    assert str(img) in special
+
+
+def test_xetex_picfile_dvi_contains_image_special(parser, tmp_path):
+    img = tmp_path / "fig.png"
+    _write_test_png(img)
+    out = tmp_path / "xetex-picfile"
+
+    parser.shipout = dvi.DVIBackend(parser, str(out))
+    parser.parse(
+        r'\shipout\hbox{\XeTeXpicfile "'
+        + str(img)
+        + r'" width 72pt height 36pt}',
+        jobname="xetex-picfile",
+    )
+    parser.end()
+
+    data = Path(str(out) + ".dvi").read_bytes()
+    assert parser.shipout.max_width == int(Dimen(72))
+    assert parser.shipout.max_height == int(Dimen(36))
+    assert b"pdf: image" in data
+    assert b"width 72.0pt" in data
+    assert b"height 36.0pt" in data
+    assert str(img).encode() in data
+
+
+def test_xetex_picfile_scaled_affects_box_and_special(parser, tmp_path):
+    img = tmp_path / "fig.png"
+    _write_test_png(img)
+
+    parser.parse(
+        r'\setbox0=\hbox{\XeTeXpicfile "'
+        + str(img)
+        + r'" width 50pt scaled 500}'
+    )
+
+    graphic = parser.box[0].list[0]
+    special = parser.expandedToksToString(graphic.list[0].text)
+    assert graphic.width == Dimen(25)
+    assert round(float(graphic.height), 4) == 12.5
+    assert "scale 0.5" not in special
+    assert "width 25.0pt" in special
+    assert "height 12.5pt" in special
+    assert "bbox 0 0 200 100" in special
 
 
 def test_xetex_pdffile_pdf_backend_includes_figure(parser, tmp_path):

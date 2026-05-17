@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from lxml import etree
 from lxml.html import builder
 import pytest
+from reportlab.pdfgen import canvas
 
 from pytex import align
 from pytex import box
@@ -148,6 +149,49 @@ def test_html_reflow_close_writes_document_head(parser):
     assert "math{font-family:" in html
     assert "<body>" in html
     assert "<div>x</div>" in html
+
+
+def test_html_reflow_epdf_graphic_special_creates_inline_object(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    c = canvas.Canvas(str(fig), pagesize=(200, 100))
+    c.drawString(20, 50, "FIG")
+    c.save()
+    hbox = _node_box(
+        parser,
+        [nd.Special(f"pdf: epdf bbox 0 0 200 100 width 72pt ({fig})")],
+    )
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    assert "<object" in html
+    assert 'type="application/pdf"' in html
+    assert "html-reflow-test.assets/graphics/graphic-1.pdf" in html
+    assert "width:71.731009pt;" in html
+    assert "height:35.865504pt;" in html
+    assert (tmp_path / "html-reflow-test.assets" / "graphics" / "graphic-1.pdf").exists()
+
+
+def test_html_reflow_epdf_graphic_uses_xdvipdfmx_scale_transform(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    c = canvas.Canvas(str(fig), pagesize=(200, 100))
+    c.drawString(20, 50, "FIG")
+    c.save()
+    hbox = _node_box(
+        parser,
+        [
+            nd.Special("pdf:btrans"),
+            nd.Special("x:scale 0.5 0.5"),
+            nd.Special(f"pdf: epdf bbox 0 0 200 100 ({fig})"),
+            nd.Special("pdf:etrans"),
+        ],
+    )
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    assert "<object" in html
+    assert "width:200pt;" in html
+    assert "height:100pt;" in html
+    assert "transform:scale(0.5,0.5);" in html
 
 
 def test_html_reflow_maps_math_operator_period_slot_to_period(parser):

@@ -13,17 +13,19 @@ from pytex import align
 from pytex import box as bx
 from pytex import mmode
 from pytex import node as nd
-from pytex.dimen import Dimen
+from pytex.dimen import Dimen, UNITS
 from pytex.module import Module
 from pytex import reflow
 from pytex.font import Font
 from pytex import font_subst
+from pypdf import PdfReader
 from lxml.html import builder
 from lxml import etree
 from lxml.builder import ElementMaker
 
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
+_DIMEN_RE = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))([A-Za-z]+)\s*$")
 _BEGINANN_RE = re.compile(r"^\s*pdf:\s*(?:beginann|bann|annotate|annot|ann)\b", re.IGNORECASE)
 _ENDANN_RE = re.compile(r"^\s*pdf:\s*(?:endann|eann|eannot)\b", re.IGNORECASE)
 _GOTO_RE = re.compile(r"/S\s*/GoTo\b.*?/D\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
@@ -262,6 +264,32 @@ class Math(StyledNode, reflow.Math):
         reflow.Math.__init__(self, math, inline)
 
 
+class Graphic(StyledNode, reflow.Element):
+    def __init__(self, src, media_type, width=None, height=None, inline=True, transform_scale=(1.0, 1.0)):
+        if media_type == "pdf":
+            node = builder.OBJECT(
+                builder.A("PDF", href=src),
+                data=src,
+                type="application/pdf",
+            )
+        else:
+            node = builder.IMG(src=src, alt="")
+        StyledNode.__init__(self)
+        reflow.Element.__init__(self, node)
+        self.style["display"] = "inline-block" if inline else "block"
+        self.style["vertical-align"] = "baseline"
+        if width is not None:
+            self.style["width"] = width
+        if height is not None:
+            self.style["height"] = height
+        if media_type == "pdf":
+            self.style["border"] = "0"
+        sx, sy = transform_scale
+        if sx != 1.0 or sy != 1.0:
+            self.style["transform"] = f"scale({sx},{sy})"
+            self.style["transform-origin"] = "left bottom"
+
+
 class Cell(StyledNode, reflow.Cell):
     def __init__(self, span, width, justify: str="justify"):
         StyledNode.__init__(self)
@@ -445,6 +473,8 @@ class HTMLReflowBackend(reflow.Reflow):
         self._font_families = {}
         self._font_faces = {}
         self._next_font_face = 1
+        self._graphic_assets = {}
+        self._next_graphic_asset = 1
 
     def open(self):
         output = self.parser.jobname
@@ -653,6 +683,157 @@ class HTMLReflowBackend(reflow.Reflow):
         items = [self._css_string(name) for name in stack[:-1]]
         items.append(stack[-1])
         return ",".join(items)
+
+    @staticmethod
+    def _css_pt(value):
+        text = f"{float(value):.6f}".rstrip("0").rstrip(".")
+        return f"{text or '0'}pt"
+
+    @staticmethod
+    def _special_dimen_css_points(token):
+        match = _DIMEN_RE.match(token)
+        if match is None:
+            raise ValueError(f"invalid special dimension {token}")
+        value = float(match.group(1))
+        unit = match.group(2).lower()
+        if unit not in UNITS:
+            raise ValueError(f"unsupported special unit {unit}")
+        num, den = UNITS[unit]
+        scaled = round(value * 1000000)
+        dimen = Dimen(integer=Dimen._trunc_div(scaled * num * Dimen.scale, den * 1000000))
+        return float(dimen) * _CSS_POINTS_PER_TEX_POINT_NUM / _CSS_POINTS_PER_TEX_POINT_DEN
+
+    @staticmethod
+    def _graphic_bbox(options):
+        bbox = options.get("bbox")
+        if bbox is None:
+            return None
+        try:
+            llx, lly, urx, ury = (float(v) for v in bbox)
+        except (TypeError, ValueError):
+            return None
+        if llx == lly == urx == ury == 0:
+            return None
+        return llx, lly, urx, ury
+
+    @staticmethod
+    def _pdf_page_box(path, page_number, pagebox):
+        reader = PdfReader(path)
+        page = reader.pages[page_number - 1]
+        box = getattr(page, pagebox, page.cropbox)
+        llx, lly, urx, ury = tuple(map(float, box))
+        return llx, lly, urx, ury
+
+    @staticmethod
+    def _image_size(path):
+        try:
+            from PIL import Image
+
+            with Image.open(path) as image:
+                return image.size
+        except Exception:
+            return None
+
+    def _source_path_name(self, name):
+        try:
+            path = self.parser.resolver._sourcePath(name)
+        except ValueError:
+            return name, None
+        if not os.path.exists(path):
+            return name, None
+        return name, path
+
+    def _graphic_asset_url(self, source):
+        decoded, path = self._source_path_name(source)
+        if path is None:
+            return decoded, None
+        real_path = os.path.realpath(path)
+        cached = self._graphic_assets.get(real_path)
+        if cached is not None:
+            return cached, real_path
+        suffix = Path(real_path).suffix.lower()
+        if not suffix:
+            suffix = ".bin"
+        asset_dir = self.html_path.with_name(f"{self.html_path.stem}.assets") / "graphics"
+        target = asset_dir / f"graphic-{self._next_graphic_asset}{suffix}"
+        self._next_graphic_asset += 1
+        try:
+            asset_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(real_path, target)
+            url = os.path.relpath(target, self.html_path.parent).replace(os.sep, "/")
+        except Exception:
+            url = Path(real_path).resolve().as_uri()
+        self._graphic_assets[real_path] = url
+        return url, real_path
+
+    def _graphic_natural_size(self, spec, path, options):
+        bbox = self._graphic_bbox(options)
+        if bbox is not None:
+            llx, lly, urx, ury = bbox
+            return urx - llx, ury - lly
+        if spec.kind == "epdf" and path is not None:
+            page_number = int(options.get("page", "1"))
+            pagebox = str(options.get("pagebox", "cropbox")).lower()
+            try:
+                llx, lly, urx, ury = self._pdf_page_box(path, page_number, pagebox)
+            except Exception:
+                return None
+            return urx - llx, ury - lly
+        if spec.kind == "image" and path is not None:
+            return self._image_size(path)
+        return None
+
+    def _graphic_target_size(self, spec, path):
+        options = spec.option_map
+        natural = self._graphic_natural_size(spec, path, options)
+        width = options.get("width")
+        height = options.get("height")
+        width = None if width is None else self._special_dimen_css_points(width)
+        height = None if height is None else self._special_dimen_css_points(height)
+        if width is None and height is None:
+            if natural is None:
+                return None, None
+            width, height = natural
+        elif width is None:
+            if natural is None or natural[1] == 0:
+                return None, self._css_pt(height)
+            width = natural[0] * height / natural[1]
+        elif height is None:
+            if natural is None or natural[0] == 0:
+                return self._css_pt(width), None
+            height = natural[1] * width / natural[0]
+        scale = float(options.get("scale", "1"))
+        xscale = float(options.get("xscale", "1"))
+        yscale = float(options.get("yscale", "1"))
+        width *= scale * xscale
+        height *= scale * yscale
+        return self._css_pt(width), self._css_pt(height)
+
+    def _graphic_url(self, spec, url):
+        options = spec.option_map
+        if spec.kind == "epdf":
+            page = int(options.get("page", "1"))
+            if page != 1:
+                return f"{url}#page={page}"
+        return url
+
+    def graphic(self, spec):
+        if self.builder is None:
+            return
+        if spec.kind not in ("epdf", "image") or not spec.source:
+            return
+        url, path = self._graphic_asset_url(spec.source)
+        width, height = self._graphic_target_size(spec, path)
+        media_type = "pdf" if spec.kind == "epdf" else (spec.format or "image")
+        graphic = Graphic(
+            self._graphic_url(spec, url),
+            media_type,
+            width=width,
+            height=height,
+            inline=self.in_line,
+            transform_scale=self.currentTransformScale(),
+        )
+        self.builder.append(graphic)
 
     def _text_font_family(self, font):
         family = self.define_font(font)

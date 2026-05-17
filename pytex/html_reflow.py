@@ -13,19 +13,17 @@ from pytex import align
 from pytex import box as bx
 from pytex import mmode
 from pytex import node as nd
-from pytex.dimen import Dimen, UNITS
+from pytex.dimen import Dimen
 from pytex.module import Module
 from pytex import reflow
 from pytex.font import Font
 from pytex import font_subst
-from pypdf import PdfReader
 from lxml.html import builder
 from lxml import etree
 from lxml.builder import ElementMaker
 
 _SPACE_RE = re.compile(r"\s+")
 _EPDF_RE = re.compile(r"pdf:epdf\b.*\(([^()]+)\)")
-_DIMEN_RE = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))([A-Za-z]+)\s*$")
 _BEGINANN_RE = re.compile(r"^\s*pdf:\s*(?:beginann|bann|annotate|annot|ann)\b", re.IGNORECASE)
 _ENDANN_RE = re.compile(r"^\s*pdf:\s*(?:endann|eann|eannot)\b", re.IGNORECASE)
 _GOTO_RE = re.compile(r"/S\s*/GoTo\b.*?/D\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
@@ -209,6 +207,8 @@ class Line(StyledNode, reflow.Line):
         return text_run
     
     def newSpace(self, width: Dimen, breakable: bool):
+        if reflow.PT(width) == "0.0pt":
+            return None
         s =Space(width, breakable)
         self.append(s)
         return s
@@ -467,6 +467,9 @@ class HTMLReflowBackend(reflow.Reflow):
     itself only executes shipped whatsits; the final HTML is emitted once at
     close from the main vertical list's raw ownership history.
     """
+
+    supported_graphic_formats = ("svg", "png", "jpg", "gif", "webp")
+
     def __init__(self, parser):
         super().__init__(parser, paginate=False)
         self._pending_media_blocks = []
@@ -689,151 +692,93 @@ class HTMLReflowBackend(reflow.Reflow):
         text = f"{float(value):.6f}".rstrip("0").rstrip(".")
         return f"{text or '0'}pt"
 
-    @staticmethod
-    def _special_dimen_css_points(token):
-        match = _DIMEN_RE.match(token)
-        if match is None:
-            raise ValueError(f"invalid special dimension {token}")
-        value = float(match.group(1))
-        unit = match.group(2).lower()
-        if unit not in UNITS:
-            raise ValueError(f"unsupported special unit {unit}")
-        num, den = UNITS[unit]
-        scaled = round(value * 1000000)
-        dimen = Dimen(integer=Dimen._trunc_div(scaled * num * Dimen.scale, den * 1000000))
-        return float(dimen) * _CSS_POINTS_PER_TEX_POINT_NUM / _CSS_POINTS_PER_TEX_POINT_DEN
-
-    @staticmethod
-    def _graphic_bbox(options):
-        bbox = options.get("bbox")
-        if bbox is None:
+    def _graphic_css_size(self, value):
+        if value is None:
             return None
-        try:
-            llx, lly, urx, ury = (float(v) for v in bbox)
-        except (TypeError, ValueError):
-            return None
-        if llx == lly == urx == ury == 0:
-            return None
-        return llx, lly, urx, ury
+        css_points = float(value) * _CSS_POINTS_PER_TEX_POINT_NUM / _CSS_POINTS_PER_TEX_POINT_DEN
+        return self._css_pt(css_points)
 
-    @staticmethod
-    def _pdf_page_box(path, page_number, pagebox):
-        reader = PdfReader(path)
-        page = reader.pages[page_number - 1]
-        box = getattr(page, pagebox, page.cropbox)
-        llx, lly, urx, ury = tuple(map(float, box))
-        return llx, lly, urx, ury
-
-    @staticmethod
-    def _image_size(path):
-        try:
-            from PIL import Image
-
-            with Image.open(path) as image:
-                return image.size
-        except Exception:
-            return None
-
-    def _source_path_name(self, name):
-        try:
-            path = self.parser.resolver._sourcePath(name)
-        except ValueError:
-            return name, None
-        if not os.path.exists(path):
-            return name, None
-        return name, path
-
-    def _graphic_asset_url(self, source):
-        decoded, path = self._source_path_name(source)
-        if path is None:
-            return decoded, None
-        real_path = os.path.realpath(path)
-        cached = self._graphic_assets.get(real_path)
-        if cached is not None:
-            return cached, real_path
-        suffix = Path(real_path).suffix.lower()
-        if not suffix:
-            suffix = ".bin"
+    def _graphic_asset_target(self, suffix):
         asset_dir = self.html_path.with_name(f"{self.html_path.stem}.assets") / "graphics"
         target = asset_dir / f"graphic-{self._next_graphic_asset}{suffix}"
         self._next_graphic_asset += 1
+        return asset_dir, target
+
+    def _graphic_asset_url_for_file(self, path, format):
+        real_path = os.path.realpath(path)
+        key = ("file", format, real_path)
+        cached = self._graphic_assets.get(key)
+        if cached is not None:
+            return cached
+        suffix = Path(real_path).suffix.lower()
+        if not suffix and format:
+            suffix = "." + format
+        if not suffix:
+            suffix = ".bin"
+        asset_dir, target = self._graphic_asset_target(suffix)
         try:
             asset_dir.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(real_path, target)
             url = os.path.relpath(target, self.html_path.parent).replace(os.sep, "/")
         except Exception:
             url = Path(real_path).resolve().as_uri()
-        self._graphic_assets[real_path] = url
-        return url, real_path
-
-    def _graphic_natural_size(self, spec, path, options):
-        bbox = self._graphic_bbox(options)
-        if bbox is not None:
-            llx, lly, urx, ury = bbox
-            return urx - llx, ury - lly
-        if spec.kind == "epdf" and path is not None:
-            page_number = int(options.get("page", "1"))
-            pagebox = str(options.get("pagebox", "cropbox")).lower()
-            try:
-                llx, lly, urx, ury = self._pdf_page_box(path, page_number, pagebox)
-            except Exception:
-                return None
-            return urx - llx, ury - lly
-        if spec.kind == "image" and path is not None:
-            return self._image_size(path)
-        return None
-
-    def _graphic_target_size(self, spec, path):
-        options = spec.option_map
-        natural = self._graphic_natural_size(spec, path, options)
-        width = options.get("width")
-        height = options.get("height")
-        width = None if width is None else self._special_dimen_css_points(width)
-        height = None if height is None else self._special_dimen_css_points(height)
-        if width is None and height is None:
-            if natural is None:
-                return None, None
-            width, height = natural
-        elif width is None:
-            if natural is None or natural[1] == 0:
-                return None, self._css_pt(height)
-            width = natural[0] * height / natural[1]
-        elif height is None:
-            if natural is None or natural[0] == 0:
-                return self._css_pt(width), None
-            height = natural[1] * width / natural[0]
-        scale = float(options.get("scale", "1"))
-        xscale = float(options.get("xscale", "1"))
-        yscale = float(options.get("yscale", "1"))
-        width *= scale * xscale
-        height *= scale * yscale
-        return self._css_pt(width), self._css_pt(height)
-
-    def _graphic_url(self, spec, url):
-        options = spec.option_map
-        if spec.kind == "epdf":
-            page = int(options.get("page", "1"))
-            if page != 1:
-                return f"{url}#page={page}"
+        self._graphic_assets[key] = url
         return url
 
-    def graphic(self, spec):
+    def _graphic_asset_url_for_data(self, asset, request):
+        key = (
+            "data",
+            asset.format,
+            request.source,
+            request.page,
+            request.pagebox,
+            request.bbox,
+            None if request.width is None else int(request.width),
+            None if request.height is None else int(request.height),
+            int(request.depth),
+            request.rotate,
+        )
+        cached = self._graphic_assets.get(key)
+        if cached is not None:
+            return cached
+        suffix = "." + (asset.format or "bin")
+        asset_dir, target = self._graphic_asset_target(suffix)
+        data = asset.data
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        try:
+            asset_dir.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data or b"")
+            url = os.path.relpath(target, self.html_path.parent).replace(os.sep, "/")
+        except Exception:
+            return ""
+        self._graphic_assets[key] = url
+        return url
+
+    def _graphic_asset_url(self, asset, request):
+        if asset.path is not None:
+            return self._graphic_asset_url_for_file(asset.path, asset.format)
+        if asset.data is not None:
+            return self._graphic_asset_url_for_data(asset, request)
+        return request.source
+
+    def typesetGraphicAsset(self, asset, request):
         if self.builder is None:
             return
-        if spec.kind not in ("epdf", "image") or not spec.source:
+        if asset.format not in self.supported_graphic_formats:
             return
-        url, path = self._graphic_asset_url(spec.source)
-        width, height = self._graphic_target_size(spec, path)
-        media_type = "pdf" if spec.kind == "epdf" else (spec.format or "image")
+        url = self._graphic_asset_url(asset, request)
+        if not url:
+            return
         graphic = Graphic(
-            self._graphic_url(spec, url),
-            media_type,
-            width=width,
-            height=height,
+            url,
+            asset.format,
+            width=self._graphic_css_size(request.width or asset.width),
+            height=self._graphic_css_size(request.height or asset.height),
             inline=self.in_line,
-            transform_scale=self.currentTransformScale(),
         )
         self.builder.append(graphic)
+        return request.width or asset.width
 
     def _text_font_family(self, font):
         family = self.define_font(font)

@@ -3,6 +3,7 @@ The base class for reflow shipout backends. providing common utilities for reflo
 """
 
 from pytex import box as bx
+from pytex import graphics
 from pytex.dimen import Dimen, UNITS
 from pytex.font import Font
 from pytex.glue import Glue
@@ -138,6 +139,14 @@ class LineSpec:
     spacing_before: Dimen
     color: Color
     default_font: Font
+
+
+@dataclass
+class LineAdvance:
+    emitted: Dimen = field(default_factory=Dimen)
+    pending: Dimen = field(default_factory=Dimen)
+    breakable: bool = False
+
 
 class Line(Element):
     def __init__(self, node, line_spec: LineSpec):
@@ -482,6 +491,8 @@ class Reflow(shipout.Shipout):
         self.transform_stack = [(1.0, 1.0)]
         self.pending_annotation = None
         self.in_line = False
+        self._last_graphic_advance = None
+        self._inline_paint_flush = None
 
     support_annotation = False
 
@@ -612,6 +623,38 @@ class Reflow(shipout.Shipout):
                 self.builder.append(ann)
 
     def xObject(self, kind, name=None, options=None, source=None):
+        if kind not in ("epdf", "image") or not source:
+            return
+        self.graphic(
+            graphics.GraphicSpec.from_dvipdfm(
+                kind,
+                name=name,
+                options=options,
+                source=source,
+            )
+        )
+
+    def graphic(self, spec):
+        if self.builder is None:
+            return
+        request = self.graphicRequestFromSpec(spec)
+        if request is None:
+            return
+        asset = self.prepareGraphicAsset(request)
+        if asset is None:
+            return
+        flush = self._inline_paint_flush
+        if flush is not None:
+            flush()
+        advance = self.typesetGraphicAsset(asset, request)
+        if advance is None:
+            advance = request.width or asset.width
+        if advance is not None:
+            advance = Dimen(advance)
+            self._last_graphic_advance = advance
+            return advance
+
+    def typesetGraphicAsset(self, asset, request):
         pass
 
     def open(self):
@@ -1412,6 +1455,41 @@ class Reflow(shipout.Shipout):
             if glue_state is None:
                 glue_state = self._glue_state(line)
         inline_math_nodes = []
+        emitted_advance = Dimen()
+        pending_effective_kern = Dimen()
+        pending_breakable = False
+
+        def flush_pending_effective_kern():
+            nonlocal emitted_advance, pending_effective_kern, pending_breakable
+            if int(pending_effective_kern) == 0:
+                return
+            self.builder.setSpace(pending_effective_kern, breakable=pending_breakable)
+            emitted_advance += pending_effective_kern
+            pending_effective_kern = Dimen()
+            pending_breakable = False
+
+        def emit_spacing(width, breakable):
+            nonlocal pending_effective_kern, pending_breakable
+            if int(pending_effective_kern) == 0:
+                pending_breakable = breakable
+            else:
+                pending_breakable = pending_breakable and breakable
+            pending_effective_kern += Dimen(width)
+            return pending_effective_kern
+
+        def record_paint(tex_advance, reflow_advance):
+            nonlocal emitted_advance, pending_effective_kern
+            reflow_advance = Dimen(reflow_advance)
+            emitted_advance += reflow_advance
+            pending_effective_kern += Dimen(tex_advance) - reflow_advance
+
+        def emit_inline_math(node, math_box, piece):
+            flush_pending_effective_kern()
+            text_run = self.builder.textRun()
+            with Builder(self, text_run):
+                typeset_inline_math(node, math_box, piece)
+            record_paint(math_box.width, math_box.width)
+            return text_run
 
         for n in nodes:
             node_type = n.node_type
@@ -1419,10 +1497,8 @@ class Reflow(shipout.Shipout):
                 if node_type == nd.NODE_TYPE.MATH:
                     assert not n.on
                     math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
-                    text_run = self.builder.textRun()
-                    with Builder(self, text_run):
-                        typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
-                    text_run.setKern(n.kern)
+                    emit_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
+                    emit_spacing(n.kern, breakable=False)
                     inline_math_nodes = []
                     self.paragraph.inline_math_segment = 0
                     self.paragraph.inline_math_node = None
@@ -1431,39 +1507,59 @@ class Reflow(shipout.Shipout):
                 continue
             if node_type == nd.NODE_TYPE.GLUE:
                 width = Dimen(integer=self._glue_amount(n, None, glue_state)) if glue_state is not None else n.glue.dimen
-                self.builder.setSpace(width, breakable=True)
+                emit_spacing(width, breakable=True)
             elif node_type == nd.NODE_TYPE.KERN:
-                self.builder.setSpace(n.kern, breakable=False)
+                emit_spacing(n.kern, breakable=False)
             elif node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                flush_pending_effective_kern()
                 self._define_font_once(n.font)
                 self.builder.setFont(n.font)
                 self.builder.textRun().setChar(n)
+                record_paint(n.width, n.width)
             elif node_type == nd.NODE_TYPE.MATH:
                 assert n.on
-                self.builder.textRun().setKern(n.kern)
+                emit_spacing(n.kern, breakable=False)
                 self.paragraph.inline_math_segment = 1
                 self.paragraph.inline_math_node = n.source
             elif node_type == nd.NODE_TYPE.HLIST:
                 if not n.list:
-                    self.builder.setSpace(n.width, breakable=False)
+                    emit_spacing(n.width, breakable=False)
                     continue
-                self.typesetLine(n, glue_state=self._glue_state(n), inline=True)
+                flush_pending_effective_kern()
+                child_advance = self.typesetLine(n, glue_state=self._glue_state(n), inline=True)
+                record_paint(n.width, child_advance.emitted)
             elif node_type == nd.NODE_TYPE.VLIST:
+                flush_pending_effective_kern()
                 with Builder(self, self.builder.textRun()):
                     self.typesetInlineVBox(n)
+                record_paint(n.width, n.width)
             elif n.node_type == nd.NODE_TYPE.WHATSIT:
                 # Specials can change annotation/color state, so they are explicit
                 # text-run boundaries in the source line.
-                n.output(self.parser, self)
+                old_advance = self._last_graphic_advance
+                old_flush = self._inline_paint_flush
+                self._last_graphic_advance = None
+                self._inline_paint_flush = flush_pending_effective_kern
+                try:
+                    n.output(self.parser, self)
+                    if self._last_graphic_advance is not None:
+                        record_paint(Dimen(), self._last_graphic_advance)
+                finally:
+                    self._last_graphic_advance = old_advance
+                    self._inline_paint_flush = old_flush
                 self.builder.textRun(new=True)
         if self.paragraph.inline_math_segment > 0:
             # we finish a line inside an inline math
-            text_run = self.builder.textRun()
             math_box = pack_inline_math_nodes(self.parser, inline_math_nodes, glue_state)
-            with Builder(self, text_run):
-                typeset_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
+            emit_inline_math(self.paragraph.inline_math_node, math_box, self.paragraph.inline_math_segment)
             # we increment the piece by 1 in the new line
             self.paragraph.inline_math_segment += 1
+        if inline:
+            return LineAdvance(emitted_advance, pending_effective_kern, pending_breakable)
+        if self.paginate:
+            return LineAdvance(emitted_advance, Dimen(), False)
+        flush_pending_effective_kern()
+        return LineAdvance(emitted_advance, Dimen(), False)
 
     def typesetInlineVBox(self, box: bx.Box):
         self._require_builder("typesetInlineVBox", "newInlineVBox")

@@ -8,6 +8,7 @@ from pytex import align
 from pytex import box
 from pytex import font as txfont
 from pytex import glue
+from pytex import graphics
 from pytex import html_reflow
 from pytex import mmode
 from pytex import node as nd
@@ -17,6 +18,8 @@ from pytex.dimen import Dimen
 
 # prevent module side effects
 html_reflow.mod.init = None
+
+
 
 
 class _FakeTextBackend:
@@ -151,7 +154,7 @@ def test_html_reflow_close_writes_document_head(parser):
     assert "<div>x</div>" in html
 
 
-def test_html_reflow_epdf_graphic_special_creates_inline_object(parser, tmp_path):
+def test_html_reflow_epdf_graphic_special_creates_inline_svg_image(parser, tmp_path, monkeypatch):
     fig = tmp_path / "fig.pdf"
     c = canvas.Canvas(str(fig), pagesize=(200, 100))
     c.drawString(20, 50, "FIG")
@@ -163,15 +166,15 @@ def test_html_reflow_epdf_graphic_special_creates_inline_object(parser, tmp_path
 
     html = _render(_typeset_hbox(parser, hbox))
 
-    assert "<object" in html
-    assert 'type="application/pdf"' in html
-    assert "html-reflow-test.assets/graphics/graphic-1.pdf" in html
+    assert "<img" in html
+    assert "<object" not in html
+    assert "html-reflow-test.assets/graphics/graphic-1.svg" in html
     assert "width:71.731009pt;" in html
     assert "height:35.865504pt;" in html
-    assert (tmp_path / "html-reflow-test.assets" / "graphics" / "graphic-1.pdf").exists()
+    assert (tmp_path / "html-reflow-test.assets" / "graphics" / "graphic-1.svg").exists()
 
 
-def test_html_reflow_epdf_graphic_uses_xdvipdfmx_scale_transform(parser, tmp_path):
+def test_html_reflow_epdf_graphic_uses_xdvipdfmx_scale_transform(parser, tmp_path, monkeypatch):
     fig = tmp_path / "fig.pdf"
     c = canvas.Canvas(str(fig), pagesize=(200, 100))
     c.drawString(20, 50, "FIG")
@@ -188,10 +191,41 @@ def test_html_reflow_epdf_graphic_uses_xdvipdfmx_scale_transform(parser, tmp_pat
 
     html = _render(_typeset_hbox(parser, hbox))
 
-    assert "<object" in html
-    assert "width:200pt;" in html
-    assert "height:100pt;" in html
-    assert "transform:scale(0.5,0.5);" in html
+    assert "<img" in html
+    assert "width:100pt;" in html
+    assert "height:50pt;" in html
+    assert "transform:scale" not in html
+
+
+def test_html_reflow_graphic_rlap_compensation_uses_emitted_advance(parser, tmp_path):
+    fig = tmp_path / "fig.pdf"
+    c = canvas.Canvas(str(fig), pagesize=(576, 180))
+    c.drawString(20, 90, "FIG")
+    c.save()
+    natural = _node_box(
+        parser,
+        [nd.Special(f"pdf: epdf bbox 0 0 576 180 ({fig})")],
+        width=576,
+    )
+    zero_width = _node_box(parser, [natural, nd.Kern(Dimen(-576))], width=0)
+    hbox = _node_box(
+        parser,
+        [
+            nd.Special("pdf:btrans"),
+            nd.Special("x:scale 0.5625 0.5625"),
+            zero_width,
+            nd.Special("pdf:etrans"),
+            nd.Kern(Dimen(324)),
+        ],
+        width=324,
+    )
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    assert "<img" in html
+    assert "width:323.999981pt;" in html
+    assert "margin-left:-576.0pt" not in html
+    assert "margin-left:-324.0pt" not in html
 
 
 def test_html_reflow_maps_math_operator_period_slot_to_period(parser):

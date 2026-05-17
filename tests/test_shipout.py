@@ -1,4 +1,5 @@
 from pytex.typeset.shipout import Shipout
+from pytex import graphics
 from pytex import node as nd
 from pytex.dimen import Dimen
 from pytex.graphics import GraphicSpec
@@ -124,6 +125,58 @@ def test_shipout_parses_dvipdfm_graphic_special(parser):
             spec,
         )
     ]
+
+
+def test_shipout_prepares_graphic_asset_using_supported_format_order(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg/>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    class GraphicShipout(_CaptureShipout):
+        supported_graphic_formats = ("svg", "png")
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    shipout = GraphicShipout(parser)
+    request = graphics.GraphicRequest(
+        source="figure.pdf",
+        path=None,
+        source_format="pdf",
+        width=Dimen(72),
+        height=Dimen(36),
+    )
+
+    asset = shipout.prepareGraphicAsset(request)
+
+    assert asset.format == "svg"
+    assert asset.data == "<svg/>"
+    assert asset.width == Dimen(72)
+    assert asset.height == Dimen(36)
+
+
+def test_shipout_prepares_directly_supported_graphic_without_conversion(parser):
+    class GraphicShipout(_CaptureShipout):
+        supported_graphic_formats = ("svg", "png")
+
+    request = graphics.GraphicRequest(
+        source="figure.png",
+        path="/tmp/figure.png",
+        source_format="png",
+        width=Dimen(72),
+        height=Dimen(36),
+    )
+
+    asset = GraphicShipout(parser).prepareGraphicAsset(request)
+
+    assert asset.format == "png"
+    assert asset.path == "/tmp/figure.png"
+    assert asset.width == Dimen(72)
+    assert asset.height == Dimen(36)
 
 
 def test_shipout_keeps_unknown_specials_raw(parser):

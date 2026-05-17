@@ -515,6 +515,43 @@ class TextRun(reflow.TextRun):
         self.nodes.append(picture)
         return picture
 
+    def newInlineGraphic(self, backend, asset, request):
+        width = request.width or asset.width
+        height = request.height or asset.height
+        if width is None or height is None:
+            return None
+        payload = backend.graphicSvgPayload(asset)
+        if payload is None:
+            return None
+        standalone_graphic_line = not self.line.has_visible_content
+        self.line.applyLeadingSpacing()
+        self.text = None
+        document = _story_document(self.line.story)
+        placeholder, media_name = document.defineInlineSvg(payload)
+        drawing_id = document.nextDrawingId()
+        visual_height = height + asset.depth
+        drawing = parse_xml(
+            _picture_xml(
+                _emu(width),
+                _emu(visual_height),
+                _emu(visual_height),
+                0,
+                0,
+                0,
+                placeholder,
+                drawing_id,
+                media_name,
+            )
+        )
+        if int(asset.depth) != 0:
+            self._setPosition(-int(half_pt(asset.depth)))
+        self._node._element.append(drawing)
+        self.line.addInlineDrawing(drawing)
+        if standalone_graphic_line:
+            self.line.setLineHeight(visual_height)
+        picture = reflow.Element(drawing)
+        self.nodes.append(picture)
+        return picture
 
 class Space(TextRun):
     def __init__(self, line, width: Dimen, breakable: bool, font: Font):
@@ -572,6 +609,10 @@ class Line(reflow.Line):
         fmt.line_spacing = Twips(max(1, _twips(height)))
         fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
 
+    def setLineHeight(self, height):
+        self.line_height = Dimen(height)
+        self._setLineHeight(self.line_height)
+    
     def addInlineDrawing(self, drawing):
         self.inline_drawings.append(drawing)
 
@@ -1454,6 +1495,7 @@ class DocxBackend(reflow.Reflow):
     """
 
     support_annotation = True
+    supported_graphic_formats = ("svg",)
 
     def __init__(self, parser, output=None):
         super().__init__(parser, paginate=True)
@@ -1711,6 +1753,36 @@ class DocxBackend(reflow.Reflow):
     def typesetInlineMath(self, node: mmode.InlineMathNode, box: bx.Box, piece: int):
         self._require_builder("typesetInlineMath", "newInlineMath")
         return self.builder.newInlineMath(self, node, box, piece)
+
+    def typesetGraphicAsset(self, asset, request):
+        if asset.format != "svg" or self.builder is None:
+            return
+        text_run = getattr(self.builder, "textRun", None)
+        if text_run is not None:
+            run = text_run(new=True)
+            with reflow.Builder(self, run):
+                graphic = self.builder.newInlineGraphic(self, asset, request)
+            if graphic is not None:
+                return request.width or asset.width
+            return None
+        new_graphic = getattr(self.builder, "newInlineGraphic", None)
+        if new_graphic is not None:
+            graphic = new_graphic(self, asset, request)
+            if graphic is not None:
+                return request.width or asset.width
+
+    @staticmethod
+    def graphicSvgPayload(asset):
+        if asset.data is not None:
+            if isinstance(asset.data, str):
+                return asset.data.encode("utf-8")
+            return asset.data
+        if asset.path is None:
+            return None
+        try:
+            return Path(asset.path).read_bytes()
+        except OSError:
+            return None
 
     def typesetTrailingVListSpacing(self, spacing: Dimen, top_level: bool=False):
         if not top_level or int(spacing) >= 0:

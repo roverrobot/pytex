@@ -1,8 +1,15 @@
 """Backend-neutral shipout walker and minimal IR hooks."""
 
+import os
+import re
+
+from pytex import graphics
 from pytex import node as nd
-from pytex.dimen import Dimen, NEG_MAX_DIMEN
+from pytex.dimen import Dimen, NEG_MAX_DIMEN, UNITS
 from pytex.typeset.dvipdfm import DVIPDFmSpecialParser
+
+
+_DIMEN_RE = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))([A-Za-z]+)\s*$")
 
 
 class Shipout:
@@ -14,6 +21,8 @@ class Shipout:
     selection/definition, rules, characters, and specials. Concrete backends
     implement the IR methods below.
     """
+
+    supported_graphic_formats = ()
 
     def __init__(self, parser, output=None):
         self.parser = parser
@@ -256,6 +265,9 @@ class Shipout:
     def rawSpecial(self, text):
         pass
 
+    def currentTransformScale(self):
+        return (1.0, 1.0)
+
     def setColor(self, mode, space=None, values=None):
         pass
 
@@ -285,6 +297,173 @@ class Shipout:
 
     def graphic(self, spec):
         pass
+
+    def _graphic_source_path(self, source):
+        if not source:
+            return None
+        if self.parser.resolver.resolveInMemory(source) is not None:
+            return None
+        try:
+            path = self.parser.resolver._sourcePath(source)
+        except ValueError:
+            return None
+        if not os.path.exists(path):
+            return None
+        return path
+
+    @staticmethod
+    def _graphic_dimen_option(value):
+        if value is None:
+            return None
+        if isinstance(value, Dimen):
+            return Dimen(value)
+        match = _DIMEN_RE.match(str(value))
+        if match is None:
+            return Dimen(value)
+        amount = float(match.group(1))
+        unit = match.group(2).lower()
+        if unit not in UNITS:
+            raise ValueError(f"unsupported special unit {unit}")
+        num, den = UNITS[unit]
+        scaled = round(amount * 1000000)
+        return Dimen(integer=Dimen._trunc_div(scaled * num * Dimen.scale, den * 1000000))
+
+    @staticmethod
+    def _graphic_bp_dimen(value):
+        num, den = UNITS["bp"]
+        scaled = round(float(value) * 1000000)
+        return Dimen(integer=Dimen._trunc_div(scaled * num * Dimen.scale, den * 1000000))
+
+    @staticmethod
+    def _graphic_bbox(options):
+        bbox = options.get("bbox")
+        if bbox is None:
+            return None
+        try:
+            llx, lly, urx, ury = (float(v) for v in bbox)
+        except (TypeError, ValueError):
+            return None
+        if llx == lly == urx == ury == 0:
+            return None
+        return llx, lly, urx, ury
+
+    @staticmethod
+    def _graphic_image_size(path):
+        try:
+            from PIL import Image
+
+            with Image.open(path) as image:
+                width, height = image.size
+        except Exception:
+            return None
+        return Dimen(width), Dimen(height)
+
+    @staticmethod
+    def _graphic_pdf_page_box(path, page_number, pagebox):
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(path)
+            page = reader.pages[page_number - 1]
+            box = getattr(page, pagebox, page.cropbox)
+            llx, lly, urx, ury = tuple(map(float, box))
+        except Exception:
+            return None
+        return Shipout._graphic_bp_dimen(urx - llx), Shipout._graphic_bp_dimen(ury - lly)
+
+    def _graphic_natural_size(self, spec, path, options):
+        bbox = self._graphic_bbox(options)
+        if bbox is not None:
+            llx, lly, urx, ury = bbox
+            return self._graphic_bp_dimen(urx - llx), self._graphic_bp_dimen(ury - lly)
+        if spec.kind == "epdf" and path is not None:
+            page_number = int(options.get("page", "1"))
+            pagebox = str(options.get("pagebox", "cropbox")).lower()
+            return self._graphic_pdf_page_box(path, page_number, pagebox)
+        if spec.kind == "image" and path is not None:
+            return self._graphic_image_size(path)
+        return None
+
+    def _graphic_target_size(self, spec, path, options):
+        natural = self._graphic_natural_size(spec, path, options)
+        bbox = self._graphic_bbox(options)
+        ratio = None
+        if bbox is not None:
+            llx, lly, urx, ury = bbox
+            ratio = (urx - llx, ury - lly)
+        width = self._graphic_dimen_option(options.get("width"))
+        height = self._graphic_dimen_option(options.get("height"))
+        if width is None and height is None:
+            if natural is not None:
+                width, height = natural
+        elif width is None:
+            if ratio is not None and ratio[1] != 0:
+                width = height * (ratio[0] / ratio[1])
+            elif natural is not None and int(natural[1]) != 0:
+                width = natural[0] * (float(height) / float(natural[1]))
+        elif height is None:
+            if ratio is not None and ratio[0] != 0:
+                height = width * (ratio[1] / ratio[0])
+            elif natural is not None and int(natural[0]) != 0:
+                height = natural[1] * (float(width) / float(natural[0]))
+
+        scale = float(options.get("scale", "1"))
+        xscale = float(options.get("xscale", "1"))
+        yscale = float(options.get("yscale", "1"))
+        tx, ty = self.currentTransformScale()
+        if width is not None:
+            width *= scale * xscale * tx
+        if height is not None:
+            height *= scale * yscale * ty
+        return width, height
+
+    def graphicRequestFromSpec(self, spec):
+        if spec.kind not in ("epdf", "image") or not spec.source:
+            return None
+        options = spec.option_map
+        path = self._graphic_source_path(spec.source)
+        source_format = spec.format or ("pdf" if spec.kind == "epdf" else graphics.graphic_format(spec.source))
+        if source_format is None:
+            return None
+        page = int(options.get("page", "1"))
+        pagebox = str(options.get("pagebox", "cropbox")).lower()
+        width, height = self._graphic_target_size(spec, path, options)
+        depth = self._graphic_dimen_option(options.get("depth")) or Dimen()
+        _tx, ty = self.currentTransformScale()
+        if int(depth) != 0:
+            depth *= float(options.get("scale", "1")) * float(options.get("yscale", "1")) * ty
+        return graphics.GraphicRequest(
+            source=spec.source,
+            path=path,
+            source_format=source_format,
+            kind=spec.kind,
+            page=page,
+            pagebox=pagebox,
+            bbox=options.get("bbox"),
+            width=width,
+            height=height,
+            depth=depth,
+            rotate=float(options.get("rotate", "0")),
+        )
+
+    def prepareGraphicAsset(self, request):
+        supported = tuple(format.lower() for format in self.supported_graphic_formats)
+        if request.source_format.lower() in supported:
+            return graphics.GraphicAsset(
+                format=request.source_format.lower(),
+                path=request.path,
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+        for target_format in supported:
+            try:
+                asset = graphics.convert_graphic(request, target_format)
+            except RuntimeError:
+                asset = None
+            if asset is not None:
+                return asset
+        return None
 
     def __enter__(self):
         self.open()

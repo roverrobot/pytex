@@ -11,6 +11,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from pytex import align
 from pytex import box as bx
 from pytex import docx
+from pytex import graphics
 from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
@@ -499,6 +500,118 @@ def test_docx_inline_vbox_emits_word_textbox_story(parser):
         str(docx._emu(vbox.height + vbox.depth)),
     )
     assert f'<w:position w:val="-{docx.half_pt(vbox.depth)}"/>' in xml
+
+
+def test_docx_epdf_graphic_special_converts_to_svg_picture(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
+
+    backend.shipout(_page_box([_FakeHBox([special], source=source, width=72, height=36, depth=0)]))
+    data = _docx_bytes(parser, backend)
+
+    xml = _document_xml(data)
+    assert "asvg:svgBlip" in xml
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        media = [name for name in zf.namelist() if name.startswith("word/media/") and name.endswith(".svg")]
+        assert len(media) == 1
+        assert b"<svg" in zf.read(media[0])
+
+
+def test_docx_standalone_graphic_line_keeps_normal_edge_spacing(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
+    graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
+    left = Dimen(12)
+    right = Dimen(18)
+
+    backend.shipout(
+        _page_box(
+            [
+                _FakeHBox(
+                    [nd.Glue(Glue(left), None), graphic_box, nd.Glue(Glue(right), None)],
+                    source=source,
+                    width=left + Dimen(72) + right,
+                    height=36,
+                    depth=0,
+                )
+            ]
+        )
+    )
+    data = _docx_bytes(parser, backend)
+    document = WordDocument(io.BytesIO(data))
+    para = document.paragraphs[0]
+
+    assert int(para.paragraph_format.left_indent) == int(docx._length(left))
+    assert para.paragraph_format.right_indent is None
+    assert para.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
+    xml = _document_xml(data)
+    assert "<w:drawing" in xml
+
+
+def test_docx_graphic_followed_by_text_keeps_normal_space(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
+    graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
+
+    backend.shipout(
+        _page_box(
+            [
+                _FakeHBox(
+                    [graphic_box, nd.Glue(Glue(Dimen(5)), None), nd.CharNode("A", font)],
+                    source=source,
+                    width=90,
+                    height=36,
+                    depth=0,
+                )
+            ]
+        )
+    )
+    document = _word_document(parser, backend)
+
+    assert document.paragraphs[0].text == " A"
+    assert document.paragraphs[0].paragraph_format.right_indent is None
 
 
 def test_docx_inline_vbox_preserves_local_center_alignment(parser):

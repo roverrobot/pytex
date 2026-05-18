@@ -150,6 +150,17 @@ def _document_xml(data):
         return zf.read("word/document.xml").decode("utf-8")
 
 
+def _drawing_runs(xml):
+    return [
+        match.group(0)
+        for match in re.finditer(
+            r"<w:r>(?:(?!</w:r>).)*<w:drawing(?:(?!</w:r>).)*</w:r>",
+            xml,
+            flags=re.S,
+        )
+    ]
+
+
 def _document_root(data):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         return ET.fromstring(zf.read("word/document.xml"))
@@ -836,7 +847,9 @@ def test_docx_inline_math_embeds_svg_picture(parser, monkeypatch):
         str(docx._emu(captured["box"].width)),
         str(docx._emu(captured["box"].height + captured["box"].depth)),
     )
-    assert f'<w:position w:val="-{docx.half_pt(captured["box"].depth)}"/>' in xml
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    assert "<w:position" not in drawing_runs[0]
     assert 'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"' in rels_xml
     assert 'Target="media/pytex-inline-math-1.svg"' in rels_xml
     assert 'Extension="svg"' in content_types
@@ -1101,7 +1114,10 @@ def test_docx_alignment_cell_inline_math_uses_table_row_baseline(parser, monkeyp
 
     xml = _document_xml(_docx_bytes(parser, backend))
     assert "<w:drawing" in xml
-    assert f'<w:position w:val="-{docx.half_pt(captured["box"].depth)}"/>' in xml
+    expected_position = docx.half_pt(row_box.depth - captured["box"].depth)
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
 
 
 def test_docx_zero_width_inline_vbox_is_not_emitted(parser):
@@ -1126,14 +1142,18 @@ def test_docx_inline_vbox_uses_depth_position(parser):
     parser.shipout = backend
     font = _install_font(parser)
     para = pg.Paragraph(parser, indent=False)
+    char = nd.CharNode("A", font)
     vbox = _FakeVBox([], width=20, height=8, depth=3)
-    line = _FakeHBox([nd.CharNode("A", font), vbox], para, height=8, depth=3)
+    line = _FakeHBox([char, vbox], para, height=8, depth=3)
 
     backend.shipout(_page_box([line]))
 
     xml = _document_xml(_docx_bytes(parser, backend))
     assert "<w:drawing" in xml
-    assert f'<w:position w:val="-{docx.half_pt(vbox.depth)}"/>' in xml
+    expected_position = docx.half_pt(line.depth - char.depth - vbox.depth)
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
 
 
 def test_docx_inline_vtop_is_lowered_by_height(parser):
@@ -1157,7 +1177,7 @@ def test_docx_inline_vtop_is_lowered_by_height(parser):
 
     xml = _document_xml(_docx_bytes(parser, backend))
     assert "<w:drawing" in xml
-    assert f'<w:position w:val="-{docx.half_pt(vtop.height)}"/>' in xml
+    assert f'<w:position w:val="{docx.half_pt(line.depth - vtop.height)}"/>' in xml
     assert f'<w:position w:val="-{docx.half_pt(vtop.depth)}"/>' not in xml
 
 

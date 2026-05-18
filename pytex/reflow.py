@@ -164,6 +164,9 @@ class Line(Element):
     def newTextRun(self, font, color) -> Text:
         pass
 
+    def setTextBaselineFromBottom(self, baseline: Dimen):
+        pass
+
     def setFont(self, font: Font):
         if self._text_run is None:
             self.font = font
@@ -415,6 +418,9 @@ class LineBuilder(Builder):
             current.exit()
             self.backend.pending_annotation = current.name
             assert self.backend.builder == self
+        finalize = getattr(self.container, "finalizeLine", None)
+        if finalize is not None:
+            finalize()
         super().exit()
         self.backend.in_line = self.saved_in_line
 
@@ -1288,6 +1294,30 @@ class Reflow(shipout.Shipout):
                 return True
         return False
 
+    def _line_text_box(self, nodes):
+        text_nodes = []
+
+        def collect(items, in_math=False):
+            for node in items:
+                node_type = getattr(node, "node_type", None)
+                if node_type == nd.NODE_TYPE.MATH:
+                    in_math = node.on
+                    continue
+                if in_math:
+                    continue
+                if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+                    text_nodes.append(node)
+                elif node_type == nd.NODE_TYPE.HLIST:
+                    collect(getattr(node, "list", ()), in_math=False)
+
+        paragraph = getattr(self, "paragraph", None)
+        collect(nodes, in_math=getattr(paragraph, "inline_math_segment", 0) > 0)
+        if not text_nodes:
+            return None
+        text_box = bx.HBox(self.parser, None, None)
+        text_box.list = text_nodes
+        return text_box.typeset(self.parser)
+
     def _hbox_alignment_glue_state(self, box, allow_unset=False):
         glue_state = self._glue_state(box)
         if glue_state is not None and glue_state["order"] > 0:
@@ -1459,6 +1489,12 @@ class Reflow(shipout.Shipout):
         pending_effective_kern = Dimen()
         pending_breakable = False
 
+        text_box = self._line_text_box(nodes)
+        if text_box is not None:
+            set_text_baseline = getattr(self.builder, "setTextBaselineFromBottom", None)
+            if set_text_baseline is not None:
+                set_text_baseline(text_box.depth)
+
         def flush_pending_effective_kern():
             nonlocal emitted_advance, pending_effective_kern, pending_breakable
             if int(pending_effective_kern) == 0:
@@ -1485,9 +1521,10 @@ class Reflow(shipout.Shipout):
 
         def emit_inline_math(node, math_box, piece):
             flush_pending_effective_kern()
-            text_run = self.builder.textRun()
+            text_run = self.builder.textRun(new=True)
             with Builder(self, text_run):
                 typeset_inline_math(node, math_box, piece)
+            self.builder.container._text_run = None
             record_paint(math_box.width, math_box.width)
             return text_run
 
@@ -1530,8 +1567,9 @@ class Reflow(shipout.Shipout):
                 record_paint(n.width, child_advance.emitted)
             elif node_type == nd.NODE_TYPE.VLIST:
                 flush_pending_effective_kern()
-                with Builder(self, self.builder.textRun()):
+                with Builder(self, self.builder.textRun(new=True)):
                     self.typesetInlineVBox(n)
+                self.builder.container._text_run = None
                 record_paint(n.width, n.width)
             elif n.node_type == nd.NODE_TYPE.WHATSIT:
                 # Specials can change annotation/color state, so they are explicit

@@ -403,6 +403,9 @@ class TextRun(reflow.TextRun):
     def __init__(self, line, text="", font = None, color = reflow.Color.black, preserve_space=False):
         node = line._node.add_run()
         self.line = line
+        self._tex_baseline_from_bottom = None
+        self._word_baseline_from_bottom = Dimen()
+        self.has_text_glyphs = False
         super().__init__(node, font, color)
         self.preserve_space = preserve_space
         t = self.newText()
@@ -444,7 +447,35 @@ class TextRun(reflow.TextRun):
 
     def setChar(self, char: nd.Node):
         self.line.applyLeadingSpacing()
+        self._registerTextGlyph()
         super().setChar(char)
+
+    def _registerTextGlyph(self):
+        self.has_text_glyphs = True
+        self.line.has_text_glyphs = True
+        parent_line = getattr(self.line, "parent", None)
+        if parent_line is not None:
+            parent_line.has_text_glyphs = True
+
+    def setBaselineFromBottom(self, tex_baseline: Dimen, word_baseline: Dimen=Dimen()):
+        self._tex_baseline_from_bottom = Dimen(tex_baseline)
+        self._word_baseline_from_bottom = Dimen(word_baseline)
+
+    def finalizeVerticalPosition(self, line_baseline: Dimen=Dimen(), word_line_baseline: Dimen=Dimen()):
+        if self._tex_baseline_from_bottom is None and not self.has_text_glyphs:
+            return None
+        if self._tex_baseline_from_bottom is None:
+            position = Dimen(line_baseline) - Dimen(word_line_baseline)
+            self._setPosition(int(half_pt(position)))
+            return position
+        position = (
+            Dimen(line_baseline)
+            - Dimen(word_line_baseline)
+            + self._word_baseline_from_bottom
+            - self._tex_baseline_from_bottom
+        )
+        self._setPosition(int(half_pt(position)))
+        return position
 
     def _setPosition(self, position):
         if not position:
@@ -476,9 +507,8 @@ class TextRun(reflow.TextRun):
         block = TextBoxStory(document, drawing, content, box)
         self._node._element.append(drawing)
         if not isinstance(self.line.story, Cell):
-            position = self._inlineVBoxPosition(box)
-            if position is not None:
-                self._setPosition(position)
+            baseline = box.height if isinstance(box, bx.VTop) else box.depth
+            self.setBaselineFromBottom(baseline)
         self.nodes.append(block)
         return block
 
@@ -509,7 +539,7 @@ class TextRun(reflow.TextRun):
             )
         )
         if baseline_position:
-            self._setPosition(-int(half_pt(box.depth)))
+            self.setBaselineFromBottom(box.depth)
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
         picture = reflow.Element(drawing)
@@ -545,7 +575,7 @@ class TextRun(reflow.TextRun):
             )
         )
         if int(asset.depth) != 0:
-            self._setPosition(-int(half_pt(asset.depth)))
+            self.setBaselineFromBottom(asset.depth)
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
         if standalone_graphic_line:
@@ -584,6 +614,7 @@ class Line(reflow.Line):
         story=None,
     ):
         super().__init__(para, line_spec)
+        self.line_spec = line_spec
         self.story = story
         self.justify = self._wordJustify(justify)
         para.alignment = self.justify
@@ -591,10 +622,13 @@ class Line(reflow.Line):
         self.inline_drawings = []
         self.leading_spacing = Dimen()
         self.has_visible_content = False
+        self.has_text_glyphs = False
+        self.word_baseline_from_bottom = Dimen()
         self._setLineHeight(self.line_height)
         fmt = para.paragraph_format
         assert int(line_spec.spacing_before) >= 0, f"negative spacing{line_spec.spacing_before}"
-        fmt.space_before = Twips(_twips(line_spec.spacing_before))
+        self.spacing_before = Dimen(line_spec.spacing_before)
+        fmt.space_before = Twips(_twips(self.spacing_before))
         fmt.space_after = Pt(0)
         self.font = line_spec.default_font
         self.width = line_spec.line_box.rightmost()
@@ -613,6 +647,44 @@ class Line(reflow.Line):
     def setLineHeight(self, height):
         self.line_height = Dimen(height)
         self._setLineHeight(self.line_height)
+
+    @property
+    def node(self):
+        return self._node
+
+    def registerTextRun(self, run: TextRun):
+        self.nodes.append(run)
+        if getattr(run, "has_text_glyphs", False):
+            self.has_text_glyphs = True
+        return run
+
+    def setTextBaselineFromBottom(self, baseline: Dimen):
+        baseline = Dimen(baseline)
+        self.has_text_glyphs = True
+        if baseline > self.word_baseline_from_bottom:
+            self.word_baseline_from_bottom = baseline
+
+    def finalizeLine(self):
+        line_baseline = self.line_spec.line_box.depth
+        word_line_baseline = self.word_baseline_from_bottom if self.has_text_glyphs else Dimen()
+        top_protrusion = Dimen()
+        bottom_protrusion = Dimen()
+        for run in self.nodes:
+            finalize = getattr(run, "finalizeVerticalPosition", None)
+            if finalize is not None:
+                position = finalize(line_baseline, word_line_baseline)
+                if position is None:
+                    continue
+                if position > top_protrusion:
+                    top_protrusion = position
+                if -position > bottom_protrusion:
+                    bottom_protrusion = -position
+        if isinstance(self.story, Cell):
+            return
+        if int(top_protrusion) > 0:
+            self._node.paragraph_format.space_before = Twips(_twips(self.spacing_before + top_protrusion))
+        if int(bottom_protrusion) > 0:
+            self.setLineHeight(self.line_height + bottom_protrusion)
     
     def addInlineDrawing(self, drawing):
         self.inline_drawings.append(drawing)
@@ -644,13 +716,14 @@ class Line(reflow.Line):
             effect.set("b", str(bottom + actual_reduction))
 
     def newTextRun(self, font, color) -> TextRun:
-        return TextRun(self, font=font, color=color)
+        return self.registerTextRun(TextRun(self, font=font, color=color))
 
     def newSpace(self, width: Dimen, breakable: bool):
         if not self.has_visible_content:
             self.leading_spacing += width
             return None
         s = Space(self, width, breakable, self.font)
+        self.registerTextRun(s)
         return s
 
     def applyLeadingSpacing(self):
@@ -692,13 +765,22 @@ class AnnotationLine(reflow.Line):
         self.has_visible_content = False
 
     def newTextRun(self, font, color) -> TextRun:
-        return TextRun(self, font=font, color=color)
+        run = TextRun(self, font=font, color=color)
+        self.nodes.append(run)
+        self.parent.registerTextRun(run)
+        return run
+
+    def setTextBaselineFromBottom(self, baseline: Dimen):
+        self.parent.setTextBaselineFromBottom(baseline)
 
     def newSpace(self, width: Dimen, breakable: bool):
         if not self.has_visible_content and not self.parent.has_visible_content:
             self.parent.newSpace(width, breakable)
             return None
-        return Space(self, width, breakable, self.font)
+        run = Space(self, width, breakable, self.font)
+        self.nodes.append(run)
+        self.parent.registerTextRun(run)
+        return run
 
     def applyLeadingSpacing(self):
         if not self.parent.has_visible_content:

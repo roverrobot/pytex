@@ -227,11 +227,7 @@ class Paragraph(StyledNode, reflow.Paragraph):
 
 
 class MFrac(reflow.Element):
-    def __init__(self, num, den, bar, thickness, left=None, right=None):
-        if left is not None:
-            frac = MFrac(num, den, bar, thickness)
-            super().__init__(MROW(left, frac.node, right))
-            return
+    def __init__(self, num, den, bar, thickness):
         super().__init__(MFRAC())
         self.append(num)
         self.append(den)
@@ -900,14 +896,13 @@ class HTMLReflowBackend(reflow.Reflow):
         den = MRow()
         with reflow.Builder(self, den):
             self.typesetMList(bottom.list, mmode.ATOM_TYPE.ORD, style.denominator())
-        if atom.delims is not None:
-            open, close = atom.delims
-            left = self.typesetDelim(open)
-            right = self.typesetDelim(close)
-        else:
-            left = None
-            right = None
-        return MFrac(num, den, bar, thickness, left, right)
+        frac = MFrac(num, den, bar, thickness)
+        if atom.delims is None:
+            return frac
+        open, close = atom.delims
+        left = self.typesetDelim(open)
+        right = self.typesetDelim(close)
+        return reflow.Element(MROW(left, frac.node, right))
 
     def typesetNucleus(self, atom: mmode.Atom, style: mmode.Style):
         # an atom has a nucleus, and optionally subscript and superscript. It may also have left and right delimiters.

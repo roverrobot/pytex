@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 import re
 import tempfile
 import uuid
@@ -61,6 +62,7 @@ _WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing
 _WPS_NS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
 _PIC_NS = "http://schemas.openxmlformats.org/drawingml/2006/picture"
 _ASVG_NS = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
+_A14_NS = "http://schemas.microsoft.com/office/drawing/2010/main"
 _REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -93,6 +95,7 @@ ET.register_namespace("mc", _MC_NS)
 ET.register_namespace("w14", _W14_NS)
 ET.register_namespace("pic", _PIC_NS)
 ET.register_namespace("asvg", _ASVG_NS)
+ET.register_namespace("a14", _A14_NS)
 ET.register_namespace("", _REL_NS)
 
 
@@ -122,7 +125,89 @@ def _length(dimen: Dimen):
 
 
 def _emu(dimen: Dimen):
-    return max(1, int(round(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN)))
+    return max(1, int(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN))
+
+
+def _twip_emu(dimen: Dimen):
+    return max(1, _twips(dimen) * 635)
+
+
+def _docx_points(dimen: Dimen):
+    return float(dimen) * _DOCX_POINTS_PER_TEX_POINT_NUM / _DOCX_POINTS_PER_TEX_POINT_DEN
+
+
+def _tex_points(points: float):
+    return Dimen(points * _DOCX_POINTS_PER_TEX_POINT_DEN / _DOCX_POINTS_PER_TEX_POINT_NUM)
+
+
+def _ceil_half_point(value: float):
+    return math.ceil(value * 2 - 1e-9) / 2
+
+
+def _font_word_baseline_from_bottom(font, line_height: Dimen):
+    if font is None:
+        return None
+    backend = getattr(font, "backend", None)
+    line_baseline = getattr(backend, "lineBaselineFromBottom", None)
+    if line_baseline is None:
+        return None
+    font_size = round(_docx_points(font.at) * 2) / 2
+    try:
+        baseline = line_baseline(
+            font_size,
+            _docx_points(line_height),
+            round_total=_ceil_half_point,
+        )
+    except TypeError:
+        baseline = line_baseline(font_size, _docx_points(line_height))
+    if baseline is None:
+        return None
+    return _tex_points(baseline)
+
+
+def _svg_pt(dimen: Dimen):
+    value = float(dimen) * _DOCX_POINTS_PER_TEX_POINT_NUM / _DOCX_POINTS_PER_TEX_POINT_DEN
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return f"{text or '0'}pt"
+
+
+def _retarget_svg_size(payload: bytes, width: Dimen, height: Dimen):
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return payload
+    match = re.search(r"<svg\b[^>]*>", text, flags=re.IGNORECASE)
+    if match is None:
+        return payload
+
+    def set_attr(tag, name, value):
+        pattern = re.compile(rf'(\s{name}\s*=\s*)(["\']).*?\2', flags=re.IGNORECASE | re.DOTALL)
+        replacement = rf'\1"{value}"'
+        if pattern.search(tag):
+            return pattern.sub(replacement, tag, count=1)
+        return tag[:-1] + f' {name}="{value}">'
+
+    tag = match.group(0)
+    tag = set_attr(tag, "width", _svg_pt(width))
+    tag = set_attr(tag, "height", _svg_pt(height))
+    return (text[:match.start()] + tag + text[match.end():]).encode("utf-8")
+
+
+def _svg_png_fallback(payload: bytes):
+    try:
+        import fitz
+    except ImportError:
+        return None
+    try:
+        doc = fitz.open(stream=payload, filetype="svg")
+        try:
+            page = doc[0]
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=True)
+            return pixmap.tobytes("png")
+        finally:
+            doc.close()
+    except Exception:
+        return None
 
 
 def half_pt(dimen: Dimen):
@@ -181,10 +266,26 @@ def _picture_xml(
     offset_y: int,
     effect_top: int,
     depth_cy: int,
-    relationship_id: str,
+    fallback_relationship_id: str,
+    svg_relationship_id: str,
     drawing_id: int,
     name: str,
 ):
+    blip_extensions = [
+        f"""
+                <a:ext uri="{{28A0092B-C50C-407E-A947-70E740481C1C}}">
+                  <a14:useLocalDpi val="0"/>
+                </a:ext>"""
+    ]
+    if svg_relationship_id is not None:
+        blip_extensions.append(
+            f"""
+                <a:ext uri="{{96DAC541-7B7A-43D3-8B79-37D633B846F1}}">
+                  <asvg:svgBlip r:embed="{svg_relationship_id}"/>
+                </a:ext>"""
+        )
+    blip_extension_xml = "\n              <a:extLst>" + "".join(blip_extensions) + """
+              </a:extLst>"""
     return f"""
 <w:drawing
     xmlns:w="{_W_NS}"
@@ -192,7 +293,8 @@ def _picture_xml(
     xmlns:wp="{_WP_NS}"
     xmlns:a="{_A_NS}"
     xmlns:pic="{_PIC_NS}"
-    xmlns:asvg="{_ASVG_NS}">
+    xmlns:asvg="{_ASVG_NS}"
+    xmlns:a14="{_A14_NS}">
   <wp:inline distT="0" distB="0" distL="0" distR="0">
     <wp:extent cx="{cx}" cy="{layout_cy}"/>
     <wp:effectExtent l="0" t="{effect_top}" r="0" b="{depth_cy}"/>
@@ -205,16 +307,14 @@ def _picture_xml(
         <pic:pic>
           <pic:nvPicPr>
             <pic:cNvPr id="{drawing_id}" name="{name}"/>
-            <pic:cNvPicPr/>
+            <pic:cNvPicPr>
+              <a:picLocks noChangeAspect="1"/>
+            </pic:cNvPicPr>
           </pic:nvPicPr>
           <pic:blipFill>
-            <a:blip r:embed="{relationship_id}">
-              <a:extLst>
-                <a:ext uri="{{96DAC541-7B7A-43D3-8B79-37D633B846F1}}">
-                  <asvg:svgBlip r:embed="{relationship_id}"/>
-                </a:ext>
-              </a:extLst>
+            <a:blip r:embed="{fallback_relationship_id}">{blip_extension_xml}
             </a:blip>
+            <a:srcRect/>
             <a:stretch>
               <a:fillRect/>
             </a:stretch>
@@ -421,9 +521,15 @@ class TextRun(reflow.TextRun):
     def setFont(self, font):
         self.font = font
         self.line.font = font
+        register_word_baseline = getattr(self.line, "registerWordBaseline", None)
+        if register_word_baseline is not None:
+            register_word_baseline(font)
         parent_line = getattr(self.line, "parent", None)
         if parent_line is not None:
             parent_line.font = font
+            register_word_baseline = getattr(parent_line, "registerWordBaseline", None)
+            if register_word_baseline is not None:
+                register_word_baseline(font)
         if font is not None:
             font_name = _docx_font_name(font.backend)
             if font_name is not None:
@@ -458,8 +564,15 @@ class TextRun(reflow.TextRun):
             parent_line.has_text_glyphs = True
 
     def setBaselineFromBottom(self, tex_baseline: Dimen, word_baseline: Dimen=Dimen()):
-        self._tex_baseline_from_bottom = Dimen(tex_baseline)
-        self._word_baseline_from_bottom = Dimen(word_baseline)
+        tex_baseline = Dimen(tex_baseline)
+        word_baseline = Dimen(word_baseline)
+        if (
+            self._tex_baseline_from_bottom is not None
+            and tex_baseline <= self._tex_baseline_from_bottom
+        ):
+            return
+        self._tex_baseline_from_bottom = tex_baseline
+        self._word_baseline_from_bottom = word_baseline
 
     def finalizeVerticalPosition(self, line_baseline: Dimen=Dimen(), word_line_baseline: Dimen=Dimen()):
         if self._tex_baseline_from_bottom is None and not self.has_text_glyphs:
@@ -508,7 +621,7 @@ class TextRun(reflow.TextRun):
         self._node._element.append(drawing)
         if not isinstance(self.line.story, Cell):
             baseline = box.height if isinstance(box, bx.VTop) else box.depth
-            self.setBaselineFromBottom(baseline)
+            self.setBaselineFromBottom(baseline + self.line.current_baseline_shift)
         self.nodes.append(block)
         return block
 
@@ -522,9 +635,13 @@ class TextRun(reflow.TextRun):
         self.text = None
         document = _story_document(self.line.story)
         payload = backend.inlineMathSvg(box)
-        placeholder, media_name = document.defineInlineSvg(payload)
-        drawing_id = document.nextDrawingId()
         visual_height = box.height + box.depth
+        fallback_placeholder, svg_placeholder, media_name = document.defineInlineSvg(
+            payload,
+            width=box.width,
+            height=visual_height,
+        )
+        drawing_id = document.nextDrawingId()
         drawing = parse_xml(
             _picture_xml(
                 _emu(box.width),
@@ -533,13 +650,14 @@ class TextRun(reflow.TextRun):
                 0,
                 0,
                 0,
-                placeholder,
+                fallback_placeholder,
+                svg_placeholder,
                 drawing_id,
                 media_name,
             )
         )
         if baseline_position:
-            self.setBaselineFromBottom(box.depth)
+            self.setBaselineFromBottom(box.depth + backend.currentLineBaselineShift())
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
         picture = reflow.Element(drawing)
@@ -551,31 +669,36 @@ class TextRun(reflow.TextRun):
         height = request.height or asset.height
         if width is None or height is None:
             return None
-        payload = backend.graphicSvgPayload(asset)
+        payload = backend.graphicSvgPayload(asset, width, height)
         if payload is None:
             return None
+        visual_height = height + asset.depth
         standalone_graphic_line = not self.line.has_visible_content
         self.line.applyLeadingSpacing()
         self.text = None
         document = _story_document(self.line.story)
-        placeholder, media_name = document.defineInlineSvg(payload)
+        fallback_placeholder, svg_placeholder, media_name = document.defineInlineSvg(
+            payload,
+            width=width,
+            height=visual_height,
+        )
         drawing_id = document.nextDrawingId()
-        visual_height = height + asset.depth
+        visual_cy = _twip_emu(visual_height) if standalone_graphic_line else _emu(visual_height)
         drawing = parse_xml(
             _picture_xml(
                 _emu(width),
-                _emu(visual_height),
-                _emu(visual_height),
+                visual_cy,
+                visual_cy,
                 0,
                 0,
                 0,
-                placeholder,
+                fallback_placeholder,
+                svg_placeholder,
                 drawing_id,
                 media_name,
             )
         )
-        if int(asset.depth) != 0:
-            self.setBaselineFromBottom(asset.depth)
+        self.setBaselineFromBottom(asset.depth + backend.currentLineBaselineShift())
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
         if standalone_graphic_line:
@@ -623,7 +746,8 @@ class Line(reflow.Line):
         self.leading_spacing = Dimen()
         self.has_visible_content = False
         self.has_text_glyphs = False
-        self.word_baseline_from_bottom = Dimen()
+        self.word_baseline_from_bottom = None
+        self.current_baseline_shift = Dimen()
         self._setLineHeight(self.line_height)
         fmt = para.paragraph_format
         assert int(line_spec.spacing_before) >= 0, f"negative spacing{line_spec.spacing_before}"
@@ -631,6 +755,7 @@ class Line(reflow.Line):
         fmt.space_before = Twips(_twips(self.spacing_before))
         fmt.space_after = Pt(0)
         self.font = line_spec.default_font
+        self.registerWordBaseline(self.font)
         self.width = line_spec.line_box.rightmost()
         self.line_id = line_id
 
@@ -658,33 +783,31 @@ class Line(reflow.Line):
             self.has_text_glyphs = True
         return run
 
+    def registerWordBaseline(self, font):
+        baseline = _font_word_baseline_from_bottom(font, self.line_height)
+        if baseline is None:
+            return
+        if self.word_baseline_from_bottom is None or baseline < self.word_baseline_from_bottom:
+            self.word_baseline_from_bottom = baseline
+
     def setTextBaselineFromBottom(self, baseline: Dimen):
         baseline = Dimen(baseline)
         self.has_text_glyphs = True
-        if baseline > self.word_baseline_from_bottom:
+        if self.word_baseline_from_bottom is None:
             self.word_baseline_from_bottom = baseline
+
+    def setCurrentBaselineShift(self, shift: Dimen):
+        saved = self.current_baseline_shift
+        self.current_baseline_shift = Dimen(shift)
+        return saved
 
     def finalizeLine(self):
         line_baseline = self.line_spec.line_box.depth
-        word_line_baseline = self.word_baseline_from_bottom if self.has_text_glyphs else Dimen()
-        top_protrusion = Dimen()
-        bottom_protrusion = Dimen()
+        word_line_baseline = self.word_baseline_from_bottom or Dimen()
         for run in self.nodes:
             finalize = getattr(run, "finalizeVerticalPosition", None)
             if finalize is not None:
-                position = finalize(line_baseline, word_line_baseline)
-                if position is None:
-                    continue
-                if position > top_protrusion:
-                    top_protrusion = position
-                if -position > bottom_protrusion:
-                    bottom_protrusion = -position
-        if isinstance(self.story, Cell):
-            return
-        if int(top_protrusion) > 0:
-            self._node.paragraph_format.space_before = Twips(_twips(self.spacing_before + top_protrusion))
-        if int(bottom_protrusion) > 0:
-            self.setLineHeight(self.line_height + bottom_protrusion)
+                finalize(line_baseline, word_line_baseline)
     
     def addInlineDrawing(self, drawing):
         self.inline_drawings.append(drawing)
@@ -729,9 +852,9 @@ class Line(reflow.Line):
     def applyLeadingSpacing(self):
         if self.has_visible_content:
             return
-        if int(self.leading_spacing) != 0:
+        if int(self.leading_spacing) > 0:
             self._node.paragraph_format.left_indent = Twips(_twips(self.leading_spacing))
-            self.leading_spacing = Dimen()
+        self.leading_spacing = Dimen()
         self.has_visible_content = True
 
 
@@ -763,6 +886,7 @@ class AnnotationLine(reflow.Line):
         self.line_height = parent.line_height
         self.leading_spacing = Dimen()
         self.has_visible_content = False
+        self.current_baseline_shift = parent.current_baseline_shift
 
     def newTextRun(self, font, color) -> TextRun:
         run = TextRun(self, font=font, color=color)
@@ -772,6 +896,11 @@ class AnnotationLine(reflow.Line):
 
     def setTextBaselineFromBottom(self, baseline: Dimen):
         self.parent.setTextBaselineFromBottom(baseline)
+
+    def setCurrentBaselineShift(self, shift: Dimen):
+        saved = self.parent.setCurrentBaselineShift(shift)
+        self.current_baseline_shift = Dimen(shift)
+        return saved
 
     def newSpace(self, width: Dimen, breakable: bool):
         if not self.has_visible_content and not self.parent.has_visible_content:
@@ -916,7 +1045,7 @@ class Row(reflow.Row):
         self._node.height = Twips(max(1, _twips(height)))
         self._node.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
 
-    def newCell(self, span=1, width=None, justify="justify") -> Cell:
+    def newCell(self, span=1, width=None, relative_width=None, justify="justify") -> Cell:
         node = self.table._wordCell(self._node, self._cell_index, span, width)
         self._cell_index += span
         cell = Cell(self, node, span=span, width=width, justify=justify)
@@ -1251,9 +1380,12 @@ class EmbeddedFont:
 
 @dataclass
 class InlineSvgPicture:
-    placeholder: str
+    svg_placeholder: str
     media_name: str
     payload: bytes
+    fallback_placeholder: str = None
+    fallback_media_name: str = None
+    fallback_payload: bytes = None
 
 
 class DisplayMathPictureBox:
@@ -1344,12 +1476,27 @@ class Document(reflow.Document):
     def definePicture(self, key, type, path):
         return None
 
-    def defineInlineSvg(self, payload: bytes):
+    def defineInlineSvg(self, payload: bytes, width=None, height=None, use_svg=True):
         index = len(self._inline_svg_pictures) + 1
-        placeholder = f"pytexInlineSvg{index}"
+        svg_placeholder = f"pytexInlineSvg{index}"
+        fallback_placeholder = f"pytexInlinePng{index}"
         media_name = f"pytex-inline-math-{index}.svg"
-        self._inline_svg_pictures[placeholder] = InlineSvgPicture(placeholder, media_name, payload)
-        return placeholder, media_name
+        fallback_media_name = f"pytex-inline-math-{index}.png"
+        fallback_payload = _svg_png_fallback(payload)
+        if not use_svg and fallback_payload is not None:
+            svg_placeholder = None
+            media_name = None
+        key = svg_placeholder or fallback_placeholder
+        self._inline_svg_pictures[key] = InlineSvgPicture(
+            svg_placeholder,
+            media_name,
+            payload,
+            fallback_placeholder=fallback_placeholder if fallback_payload is not None else svg_placeholder,
+            fallback_media_name=fallback_media_name if fallback_payload is not None else media_name,
+            fallback_payload=fallback_payload if fallback_payload is not None else payload,
+        )
+        fallback_reference = fallback_placeholder if fallback_payload is not None else svg_placeholder
+        return fallback_reference, svg_placeholder, media_name or fallback_media_name
 
     def save(self):
         buffer = BytesIO()
@@ -1428,17 +1575,35 @@ class Document(reflow.Document):
         media_parts = {}
         relationship_ids = {}
         for picture in self._inline_svg_pictures.values():
-            rid = f"rId{next_rid}"
-            next_rid += 1
-            media_name = self._uniqueMediaName(picture.media_name, existing_media | set(media_parts))
-            target = f"media/{media_name}"
-            part_name = f"word/{target}"
-            relationship_ids[picture.placeholder] = rid
-            media_parts[part_name] = picture.payload
-            self._appendImageRelationship(rels, rid, target)
+            if picture.fallback_placeholder != picture.svg_placeholder:
+                fallback_rid = f"rId{next_rid}"
+                next_rid += 1
+                fallback_media_name = self._uniqueMediaName(
+                    picture.fallback_media_name,
+                    existing_media | set(media_parts),
+                )
+                fallback_target = f"media/{fallback_media_name}"
+                fallback_part_name = f"word/{fallback_target}"
+                relationship_ids[picture.fallback_placeholder] = fallback_rid
+                media_parts[fallback_part_name] = picture.fallback_payload
+                self._appendImageRelationship(rels, fallback_rid, fallback_target)
+
+            if picture.svg_placeholder is not None:
+                svg_media_name = self._uniqueMediaName(
+                    picture.media_name,
+                    existing_media | set(media_parts),
+                )
+                svg_target = f"media/{svg_media_name}"
+                svg_part_name = f"word/{svg_target}"
+                svg_rid = f"rId{next_rid}"
+                next_rid += 1
+                relationship_ids[picture.svg_placeholder] = svg_rid
+                media_parts[svg_part_name] = picture.payload
+                self._appendImageRelationship(rels, svg_rid, svg_target)
         for placeholder, rid in sorted(relationship_ids.items(), key=lambda item: len(item[0]), reverse=True):
             document_xml = document_xml.replace(placeholder, rid)
         self._ensureContentType(content_types, "svg", _SVG_CONTENT_TYPE)
+        self._ensureContentType(content_types, "png", "image/png")
         return {
             "word/document.xml": document_xml.encode("utf-8"),
             "word/_rels/document.xml.rels": _xml_bytes(rels),
@@ -1770,61 +1935,6 @@ class DocxBackend(reflow.Reflow):
                 elif node_type == nd.NODE_TYPE.HLIST:
                     self.typesetHBox(node, xspacing=xspacing, yspacing=spacing)
 
-    def typesetHAlignment(self, node: align.HAlignment, collection, yspacing, glue_state=None):
-        self._require_builder("typesetHAlignment", "newRow")
-
-        def noalign(table, vlist, columns):
-            for n in vlist:
-                if n.node_type == nd.NODE_TYPE.WHATSIT:
-                    n.output(self.parser, self)
-
-        columns = node.columns() + len(node.tabskips)
-        table: Table = self.builder
-        row_specs = list(self._alignment_row_specs(collection, yspacing, glue_state))
-        if node.noalign:
-            noalign(table, node.noalign, columns)
-        full_width = None
-        for row_index, row in enumerate(node.rows):
-            row_box, spacing_before = row_specs[row_index] if row_index < len(row_specs) else (None, Dimen())
-            if row_box is not None and (full_width is None or row_box.width > full_width):
-                full_width = row_box.width
-            tabskips = self._alignment_tabskip_widths(node, row_box)
-            cell_specs = []
-            col = 1
-            for cell in row.cells:
-                render_cell, cell_width, left_overhang = self._alignment_cell_docx_box(cell)
-                if int(left_overhang) > 0:
-                    tabskip_index = col - 1
-                    if tabskip_index < len(tabskips):
-                        tabskips[tabskip_index] = max(Dimen(), tabskips[tabskip_index] - left_overhang)
-                cell_specs.append((cell, render_cell, cell_width, col))
-                col += cell.span
-            tr = table.newRow(row_box=row_box, spacing_before=spacing_before)
-            with reflow.Builder(self, tr):
-                if tabskips:
-                    self.builder.newCell(width=tabskips[0])
-                for cell, render_cell, cell_width, col in cell_specs:
-                    cell_alignment = self._hbox_alignment_glue_state(render_cell, allow_unset=True)
-                    td = self.builder.newCell(
-                        cell.span,
-                        width=cell_width,
-                        justify=self._hbox_justification(render_cell, allow_unset=True),
-                    )
-                    para = td.newParagraph()
-                    with reflow.ParagraphBuilder(self, para):
-                        line_box = row_box if row_box is not None else render_cell
-                        line_spec = reflow.LineSpec(line_box, spacing_before=Dimen(), color=self.color, default_font=self.parser.parameters["currentfont"])
-                        line = para.newLine(line_spec)
-                        with reflow.LineBuilder(self, line):
-                            self.typesetLine(render_cell, alignment_state=cell_alignment)
-                    if col < len(tabskips):
-                        self.builder.newCell(width=tabskips[col])
-                if row.noalign:
-                    noalign(table, row.noalign, columns)
-        if full_width is not None and hasattr(table, "setFullWidth"):
-            table.setFullWidth(full_width)
-        return table
-
     def typesetInlineVBox(self, box: bx.Box):
         if int(box.width) == 0:
             return None
@@ -1855,17 +1965,24 @@ class DocxBackend(reflow.Reflow):
                 return request.width or asset.width
 
     @staticmethod
-    def graphicSvgPayload(asset):
+    def graphicSvgPayload(asset, width=None, height=None):
         if asset.data is not None:
             if isinstance(asset.data, str):
-                return asset.data.encode("utf-8")
-            return asset.data
+                payload = asset.data.encode("utf-8")
+            else:
+                payload = asset.data
+            if width is not None and height is not None:
+                payload = _retarget_svg_size(payload, Dimen(width), Dimen(height))
+            return payload
         if asset.path is None:
             return None
         try:
-            return Path(asset.path).read_bytes()
+            payload = Path(asset.path).read_bytes()
         except OSError:
             return None
+        if width is not None and height is not None:
+            payload = _retarget_svg_size(payload, Dimen(width), Dimen(height))
+        return payload
 
     def typesetTrailingVListSpacing(self, spacing: Dimen, top_level: bool=False):
         if not top_level or int(spacing) >= 0:

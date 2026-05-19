@@ -7,7 +7,6 @@ from pathlib import Path
 import platform
 import re
 import shutil
-import warnings
 
 from pytex import align
 from pytex import box as bx
@@ -276,15 +275,13 @@ class Graphic(StyledNode, reflow.Element):
 
 
 class Cell(StyledNode, reflow.Cell):
-    def __init__(self, span, width, justify: str="justify"):
+    def __init__(self, span, width, relative_width=None, justify: str="justify"):
         StyledNode.__init__(self)
         reflow.Cell.__init__(self, builder.TD(), span, width, justify)
-        if width is None:
-            width = "auto"
-        elif isinstance(width, Dimen):
-            width = reflow.PT(width)
+        if relative_width is None:
+            width = "auto" if width is None else reflow.PT(width)
         else:
-            width = f"{width*100}%"
+            width = f"{relative_width*100}%"
         self.style["width"] = width
         text_align = justify
         if text_align == "justified":
@@ -308,8 +305,8 @@ class Row(StyledNode, reflow.Row):
         reflow.Row.__init__(self, tr)
         self.style["width"] = "100%"
 
-    def newCell(self, span=1, width=None, justify="justify") -> Cell:
-        td = Cell(span, width, justify)
+    def newCell(self, span=1, width=None, relative_width=None, justify="justify") -> Cell:
+        td = Cell(span, width, relative_width, justify)
         self.append(td)
         return td
 
@@ -1070,15 +1067,15 @@ class HTMLReflowBackend(reflow.Reflow):
         if left:
             mark = row.newCell()
             mark.append(eqno)
-            row.newCell(width=0.5)
+            row.newCell(relative_width=0.5)
             body = row.newCell()
             body.append(math)
             row.newCell(width=0.5)
         else:
-            row.newCell(width=0.5)
+            row.newCell(relative_width=0.5)
             body = row.newCell()
             body.append(math)
-            row.newCell(width=0.5)
+            row.newCell(relative_width=0.5)
             mark = row.newCell()
             mark.append(eqno)
         self.builder.append(table)
@@ -1109,7 +1106,8 @@ class HTMLReflowBackend(reflow.Reflow):
         container._node.set("id", name)
 
     def rawSpecial(self, text):
-        warnings.warn(f"unknown special: {text}")
+        pass
+
 
 def init(parser):
 #    font_subst.installFontSubstitution(parser)

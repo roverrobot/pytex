@@ -473,6 +473,29 @@ class OpenTypeBackend(FontBackend):
             return space.width
         return self._scaled(self.units_per_em // 3)
 
+    def lineBaselineFromBottom(self, font_size, line_height, round_total=None):
+        hhea = self.font.get("hhea")
+        if hhea is None:
+            return None
+        ascent = max(0, getattr(hhea, "ascent", 0))
+        descent = max(0, -getattr(hhea, "descent", 0))
+        line_gap = max(0, getattr(hhea, "lineGap", 0))
+        total_units = ascent + descent + line_gap
+        if total_units <= 0:
+            return None
+        if descent <= 0:
+            return 0.0
+
+        font_size = float(font_size)
+        line_height = float(line_height)
+        descent_size = descent / self.units_per_em * font_size
+        total_size = total_units / self.units_per_em * font_size
+        if round_total is not None:
+            total_size = round_total(total_size)
+        if total_size <= 0:
+            return None
+        return line_height * descent_size / total_size
+
     def _xHeight(self):
         if self._x_height is not None:
             return self._x_height

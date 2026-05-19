@@ -231,7 +231,7 @@ class Cell(Element):
 
 
 class Row(Element):
-    def newCell(self, span=1, width=None, justify="justify") -> Cell:
+    def newCell(self, span=1, width=None, relative_width=None, justify="justify") -> Cell:
         pass
 
 
@@ -499,6 +499,7 @@ class Reflow(shipout.Shipout):
         self.in_line = False
         self._last_graphic_advance = None
         self._inline_paint_flush = None
+        self._line_baseline_shift_stack: list[Dimen] = []
 
     support_annotation = False
 
@@ -1214,25 +1215,63 @@ class Reflow(shipout.Shipout):
                 spacing = Dimen()
         return specs
 
-    def _alignment_tabskip_widths(self, node: align.HAlignment, row_box):
-        glue_state = self._glue_state(row_box) if row_box is not None else None
-        widths = []
-        for tabskip in node.tabskips:
-            glue_node = nd.Glue(tabskip, "\\tabskip")
-            if glue_state is None:
-                widths.append(tabskip.dimen)
-            else:
-                widths.append(Dimen(integer=self._glue_amount(glue_node, row_box, glue_state)))
-        return widths
+    def _zero_width_hbox_true_width(self, box):
+        # returns the true width of an hbox, which is the width of the content if the hbox has zero width but negative spread
+        if int(box.width) != 0 or not box.list:
+            return box.width
+        if int(box.spread) != 0:
+            return box.spread
+        # now we need to walk into the content to calculate the true width
+        true_width = Dimen()
+        glue_state = self._glue_state(box)
+        for n in box.list:
+            if n.node_type == nd.NODE_TYPE.HLIST:
+                true_width += self._zero_width_hbox_true_width(n)
+            elif n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.RULE):
+                true_width += n.width
+            elif n.node_type == nd.NODE_TYPE.GLUE:
+                amount = self._glue_amount(n, box, glue_state)
+                true_width += Dimen(integer=amount)
+            elif n.node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
+                true_width += n.kern
+        return true_width
 
-    def _alignment_cell_width(self, cell):
-        width = getattr(cell, "width", None)
-        if width is not None:
-            return width
-        rightmost = getattr(cell, "rightmost", None)
-        if callable(rightmost):
-            return rightmost()
-        return None
+    def _alignment_widths(self, row_box):
+        # returns width, relative_width, cell (or None if it is a glue)
+        assert row_box is not None
+        glue_state = self._glue_state(row_box)
+        cells = []
+        total_glue = Dimen()
+        for n in row_box.list:
+            if n.node_type == nd.NODE_TYPE.GLUE:
+                width = Dimen(integer=self._glue_amount(n, row_box, glue_state))
+                cells.append((width, None))
+                total_glue += width
+            else:
+                assert n.node_type == nd.NODE_TYPE.HLIST
+                cells.append((n.width, n))
+        widths = []
+        left_over = Dimen()
+        for i in range(len(cells)):
+            width, cell = cells[i]
+            if cell is None:
+                widths.append((width-left_over, float(width)/total_glue if int(total_glue) != 0 else None, None))
+                left_over = Dimen()
+                continue
+            if cell.width == 0:
+                w = self._zero_width_hbox_true_width(cell)
+                if int(w) > 0:
+                    widths.append((width-left_over, None, cell))
+                    left_over += w
+                    continue
+                if int(w) < 0:
+                    # We need to subtract the width of the previous cell
+                    width = -w
+                    if i > 0:
+                        prev_width, prev_rel, prev_cell = widths[i - 1]
+                        widths[i - 1] = (prev_width - width, prev_rel, prev_cell)
+            widths.append((width, None, cell))
+        return widths
 
     def typesetHAlignment(self, node: align.HAlignment, collection, yspacing, glue_state=None):
         self._require_builder("typesetHAlignment", "newRow")
@@ -1250,30 +1289,27 @@ class Reflow(shipout.Shipout):
         if node.noalign:
             noalign(table, node.noalign, columns)
         for row in node.rows:
+            cells = iter(row.cells)
             row_box, spacing_before = next(row_specs, (None, Dimen()))
-            tabskips = self._alignment_tabskip_widths(node, row_box)
+            widths = self._alignment_widths(row_box)
             tr = table.newRow(row_box=row_box, spacing_before=spacing_before)
             with Builder(self, tr):
-                if tabskips:
-                    self.builder.newCell(width=tabskips[0])
-                col = 1
-                for cell in row.cells:
+                for width, relative_width, cell in widths:
+                    if cell is None:
+                        self.builder.newCell(width=width, relative_width=relative_width)
+                        continue
                     cell_alignment = self._hbox_alignment_glue_state(cell, allow_unset=True)
                     td = self.builder.newCell(
-                        cell.span,
-                        width=self._alignment_cell_width(cell),
+                        next(cells).span,
+                        width=width,
                         justify=self._hbox_justification(cell, allow_unset=True),
                     )
                     para = td.newParagraph()
                     with ParagraphBuilder(self, para):
-                        line_box = row_box if row_box is not None else cell
-                        line_spec = LineSpec(line_box, spacing_before=Dimen(), color=self.color, default_font=self.parser.parameters["currentfont"])
+                        line_spec = LineSpec(cell, spacing_before=Dimen(), color=self.color, default_font=self.parser.parameters["currentfont"])
                         line = para.newLine(line_spec)
                         with LineBuilder(self, line):
                             self.typesetLine(cell, alignment_state=cell_alignment)
-                    if col < len(tabskips):
-                        self.builder.newCell(width=tabskips[col])
-                    col += cell.span
                 if row.noalign:
                     noalign(table, row.noalign, columns)
 
@@ -1317,6 +1353,11 @@ class Reflow(shipout.Shipout):
         text_box = bx.HBox(self.parser, None, None)
         text_box.list = text_nodes
         return text_box.typeset(self.parser)
+
+    def currentLineBaselineShift(self):
+        if not self._line_baseline_shift_stack:
+            return Dimen()
+        return Dimen(self._line_baseline_shift_stack[-1])
 
     def _hbox_alignment_glue_state(self, box, allow_unset=False):
         glue_state = self._glue_state(box)
@@ -1436,6 +1477,7 @@ class Reflow(shipout.Shipout):
         glue_state=None,
         inline=False, # if inline is True, it is from an inline \hbox, and so we need to keep the right spacing
         alignment_state=None,
+        line_baseline_shift=None,
     ):
         def typeset_inline_math(node: mmode.InlineMathNode, math_box, piece):
             if len(node.list) == 1:
@@ -1484,10 +1526,24 @@ class Reflow(shipout.Shipout):
                 nodes = line.list if self.paginate else self._hbox_line_nodes(line, alignment_state=alignment_state)
             if glue_state is None:
                 glue_state = self._glue_state(line)
+        if line_baseline_shift is None:
+            line_baseline_shift = self.currentLineBaselineShift() if inline else Dimen()
+        line_baseline_shift = Dimen(line_baseline_shift)
+        self._line_baseline_shift_stack.append(line_baseline_shift)
+        set_current_shift = getattr(self.builder, "setCurrentBaselineShift", None)
+        saved_current_shift = None
+        if set_current_shift is not None:
+            saved_current_shift = set_current_shift(line_baseline_shift)
         inline_math_nodes = []
         emitted_advance = Dimen()
         pending_effective_kern = Dimen()
         pending_breakable = False
+
+        def finish(result):
+            if set_current_shift is not None:
+                set_current_shift(saved_current_shift)
+            self._line_baseline_shift_stack.pop()
+            return result
 
         text_box = self._line_text_box(nodes)
         if text_box is not None:
@@ -1551,7 +1607,12 @@ class Reflow(shipout.Shipout):
                 flush_pending_effective_kern()
                 self._define_font_once(n.font)
                 self.builder.setFont(n.font)
-                self.builder.textRun().setChar(n)
+                text_run = self.builder.textRun()
+                text_run.setChar(n)
+                if int(line_baseline_shift) != 0:
+                    set_baseline = getattr(text_run, "setBaselineFromBottom", None)
+                    if set_baseline is not None:
+                        set_baseline(n.depth + line_baseline_shift, word_baseline=n.depth)
                 record_paint(n.width, n.width)
             elif node_type == nd.NODE_TYPE.MATH:
                 assert n.on
@@ -1563,12 +1624,32 @@ class Reflow(shipout.Shipout):
                     emit_spacing(n.width, breakable=False)
                     continue
                 flush_pending_effective_kern()
-                child_advance = self.typesetLine(n, glue_state=self._glue_state(n), inline=True)
+                child_shift = line_baseline_shift + self._node_shift(n)
+                if int(self._node_shift(n)) != 0:
+                    self.builder.textRun(new=True)
+                child_advance = self.typesetLine(
+                    n,
+                    glue_state=self._glue_state(n),
+                    inline=True,
+                    line_baseline_shift=child_shift,
+                )
+                if int(self._node_shift(n)) != 0:
+                    self.builder.textRun(new=True)
                 record_paint(n.width, child_advance.emitted)
             elif node_type == nd.NODE_TYPE.VLIST:
                 flush_pending_effective_kern()
-                with Builder(self, self.builder.textRun(new=True)):
-                    self.typesetInlineVBox(n)
+                vbox_shift = line_baseline_shift + self._node_shift(n)
+                self._line_baseline_shift_stack.append(vbox_shift)
+                saved_vbox_shift = None
+                if set_current_shift is not None:
+                    saved_vbox_shift = set_current_shift(vbox_shift)
+                try:
+                    with Builder(self, self.builder.textRun(new=True)):
+                        self.typesetInlineVBox(n)
+                finally:
+                    if set_current_shift is not None:
+                        set_current_shift(saved_vbox_shift)
+                    self._line_baseline_shift_stack.pop()
                 self.builder.container._text_run = None
                 record_paint(n.width, n.width)
             elif n.node_type == nd.NODE_TYPE.WHATSIT:
@@ -1593,11 +1674,11 @@ class Reflow(shipout.Shipout):
             # we increment the piece by 1 in the new line
             self.paragraph.inline_math_segment += 1
         if inline:
-            return LineAdvance(emitted_advance, pending_effective_kern, pending_breakable)
+            return finish(LineAdvance(emitted_advance, pending_effective_kern, pending_breakable))
         if self.paginate:
-            return LineAdvance(emitted_advance, Dimen(), False)
+            return finish(LineAdvance(emitted_advance, Dimen(), False))
         flush_pending_effective_kern()
-        return LineAdvance(emitted_advance, Dimen(), False)
+        return finish(LineAdvance(emitted_advance, Dimen(), False))
 
     def typesetInlineVBox(self, box: bx.Box):
         self._require_builder("typesetInlineVBox", "newInlineVBox")

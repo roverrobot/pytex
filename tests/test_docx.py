@@ -66,9 +66,32 @@ class _FakeBackend:
         return 0.5
 
 
+class _FakeWordBaselineBackend(_FakeBackend):
+    def __init__(self, baseline, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.baseline = baseline
+
+    def lineBaselineFromBottom(self, font_size, line_height, round_total=None):
+        return self.baseline
+
+
 class _FakeFont(txfont.Font):
     def __init__(self, name="Fake Roman", size=10, kind="fake", path=None, font_number=0):
         super().__init__(_FakeBackend(name, kind=kind, path=path, font_number=font_number), Dimen(size))
+
+
+class _FakeWordBaselineFont(txfont.Font):
+    def __init__(self, baseline, name="Fake Roman", size=10, kind="fake", path=None, font_number=0):
+        super().__init__(
+            _FakeWordBaselineBackend(
+                baseline,
+                name=name,
+                kind=kind,
+                path=path,
+                font_number=font_number,
+            ),
+            Dimen(size),
+        )
 
 
 class _FakeHBox:
@@ -535,11 +558,14 @@ def test_docx_epdf_graphic_special_converts_to_svg_picture(parser, monkeypatch):
     data = _docx_bytes(parser, backend)
 
     xml = _document_xml(data)
-    assert "asvg:svgBlip" in xml
+    assert "<asvg:svgBlip" in xml
+    assert "<a14:useLocalDpi" in xml
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        media = [name for name in zf.namelist() if name.startswith("word/media/") and name.endswith(".svg")]
+        media = [name for name in zf.namelist() if name.startswith("word/media/") and name.endswith(".png")]
+        svg_media = [name for name in zf.namelist() if name.startswith("word/media/") and name.endswith(".svg")]
         assert len(media) == 1
-        assert b"<svg" in zf.read(media[0])
+        assert len(svg_media) == 1
+        assert zf.read(media[0]).startswith(b"\x89PNG")
 
 
 def test_docx_standalone_graphic_line_keeps_normal_edge_spacing(parser, monkeypatch):
@@ -585,6 +611,14 @@ def test_docx_standalone_graphic_line_keeps_normal_edge_spacing(parser, monkeypa
     assert para.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
     xml = _document_xml(data)
     assert "<w:drawing" in xml
+    first_spacing = re.search(r"<w:p><w:pPr><w:spacing([^>]*)/>", xml)
+    assert first_spacing is not None
+    assert 'w:after="0"' in first_spacing.group(1)
+    assert 'w:lineRule="exact"' in first_spacing.group(1)
+    assert f'w:line="{docx._twips(Dimen(36))}"' in first_spacing.group(1)
+    wp_extent = re.search(r'<wp:extent\b[^>]*\bcy="([^"]+)"', xml)
+    assert wp_extent is not None
+    assert int(wp_extent.group(1)) == docx._twip_emu(Dimen(36))
 
 
 def test_docx_graphic_followed_by_text_keeps_normal_space(parser, monkeypatch):
@@ -623,6 +657,65 @@ def test_docx_graphic_followed_by_text_keeps_normal_space(parser, monkeypatch):
 
     assert document.paragraphs[0].text == " A"
     assert document.paragraphs[0].paragraph_format.right_indent is None
+
+
+def test_docx_graphic_inside_shifted_hbox_uses_parent_baseline(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
+    graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
+    graphic_box.shifted = Dimen(4)
+    line = _FakeHBox([graphic_box], source=source, width=72, height=36, depth=7)
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    expected_position = docx.half_pt(line.depth - graphic_box.shifted)
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
+
+
+def test_docx_graphic_line_uses_word_font_baseline(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser, _FakeWordBaselineFont(7))
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
+    graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
+    line = _FakeHBox([graphic_box], source=source, width=72, height=36, depth=0)
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    expected_position = docx.half_pt(line.depth - Dimen(7))
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
 
 
 def test_docx_inline_vbox_preserves_local_center_alignment(parser):
@@ -893,9 +986,43 @@ def test_docx_inline_svg_placeholders_do_not_collide_after_ninth_picture(parser,
         )
     )
     assert "pytexInlineSvg" not in document_xml
-    assert len(embed_ids) == 12
+    assert len(embed_ids) == 24
     assert embed_ids <= image_rel_ids
     assert len([name for name in names if name.startswith("word/media/") and name.endswith(".svg")]) == 12
+    assert len([name for name in names if name.startswith("word/media/") and name.endswith(".png")]) == 12
+
+
+def test_docx_inline_math_inside_shifted_hbox_uses_parent_baseline(parser, monkeypatch):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    owner = mmode.InlineMathNode(nodes=[_math_atom("x")])
+    on = nd.MathShift(True)
+    on.source = owner
+    on.kern = Dimen()
+    off = nd.MathShift(False)
+    off.source = owner
+    off.kern = Dimen()
+    inner = _FakeHBox([on, nd.CharNode("x", font), off], width=10, height=8, depth=3)
+    inner.shifted = Dimen(2)
+    line = _FakeHBox([inner], para, width=10, height=6, depth=5)
+
+    captured = {}
+
+    def fake_svg(box):
+        captured["box"] = box
+        return b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+
+    monkeypatch.setattr(backend, "inlineMathSvg", fake_svg)
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    expected_position = docx.half_pt(line.depth - captured["box"].depth - inner.shifted)
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
 
 
 def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
@@ -1151,6 +1278,25 @@ def test_docx_inline_vbox_uses_depth_position(parser):
     xml = _document_xml(_docx_bytes(parser, backend))
     assert "<w:drawing" in xml
     expected_position = docx.half_pt(line.depth - char.depth - vbox.depth)
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
+
+
+def test_docx_inline_vbox_inside_shifted_hbox_uses_parent_baseline(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    vbox = _FakeVBox([], width=20, height=8, depth=3)
+    shifted = _FakeHBox([vbox], width=20, height=8, depth=3)
+    shifted.shifted = Dimen(2)
+    line = _FakeHBox([shifted], para, width=20, height=6, depth=7)
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    expected_position = docx.half_pt(line.depth - vbox.depth - shifted.shifted)
     drawing_runs = _drawing_runs(xml)
     assert len(drawing_runs) == 1
     assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]

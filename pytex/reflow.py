@@ -1215,26 +1215,52 @@ class Reflow(shipout.Shipout):
                 spacing = Dimen()
         return specs
 
-    def _zero_width_hbox_true_width(self, box):
-        # returns the true width of an hbox, which is the width of the content if the hbox has zero width but negative spread
-        if int(box.width) != 0 or not box.list:
-            return box.width
-        if int(box.spread) != 0:
-            return box.spread
-        # now we need to walk into the content to calculate the true width
-        true_width = Dimen()
+    def _hbox_extent(self, box):
+        x = Dimen()
+        left = None
+        right = None
         glue_state = self._glue_state(box)
-        for n in box.list:
-            if n.node_type == nd.NODE_TYPE.HLIST:
-                true_width += self._zero_width_hbox_true_width(n)
-            elif n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.RULE):
-                true_width += n.width
-            elif n.node_type == nd.NODE_TYPE.GLUE:
-                amount = self._glue_amount(n, box, glue_state)
-                true_width += Dimen(integer=amount)
-            elif n.node_type in (nd.NODE_TYPE.KERN, nd.NODE_TYPE.MATH):
-                true_width += n.kern
-        return true_width
+        for node in getattr(box, "list", ()):
+            node_type = getattr(node, "node_type", None)
+            if node_type == nd.NODE_TYPE.GLUE:
+                if glue_state is None:
+                    x += node.glue.dimen
+                else:
+                    x += Dimen(integer=self._glue_amount(node, box, glue_state))
+                continue
+            if node_type == nd.NODE_TYPE.KERN:
+                x += node.kern
+                continue
+            if node_type == nd.NODE_TYPE.PENALTY:
+                continue
+            if node_type == nd.NODE_TYPE.MATH:
+                x += getattr(node, "kern", Dimen())
+                continue
+            node_left, node_right = self._node_extent(node)
+            if left is None or x + node_left < left:
+                left = x + node_left
+            if right is None or x + node_right > right:
+                right = x + node_right
+            width = getattr(node, "width", None)
+            if width is not None:
+                x += width
+        if left is None:
+            return Dimen(), Dimen()
+        return left, right
+
+    def _node_extent(self, node):
+        if getattr(node, "node_type", None) == nd.NODE_TYPE.HLIST:
+            return self._hbox_extent(node)
+        width = getattr(node, "width", None)
+        if width is None:
+            return Dimen(), Dimen()
+        return Dimen(), Dimen(width)
+
+    def _subtract_previous_alignment_width(self, widths, amount):
+        if not widths or int(amount) == 0:
+            return
+        prev_width, prev_is_spacer, prev_cell = widths[-1]
+        widths[-1] = (prev_width - amount, prev_is_spacer, prev_cell)
 
     def _alignment_widths(self, row_box):
         # returns width, relative_width, cell (or None if it is a glue)
@@ -1251,27 +1277,32 @@ class Reflow(shipout.Shipout):
                 assert n.node_type == nd.NODE_TYPE.HLIST
                 cells.append((n.width, n))
         widths = []
-        left_over = Dimen()
+        debit_next = Dimen()
         for i in range(len(cells)):
             width, cell = cells[i]
+            width -= debit_next
+            debit_next = Dimen()
             if cell is None:
-                widths.append((width-left_over, float(width)/total_glue if int(total_glue) != 0 else None, None))
-                left_over = Dimen()
+                widths.append((width, True, None))
                 continue
             if cell.width == 0:
-                w = self._zero_width_hbox_true_width(cell)
-                if int(w) > 0:
-                    widths.append((width-left_over, None, cell))
-                    left_over += w
-                    continue
-                if int(w) < 0:
-                    # We need to subtract the width of the previous cell
-                    width = -w
-                    if i > 0:
-                        prev_width, prev_rel, prev_cell = widths[i - 1]
-                        widths[i - 1] = (prev_width - width, prev_rel, prev_cell)
-            widths.append((width, None, cell))
-        return widths
+                left, right = self._hbox_extent(cell)
+                if int(right - left) > 0:
+                    if int(left) < 0:
+                        self._subtract_previous_alignment_width(widths, -left)
+                    if int(right) > 0:
+                        debit_next += right
+                    width = right - left
+            widths.append((width, False, cell))
+        total_spacer = sum((width for width, is_spacer, _ in widths if is_spacer), Dimen())
+        return [
+            (
+                width,
+                float(width) / total_spacer if is_spacer and int(total_spacer) != 0 else None,
+                cell,
+            )
+            for width, is_spacer, cell in widths
+        ]
 
     def typesetHAlignment(self, node: align.HAlignment, collection, yspacing, glue_state=None):
         self._require_builder("typesetHAlignment", "newRow")
@@ -1429,11 +1460,12 @@ class Reflow(shipout.Shipout):
                 break
         if first is None or last is None:
             return [node for node in nodes if not is_alignment_glue(node)]
-        # remove all leading and trailing glues
+        # remove the leading/trailing alignment glues while preserving fixed
+        # template spacing that TeX has already measured.
         return (
-            [node for node in nodes[:first] if node.node_type != nd.NODE_TYPE.GLUE] 
+            [node for node in nodes[:first] if not is_alignment_glue(node)] 
             + nodes[first:last + 1]
-            + [node for node in nodes[last + 1:] if node.node_type != nd.NODE_TYPE.GLUE]
+            + [node for node in nodes[last + 1:] if not is_alignment_glue(node)]
         )
 
     def typesetParagraph(self,  para: Paragraph, _: paragraph.Paragraph, nodes: list, glue_state=None):

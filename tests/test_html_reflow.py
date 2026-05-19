@@ -116,9 +116,23 @@ def _typeset_hbox(parser, hbox, backend=None):
 def _typeset_alignment(parser, owner, yspacing=Dimen(), backend=None):
     backend, body = _open_body(parser, backend=backend)
     table = body.newTable(yspacing=yspacing)
+    collection = [_alignment_row_box(parser, owner, row) for row in owner.rows]
     with reflow.Builder(backend, table):
-        backend.typesetHAlignment(owner, collection=[], yspacing=yspacing)
+        backend.typesetHAlignment(owner, collection=collection, yspacing=yspacing)
     return table
+
+
+def _alignment_row_box(parser, owner, row):
+    nodes = []
+    for index, cell in enumerate(row.cells):
+        if index < len(owner.tabskips):
+            nodes.append(nd.Glue(owner.tabskips[index], None))
+        nodes.append(cell)
+    if len(owner.tabskips) > len(row.cells):
+        nodes.append(nd.Glue(owner.tabskips[len(row.cells)], None))
+    box = _node_box(parser, nodes)
+    box.source = owner
+    return box
 
 
 def test_reflow_generic_interface_builds_parent_created_tree():

@@ -212,6 +212,29 @@ def _alignment_cell(text, font, width=20):
     return box
 
 
+def _alignment_row_box(owner, row, width=None, height=8, depth=2):
+    nodes = []
+    natural_width = Dimen()
+    for index, cell in enumerate(row.cells):
+        if index < len(owner.tabskips):
+            glue_node = nd.Glue(owner.tabskips[index], None)
+            nodes.append(glue_node)
+            natural_width += owner.tabskips[index].dimen
+        nodes.append(cell)
+        natural_width += cell.width
+    if len(owner.tabskips) > len(row.cells):
+        glue_node = nd.Glue(owner.tabskips[len(row.cells)], None)
+        nodes.append(glue_node)
+        natural_width += owner.tabskips[len(row.cells)].dimen
+    return _FakeHBox(
+        nodes,
+        source=owner,
+        width=natural_width if width is None else width,
+        height=height,
+        depth=depth,
+    )
+
+
 def test_docx_init_selects_reflow_backend_and_bp_font_sizes(parser):
     docx.init(parser)
 
@@ -1158,7 +1181,10 @@ def test_docx_alignment_should_emit_word_table(parser):
     row2.cells = [_alignment_cell("c", font), _alignment_cell("d", font)]
     owner.rows = [row1, row2]
 
-    backend.shipout(_page_box([_FakeHBox([], source=owner)]))
+    backend.shipout(_page_box([
+        _alignment_row_box(owner, row1),
+        _alignment_row_box(owner, row2),
+    ]))
 
     data = _docx_bytes(parser, backend)
     document = WordDocument(io.BytesIO(data))
@@ -1190,7 +1216,7 @@ def test_docx_alignment_zero_width_overhang_cell_gets_visible_width(parser):
     row = align.Row()
     row.cells = [cell]
     owner.rows = [row]
-    row_box = _FakeHBox([], source=owner, width=100, height=10, depth=2)
+    row_box = _alignment_row_box(owner, row, height=10, depth=2)
 
     backend.shipout(_page_box([row_box]))
 
@@ -1210,6 +1236,38 @@ def test_docx_alignment_zero_width_overhang_cell_gets_visible_width(parser):
     assert "\xa0" not in "".join(cell_texts)
 
 
+def test_docx_alignment_zero_width_right_protrusion_takes_following_width(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    owner = align.HAlignment()
+    owner.tabskips = [Glue(Dimen(50)), Glue(Dimen(50))]
+    visible = bx.HBox(parser, None, 0)
+    visible.list = _char_nodes("1", font)
+    visible = visible.typeset(parser)
+    hss = Glue(Dimen(), Stretchness(Dimen(1), 1), Stretchness(Dimen(1), 1))
+    cell = bx.HBox(parser, Dimen(), None)
+    cell.list = [visible, nd.Glue(hss, None)]
+    cell = cell.typeset(parser)
+    cell.span = 1
+    row = align.Row()
+    row.cells = [cell]
+    owner.rows = [row]
+
+    backend.shipout(_page_box([_alignment_row_box(owner, row, height=10, depth=2)]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    grid_widths = [
+        value
+        for value in re.findall(r'<w:gridCol\b[^>]*\bw:w="(\d+)"', xml)
+    ]
+    assert grid_widths == [
+        docx.twips(Dimen(50)),
+        docx.twips(visible.width),
+        docx.twips(Dimen(50) - visible.width),
+    ]
+
+
 def test_docx_alignment_cell_inline_math_uses_table_row_baseline(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
@@ -1227,7 +1285,7 @@ def test_docx_alignment_cell_inline_math_uses_table_row_baseline(parser, monkeyp
     row = align.Row()
     row.cells = [cell]
     owner.rows = [row]
-    row_box = _FakeHBox([], source=owner, width=10, height=8, depth=3)
+    row_box = _alignment_row_box(owner, row, height=8, depth=3)
 
     captured = {}
 
@@ -1339,7 +1397,7 @@ def test_docx_alignment_span_merges_word_cells(parser):
     row.cells = [cell]
     owner.rows = [row]
 
-    backend.shipout(_page_box([_FakeHBox([], source=owner)]))
+    backend.shipout(_page_box([_alignment_row_box(owner, row)]))
 
     data = _docx_bytes(parser, backend)
     document = WordDocument(io.BytesIO(data))
@@ -1359,8 +1417,8 @@ def test_docx_alignment_row_heights_include_tex_interline_spacing(parser):
     row2 = align.Row()
     row2.cells = [_alignment_cell("b", font, width=15)]
     owner.rows = [row1, row2]
-    rowbox1 = _FakeHBox([], source=owner, height=8, depth=2)
-    rowbox2 = _FakeHBox([], source=owner, height=7, depth=3)
+    rowbox1 = _alignment_row_box(owner, row1, height=8, depth=2)
+    rowbox2 = _alignment_row_box(owner, row2, height=7, depth=3)
     interline = nd.Glue(Glue(Dimen(5)), "\\baselineskip")
     interline.source = rowbox2
 

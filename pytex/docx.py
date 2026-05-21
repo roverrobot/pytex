@@ -32,7 +32,7 @@ from pytex.font import Font
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
-from pytex.dimen import Dimen, NEG_MAX_DIMEN
+from pytex.dimen import Dimen, MAX_DIMEN
 from pytex.glue import Glue
 from pytex.module import Module
 from pytex import font_subst
@@ -517,19 +517,12 @@ class TextRun(reflow.TextRun):
         lig = OxmlElement("w14:ligatures")
         rPr.append(lig)
         lig.set(qn("w14:val"), "standard")
+        self._word_baseline_from_bottom = None
+        self._tex_baseline_from_bottom = line.line_spec.line_box.depth
 
     def setFont(self, font):
         self.font = font
         self.line.font = font
-        register_word_baseline = getattr(self.line, "registerWordBaseline", None)
-        if register_word_baseline is not None:
-            register_word_baseline(font)
-        parent_line = getattr(self.line, "parent", None)
-        if parent_line is not None:
-            parent_line.font = font
-            register_word_baseline = getattr(parent_line, "registerWordBaseline", None)
-            if register_word_baseline is not None:
-                register_word_baseline(font)
         if font is not None:
             font_name = _docx_font_name(font.backend)
             if font_name is not None:
@@ -543,6 +536,7 @@ class TextRun(reflow.TextRun):
                     rFonts.set(qn(f"w:{attr}"), font_name)
             self._node.font.size = Pt(round(float(font.at) / 72.27 * 72 * 2) / 2)
             self._node.font.color.rgb = _color(self.color)
+            self._word_baseline_from_bottom = font.backend.baselineFromBottom(font.at, self.line.line_spec.line_height)
 
     def newText(self) -> Text:
         text = Text(self.preserve_space)
@@ -553,26 +547,7 @@ class TextRun(reflow.TextRun):
 
     def setChar(self, char: nd.Node):
         self.line.applyLeadingSpacing()
-        self._registerTextGlyph()
         super().setChar(char)
-
-    def _registerTextGlyph(self):
-        self.has_text_glyphs = True
-        self.line.has_text_glyphs = True
-        parent_line = getattr(self.line, "parent", None)
-        if parent_line is not None:
-            parent_line.has_text_glyphs = True
-
-    def setBaselineFromBottom(self, tex_baseline: Dimen, word_baseline: Dimen=Dimen()):
-        tex_baseline = Dimen(tex_baseline)
-        word_baseline = Dimen(word_baseline)
-        if (
-            self._tex_baseline_from_bottom is not None
-            and tex_baseline <= self._tex_baseline_from_bottom
-        ):
-            return
-        self._tex_baseline_from_bottom = tex_baseline
-        self._word_baseline_from_bottom = word_baseline
 
     def finalizeVerticalPosition(self, line_baseline: Dimen=Dimen(), word_line_baseline: Dimen=Dimen()):
         if self._tex_baseline_from_bottom is None and not self.has_text_glyphs:
@@ -620,17 +595,11 @@ class TextRun(reflow.TextRun):
         block = TextBoxStory(document, drawing, content, box)
         self._node._element.append(drawing)
         if not isinstance(self.line.story, Cell):
-            baseline = box.height if isinstance(box, bx.VTop) else box.depth
-            self.setBaselineFromBottom(baseline + self.line.current_baseline_shift)
+            self._word_baseline_from_bottom = self.line.line_spec.line_height - box.height
         self.nodes.append(block)
         return block
 
-    def _inlineVBoxPosition(self, box: bx.Box):
-        if isinstance(box, bx.VTop):
-            return -int(half_pt(box.height))
-        return -int(half_pt(box.depth))
-
-    def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, box: bx.Box, piece: int, baseline_position: bool = True):
+    def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, box: bx.Box, piece: int):
         self.line.applyLeadingSpacing()
         self.text = None
         document = _story_document(self.line.story)
@@ -656,8 +625,7 @@ class TextRun(reflow.TextRun):
                 media_name,
             )
         )
-        if baseline_position:
-            self.setBaselineFromBottom(box.depth + backend.currentLineBaselineShift())
+        self._tex_baseline_from_bottom = box.depth
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
         picture = reflow.Element(drawing)
@@ -698,7 +666,7 @@ class TextRun(reflow.TextRun):
                 media_name,
             )
         )
-        self.setBaselineFromBottom(asset.depth + backend.currentLineBaselineShift())
+        self._tex_baseline_from_bottom = asset.depth
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
         if standalone_graphic_line:
@@ -802,13 +770,14 @@ class Line(reflow.Line):
         return saved
 
     def finalizeLine(self):
-        line_baseline = self.line_spec.line_box.depth
-        word_line_baseline = self.word_baseline_from_bottom or Dimen()
+        baseline = MAX_DIMEN
         for run in self.nodes:
-            finalize = getattr(run, "finalizeVerticalPosition", None)
-            if finalize is not None:
-                finalize(line_baseline, word_line_baseline)
-    
+            if run._word_baseline_from_bottom is not None:
+                baseline = min(baseline, run._word_baseline_from_bottom)
+        if baseline < MAX_DIMEN:
+            for run in self.nodes:
+                run.shiftVertical(baseline - run._tex_baseline_from_bottom)
+
     def addInlineDrawing(self, drawing):
         self.inline_drawings.append(drawing)
 
@@ -1943,9 +1912,9 @@ class DocxBackend(reflow.Reflow):
             block.finalizeContent()
         return block
 
-    def typesetInlineMath(self, node: mmode.InlineMathNode, box: bx.Box, piece: int, baseline_position: bool = True):
+    def typesetInlineMath(self, node: mmode.InlineMathNode, box: bx.Box, piece: int):
         self._require_builder("typesetInlineMath", "newInlineMath")
-        return self.builder.newInlineMath(self, node, box, piece, baseline_position=baseline_position)
+        return self.builder.newInlineMath(self, node, box, piece)
 
     def typesetGraphicAsset(self, asset, request):
         if asset.format != "svg" or self.builder is None:

@@ -126,47 +126,21 @@ class FixedAnnotation(StyledNode, reflow.Element):
         node.append(div)
 
 
-class Text(reflow.Text):
-    def __init__(self):
-        super().__init__(builder.SPAN(""))
-        if self._node.text is None:
-            self._node.text = ""
-
-    def setChar(self, char: nd.Node):
-        if char.node_type == nd.NODE_TYPE.CHAR:
-            self._node.text += char.char
-        elif char.node_type == nd.NODE_TYPE.LIGATURE:
-            for n in char.source:
-                self.setChar(n)
-
-
 class TextRun(StyledNode, reflow.TextRun):
-    def __init__(self, font: Font, color: reflow.Color=reflow.Color.black):
-        span = builder.SPAN()
+    def __init__(self, text, font: Font, color: reflow.Color=reflow.Color.black):
+        if text is None:
+            text = ""
+        span = builder.SPAN(text)
         StyledNode.__init__(self)
-        reflow.TextRun.__init__(self, span, font, color)
+        reflow.TextRun.__init__(self, text, span, font, color)
         self.style["color"] = _color(color)
 
-    def setFont(self, font: Font):
-        # TODO set font family properly
-        super().setFont(font)
-        if font is not None:
-            self.style["font-family"] = _font_family_name(font.backend)
-            self.style["font-size"] = reflow.PT(font.at)
-
-    def newText(self) -> TextRun:
-        self.text = Text()
-        self.append(self.text)
-        return self.text
-
     def newInlineVBox(self, box: bx.Box):
-        self.text = None
         div = Div(inline=True)
         self.append(div)
         return div
 
     def newInlineMath(self):
-        self.text = None
         math = Math(inline=True)
         self.append(math)
         return math

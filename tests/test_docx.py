@@ -644,6 +644,35 @@ def test_docx_standalone_graphic_line_keeps_normal_edge_spacing(parser, monkeypa
     assert int(wp_extent.group(1)) == docx._twip_emu(Dimen(36))
 
 
+def test_docx_standalone_graphic_line_keeps_tex_line_height(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
+    graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
+    line = _FakeHBox([graphic_box], source=source, width=72, height=40, depth=5)
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    first_spacing = re.search(r"<w:p><w:pPr><w:spacing([^>]*)/>", xml)
+    assert first_spacing is not None
+    assert f'w:line="{docx._twips(Dimen(45))}"' in first_spacing.group(1)
+    assert f'w:line="{docx._twips(Dimen(36))}"' not in first_spacing.group(1)
+
+
 def test_docx_graphic_followed_by_text_keeps_normal_space(parser, monkeypatch):
     class FakeConverter:
         def convert(self, request):
@@ -680,6 +709,22 @@ def test_docx_graphic_followed_by_text_keeps_normal_space(parser, monkeypatch):
 
     assert document.paragraphs[0].text == " A"
     assert document.paragraphs[0].paragraph_format.right_indent is None
+
+
+def test_docx_trailing_negative_spacing_keeps_tex_line_height(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox([nd.CharNode("A", font)], source=source, width=10, height=8, depth=2)
+
+    backend.shipout(_page_box([line, nd.Kern(Dimen(-4))]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    first_spacing = re.search(r"<w:p><w:pPr><w:spacing([^>]*)/>", xml)
+    assert first_spacing is not None
+    assert f'w:line="{docx._twips(Dimen(10))}"' in first_spacing.group(1)
+    assert f'w:line="{docx._twips(Dimen(6))}"' not in first_spacing.group(1)
 
 
 def test_docx_graphic_inside_shifted_hbox_uses_parent_baseline(parser, monkeypatch):
@@ -1116,7 +1161,7 @@ def test_docx_display_math_uses_page_glue_state_for_display_skip(parser, monkeyp
     assert int(document.paragraphs[0].paragraph_format.space_before) == int(docx._length(Dimen(6)))
 
 
-def test_docx_vlist_tail_negative_glue_reduces_last_line_layout(parser, monkeypatch):
+def test_docx_vlist_tail_negative_glue_keeps_last_line_layout(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
     font = _install_font(parser)
@@ -1135,7 +1180,7 @@ def test_docx_vlist_tail_negative_glue_reduces_last_line_layout(parser, monkeypa
 
     document = _word_document(parser, backend)
     assert len(document.paragraphs) == 1
-    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(docx._length(Dimen(14)))
+    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(docx._length(Dimen(18)))
     xml = _document_xml(_docx_bytes(parser, backend))
     wp_extent = re.search(r'<wp:extent\b[^>]*\bcx="([^"]+)"[^>]*\bcy="([^"]+)"', xml)
     effect = re.search(r'<wp:effectExtent\b[^>]*\bt="([^"]+)"[^>]*\bb="([^"]+)"', xml)
@@ -1145,9 +1190,9 @@ def test_docx_vlist_tail_negative_glue_reduces_last_line_layout(parser, monkeypa
     )
     assert wp_extent.groups() == (
         str(docx._emu(display_box.width)),
-        str(docx._emu(Dimen(14))),
+        str(docx._emu(Dimen(18))),
     )
-    assert effect.groups() == ("0", str(docx._emu(Dimen(4))))
+    assert effect.groups() == ("0", "0")
     assert transform.groups() == (
         "0",
         str(docx._emu(display_box.width)),

@@ -9,7 +9,6 @@ import os
 import platform
 import re
 from typing import Optional
-from math import ceil
 
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTCollection, TTFont, TTLibError, TTLibFileIsCollectionError
@@ -473,18 +472,6 @@ class OpenTypeBackend(FontBackend):
         if space is not None and space.width > 0:
             return space.width
         return self._scaled(self.units_per_em // 3)
-
-    def baselineFromBottom(self, font_size, line_height):
-        hhea = self.font.get("hhea")
-        if hhea is None:
-            return None
-        ascent = max(0, getattr(hhea, "ascent", 0))
-        descent = max(0, -getattr(hhea, "descent", 0))
-        line_gap = max(0, getattr(hhea, "lineGap", 0))
-        font_size = float(font_size)
-        # round to 0.5 pt
-        total_units = ceil((ascent + descent + line_gap) * font_size * 2) / 2
-        return None if total_units <= 0 else float(line_height) * descent * font_size / total_units
 
     def _xHeight(self):
         if self._x_height is not None:

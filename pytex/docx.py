@@ -32,7 +32,7 @@ from pytex.font import Font
 from pytex import mmode
 from pytex import node as nd
 from pytex import paragraph as pg
-from pytex.dimen import Dimen, MAX_DIMEN
+from pytex.dimen import Dimen
 from pytex.glue import Glue
 from pytex.module import Module
 from pytex import font_subst
@@ -138,31 +138,6 @@ def _docx_points(dimen: Dimen):
 
 def _tex_points(points: float):
     return Dimen(points * _DOCX_POINTS_PER_TEX_POINT_DEN / _DOCX_POINTS_PER_TEX_POINT_NUM)
-
-
-def _ceil_half_point(value: float):
-    return math.ceil(value * 2 - 1e-9) / 2
-
-
-def _font_word_baseline_from_bottom(font, line_height: Dimen):
-    if font is None:
-        return None
-    backend = getattr(font, "backend", None)
-    line_baseline = getattr(backend, "lineBaselineFromBottom", None)
-    if line_baseline is None:
-        return None
-    font_size = round(_docx_points(font.at) * 2) / 2
-    try:
-        baseline = line_baseline(
-            font_size,
-            _docx_points(line_height),
-            round_total=_ceil_half_point,
-        )
-    except TypeError:
-        baseline = line_baseline(font_size, _docx_points(line_height))
-    if baseline is None:
-        return None
-    return _tex_points(baseline)
 
 
 def _svg_pt(dimen: Dimen):
@@ -431,7 +406,7 @@ def _annotation_info(payload):
     }
 
 
-class Text(reflow.Text):
+class Text(reflow.Element):
     XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
     def __init__(self, preserve_space=False):
@@ -500,16 +475,32 @@ class TextBoxStory(reflow.Block):
 
 
 class TextRun(reflow.TextRun):
-    def __init__(self, line, text="", font = None, color = reflow.Color.black, preserve_space=False):
+    def __init__(
+        self,
+        line,
+        text="",
+        font=None,
+        color=reflow.Color.black,
+        baseline_from_bottom=Dimen(),
+        preserve_space=False,
+    ):
         node = line._node.add_run()
         self.line = line
-        self._tex_baseline_from_bottom = None
-        self._word_baseline_from_bottom = Dimen()
         self.has_text_glyphs = False
-        super().__init__(node, font, color)
+        super().__init__(
+            node,
+            text=text,
+            font=font,
+            color=color,
+            baseline_from_bottom=baseline_from_bottom,
+        )
         self.preserve_space = preserve_space
+        if text:
+            self.line.applyLeadingSpacing()
+            self.has_text_glyphs = True
+            self.uses_backend_baseline = True
         t = self.newText()
-        t._node.text = text
+        t._node.text = "" if text is None else text
         rPr = node._r.get_or_add_rPr()
         kern = OxmlElement("w:kern")
         rPr.append(kern)
@@ -517,8 +508,7 @@ class TextRun(reflow.TextRun):
         lig = OxmlElement("w14:ligatures")
         rPr.append(lig)
         lig.set(qn("w14:val"), "standard")
-        self._word_baseline_from_bottom = None
-        self._tex_baseline_from_bottom = line.line_spec.line_box.depth
+        self.setFont(font)
 
     def setFont(self, font):
         self.font = font
@@ -536,7 +526,6 @@ class TextRun(reflow.TextRun):
                     rFonts.set(qn(f"w:{attr}"), font_name)
             self._node.font.size = Pt(round(float(font.at) / 72.27 * 72 * 2) / 2)
             self._node.font.color.rgb = _color(self.color)
-            self._word_baseline_from_bottom = font.backend.baselineFromBottom(font.at, self.line.line_spec.line_height)
 
     def newText(self) -> Text:
         text = Text(self.preserve_space)
@@ -547,23 +536,34 @@ class TextRun(reflow.TextRun):
 
     def setChar(self, char: nd.Node):
         self.line.applyLeadingSpacing()
-        super().setChar(char)
+        self.has_text_glyphs = True
+        self.uses_backend_baseline = True
+        if self.text is None:
+            self.newText()
+        self.text.setChar(char)
 
-    def finalizeVerticalPosition(self, line_baseline: Dimen=Dimen(), word_line_baseline: Dimen=Dimen()):
-        if self._tex_baseline_from_bottom is None and not self.has_text_glyphs:
+    def newSpace(self, width: Dimen, breakable: bool):
+        if not self.line.has_visible_content:
+            self.line.leading_spacing += width
             return None
-        if self._tex_baseline_from_bottom is None:
-            position = Dimen(line_baseline) - Dimen(word_line_baseline)
-            self._setPosition(int(half_pt(position)))
-            return position
-        position = (
-            Dimen(line_baseline)
-            - Dimen(word_line_baseline)
-            + self._word_baseline_from_bottom
-            - self._tex_baseline_from_bottom
-        )
-        self._setPosition(int(half_pt(position)))
-        return position
+        self.line.applyLeadingSpacing()
+        if self.text is None:
+            self.newText()
+        self.text._node.text = " " if breakable else "\xa0"
+        self.text._node.set(Text.XML_SPACE, "preserve")
+        self.uses_backend_baseline = False
+        if self.font is None:
+            return self
+        diff = width - self.font.at * self.font.backend._spaceWidth()
+        if int(diff) != 0:
+            rPr = self._node._r.get_or_add_rPr()
+            spacing_element = OxmlElement("w:spacing")
+            spacing_element.set(qn("w:val"), twips(diff))
+            rPr.append(spacing_element)
+        return self
+
+    def verticalShift(self, shift):
+        self._setPosition(int(float(shift) * 2))
 
     def _setPosition(self, position):
         if not position:
@@ -576,9 +576,13 @@ class TextRun(reflow.TextRun):
         position_element.set(qn("w:val"), str(position))
         rPr.append(position_element)
 
+    def _boxBaselineFromBottom(self, depth):
+        return self.baseline_from_bottom - self.line.baseline_from_bottom + depth
+
     def newInlineVBox(self, box: bx.Box):
         self.line.applyLeadingSpacing()
         self.text = None
+        self.uses_backend_baseline = False
         document = _story_document(self.line.story)
         drawing_id = document.nextDrawingId()
         cy = _emu(box.height + box.depth)
@@ -594,14 +598,15 @@ class TextRun(reflow.TextRun):
             raise ValueError("DOCX inline textbox template is missing w:txbxContent")
         block = TextBoxStory(document, drawing, content, box)
         self._node._element.append(drawing)
-        if not isinstance(self.line.story, Cell):
-            self._word_baseline_from_bottom = self.line.line_spec.line_height - box.height
+        box_baseline = box.height if isinstance(box, bx.VTop) else box.depth
+        self.baseline_from_bottom = self._boxBaselineFromBottom(box_baseline)
         self.nodes.append(block)
         return block
 
     def newInlineMath(self, backend, inlinemath: mmode.InlineMathNode, box: bx.Box, piece: int):
         self.line.applyLeadingSpacing()
         self.text = None
+        self.uses_backend_baseline = False
         document = _story_document(self.line.story)
         payload = backend.inlineMathSvg(box)
         visual_height = box.height + box.depth
@@ -625,7 +630,7 @@ class TextRun(reflow.TextRun):
                 media_name,
             )
         )
-        self._tex_baseline_from_bottom = box.depth
+        self.baseline_from_bottom = self._boxBaselineFromBottom(box.depth)
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
         picture = reflow.Element(drawing)
@@ -644,6 +649,7 @@ class TextRun(reflow.TextRun):
         standalone_graphic_line = not self.line.has_visible_content
         self.line.applyLeadingSpacing()
         self.text = None
+        self.uses_backend_baseline = False
         document = _story_document(self.line.story)
         fallback_placeholder, svg_placeholder, media_name = document.defineInlineSvg(
             payload,
@@ -666,11 +672,9 @@ class TextRun(reflow.TextRun):
                 media_name,
             )
         )
-        self._tex_baseline_from_bottom = asset.depth
+        self.baseline_from_bottom = self._boxBaselineFromBottom(asset.depth)
         self._node._element.append(drawing)
         self.line.addInlineDrawing(drawing)
-        if standalone_graphic_line:
-            self.line.setLineHeight(visual_height)
         picture = reflow.Element(drawing)
         self.nodes.append(picture)
         return picture
@@ -678,7 +682,15 @@ class TextRun(reflow.TextRun):
 class Space(TextRun):
     def __init__(self, line, width: Dimen, breakable: bool, font: Font):
         space = " " if breakable else "\xa0"
-        super().__init__(line, space, font, preserve_space=True)
+        super().__init__(
+            line,
+            space,
+            font,
+            baseline_from_bottom=line.baseline_from_bottom,
+            preserve_space=True,
+        )
+        self.has_text_glyphs = False
+        self.uses_backend_baseline = False
         diff = width - font.at * font.backend._spaceWidth()
         if int(diff) != 0:
             rPr = self._node._r.get_or_add_rPr()
@@ -709,13 +721,11 @@ class Line(reflow.Line):
         self.story = story
         self.justify = self._wordJustify(justify)
         para.alignment = self.justify
-        self.line_height = line_spec.line_box.height + line_spec.line_box.depth
+        self.line_height = line_spec.line_height
         self.inline_drawings = []
         self.leading_spacing = Dimen()
         self.has_visible_content = False
         self.has_text_glyphs = False
-        self.word_baseline_from_bottom = None
-        self.current_baseline_shift = Dimen()
         self._setLineHeight(self.line_height)
         fmt = para.paragraph_format
         assert int(line_spec.spacing_before) >= 0, f"negative spacing{line_spec.spacing_before}"
@@ -723,7 +733,6 @@ class Line(reflow.Line):
         fmt.space_before = Twips(_twips(self.spacing_before))
         fmt.space_after = Pt(0)
         self.font = line_spec.default_font
-        self.registerWordBaseline(self.font)
         self.width = line_spec.line_box.rightmost()
         self.line_id = line_id
 
@@ -751,45 +760,38 @@ class Line(reflow.Line):
             self.has_text_glyphs = True
         return run
 
-    def registerWordBaseline(self, font):
-        baseline = _font_word_baseline_from_bottom(font, self.line_height)
-        if baseline is None:
-            return
-        if self.word_baseline_from_bottom is None or baseline < self.word_baseline_from_bottom:
-            self.word_baseline_from_bottom = baseline
-
-    def setTextBaselineFromBottom(self, baseline: Dimen):
-        baseline = Dimen(baseline)
-        self.has_text_glyphs = True
-        if self.word_baseline_from_bottom is None:
-            self.word_baseline_from_bottom = baseline
-
-    def setCurrentBaselineShift(self, shift: Dimen):
-        saved = self.current_baseline_shift
-        self.current_baseline_shift = Dimen(shift)
-        return saved
+    def backendBaselineForFont(self, font):
+        if font is None:
+            return None
+        backend = getattr(font, "backend", None)
+        hhea = getattr(backend, "font", {}).get("hhea") if backend is not None else None
+        units_per_em = getattr(backend, "units_per_em", None)
+        if hhea is None or not units_per_em:
+            try:
+                info = font.glyphInfo("x")
+            except Exception:
+                info = None
+            return None if info is None else _docx_points(info.depth * font.at)
+        ascent = max(0, getattr(hhea, "ascent", 0))
+        descent = max(0, -getattr(hhea, "descent", 0))
+        line_gap = max(0, getattr(hhea, "lineGap", 0))
+        total_units = ascent + descent + line_gap
+        if total_units <= 0:
+            return None
+        font_size = round(_docx_points(font.at) * 2) / 2
+        total_size = math.ceil(total_units / units_per_em * font_size * 2 - 1e-9) / 2
+        if total_size <= 0:
+            return None
+        return _docx_points(self.line_height) * (descent / units_per_em * font_size) / total_size
 
     def finalizeLine(self):
-        baseline = MAX_DIMEN
-        for run in self.nodes:
-            if run._word_baseline_from_bottom is not None:
-                baseline = min(baseline, run._word_baseline_from_bottom)
-        if baseline < MAX_DIMEN:
-            for run in self.nodes:
-                run.shiftVertical(baseline - run._tex_baseline_from_bottom)
+        pass
 
     def addInlineDrawing(self, drawing):
         self.inline_drawings.append(drawing)
 
     def applyTrailingSpacing(self, spacing: Dimen):
-        adjusted = self.line_height + spacing
-        if int(adjusted) <= 0:
-            adjusted = Dimen(integer=1)
-        reduction = self.line_height - adjusted
-        self.line_height = adjusted
-        self._setLineHeight(adjusted)
-        if int(reduction) > 0:
-            self._shrinkLastDrawingLayout(reduction)
+        pass
 
     def _shrinkLastDrawingLayout(self, reduction: Dimen):
         if not self.inline_drawings:
@@ -807,8 +809,17 @@ class Line(reflow.Line):
             bottom = int(effect.get("b", "0"))
             effect.set("b", str(bottom + actual_reduction))
 
-    def newTextRun(self, font, color) -> TextRun:
-        return self.registerTextRun(TextRun(self, font=font, color=color))
+    def newTextRun(self, text, font, color, baseline_from_bottom) -> TextRun:
+        self.registerBackendBaseline(font)
+        return self.registerTextRun(
+            TextRun(
+                self,
+                text=text,
+                font=font,
+                color=color,
+                baseline_from_bottom=baseline_from_bottom,
+            )
+        )
 
     def newSpace(self, width: Dimen, breakable: bool):
         if not self.has_visible_content:
@@ -848,28 +859,34 @@ class AnnotationLine(reflow.Line):
         self.story = parent.story
         self._node = HyperlinkRunContainer(parent._node, element)
         self.nodes = []
-        self.color = parent.color
+        self.line_spec = parent.line_spec
         self.font = parent.font
-        self._text_run = None
+        self.baseline_from_bottom = parent.baseline_from_bottom
         self.lign_height = getattr(parent, "lign_height", None)
         self.line_height = parent.line_height
         self.leading_spacing = Dimen()
         self.has_visible_content = False
-        self.current_baseline_shift = parent.current_baseline_shift
+        self.backend_baseline = parent.backend_baseline
 
-    def newTextRun(self, font, color) -> TextRun:
-        run = TextRun(self, font=font, color=color)
+    def backendBaselineForFont(self, font):
+        return self.parent.backendBaselineForFont(font)
+
+    def registerBackendBaseline(self, font):
+        self.parent.registerBackendBaseline(font)
+        self.backend_baseline = self.parent.backend_baseline
+
+    def newTextRun(self, text, font, color, baseline_from_bottom) -> TextRun:
+        self.registerBackendBaseline(font)
+        run = TextRun(
+            self,
+            text=text,
+            font=font,
+            color=color,
+            baseline_from_bottom=baseline_from_bottom,
+        )
         self.nodes.append(run)
         self.parent.registerTextRun(run)
         return run
-
-    def setTextBaselineFromBottom(self, baseline: Dimen):
-        self.parent.setTextBaselineFromBottom(baseline)
-
-    def setCurrentBaselineShift(self, shift: Dimen):
-        saved = self.parent.setCurrentBaselineShift(shift)
-        self.current_baseline_shift = Dimen(shift)
-        return saved
 
     def newSpace(self, width: Dimen, breakable: bool):
         if not self.has_visible_content and not self.parent.has_visible_content:
@@ -1919,17 +1936,19 @@ class DocxBackend(reflow.Reflow):
     def typesetGraphicAsset(self, asset, request):
         if asset.format != "svg" or self.builder is None:
             return
-        text_run = getattr(self.builder, "textRun", None)
-        if text_run is not None:
-            run = text_run(new=True)
+        new_text_run = getattr(self.builder, "newTextRun", None)
+        if new_text_run is not None:
+            baseline_from_bottom = self._current_run_baseline_from_bottom
+            if baseline_from_bottom is None:
+                baseline_from_bottom = getattr(self.builder, "baseline_from_bottom", Dimen())
+            run = new_text_run(
+                text=None,
+                font=self.parser.parameters["currentfont"],
+                color=self.color,
+                baseline_from_bottom=baseline_from_bottom,
+            )
             with reflow.Builder(self, run):
                 graphic = self.builder.newInlineGraphic(self, asset, request)
-            if graphic is not None:
-                return request.width or asset.width
-            return None
-        new_graphic = getattr(self.builder, "newInlineGraphic", None)
-        if new_graphic is not None:
-            graphic = new_graphic(self, asset, request)
             if graphic is not None:
                 return request.width or asset.width
 
@@ -1995,17 +2014,17 @@ class DocxBackend(reflow.Reflow):
         picture_box = DisplayMathPictureBox(box)
         para = self.builder.newParagraph(spacing_before=spacing_before, justify="left")
         with reflow.ParagraphBuilder(self, para):
-            line_spec = reflow.LineSpec(
-                picture_box,
-                spacing_before=Dimen(),
-                color=self.color,
-                default_font=self.parser.parameters["currentfont"],
-            )
+            line_spec = reflow.LineSpec(self, picture_box, spacing_before=Dimen())
             line = para.newLine(line_spec)
             with reflow.LineBuilder(self, line):
-                text_run = self.builder.textRun()
+                text_run = self.builder.newTextRun(
+                    text=None,
+                    font=self.parser.parameters["currentfont"],
+                    color=self.color,
+                    baseline_from_bottom=picture_box.depth,
+                )
                 with reflow.Builder(self, text_run):
-                    self.typesetInlineMath(node, picture_box, 1, baseline_position=False)
+                    self.typesetInlineMath(node, picture_box, 1)
 
     def inlineMathSvg(self, box: bx.Box):
         with tempfile.TemporaryDirectory() as tmpdir:

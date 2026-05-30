@@ -103,7 +103,7 @@ class AnnotationBuilder(reflow.AnnotationBuilder):
         self.link = reflow.Element(builder.A(href=href))
         line_box = bx.HBox(self.backend.parser, None, None)
         line_box.typeset(self.backend.parser, [])
-        line_spec = reflow.LineSpec(line_box, Dimen(), reflow.Color.red)
+        line_spec = reflow.LineSpec(self.backend, line_box, spacing_before=Dimen())
         self.container = Line(line_spec)
         self.link.append(self.container)
 
@@ -127,13 +127,39 @@ class FixedAnnotation(StyledNode, reflow.Element):
 
 
 class TextRun(StyledNode, reflow.TextRun):
-    def __init__(self, text, font: Font, color: reflow.Color=reflow.Color.black):
+    def __init__(
+        self,
+        line,
+        text,
+        font: Font,
+        color: reflow.Color=reflow.Color.black,
+        baseline_from_bottom: Dimen=Dimen(),
+    ):
         if text is None:
             text = ""
         span = builder.SPAN(text)
         StyledNode.__init__(self)
-        reflow.TextRun.__init__(self, text, span, font, color)
+        self.line = line
+        reflow.TextRun.__init__(
+            self,
+            span,
+            text=text,
+            font=font,
+            color=color,
+            baseline_from_bottom=baseline_from_bottom,
+        )
         self.style["color"] = _color(color)
+        if font is not None:
+            self.style["font-family"] = _font_family_name(font.backend)
+            self.style["font-size"] = reflow.PT(font.at)
+
+    def newSpace(self, width: Dimen, breakable: bool):
+        self._node.text = "" if breakable else "\xa0"
+        self.style["display"] = "inline-block"
+        if int(width) < 0:
+            self.style["margin-left"] = reflow.PT(width)
+        else:
+            self.style["width"] = reflow.PT(width)
 
     def newInlineVBox(self, box: bx.Box):
         div = Div(inline=True)
@@ -163,8 +189,9 @@ class Line(StyledNode, reflow.Line):
         StyledNode.__init__(self)
         reflow.Line.__init__(self, builder.SPAN(), line_spec)
 
-    def newTextRun(self, font, color):
-        text_run = TextRun(font, color)
+    def newTextRun(self, text, font, color, baseline_from_bottom):
+        self.registerBackendBaseline(font)
+        text_run = TextRun(self, text, font, color, baseline_from_bottom=baseline_from_bottom)
         self.append(text_run)
         return text_run
     
@@ -192,7 +219,7 @@ class Paragraph(StyledNode, reflow.Paragraph):
 
     def newLine(self, line_spec: reflow.LineSpec) -> Line:
         if self.last_line is not None:
-            self.last_line.setSpace(self.last_line.font.param[1], breakable=True)
+            self.last_line.newSpace(self.last_line.font.param[1], breakable=True)
         line = Line(line_spec)
         self.last_line = line
         self.append(line)

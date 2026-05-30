@@ -100,16 +100,13 @@ class TextRun(Element):
         font: Font=None,
         color: Color=Color.black,
         baseline_from_bottom: Dimen=Dimen(),
-        backend_baseline=None,
     ):
         super().__init__(node)
         self.font = font
         self.color = color
         self.text = text
-        # TeX-side baseline is a Dimen. Backend baselines/shifts use bp
-        # (CSS/DOCX points), so layout code can compare backend estimates.
         self.baseline_from_bottom = Dimen(baseline_from_bottom)
-        self.backend_baseline = None if backend_baseline is None else float(backend_baseline)
+        self.uses_backend_baseline = False
 
     def newSpace(self, width, breakable: bool):
         pass
@@ -132,6 +129,7 @@ class LineSpec:
         self.default_font = backend.parser.parameters["currentfont"]
         self.glue_state = backend._glue_state(line_box)
         self.alignment_state = alignment_state
+        self.line_height = line_box.height + line_box.depth
         self.baseline_from_bottom = line_box.depth
         self.setNodes()
 
@@ -182,29 +180,41 @@ class Line(Element):
         self.font = None
         self.lign_height = line_spec.line_box.height + line_spec.line_box.depth
         self.baseline_from_bottom = line_spec.baseline_from_bottom
+        # Backend baselines/shifts use bp (CSS/DOCX points).
+        self.backend_baseline = None
 
-    def newTextRun(self, text: str, font: Font, color: Color, baseline_from_bottom: Dimen) -> TextRun:
+    def newTextRun(
+        self,
+        text: str,
+        font: Font,
+        color: Color,
+        baseline_from_bottom: Dimen,
+    ) -> TextRun:
         pass
 
-    def commonBackendBaseline(self, runs):
-        return min(run.backend_baseline for run in runs)
+    def backendBaselineForFont(self, font: Font):
+        return None
+
+    def registerBackendBaseline(self, font: Font):
+        baseline = self.backendBaselineForFont(font)
+        if baseline is None:
+            return
+        baseline = float(baseline)
+        if self.backend_baseline is None or baseline < self.backend_baseline:
+            self.backend_baseline = baseline
 
     def setBaseline(self):
-        runs = [
-            run for run in self.nodes
-            if isinstance(run, TextRun) and run.backend_baseline is not None
-        ]
-        if not runs:
-            return
-        common_backend_baseline = self.commonBackendBaseline(runs)
         line_baseline = BP(self.baseline_from_bottom)
-        for run in runs:
-            shift = (
-                line_baseline
-                - common_backend_baseline
-                + run.backend_baseline
-                - BP(run.baseline_from_bottom)
-            )
+        backend_baseline = self.backend_baseline or 0
+        for run in self.nodes:
+            if not isinstance(run, TextRun):
+                continue
+            # Backend baselines describe the line Word/CSS would naturally use;
+            # the destination is still TeX's baseline. Text runs already sit on
+            # the backend baseline, while inline boxes/pictures sit on the
+            # backend baseline with their own bottom edge.
+            run_backend = backend_baseline if run.uses_backend_baseline else 0
+            shift = line_baseline - backend_baseline + run_backend - BP(run.baseline_from_bottom)
             run.verticalShift(shift)
 
 
@@ -511,6 +521,8 @@ class Reflow(shipout.Shipout):
         self.pending_annotation = None
         self.in_line = False
         self._last_graphic_advance = None
+        self._defined_fonts = set()
+        self._current_run_baseline_from_bottom = None
 
     support_annotation = False
 
@@ -1430,18 +1442,21 @@ class Reflow(shipout.Shipout):
 
     def typesetLine(self, line_spec: LineSpec, inline=False):
         baseline_from_bottom = line_spec.baseline_from_bottom
+        line_builder_baseline = getattr(self.builder, "baseline_from_bottom", baseline_from_bottom)
+        baseline_offset = baseline_from_bottom - line_builder_baseline
         font = line_spec.default_font
         glue_state = line_spec.glue_state
         pending_space = Dimen()
         pending_breakable = False
         total_advance = Dimen()
 
-        def new_text_run(text=None, font=None):
+        def new_text_run(text=None, font=None, baseline=None):
+            self._define_font_once(font)
             return self.builder.newTextRun(
                 text=text,
                 font=font,
                 color=self.color,
-                baseline_from_bottom=baseline_from_bottom,
+                baseline_from_bottom=baseline_from_bottom if baseline is None else baseline,
             )
 
         def add_spacing(space, breakable):
@@ -1474,7 +1489,12 @@ class Reflow(shipout.Shipout):
             if flush:
                 flush_spacing()
             self._last_graphic_advance = None
-            node.output(self.parser, self)
+            saved_baseline = self._current_run_baseline_from_bottom
+            self._current_run_baseline_from_bottom = baseline_from_bottom
+            try:
+                node.output(self.parser, self)
+            finally:
+                self._current_run_baseline_from_bottom = saved_baseline
             advance = self._last_graphic_advance
             self._last_graphic_advance = None
             if advance is not None:
@@ -1564,13 +1584,15 @@ class Reflow(shipout.Shipout):
             text = n.char if n.node_type == nd.NODE_TYPE.CHAR else ligature_text(n)
             font = n.font
             width = n.width
+            depth = getattr(n, "depth", Dimen())
             while True:
                 n = next(nodes, None)
                 if n is None or n.node_type not in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE) or n.font != font:
                     break
                 text += n.char if n.node_type == nd.NODE_TYPE.CHAR else ligature_text(n)
                 width += n.width
-            new_text_run(text=text, font=font)
+                depth = max(depth, getattr(n, "depth", Dimen()))
+            new_text_run(text=text, font=font, baseline=depth + baseline_offset)
             total_advance += width
             return n, width, font
 
@@ -1636,12 +1658,16 @@ class Reflow(shipout.Shipout):
                     continue
                 flush_spacing()
                 child_line_spec = LineSpec(self, n, spacing_before=Dimen())
-                child_line_spec.baseline_from_bottom = baseline_from_bottom
+                child_line_spec.baseline_from_bottom = baseline_from_bottom + getattr(n, "shifted", Dimen())
                 self.typesetLine(child_line_spec, inline=True)
                 total_advance += n.width
             elif node_type == nd.NODE_TYPE.VLIST:
                 flush_spacing()
-                text_run = new_text_run(text=None, font=font)
+                text_run = new_text_run(
+                    text=None,
+                    font=font,
+                    baseline=baseline_from_bottom + getattr(n, "shifted", Dimen()),
+                )
                 with Builder(self, text_run):
                     self.typesetInlineVBox(n)
                 total_advance += n.width

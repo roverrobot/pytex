@@ -46,12 +46,24 @@ def parser(tmp_path, monkeypatch):
 
 
 class _FakeBackend:
-    def __init__(self, name="Fake Roman", kind="fake", path=None, font_number=0):
+    def __init__(self, name="Fake Roman", kind="opentype", path=None, font_number=0):
         self.name = name
         self.kind = kind
         self.path = path
         self.font_number = font_number
         self.fontdimen = [0.0, 0.5, 0.25, 0.15, 0.7, 1.0, 0.0]
+        self.units_per_em = 1000
+        self.font = {
+            "hhea": type(
+                "FakeHhea",
+                (),
+                {
+                    "ascent": 1000,
+                    "descent": 0,
+                    "lineGap": 0,
+                },
+            )()
+        }
 
     def glyphInfo(self, char):
         return GlyphInfo(char=char, width=0.5, height=0.7, depth=0.2, italic=0)
@@ -76,12 +88,12 @@ class _FakeWordBaselineBackend(_FakeBackend):
 
 
 class _FakeFont(txfont.Font):
-    def __init__(self, name="Fake Roman", size=10, kind="fake", path=None, font_number=0):
+    def __init__(self, name="Fake Roman", size=10, kind="opentype", path=None, font_number=0):
         super().__init__(_FakeBackend(name, kind=kind, path=path, font_number=font_number), Dimen(size))
 
 
 class _FakeWordBaselineFont(txfont.Font):
-    def __init__(self, baseline, name="Fake Roman", size=10, kind="fake", path=None, font_number=0):
+    def __init__(self, baseline, name="Fake Roman", size=10, kind="opentype", path=None, font_number=0):
         super().__init__(
             _FakeWordBaselineBackend(
                 baseline,
@@ -240,6 +252,14 @@ def test_docx_init_selects_reflow_backend_and_bp_font_sizes(parser):
 
     assert isinstance(parser.shipout, docx.DocxBackend)
     assert parser.font_size_in_bp is True
+
+
+def test_docx_define_font_requires_opentype_shape(parser):
+    backend = docx.DocxBackend(parser)
+    font = _FakeFont(kind="tfm")
+
+    with pytest.raises(AssertionError, match="OpenType-shaped"):
+        backend.define_font(font)
 
 
 def test_docx_document_interface_uses_pagespec_sections(parser):

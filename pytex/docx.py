@@ -341,6 +341,29 @@ def _font_kind(backend):
     return getattr(backend, "kind", getattr(getattr(backend, "_backend", None), "kind", None))
 
 
+def _opentype_metric_backend(backend):
+    seen = set()
+    while backend is not None and id(backend) not in seen:
+        seen.add(id(backend))
+        if getattr(backend, "kind", None) == "opentype":
+            units_per_em = getattr(backend, "units_per_em", None)
+            font = getattr(backend, "font", None)
+            if units_per_em and hasattr(font, "get") and font.get("hhea") is not None:
+                return backend
+        backend = getattr(backend, "_backend", None)
+    return None
+
+
+def _require_opentype_font_backend(font):
+    backend = getattr(font, "backend", None)
+    metric_backend = _opentype_metric_backend(backend)
+    assert metric_backend is not None, (
+        "DOCX output requires an OpenType-shaped font backend "
+        "with kind='opentype', units_per_em, and an hhea table"
+    )
+    return metric_backend
+
+
 def _docx_font_name(backend):
     return font_subst.fontBackendName(backend) or getattr(backend, "name", None)
 
@@ -763,15 +786,9 @@ class Line(reflow.Line):
     def backendBaselineForFont(self, font):
         if font is None:
             return None
-        backend = getattr(font, "backend", None)
-        hhea = getattr(backend, "font", {}).get("hhea") if backend is not None else None
-        units_per_em = getattr(backend, "units_per_em", None)
-        if hhea is None or not units_per_em:
-            try:
-                info = font.glyphInfo("x")
-            except Exception:
-                info = None
-            return None if info is None else _docx_points(info.depth * font.at)
+        backend = _require_opentype_font_backend(font)
+        hhea = backend.font.get("hhea")
+        units_per_em = backend.units_per_em
         ascent = max(0, getattr(hhea, "ascent", 0))
         descent = max(0, -getattr(hhea, "descent", 0))
         line_gap = max(0, getattr(hhea, "lineGap", 0))
@@ -1448,6 +1465,7 @@ class Document(reflow.Document):
         backend = getattr(font, "backend", None)
         if backend is None:
             return None
+        _require_opentype_font_backend(font)
         name = _docx_font_name(backend)
         if not name:
             return None
@@ -2042,6 +2060,8 @@ class DocxBackend(reflow.Reflow):
             return Path(f"{prefix}-1.svg").read_bytes()
 
     def define_font(self, font):
+        if font is not None:
+            _require_opentype_font_backend(font)
         if self.document is None:
             return None
         return self.document.defineFont(font)

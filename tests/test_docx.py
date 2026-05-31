@@ -1037,6 +1037,51 @@ def test_docx_inline_math_embeds_svg_picture(parser, monkeypatch):
     assert "image/svg+xml" in content_types
 
 
+def test_docx_inline_math_alignment_vbox_uses_current_text_run(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    alignment = align.HAlignment()
+    alignment.tabskips = [Glue(Dimen(2)), Glue(Dimen(3))]
+    row = align.Row()
+    row.cells = [_alignment_cell("x", font, width=10)]
+    alignment.rows = [row]
+    row_box = _alignment_row_box(alignment, row, height=8, depth=2)
+    vbox = bx.VBox(parser, None, 0)
+    vbox.list = [row_box]
+    vbox.width = Dimen(15)
+    vbox.height = Dimen(10)
+    vbox.depth = Dimen()
+    vbox.to = vbox.height
+    vbox.spread = Dimen()
+    vbox.natural = Glue()
+    vbox.glue_ratio = bx.GlueRatio(0, 0, 1)
+    vbox.shifted = Dimen()
+    owner = mmode.InlineMathNode(nodes=[mmode.Box(vbox)])
+    on = nd.MathShift(True)
+    on.source = owner
+    on.kern = Dimen()
+    off = nd.MathShift(False)
+    off.source = owner
+    off.kern = Dimen()
+    line = _FakeHBox(
+        [nd.CharNode("A", font), on, off, nd.CharNode("B", font)],
+        para,
+        height=10,
+        depth=2,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert "<w:txbxContent>" in xml
+    assert "<w:tbl>" in xml
+    assert "<w:t>A</w:t>" in xml
+    assert "<w:t>x</w:t>" in xml
+    assert "<w:t>B</w:t>" in xml
+
+
 def test_docx_inline_svg_placeholders_do_not_collide_after_ninth_picture(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend

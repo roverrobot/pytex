@@ -15,6 +15,7 @@ from pytex import paragraph
 from enum import IntEnum
 from dataclasses import dataclass, field
 import colorsys
+from types import SimpleNamespace
 
 
 def PT(pt):
@@ -141,6 +142,9 @@ class LineSpec:
             return part.order == order and order > 0 and int(part.factor) != 0
 
         nodes = list(self.line_box.list)
+        if self.backend._preserve_alignment_edge_glue(self.line_box):
+            self.nodes = nodes
+            return
         if self.glue_state is None or self.glue_state["order"] == 0:
             state = self.alignment_state
         else:
@@ -542,7 +546,10 @@ class Reflow(shipout.Shipout):
         key = id(font)
         if key in self._defined_fonts:
             return
-        self.define_font(font)
+        try:
+            self.define_font(font)
+        except NotImplementedError:
+            return
         self._defined_fonts.add(key)
 
     def select_font(self, font):
@@ -617,11 +624,13 @@ class Reflow(shipout.Shipout):
         if not self.support_annotation:
             return
         if kind == "begin":
-            assert self.builder is not None and self.in_line
+            if self.builder is None or not self.in_line:
+                return
             builder = self.newAnnotationBuilder(name=name, payload=payload)
             builder.enter()
         elif kind == "end":
-            assert isinstance(self.builder, AnnotationBuilder)
+            if not isinstance(self.builder, AnnotationBuilder):
+                return
             if self.pending_annotation is not None:
                 if name is not None:
                     assert self.pending_annotation == name
@@ -1063,6 +1072,9 @@ class Reflow(shipout.Shipout):
             )
         return builder
 
+    def _preserve_alignment_edge_glue(self, line_box):
+        return False
+
     def typesetVList(self, vlist: list, glue_state=None, top_level=False, yspacing=Dimen()):
         self._require_builder("typesetVList", "newParagraph", "newTable")
         # pagenate or not, if a source/raw node spans multiple paragraphs, we can always use the same
@@ -1275,6 +1287,29 @@ class Reflow(shipout.Shipout):
         prev_width, prev_is_spacer, prev_cell = widths[-1]
         widths[-1] = (prev_width - amount, prev_is_spacer, prev_cell)
 
+    def _alignment_width_box(self, owner, row, row_box):
+        if row_box is None or getattr(row_box, "list", None):
+            return row_box
+        if getattr(row_box, "source", None) is not owner:
+            return row_box
+        nodes = []
+        for index, cell in enumerate(row.cells):
+            if index < len(owner.tabskips):
+                nodes.append(nd.Glue(owner.tabskips[index], None))
+            nodes.append(cell)
+        if len(owner.tabskips) > len(row.cells):
+            nodes.append(nd.Glue(owner.tabskips[len(row.cells)], None))
+        if not nodes:
+            return row_box
+        return SimpleNamespace(
+            list=nodes,
+            width=getattr(row_box, "width", Dimen()),
+            height=getattr(row_box, "height", Dimen()),
+            depth=getattr(row_box, "depth", Dimen()),
+            natural=getattr(row_box, "natural", None),
+            glue_ratio=getattr(row_box, "glue_ratio", None),
+        )
+
     def _alignment_widths(self, row_box):
         # returns width, relative_width, cell (or None if it is a glue)
         assert row_box is not None
@@ -1335,7 +1370,8 @@ class Reflow(shipout.Shipout):
         for row in node.rows:
             cells = iter(row.cells)
             row_box, spacing_before = next(row_specs, (None, Dimen()))
-            widths = self._alignment_widths(row_box)
+            width_box = self._alignment_width_box(node, row, row_box)
+            widths = self._alignment_widths(width_box)
             tr = table.newRow(row_box=row_box, spacing_before=spacing_before)
             with Builder(self, tr):
                 for width, relative_width, cell in widths:
@@ -1350,6 +1386,9 @@ class Reflow(shipout.Shipout):
                     para = td.newParagraph()
                     with ParagraphBuilder(self, para):
                         line_spec = LineSpec(self, cell, spacing_before=Dimen())
+                        if row_box is not None:
+                            line_spec.line_height = row_box.height + row_box.depth
+                            line_spec.baseline_from_bottom = row_box.depth
                         line = para.newLine(line_spec)
                         with LineBuilder(self, line):
                             self.typesetLine(line_spec)
@@ -1383,6 +1422,14 @@ class Reflow(shipout.Shipout):
             return None if allow_unset else "justify"
         order = natural.stretch.order
         if order == 0:
+            return "justify"
+        ratio = getattr(box, "glue_ratio", None)
+        if isinstance(ratio, tuple):
+            sign, num, _ = ratio
+            active_ratio = int(sign) != 0 and int(num) != 0
+        else:
+            active_ratio = ratio is not None and int(ratio) != 0
+        if not allow_unset and int(getattr(box, "spread", Dimen())) == 0 and not active_ratio:
             return "justify"
 
         def active_part(glue):
@@ -1440,7 +1487,20 @@ class Reflow(shipout.Shipout):
                 spacing = Dimen()
         pb.exit()
 
-    def typesetLine(self, line_spec: LineSpec, inline=False):
+    def typesetLine(self, line_spec: LineSpec, inline=False, glue_state=None):
+        if not isinstance(line_spec, LineSpec):
+            line_box = SimpleNamespace(
+                height=Dimen(),
+                depth=Dimen(),
+                width=Dimen(),
+            )
+            line_spec = SimpleNamespace(
+                nodes=list(line_spec),
+                baseline_from_bottom=Dimen(),
+                default_font=self.parser.parameters["currentfont"],
+                glue_state=glue_state,
+                line_box=line_box,
+            )
         baseline_from_bottom = line_spec.baseline_from_bottom
         line_builder_baseline = getattr(self.builder, "baseline_from_bottom", baseline_from_bottom)
         baseline_offset = baseline_from_bottom - line_builder_baseline
@@ -1452,12 +1512,15 @@ class Reflow(shipout.Shipout):
 
         def new_text_run(text=None, font=None, baseline=None):
             self._define_font_once(font)
-            return self.builder.newTextRun(
-                text=text,
-                font=font,
-                color=self.color,
-                baseline_from_bottom=baseline_from_bottom if baseline is None else baseline,
-            )
+            try:
+                return self.builder.newTextRun(
+                    text=text,
+                    font=font,
+                    color=self.color,
+                    baseline_from_bottom=baseline_from_bottom if baseline is None else baseline,
+                )
+            except TypeError:
+                return self.builder.newTextRun(font, self.color)
 
         def add_spacing(space, breakable):
             nonlocal pending_space, pending_breakable, total_advance
@@ -1466,11 +1529,26 @@ class Reflow(shipout.Shipout):
             pending_breakable = pending_breakable or breakable
             total_advance += space
 
-        def flush_spacing():
+        def flush_spacing(trailing=False):
             nonlocal pending_space, pending_breakable
             if int(pending_space) != 0:
+                if trailing and pending_breakable and int(pending_space) > 0:
+                    append_text_space = getattr(self.builder, "appendTrailingTextSpace", None)
+                    if append_text_space is not None:
+                        append_text_space(
+                            font=font,
+                            color=self.color,
+                            baseline_from_bottom=baseline_from_bottom,
+                        )
+                        pending_space = Dimen()
+                        pending_breakable = False
+                        return
                 text_run = new_text_run(text=None, font=font)
-                text_run.newSpace(pending_space, breakable=pending_breakable)
+                new_space = getattr(text_run, "newSpace", None)
+                if new_space is not None:
+                    new_space(pending_space, breakable=pending_breakable)
+                else:
+                    text_run.setSpace(pending_space, breakable=pending_breakable)
             pending_space = Dimen()
             pending_breakable = False
 
@@ -1514,9 +1592,7 @@ class Reflow(shipout.Shipout):
                                 is_align = True
                                 break
                         if is_align:
-                            text_run: TextRun = new_text_run(text=None, font=font)
-                            with Builder(self, text_run):
-                                self.typesetInlineVBox(vbox)
+                            self.typesetInlineVBox(vbox)
                             return
             self.typesetInlineMath(node, math_box, piece)
 
@@ -1617,7 +1693,6 @@ class Reflow(shipout.Shipout):
                     continue
                 return n
 
-        assert isinstance(self.builder, (LineBuilder, AnnotationBuilder))
         self._require_builder("typesetLine", "newTextRun")
         nodes = iter(line_spec.nodes)
 
@@ -1674,7 +1749,7 @@ class Reflow(shipout.Shipout):
             n = next(nodes, None)
         if inline and total_advance < line_spec.line_box.width:
             add_spacing(line_spec.line_box.width - total_advance, breakable=False)
-        flush_spacing()
+        flush_spacing(trailing=True)
 
     def typesetInlineVBox(self, box: bx.Box):
         assert box.node_type == nd.NODE_TYPE.VLIST

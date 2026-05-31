@@ -781,12 +781,24 @@ class Line(reflow.Line):
         self.nodes.append(run)
         if getattr(run, "has_text_glyphs", False):
             self.has_text_glyphs = True
+            if self.backend_baseline is None or self.backend_baseline <= 0:
+                self.backend_baseline = reflow.BP(run.baseline_from_bottom)
         return run
 
     def backendBaselineForFont(self, font):
         if font is None:
             return None
         backend = _require_opentype_font_backend(font)
+        font_size = round(_docx_points(font.at) * 2) / 2
+        line_height = _docx_points(self.line_height)
+        line_baseline = getattr(backend, "lineBaselineFromBottom", None)
+        if callable(line_baseline):
+            try:
+                baseline = line_baseline(font_size, line_height)
+            except TypeError:
+                baseline = line_baseline(font_size, line_height, round_total=None)
+            baseline = _docx_points(Dimen(baseline))
+            return baseline if baseline > 0 else None
         hhea = backend.font.get("hhea")
         units_per_em = backend.units_per_em
         ascent = max(0, getattr(hhea, "ascent", 0))
@@ -795,11 +807,11 @@ class Line(reflow.Line):
         total_units = ascent + descent + line_gap
         if total_units <= 0:
             return None
-        font_size = round(_docx_points(font.at) * 2) / 2
         total_size = math.ceil(total_units / units_per_em * font_size * 2 - 1e-9) / 2
         if total_size <= 0:
             return None
-        return _docx_points(self.line_height) * (descent / units_per_em * font_size) / total_size
+        baseline = _docx_points(self.line_height) * (descent / units_per_em * font_size) / total_size
+        return baseline if baseline > 0 else None
 
     def finalizeLine(self):
         pass
@@ -1144,6 +1156,8 @@ class Table(reflow.Table):
     def _ensureColumns(self, count, width=None):
         while len(self._node.columns) < count:
             self._node.add_column(self._columnWidth(width))
+        if count:
+            self._setTableLayoutFixed()
 
     def _wordCell(self, row, index, span=1, width=None):
         span = max(1, int(span))
@@ -1800,6 +1814,11 @@ class DocxBackend(reflow.Reflow):
 
     def newFixedAnnotation(self, name, w, h):
         return None
+
+    def _preserve_alignment_edge_glue(self, line_box):
+        container = getattr(self.builder, "container", None)
+        story = getattr(container, "story", None)
+        return isinstance(story, Story)
 
     def setTarget(self, name):
         if self.document is None or self.builder is None:

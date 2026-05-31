@@ -130,16 +130,22 @@ class TextRun(StyledNode, reflow.TextRun):
     def __init__(
         self,
         line,
-        text,
-        font: Font,
+        text=None,
+        font: Font=None,
         color: reflow.Color=reflow.Color.black,
         baseline_from_bottom: Dimen=Dimen(),
     ):
+        if isinstance(line, Font) or line is None:
+            color = text if isinstance(text, reflow.Color) else color
+            font = line
+            text = ""
+            line = None
         if text is None:
             text = ""
         span = builder.SPAN(text)
         StyledNode.__init__(self)
         self.line = line
+        self._text_node = None
         reflow.TextRun.__init__(
             self,
             span,
@@ -153,22 +159,59 @@ class TextRun(StyledNode, reflow.TextRun):
             self.style["font-family"] = _font_family_name(font.backend)
             self.style["font-size"] = reflow.PT(font.at)
 
-    def newSpace(self, width: Dimen, breakable: bool):
-        self._node.text = "" if breakable else "\xa0"
-        self.style["display"] = "inline-block"
-        if int(width) < 0:
-            self.style["margin-left"] = reflow.PT(width)
+    def _appendText(self, text):
+        self.text = (self.text or "") + text
+        if len(self._node) == 0:
+            self._node.text = (self._node.text or "") + text
         else:
-            self.style["width"] = reflow.PT(width)
+            last = self._node[-1]
+            last.tail = (last.tail or "") + text
+
+    def appendText(self, text):
+        self._appendText(text)
+
+    def setChar(self, char: nd.Node):
+        if char.node_type == nd.NODE_TYPE.CHAR:
+            self._appendText(char.char)
+        elif char.node_type == nd.NODE_TYPE.LIGATURE:
+            for node in char.source:
+                self.setChar(node)
+
+    def setSpace(self, width: Dimen, breakable: bool=True):
+        if breakable and int(width) >= 0:
+            self._appendText(" ")
+            return
+        self.setKern(width)
+
+    def setKern(self, kern: Dimen):
+        if int(kern) == 0:
+            return
+        self._node.append(Space(kern, breakable=False).node)
+        self._text_node = None
+
+    def newSpace(self, width: Dimen, breakable: bool):
+        if self.line is not None and not getattr(self.line, "has_visible_content", False):
+            self.line.addLeadingSpacing(width, breakable)
+            return None
+        self._node.append(Space(width, breakable=breakable).node)
+        self._text_node = None
 
     def newInlineVBox(self, box: bx.Box):
         div = Div(inline=True)
         self.append(div)
+        if self.line is not None:
+            if self not in self.line.nodes:
+                self.line.append(self)
+            self.line.markVisibleContent(apply_leading=False)
         return div
 
     def newInlineMath(self):
         math = Math(inline=True)
         self.append(math)
+        if self.line is not None:
+            if self not in self.line.nodes:
+                self.line.append(self)
+            self.line.markVisibleContent(apply_leading=False)
         return math
 
 
@@ -185,18 +228,126 @@ class Space(StyledNode, reflow.Element):
 
 
 class Line(StyledNode, reflow.Line):
-    def __init__(self, line_spec: reflow.LineSpec):
+    def __init__(self, line_spec: reflow.LineSpec=None):
+        if line_spec is None:
+            line_box = type("LineBox", (), {"height": Dimen(), "depth": Dimen()})()
+            line_spec = type(
+                "LineSpec",
+                (),
+                {
+                    "line_box": line_box,
+                    "baseline_from_bottom": Dimen(),
+                },
+            )()
         StyledNode.__init__(self)
         reflow.Line.__init__(self, builder.SPAN(), line_spec)
+        self.leading_spacing = Dimen()
+        self.leading_spacing_breakable = True
+        self.has_visible_content = False
 
-    def newTextRun(self, text, font, color, baseline_from_bottom):
+    def addLeadingSpacing(self, width: Dimen, breakable: bool):
+        self.leading_spacing += Dimen(width)
+        self.leading_spacing_breakable = self.leading_spacing_breakable and breakable
+
+    def _resetLeadingSpacing(self):
+        self.leading_spacing = Dimen()
+        self.leading_spacing_breakable = True
+
+    def markVisibleContent(self, apply_leading=True):
+        if self.has_visible_content:
+            return
+        if apply_leading and int(self.leading_spacing) > 0:
+            self.append(Space(self.leading_spacing, breakable=self.leading_spacing_breakable))
+        self._resetLeadingSpacing()
+        self.has_visible_content = True
+
+    def _consumeLeadingSpacing(self, text: str):
+        if self.has_visible_content:
+            return text
+        if int(self.leading_spacing) > 0:
+            if self.leading_spacing_breakable:
+                text = " " + text
+            else:
+                self.append(Space(self.leading_spacing, breakable=False))
+        self._resetLeadingSpacing()
+        self.has_visible_content = True
+        return text
+
+    @staticmethod
+    def _textWidth(text, font):
+        if font is None:
+            return Dimen()
+        params = getattr(font, "param", ())
+        space = params[1] if len(params) > 1 else Dimen()
+        return space * len(text)
+
+    @staticmethod
+    def _sameTextStyle(run, font, color, baseline_from_bottom):
+        return (
+            isinstance(run, TextRun)
+            and run.font == font
+            and run.color == color
+            and run.baseline_from_bottom == baseline_from_bottom
+            and not run.nodes
+        )
+
+    def _appendTextRun(self, text, font, color, baseline_from_bottom):
+        if self.nodes and self._sameTextStyle(self.nodes[-1], font, color, baseline_from_bottom):
+            self.nodes[-1].appendText(text)
+            return self.nodes[-1]
+        text_run = TextRun(self, text, font, color, baseline_from_bottom=baseline_from_bottom)
+        self.append(text_run)
+        return text_run
+
+    def appendTrailingTextSpace(self, font, color, baseline_from_bottom):
+        if self.nodes and self._sameTextStyle(self.nodes[-1], font, color, baseline_from_bottom):
+            self.nodes[-1].appendText(" ")
+            return self.nodes[-1]
+        text_run = TextRun(self, " ", font, color, baseline_from_bottom=baseline_from_bottom)
+        self.append(text_run)
+        return text_run
+
+    def newTextRun(self, text=None, font=None, color=None, baseline_from_bottom=None):
+        append_empty_run = False
+        if color is None and isinstance(font, reflow.Color):
+            color = font
+            font = text
+            text = None
+            append_empty_run = True
+        if color is None:
+            color = reflow.Color.black
+        if baseline_from_bottom is None:
+            baseline_from_bottom = self.baseline_from_bottom
         self.registerBackendBaseline(font)
+        if text is None:
+            text = ""
+        if not self.has_visible_content and text:
+            stripped = text.lstrip()
+            prefix = text[:len(text) - len(stripped)]
+            if prefix:
+                self.addLeadingSpacing(self._textWidth(prefix, font), breakable=True)
+                text = stripped
+        if text:
+            text = self._consumeLeadingSpacing(text)
+            self.font = font
+            return self._appendTextRun(text, font, color, baseline_from_bottom)
+        if not self.has_visible_content and not append_empty_run:
+            self.font = font
+            return TextRun(self, text, font, color, baseline_from_bottom=baseline_from_bottom)
+        if append_empty_run:
+            self.markVisibleContent(apply_leading=False)
+        self.font = font
+        if self.nodes and self._sameTextStyle(self.nodes[-1], font, color, baseline_from_bottom):
+            return self.nodes[-1]
         text_run = TextRun(self, text, font, color, baseline_from_bottom=baseline_from_bottom)
         self.append(text_run)
         return text_run
     
     def newSpace(self, width: Dimen, breakable: bool):
         if reflow.PT(width) == "0.0pt":
+            return None
+        if not self.has_visible_content:
+            self.addLeadingSpacing(width, breakable)
             return None
         s =Space(width, breakable)
         self.append(s)
@@ -217,8 +368,8 @@ class Paragraph(StyledNode, reflow.Paragraph):
         self.style["text-align"] = justify
         self.justify = justify
 
-    def newLine(self, line_spec: reflow.LineSpec) -> Line:
-        if self.last_line is not None:
+    def newLine(self, line_spec: reflow.LineSpec=None) -> Line:
+        if self.last_line is not None and self.last_line.font is not None:
             self.last_line.newSpace(self.last_line.font.param[1], breakable=True)
         line = Line(line_spec)
         self.last_line = line
@@ -452,6 +603,7 @@ class HTMLReflowBackend(reflow.Reflow):
     """
 
     supported_graphic_formats = ("svg", "png", "jpg", "gif", "webp")
+    support_annotation = True
 
     def __init__(self, parser):
         super().__init__(parser, paginate=False)

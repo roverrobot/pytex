@@ -1,4 +1,5 @@
 import io
+import math
 import re
 import zipfile
 import xml.etree.ElementTree as ET
@@ -212,6 +213,14 @@ def _install_font(parser, font=None):
     return font
 
 
+def _text_position_to_tex_baseline(run_baseline, backend_baseline):
+    return docx.half_pt(Dimen(run_baseline) - Dimen(backend_baseline))
+
+
+def _box_position_to_tex_baseline(line_baseline, run_baseline, backend_baseline):
+    return docx.half_pt(Dimen(line_baseline) - Dimen(backend_baseline) - Dimen(run_baseline))
+
+
 def _math_atom(char, fam=0, atom_type=mmode.ATOM_TYPE.ORD):
     atom = mmode.Atom(atom_type)
     atom.nucleus = mmode.MathSymbol((atom_type.value << 12) | (fam << 8) | ord(char), -1)
@@ -260,6 +269,37 @@ def test_docx_define_font_requires_opentype_shape(parser):
 
     with pytest.raises(AssertionError, match="OpenType-shaped"):
         backend.define_font(font)
+
+
+def test_docx_line_baseline_uses_hhea_padding_scaled_to_exact_line_height(parser):
+    font = _FakeFont()
+    hhea = font.backend.font["hhea"]
+    hhea.ascent = 800
+    hhea.descent = -200
+    hhea.lineGap = 100
+    line_box = _FakeHBox([], width=20, height=18, depth=6)
+    line_spec = type(
+        "FakeLineSpec",
+        (),
+        {
+            "line_height": line_box.height + line_box.depth,
+            "spacing_before": Dimen(),
+            "default_font": font,
+            "line_box": line_box,
+            "baseline_from_bottom": line_box.depth,
+        },
+    )()
+    line = docx.Line(WordDocument().add_paragraph(), 1, line_spec)
+
+    font_size = round(docx._docx_points(font.at) * 2) / 2
+    padding = round(0.15 * (hhea.ascent - hhea.descent))
+    total_units = hhea.ascent - hhea.descent + hhea.lineGap + 2 * padding
+    total_size = math.ceil(total_units / font.backend.units_per_em * font_size * 2 - 1e-9) / 2
+    expected = docx._docx_points(line_spec.line_height) * (
+        (-hhea.descent + padding) / font.backend.units_per_em * font_size
+    ) / total_size
+
+    assert line.backendBaselineForFont(font) == pytest.approx(expected)
 
 
 def test_docx_document_interface_uses_pagespec_sections(parser):
@@ -545,7 +585,8 @@ def test_docx_reopens_line_spanning_annotation_per_line(parser):
 def test_docx_inline_vbox_emits_word_textbox_story(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    font = _install_font(parser)
+    backend_baseline = Dimen(1)
+    font = _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     outer_para = pg.Paragraph(parser, indent=False)
     inner_para = pg.Paragraph(parser, indent=False)
     inner_line = _line_box("X", inner_para, font, width=16)
@@ -576,7 +617,8 @@ def test_docx_inline_vbox_emits_word_textbox_story(parser):
         str(docx._emu(vbox.width)),
         str(docx._emu(vbox.height + vbox.depth)),
     )
-    assert f'<w:position w:val="-{docx.half_pt(vbox.depth)}"/>' in xml
+    expected_position = _box_position_to_tex_baseline(line.depth, vbox.depth, backend_baseline)
+    assert f'<w:position w:val="{expected_position}"/>' in xml
 
 
 def test_docx_epdf_graphic_special_converts_to_svg_picture(parser, monkeypatch):
@@ -693,6 +735,87 @@ def test_docx_standalone_graphic_line_keeps_tex_line_height(parser, monkeypatch)
     assert f'w:line="{docx._twips(Dimen(36))}"' not in first_spacing.group(1)
 
 
+def test_docx_graphic_transform_advance_cancels_tex_kern(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
+    graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
+    zero_width_graphic = _FakeHBox(
+        [graphic_box, nd.Kern(Dimen(-72))],
+        width=0,
+        height=36,
+        depth=0,
+    )
+    line = _FakeHBox(
+        [
+            nd.Special("pdf:btrans"),
+            nd.Special("x:scale 0.5 0.5"),
+            zero_width_graphic,
+            nd.Special("pdf:etrans"),
+            nd.Kern(Dimen(36)),
+        ],
+        source=source,
+        width=36,
+        height=18,
+        depth=0,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    assert re.findall(r"<w:t[^>]*>(.*?)</w:t>", xml) == [""]
+    assert '<w:spacing w:val=' not in xml
+
+
+def test_docx_graphic_line_keeps_explicit_trailing_kern(parser, monkeypatch):
+    class FakeConverter:
+        def convert(self, request):
+            return graphics.GraphicAsset(
+                format="svg",
+                data="<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
+    graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
+    line = _FakeHBox(
+        [graphic_box, nd.Kern(Dimen(8))],
+        source=source,
+        width=80,
+        height=36,
+        depth=0,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert len(_drawing_runs(xml)) == 1
+    assert re.findall(r"<w:t[^>]*>(.*?)</w:t>", xml) == ["", "\xa0"]
+    assert '<w:spacing w:val=' in xml
+
+
 def test_docx_graphic_followed_by_text_keeps_normal_space(parser, monkeypatch):
     class FakeConverter:
         def convert(self, request):
@@ -761,7 +884,8 @@ def test_docx_graphic_inside_shifted_hbox_uses_parent_baseline(parser, monkeypat
     monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    _install_font(parser)
+    backend_baseline = Dimen(2)
+    _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     source = pg.Paragraph(parser, indent=False)
     special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
     graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
@@ -771,13 +895,17 @@ def test_docx_graphic_inside_shifted_hbox_uses_parent_baseline(parser, monkeypat
     backend.shipout(_page_box([line]))
 
     xml = _document_xml(_docx_bytes(parser, backend))
-    expected_position = docx.half_pt(line.depth - graphic_box.shifted)
+    expected_position = _box_position_to_tex_baseline(
+        line.depth,
+        graphic_box.shifted,
+        backend_baseline,
+    )
     drawing_runs = _drawing_runs(xml)
     assert len(drawing_runs) == 1
     assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
 
 
-def test_docx_graphic_line_uses_word_font_baseline(parser, monkeypatch):
+def test_docx_graphic_line_moves_from_backend_to_tex_baseline(parser, monkeypatch):
     class FakeConverter:
         def convert(self, request):
             return graphics.GraphicAsset(
@@ -791,7 +919,8 @@ def test_docx_graphic_line_uses_word_font_baseline(parser, monkeypatch):
     monkeypatch.setitem(graphics._CONVERTERS, ("pdf", "svg"), FakeConverter())
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    font = _install_font(parser, _FakeWordBaselineFont(7))
+    backend_baseline = Dimen(7)
+    font = _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     source = pg.Paragraph(parser, indent=False)
     special = nd.Special("pdf: epdf bbox 0 0 200 100 width 72pt (fig.pdf)")
     graphic_box = _FakeHBox([special], width=72, height=36, depth=0)
@@ -800,7 +929,7 @@ def test_docx_graphic_line_uses_word_font_baseline(parser, monkeypatch):
     backend.shipout(_page_box([line]))
 
     xml = _document_xml(_docx_bytes(parser, backend))
-    expected_position = docx.half_pt(line.depth - Dimen(7))
+    expected_position = _box_position_to_tex_baseline(line.depth, Dimen(), backend_baseline)
     drawing_runs = _drawing_runs(xml)
     assert len(drawing_runs) == 1
     assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
@@ -905,7 +1034,8 @@ def test_docx_inline_vbox_table_uses_exact_tex_widths(parser):
 def test_docx_explicit_glue_emits_preserved_space_with_spacing_hint(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    font = _install_font(parser)
+    backend_baseline = Dimen(1)
+    font = _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     para = pg.Paragraph(parser, indent=False)
     line = _FakeHBox(
         [
@@ -921,6 +1051,8 @@ def test_docx_explicit_glue_emits_preserved_space_with_spacing_hint(parser):
     xml = _document_xml(_docx_bytes(parser, backend))
     assert 'xml:space="preserve"' in xml
     assert f'w:val="{docx.twips(Dimen(4))}"' in xml
+    expected_position = _text_position_to_tex_baseline(line.depth, backend_baseline)
+    assert re.findall(r'<w:position w:val="([^"]+)"/>', xml) == [expected_position] * 3
 
 
 def test_docx_spacing_uses_scaled_font_space_width(parser):
@@ -1128,7 +1260,8 @@ def test_docx_inline_svg_placeholders_do_not_collide_after_ninth_picture(parser,
 def test_docx_inline_math_inside_shifted_hbox_uses_parent_baseline(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    font = _install_font(parser)
+    backend_baseline = Dimen(2)
+    font = _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     para = pg.Paragraph(parser, indent=False)
     owner = mmode.InlineMathNode(nodes=[_math_atom("x")])
     on = nd.MathShift(True)
@@ -1152,7 +1285,11 @@ def test_docx_inline_math_inside_shifted_hbox_uses_parent_baseline(parser, monke
     backend.shipout(_page_box([line]))
 
     xml = _document_xml(_docx_bytes(parser, backend))
-    expected_position = docx.half_pt(line.depth - captured["box"].depth - inner.shifted)
+    expected_position = _box_position_to_tex_baseline(
+        line.depth,
+        captured["box"].depth + inner.shifted,
+        backend_baseline,
+    )
     drawing_runs = _drawing_runs(xml)
     assert len(drawing_runs) == 1
     assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
@@ -1381,7 +1518,8 @@ def test_docx_alignment_zero_width_right_protrusion_takes_following_width(parser
 def test_docx_alignment_cell_inline_math_uses_table_row_baseline(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    font = _install_font(parser)
+    backend_baseline = Dimen(2)
+    font = _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     owner = align.HAlignment()
     math_owner = mmode.InlineMathNode(nodes=[_math_atom("x")])
     on = nd.MathShift(True)
@@ -1409,7 +1547,11 @@ def test_docx_alignment_cell_inline_math_uses_table_row_baseline(parser, monkeyp
 
     xml = _document_xml(_docx_bytes(parser, backend))
     assert "<w:drawing" in xml
-    expected_position = docx.half_pt(row_box.depth - captured["box"].depth)
+    expected_position = _box_position_to_tex_baseline(
+        row_box.depth,
+        captured["box"].depth,
+        backend_baseline,
+    )
     drawing_runs = _drawing_runs(xml)
     assert len(drawing_runs) == 1
     assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
@@ -1432,10 +1574,11 @@ def test_docx_zero_width_inline_vbox_is_not_emitted(parser):
     assert document.paragraphs[0].text == "AB"
 
 
-def test_docx_inline_vbox_uses_depth_position(parser):
+def test_docx_inline_vbox_moves_from_backend_to_tex_baseline(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    font = _install_font(parser)
+    backend_baseline = Dimen(4)
+    font = _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     para = pg.Paragraph(parser, indent=False)
     char = nd.CharNode("A", font)
     vbox = _FakeVBox([], width=20, height=8, depth=3)
@@ -1445,7 +1588,7 @@ def test_docx_inline_vbox_uses_depth_position(parser):
 
     xml = _document_xml(_docx_bytes(parser, backend))
     assert "<w:drawing" in xml
-    expected_position = docx.half_pt(line.depth - char.depth - vbox.depth)
+    expected_position = _box_position_to_tex_baseline(line.depth, vbox.depth, backend_baseline)
     drawing_runs = _drawing_runs(xml)
     assert len(drawing_runs) == 1
     assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
@@ -1454,7 +1597,8 @@ def test_docx_inline_vbox_uses_depth_position(parser):
 def test_docx_inline_vbox_inside_shifted_hbox_uses_parent_baseline(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    _install_font(parser)
+    backend_baseline = Dimen(1)
+    _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     para = pg.Paragraph(parser, indent=False)
     vbox = _FakeVBox([], width=20, height=8, depth=3)
     shifted = _FakeHBox([vbox], width=20, height=8, depth=3)
@@ -1464,7 +1608,11 @@ def test_docx_inline_vbox_inside_shifted_hbox_uses_parent_baseline(parser):
     backend.shipout(_page_box([line]))
 
     xml = _document_xml(_docx_bytes(parser, backend))
-    expected_position = docx.half_pt(line.depth - vbox.depth - shifted.shifted)
+    expected_position = _box_position_to_tex_baseline(
+        line.depth,
+        vbox.depth + shifted.shifted,
+        backend_baseline,
+    )
     drawing_runs = _drawing_runs(xml)
     assert len(drawing_runs) == 1
     assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
@@ -1473,7 +1621,8 @@ def test_docx_inline_vbox_inside_shifted_hbox_uses_parent_baseline(parser):
 def test_docx_inline_vtop_is_lowered_by_height(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    _install_font(parser)
+    backend_baseline = Dimen(2)
+    _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     para = pg.Paragraph(parser, indent=False)
     vtop = bx.VTop(parser, None, 0)
     vtop.list = []
@@ -1491,7 +1640,8 @@ def test_docx_inline_vtop_is_lowered_by_height(parser):
 
     xml = _document_xml(_docx_bytes(parser, backend))
     assert "<w:drawing" in xml
-    assert f'<w:position w:val="{docx.half_pt(line.depth - vtop.height)}"/>' in xml
+    expected_position = _box_position_to_tex_baseline(line.depth, vtop.height, backend_baseline)
+    assert f'<w:position w:val="{expected_position}"/>' in xml
     assert f'<w:position w:val="-{docx.half_pt(vtop.depth)}"/>' not in xml
 
 

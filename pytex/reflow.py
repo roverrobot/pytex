@@ -177,6 +177,13 @@ class LineSpec:
         )
 
 
+@dataclass
+class LineAdvance:
+    emitted: Dimen = field(default_factory=Dimen)
+    pending: Dimen = field(default_factory=Dimen)
+    breakable: bool = False
+
+
 class Line(Element):
     def __init__(self, node, line_spec: LineSpec):
         super().__init__(node)
@@ -213,12 +220,13 @@ class Line(Element):
         for run in self.nodes:
             if not isinstance(run, TextRun):
                 continue
-            # Backend baselines describe the line Word/CSS would naturally use;
-            # the destination is still TeX's baseline. Text runs already sit on
-            # the backend baseline, while inline boxes/pictures sit on the
-            # backend baseline with their own bottom edge.
-            run_backend = backend_baseline if run.uses_backend_baseline else 0
-            shift = line_baseline - backend_baseline + run_backend - BP(run.baseline_from_bottom)
+            # Backend baselines describe the baseline Word/CSS naturally gives a
+            # run. Shift from there to the TeX baseline for text, or to the TeX
+            # box bottom for inline boxes/pictures.
+            if run.uses_backend_baseline:
+                shift = BP(run.baseline_from_bottom) - backend_baseline
+            else:
+                shift = line_baseline - backend_baseline - BP(run.baseline_from_bottom)
             run.verticalShift(shift)
 
 
@@ -1506,9 +1514,20 @@ class Reflow(shipout.Shipout):
         baseline_offset = baseline_from_bottom - line_builder_baseline
         font = line_spec.default_font
         glue_state = line_spec.glue_state
+        # Effective kern accounting:
+        #
+        # TeX's horizontal list width is not always the same as the advance that
+        # the reflow backend has already painted. A graphic is the important
+        # example: TeX may place a zero-width box, emit transform specials and a
+        # graphic special, then add a kern equal to the visual graphic width.
+        # Word/HTML picture runs already advance by their visual width, so the
+        # later TeX kern must cancel against that emitted advance rather than
+        # becoming a real space run. The same mismatch can appear across nested
+        # inline hboxes, so inline calls return both emitted advance and pending
+        # effective kern for the parent to combine with the hbox's TeX width.
         pending_space = Dimen()
         pending_breakable = False
-        total_advance = Dimen()
+        emitted_advance = Dimen()
 
         def new_text_run(text=None, font=None, baseline=None):
             self._define_font_once(font)
@@ -1523,23 +1542,49 @@ class Reflow(shipout.Shipout):
                 return self.builder.newTextRun(font, self.color)
 
         def add_spacing(space, breakable):
-            nonlocal pending_space, pending_breakable, total_advance
+            nonlocal pending_space, pending_breakable
             space = Dimen(space)
+            if int(space) == 0:
+                return
+            if int(pending_space) == 0:
+                pending_breakable = breakable
+            else:
+                pending_breakable = pending_breakable or breakable
             pending_space += space
-            pending_breakable = pending_breakable or breakable
-            total_advance += space
+            if int(pending_space) == 0:
+                pending_breakable = False
+
+        def record_paint(tex_advance, emitted):
+            nonlocal emitted_advance
+            emitted = Dimen(emitted)
+            emitted_advance += emitted
+            add_spacing(Dimen(tex_advance) - emitted, breakable=False)
+
+        def record_child_box(tex_advance, child_advance):
+            nonlocal emitted_advance
+            emitted_advance += child_advance.emitted
+            add_spacing(child_advance.pending, child_advance.breakable)
+            add_spacing(
+                Dimen(tex_advance) - child_advance.emitted - child_advance.pending,
+                breakable=False,
+            )
 
         def flush_spacing(trailing=False):
-            nonlocal pending_space, pending_breakable
+            nonlocal pending_space, pending_breakable, emitted_advance
             if int(pending_space) != 0:
                 if trailing and pending_breakable and int(pending_space) > 0:
                     append_text_space = getattr(self.builder, "appendTrailingTextSpace", None)
                     if append_text_space is not None:
+                        emitted_advance += pending_space
                         append_text_space(
                             font=font,
                             color=self.color,
                             baseline_from_bottom=baseline_from_bottom,
                         )
+                        pending_space = Dimen()
+                        pending_breakable = False
+                        return
+                    if getattr(self.builder, "drop_trailing_breakable_spacing", False):
                         pending_space = Dimen()
                         pending_breakable = False
                         return
@@ -1549,6 +1594,7 @@ class Reflow(shipout.Shipout):
                     new_space(pending_space, breakable=pending_breakable)
                 else:
                     text_run.setSpace(pending_space, breakable=pending_breakable)
+                emitted_advance += pending_space
             pending_space = Dimen()
             pending_breakable = False
 
@@ -1560,10 +1606,26 @@ class Reflow(shipout.Shipout):
 
         def is_graphic_whatsit(node):
             text = whatsit_text(node).lstrip().lower()
-            return text.startswith("pdf:epdf") or text.startswith("pdf:image")
+            if not text.startswith("pdf:"):
+                return False
+            command = text[4:].lstrip()
+            return command.startswith("epdf") or command.startswith("image")
+
+        def is_transform_whatsit(node):
+            text = whatsit_text(node).lstrip().lower()
+            if text.startswith("pdf:"):
+                command = text[4:].lstrip()
+                return command.startswith("btrans") or command.startswith("etrans")
+            if text.startswith("x:"):
+                command = text[2:].lstrip()
+                return (
+                    command.startswith("scale")
+                    or command.startswith("rotate")
+                    or command.startswith("translate")
+                )
+            return False
 
         def execute_whatsit(node, flush=True):
-            nonlocal total_advance
             if flush:
                 flush_spacing()
             self._last_graphic_advance = None
@@ -1577,7 +1639,7 @@ class Reflow(shipout.Shipout):
             self._last_graphic_advance = None
             if advance is not None:
                 advance = Dimen(advance)
-                total_advance += advance
+                record_paint(Dimen(), advance)
             return advance
 
         def typeset_inline_math(node: mmode.InlineMathNode, math_box, piece):
@@ -1643,6 +1705,7 @@ class Reflow(shipout.Shipout):
             text_run = new_text_run(text=None, font=font)
             with Builder(self, text_run):
                 typeset_inline_math(inline_math_node, math_box, inline_math_segment)
+            record_paint(math_box.width, math_box.width)
             return n, math_box.width, closing_kern
 
         def ligature_text(node):
@@ -1655,21 +1718,19 @@ class Reflow(shipout.Shipout):
             return text
 
         def emit_text(nodes, n):
-            nonlocal font, total_advance
+            nonlocal font
             flush_spacing()
             text = n.char if n.node_type == nd.NODE_TYPE.CHAR else ligature_text(n)
             font = n.font
             width = n.width
-            depth = getattr(n, "depth", Dimen())
             while True:
                 n = next(nodes, None)
                 if n is None or n.node_type not in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE) or n.font != font:
                     break
                 text += n.char if n.node_type == nd.NODE_TYPE.CHAR else ligature_text(n)
                 width += n.width
-                depth = max(depth, getattr(n, "depth", Dimen()))
-            new_text_run(text=text, font=font, baseline=depth + baseline_offset)
-            total_advance += width
+            new_text_run(text=text, font=font)
+            record_paint(width, width)
             return n, width, font
 
         def emit_space_run(nodes, space, breakable):
@@ -1698,7 +1759,6 @@ class Reflow(shipout.Shipout):
 
         if self.paragraph.inline_math_node is not None:
             n, advance, closing_kern = emit_inline_math(nodes, glue_state)
-            total_advance += advance
             add_spacing(closing_kern, breakable=False)
         else:
             n = next(nodes, None)
@@ -1720,11 +1780,10 @@ class Reflow(shipout.Shipout):
                 self.paragraph.inline_math_segment = 1
                 self.paragraph.inline_math_node = n.source
                 n, advance, closing_kern = emit_inline_math(nodes, glue_state)
-                total_advance += advance
                 add_spacing(closing_kern, breakable=False)
                 continue
             if node_type == nd.NODE_TYPE.WHATSIT:
-                execute_whatsit(n)
+                execute_whatsit(n, flush=not is_transform_whatsit(n))
                 n = next(nodes, None)
                 continue
             if node_type == nd.NODE_TYPE.HLIST:
@@ -1734,8 +1793,8 @@ class Reflow(shipout.Shipout):
                 flush_spacing()
                 child_line_spec = LineSpec(self, n, spacing_before=Dimen())
                 child_line_spec.baseline_from_bottom = baseline_from_bottom + getattr(n, "shifted", Dimen())
-                self.typesetLine(child_line_spec, inline=True)
-                total_advance += n.width
+                child_advance = self.typesetLine(child_line_spec, inline=True)
+                record_child_box(n.width, child_advance)
             elif node_type == nd.NODE_TYPE.VLIST:
                 flush_spacing()
                 text_run = new_text_run(
@@ -1745,11 +1804,12 @@ class Reflow(shipout.Shipout):
                 )
                 with Builder(self, text_run):
                     self.typesetInlineVBox(n)
-                total_advance += n.width
+                record_paint(n.width, n.width)
             n = next(nodes, None)
-        if inline and total_advance < line_spec.line_box.width:
-            add_spacing(line_spec.line_box.width - total_advance, breakable=False)
+        if inline:
+            return LineAdvance(emitted_advance, pending_space, pending_breakable)
         flush_spacing(trailing=True)
+        return LineAdvance(emitted_advance, Dimen(), False)
 
     def typesetInlineVBox(self, box: bx.Box):
         assert box.node_type == nd.NODE_TYPE.VLIST

@@ -574,7 +574,7 @@ class TextRun(reflow.TextRun):
             self.newText()
         self.text._node.text = " " if breakable else "\xa0"
         self.text._node.set(Text.XML_SPACE, "preserve")
-        self.uses_backend_baseline = False
+        self.uses_backend_baseline = True
         if self.font is None:
             return self
         diff = width - self.font.at * self.font.backend._spaceWidth()
@@ -713,7 +713,7 @@ class Space(TextRun):
             preserve_space=True,
         )
         self.has_text_glyphs = False
-        self.uses_backend_baseline = False
+        self.uses_backend_baseline = True
         diff = width - font.at * font.backend._spaceWidth()
         if int(diff) != 0:
             rPr = self._node._r.get_or_add_rPr()
@@ -730,6 +730,7 @@ class Line(reflow.Line):
         "center": WD_ALIGN_PARAGRAPH.CENTER,
         None: WD_ALIGN_PARAGRAPH.LEFT,
     }
+    drop_trailing_breakable_spacing = True
 
     def __init__(
         self,
@@ -781,8 +782,6 @@ class Line(reflow.Line):
         self.nodes.append(run)
         if getattr(run, "has_text_glyphs", False):
             self.has_text_glyphs = True
-            if self.backend_baseline is None or self.backend_baseline <= 0:
-                self.backend_baseline = reflow.BP(run.baseline_from_bottom)
         return run
 
     def backendBaselineForFont(self, font):
@@ -804,13 +803,17 @@ class Line(reflow.Line):
         ascent = max(0, getattr(hhea, "ascent", 0))
         descent = max(0, -getattr(hhea, "descent", 0))
         line_gap = max(0, getattr(hhea, "lineGap", 0))
-        total_units = ascent + descent + line_gap
+        # Match Word's natural font box, then scale the baseline to exact line height.
+        padding = round(0.15 * (ascent + descent))
+        total_units = ascent + descent + line_gap + 2 * padding
         if total_units <= 0:
             return None
         total_size = math.ceil(total_units / units_per_em * font_size * 2 - 1e-9) / 2
         if total_size <= 0:
             return None
-        baseline = _docx_points(self.line_height) * (descent / units_per_em * font_size) / total_size
+        baseline = _docx_points(self.line_height) * (
+            (descent + padding) / units_per_em * font_size
+        ) / total_size
         return baseline if baseline > 0 else None
 
     def finalizeLine(self):

@@ -227,6 +227,13 @@ def _math_atom(char, fam=0, atom_type=mmode.ATOM_TYPE.ORD):
     return atom
 
 
+def test_docx_length_units_round_to_nearest_word_unit():
+    assert docx._twips(docx._tex_points(0.03)) == 1
+    assert docx._twips(docx._tex_points(-0.03)) == -1
+    assert docx.half_pt(docx._tex_points(0.26)) == "1"
+    assert docx.half_pt(docx._tex_points(-0.26)) == "-1"
+
+
 def _alignment_cell(text, font, width=20):
     box = _FakeHBox(_char_nodes(text, font), width=width, rightmost_value=width)
     box.span = 1
@@ -1618,7 +1625,7 @@ def test_docx_inline_vbox_inside_shifted_hbox_uses_parent_baseline(parser):
     assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
 
 
-def test_docx_inline_vtop_is_lowered_by_height(parser):
+def test_docx_inline_vtop_uses_depth_baseline(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
     backend_baseline = Dimen(2)
@@ -1640,9 +1647,8 @@ def test_docx_inline_vtop_is_lowered_by_height(parser):
 
     xml = _document_xml(_docx_bytes(parser, backend))
     assert "<w:drawing" in xml
-    expected_position = _box_position_to_tex_baseline(line.depth, vtop.height, backend_baseline)
+    expected_position = _box_position_to_tex_baseline(line.depth, vtop.depth, backend_baseline)
     assert f'<w:position w:val="{expected_position}"/>' in xml
-    assert f'<w:position w:val="-{docx.half_pt(vtop.depth)}"/>' not in xml
 
 
 def test_docx_alignment_span_merges_word_cells(parser):

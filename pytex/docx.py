@@ -112,12 +112,18 @@ class _ContainerNode:
     def append(self, child):
         pass
 
+def _round_docx_unit(value: float):
+    if value < 0:
+        return math.ceil(value - 0.5)
+    return math.floor(value + 0.5)
+
+
 def twips(dimen: Dimen):
-    return f"{int(float(dimen) / 72.27 * 72 * 20)}"
+    return f"{_twips(dimen)}"
 
 
 def _twips(dimen: Dimen):
-    return int(float(dimen) / 72.27 * 72 * 20)
+    return _round_docx_unit(float(dimen) / 72.27 * 72 * 20)
 
 
 def _length(dimen: Dimen):
@@ -125,7 +131,7 @@ def _length(dimen: Dimen):
 
 
 def _emu(dimen: Dimen):
-    return max(1, int(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN))
+    return max(1, _round_docx_unit(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN))
 
 
 def _twip_emu(dimen: Dimen):
@@ -186,7 +192,7 @@ def _svg_png_fallback(payload: bytes):
 
 
 def half_pt(dimen: Dimen):
-    return f"{int(float(dimen) / 72.27 * 72 * 2)}"
+    return f"{_round_docx_unit(float(dimen) / 72.27 * 72 * 2)}"
 
 
 def _textbox_xml(cx: int, cy: int, drawing_id: int):
@@ -586,7 +592,7 @@ class TextRun(reflow.TextRun):
         return self
 
     def verticalShift(self, shift):
-        self._setPosition(int(float(shift) * 2))
+        self._setPosition(_round_docx_unit(float(shift) * 2))
 
     def _setPosition(self, position):
         if not position:
@@ -621,8 +627,7 @@ class TextRun(reflow.TextRun):
             raise ValueError("DOCX inline textbox template is missing w:txbxContent")
         block = TextBoxStory(document, drawing, content, box)
         self._node._element.append(drawing)
-        box_baseline = box.height if isinstance(box, bx.VTop) else box.depth
-        self.baseline_from_bottom = self._boxBaselineFromBottom(box_baseline)
+        self.baseline_from_bottom = self._boxBaselineFromBottom(box.depth)
         self.nodes.append(block)
         return block
 

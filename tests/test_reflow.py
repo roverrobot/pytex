@@ -2,6 +2,7 @@ from pytex import box as bx
 from pytex import glue
 from pytex import mmode
 from pytex import node as nd
+from pytex import paragraph as pg
 from pytex import reflow
 from pytex.dimen import Dimen
 
@@ -429,6 +430,36 @@ def test_inline_math_fragment_ignores_inactive_glue_order(parser):
     assert tuple(math_box.glue_ratio) == (0, 0, 1)
     assert glue_state["factor_sum"] == 0
     assert glue_state["applied"] == 0
+
+
+def test_typeset_vlist_passes_page_glue_state_to_paragraph(parser):
+    backend = _ProbeBackend(parser)
+    body = _ProbeBlock()
+    owner = pg.Paragraph(parser, indent=False)
+    line1 = _fixed_hbox(parser, width=50, height=8, depth=2)
+    line1.source = owner
+    interline = nd.Glue(
+        glue.Glue(Dimen(12), shrink=glue.Stretchness(Dimen(12), 0)),
+        "\\baselineskip",
+    )
+    interline.source = owner
+    line2 = _fixed_hbox(parser, width=50, height=8, depth=2)
+    line2.source = owner
+    glue_state = {
+        "num": -int(Dimen(6)),
+        "den": int(Dimen(12)),
+        "order": 0,
+        "shrink": True,
+        "factor_sum": 0,
+        "applied": 0,
+    }
+
+    with reflow.Builder(backend, body):
+        backend.typesetVList([line1, interline, line2], glue_state=glue_state, top_level=True)
+
+    assert len(body.paragraphs) == 1
+    assert glue_state["factor_sum"] == int(Dimen(12))
+    assert glue_state["applied"] == -int(Dimen(6))
 
 
 def test_vbox_stack_tracks_only_vertical_boxes(parser):

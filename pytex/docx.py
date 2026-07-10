@@ -123,7 +123,7 @@ def twips(dimen: Dimen):
 
 
 def _twips(dimen: Dimen):
-    return _round_docx_unit(float(dimen) / 72.27 * 72 * 20)
+    return int(float(dimen) / 72.27 * 72 * 20)
 
 
 def _length(dimen: Dimen):
@@ -512,7 +512,7 @@ class TextRun(reflow.TextRun):
         color=reflow.Color.black,
         baseline_from_bottom=Dimen(),
         preserve_space=False,
-    ):
+        ):
         node = line._node.add_run()
         self.line = line
         self.has_text_glyphs = False
@@ -638,10 +638,14 @@ class TextRun(reflow.TextRun):
         document = _story_document(self.line.story)
         payload = backend.inlineMathSvg(box)
         visual_height = box.height + box.depth
+        is_display_math = isinstance(box, DisplayMathPictureBox)
+        if is_display_math:
+            payload = _retarget_svg_size(payload, box.width, visual_height)
         fallback_placeholder, svg_placeholder, media_name = document.defineInlineSvg(
             payload,
             width=box.width,
             height=visual_height,
+            use_svg=not is_display_math,
         )
         drawing_id = document.nextDrawingId()
         drawing = parse_xml(
@@ -757,9 +761,8 @@ class Line(reflow.Line):
         self.has_text_glyphs = False
         self._setLineHeight(self.line_height)
         fmt = para.paragraph_format
-        assert int(line_spec.spacing_before) >= 0, f"negative spacing{line_spec.spacing_before}"
         self.spacing_before = Dimen(line_spec.spacing_before)
-        fmt.space_before = Twips(_twips(self.spacing_before))
+        self._setSpaceBefore(self.spacing_before)
         fmt.space_after = Pt(0)
         self.font = line_spec.default_font
         self.width = line_spec.line_box.rightmost()
@@ -774,6 +777,14 @@ class Line(reflow.Line):
         fmt = self._node.paragraph_format
         fmt.line_spacing = Twips(max(1, _twips(height)))
         fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+
+    def _setSpaceBefore(self, spacing):
+        pPr = self._node._p.get_or_add_pPr()
+        spacing_element = pPr.find(qn("w:spacing"))
+        if spacing_element is None:
+            spacing_element = OxmlElement("w:spacing")
+            pPr.append(spacing_element)
+        spacing_element.set(qn("w:before"), str(_twips(spacing)))
 
     def setLineHeight(self, height):
         self.line_height = Dimen(height)
@@ -1245,9 +1256,11 @@ class Block(reflow.Block):
 
 
 class Story(reflow.Element):
-    def __init__(self, document, node):
+    def __init__(self, document, node, section=None, region="body"):
         super().__init__(node)
         self.document = document
+        self.section = section
+        self.region = region
 
     def clear(self):
         element = getattr(self._node, "_element", None)
@@ -1285,6 +1298,9 @@ class Story(reflow.Element):
         return self.document.line_id
 
     def applyTrailingSpacing(self, spacing: Dimen):
+        if self.region == "body" and self.section is not None:
+            self.section.applyTrailingSpacing(spacing)
+            return
         if self.nodes and hasattr(self.nodes[-1], "applyTrailingSpacing"):
             self.nodes[-1].applyTrailingSpacing(spacing)
 
@@ -1297,9 +1313,9 @@ class Section:
         self._apply_spec()
         self._section.header.is_linked_to_previous = False
         self._section.footer.is_linked_to_previous = False
-        self._header = Story(document, self._section.header)
-        self._footer = Story(document, self._section.footer)
-        self._body = Story(document, document._node._body)
+        self._header = Story(document, self._section.header, self, "header")
+        self._footer = Story(document, self._section.footer, self, "footer")
+        self._body = Story(document, document._node._body, self, "body")
 
     def _apply_spec(self):
         section = self._section
@@ -1313,6 +1329,15 @@ class Section:
             section.header_distance = _length(self.spec.header_distance)
         if self.spec.footer_distance is not None:
             section.footer_distance = _length(self.spec.footer_distance)
+
+    def applyTrailingSpacing(self, spacing: Dimen):
+        if int(spacing) >= 0:
+            return
+        current = self._section.bottom_margin
+        if current is None:
+            return
+        reduction = _twips(Dimen() - spacing)
+        self._section.bottom_margin = Twips(max(0, int(current.twips) - reduction))
 
     @property
     def header(self) -> Block:
@@ -1328,56 +1353,7 @@ class Section:
 
     def close(self, document, last_page):
         document.add_section(WD_SECTION_START.NEW_PAGE)
-        if not self._move_section_break_to_previous_paragraph(document):
-            self._minimize_section_break_paragraph(document)
-
-    @staticmethod
-    def _move_section_break_to_previous_paragraph(document):
-        """Attach the section break to the preceding paragraph when possible.
-
-        python-docx creates a standalone empty paragraph to hold the section
-        break. That paragraph still participates in Word layout and can disturb
-        tight page endings. If the previous body element is a paragraph, move
-        the generated w:sectPr onto that paragraph and remove the empty one.
-        If the previous element is a table, keep the generated paragraph and
-        let the caller minimize it instead, because section properties cannot
-        be attached directly to a table.
-        """
-        paragraphs = document.paragraphs
-        if len(paragraphs) < 2:
-            return False
-        break_paragraph = paragraphs[-1]
-        break_p = break_paragraph._p
-        break_pPr = break_p.pPr
-        if break_pPr is None:
-            return False
-        sectPr = break_pPr.find(qn("w:sectPr"))
-        if sectPr is None:
-            return False
-        parent = break_p.getparent()
-        if parent is None:
-            return False
-        children = list(parent)
-        try:
-            index = children.index(break_p)
-        except ValueError:
-            return False
-        if index == 0:
-            return False
-        previous = children[index - 1]
-        if previous.tag != qn("w:p"):
-            return False
-        previous_pPr = previous.find(qn("w:pPr"))
-        if previous_pPr is None:
-            previous_pPr = OxmlElement("w:pPr")
-            previous.insert(0, previous_pPr)
-        existing = previous_pPr.find(qn("w:sectPr"))
-        if existing is not None:
-            previous_pPr.remove(existing)
-        break_pPr.remove(sectPr)
-        previous_pPr.append(sectPr)
-        parent.remove(break_p)
-        return True
+        self._minimize_section_break_paragraph(document)
 
     @staticmethod
     def _minimize_section_break_paragraph(document):

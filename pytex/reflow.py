@@ -1123,7 +1123,7 @@ class Reflow(shipout.Shipout):
                     para = self.last_source[1]
                 else:
                     para = self.builder.newParagraph(spacing_before=spacing)
-                self.typesetParagraph(para, n, collection)
+                self.typesetParagraph(para, n, collection, glue_state=glue_state)
                 spacing = Dimen()
                 if top_level:
                     self.last_source = (n, para)

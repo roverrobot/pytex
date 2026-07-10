@@ -227,9 +227,11 @@ def _math_atom(char, fam=0, atom_type=mmode.ATOM_TYPE.ORD):
     return atom
 
 
-def test_docx_length_units_round_to_nearest_word_unit():
-    assert docx._twips(docx._tex_points(0.03)) == 1
-    assert docx._twips(docx._tex_points(-0.03)) == -1
+def test_docx_twips_truncate_to_word_unit():
+    assert docx._twips(docx._tex_points(0.099)) == 1
+    assert docx._twips(docx._tex_points(-0.099)) == -1
+    assert docx._twips(docx._tex_points(0.049)) == 0
+    assert docx._twips(docx._tex_points(-0.049)) == 0
     assert docx.half_pt(docx._tex_points(0.26)) == "1"
     assert docx.half_pt(docx._tex_points(-0.26)) == "-1"
 
@@ -338,6 +340,45 @@ def test_docx_document_interface_uses_pagespec_sections(parser):
     assert int(word_section.bottom_margin) == int(docx._length(Dimen(20)))
     assert int(word_section.header_distance) == int(docx._length(Dimen(8)))
     assert int(word_section.footer_distance) == int(docx._length(Dimen(12)))
+
+
+def test_docx_section_break_uses_minimized_empty_paragraph(parser):
+    backend = docx.DocxBackend(parser)
+    document = backend.open()
+    spec = reflow.PageSpec(
+        width=Dimen(100),
+        height=Dimen(200),
+        margin_left=Dimen(10),
+        margin_top=Dimen(20),
+        margin_right=Dimen(10),
+        margin_bottom=Dimen(20),
+    )
+    document.newPage(spec)
+    document._node.add_paragraph("Visible")
+
+    document.newPage(spec)
+
+    buffer = io.BytesIO()
+    document._node.save(buffer)
+    with zipfile.ZipFile(io.BytesIO(buffer.getvalue())) as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    body = root.find(f"{{{docx._W_NS}}}body")
+    paragraphs = [child for child in body if child.tag == f"{{{docx._W_NS}}}p"]
+    visible_index = next(
+        index for index, para in enumerate(paragraphs)
+        if "".join(t.text or "" for t in para.findall(f".//{{{docx._W_NS}}}t")) == "Visible"
+    )
+    visible = paragraphs[visible_index]
+    section_break = paragraphs[visible_index + 1]
+
+    assert visible.find(f"{{{docx._W_NS}}}pPr/{{{docx._W_NS}}}sectPr") is None
+    assert section_break.find(f"{{{docx._W_NS}}}pPr/{{{docx._W_NS}}}sectPr") is not None
+    spacing = section_break.find(f"{{{docx._W_NS}}}pPr/{{{docx._W_NS}}}spacing")
+    assert spacing is not None
+    assert spacing.get(f"{{{docx._W_NS}}}before") == "0"
+    assert spacing.get(f"{{{docx._W_NS}}}after") == "0"
+    assert spacing.get(f"{{{docx._W_NS}}}line") == "1"
+    assert spacing.get(f"{{{docx._W_NS}}}lineRule") == "exact"
 
 
 def test_docx_shipout_embeds_filesystem_opentype_fonts(parser, tmp_path):
@@ -875,6 +916,13 @@ def test_docx_trailing_negative_spacing_keeps_tex_line_height(parser):
     assert first_spacing is not None
     assert f'w:line="{docx._twips(Dimen(10))}"' in first_spacing.group(1)
     assert f'w:line="{docx._twips(Dimen(6))}"' not in first_spacing.group(1)
+    root = _document_root(_docx_bytes(parser, backend))
+    pg_mar = root.find(f".//{{{docx._W_NS}}}pgMar")
+    assert pg_mar is not None
+    assert int(pg_mar.get(f"{{{docx._W_NS}}}bottom")) == (
+        docx._twips(Dimen(72.27))
+        - docx._twips(Dimen(4))
+    )
 
 
 def test_docx_graphic_inside_shifted_hbox_uses_parent_baseline(parser, monkeypatch):
@@ -1305,7 +1353,8 @@ def test_docx_inline_math_inside_shifted_hbox_uses_parent_baseline(parser, monke
 def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
-    font = _install_font(parser)
+    backend_baseline = Dimen(2)
+    font = _install_font(parser, _FakeWordBaselineFont(backend_baseline))
     owner = mmode.DisplayMathNode()
     owner.list.append(_math_atom("x"))
     before = nd.Glue(Glue(Dimen(6)), "\\abovedisplayskip")
@@ -1322,6 +1371,7 @@ def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
         return b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
 
     monkeypatch.setattr(backend, "inlineMathSvg", fake_svg)
+    monkeypatch.setattr(docx, "_svg_png_fallback", lambda payload: b"\x89PNG\r\n\x1a\nfallback")
 
     backend.shipout(_page_box([before, display_box, after, _line_box("After", para, font)]))
 
@@ -1337,10 +1387,24 @@ def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
     data = _docx_bytes(parser, backend)
     xml = _document_xml(data)
     assert "<w:drawing" in xml
-    assert "<asvg:svgBlip" in xml
+    assert "<asvg:svgBlip" not in xml
     assert f'cx="{docx._emu(display_box.shifted + display_box.width)}"' in xml
+    drawing_runs = _drawing_runs(xml)
+    assert len(drawing_runs) == 1
+    expected_position = _box_position_to_tex_baseline(
+        display_box.depth,
+        display_box.depth,
+        backend_baseline,
+    )
+    assert f'<w:position w:val="{expected_position}"/>' in drawing_runs[0]
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        assert zf.read("word/media/pytex-inline-math-1.svg") == b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+        names = set(zf.namelist())
+        rels_xml = zf.read("word/_rels/document.xml.rels").decode("utf-8")
+        assert "word/media/pytex-inline-math-1.png" in names
+        assert "word/media/pytex-inline-math-1.svg" not in names
+        assert zf.read("word/media/pytex-inline-math-1.png") == b"\x89PNG\r\n\x1a\nfallback"
+        assert 'Target="media/pytex-inline-math-1.png"' in rels_xml
+        assert 'Target="media/pytex-inline-math-1.svg"' not in rels_xml
 
 
 def test_docx_display_math_uses_page_glue_state_for_display_skip(parser, monkeypatch):

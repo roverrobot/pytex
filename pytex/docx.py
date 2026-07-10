@@ -71,6 +71,12 @@ _FONT_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relation
 _IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 _OBFUSCATED_FONT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.obfuscatedFont"
 _SVG_CONTENT_TYPE = "image/svg+xml"
+_WORD_FONT_FACE_ELEMENTS = {
+    "regular": "embedRegular",
+    "bold": "embedBold",
+    "italic": "embedItalic",
+    "boldItalic": "embedBoldItalic",
+}
 _GOTO_RE = re.compile(r"/S\s*/GoTo\b.*?/D\s*\(([^()]*)\)", re.IGNORECASE | re.DOTALL)
 _GOTOR_RE = re.compile(
     r"/S\s*/GoToR\b.*?/F\s*\(([^()]*)\)(?:.*?/D\s*\(([^()]*)\))?",
@@ -370,8 +376,118 @@ def _require_opentype_font_backend(font):
     return metric_backend
 
 
+@dataclass(frozen=True)
+class WordFontReference:
+    family: str
+    face: str = "regular"
+
+    @property
+    def bold(self):
+        return self.face in ("bold", "boldItalic")
+
+    @property
+    def italic(self):
+        return self.face in ("italic", "boldItalic")
+
+
+def _font_name_text(table, name_id, windows_only=False):
+    candidates = []
+    for record in getattr(table, "names", ()):
+        if record.nameID != name_id:
+            continue
+        if windows_only and record.platformID != 3:
+            continue
+        try:
+            text = record.toUnicode().strip()
+        except Exception:
+            continue
+        if not text:
+            continue
+        candidates.append(
+            (
+                0 if record.platformID == 3 else 1,
+                0 if record.langID in (0x0409, 0) else 1,
+                text,
+            )
+        )
+    if not candidates:
+        return None
+    return min(candidates)[2]
+
+
+def _word_font_family(metric_backend, fallback):
+    font = getattr(metric_backend, "font", None)
+    table = font.get("name") if hasattr(font, "get") else None
+    if table is not None:
+        for name_id, windows_only in (
+            (1, True),
+            (16, True),
+            (1, False),
+            (16, False),
+            (4, True),
+            (6, True),
+            (4, False),
+            (6, False),
+        ):
+            family = _font_name_text(table, name_id, windows_only=windows_only)
+            if family:
+                return family
+    return fallback
+
+
+def _word_font_face(metric_backend):
+    font = getattr(metric_backend, "font", None)
+    if not hasattr(font, "get"):
+        return "regular"
+
+    table = font.get("name")
+    subfamily = None
+    if table is not None:
+        for name_id, windows_only in ((2, True), (17, True), (2, False), (17, False)):
+            subfamily = _font_name_text(table, name_id, windows_only=windows_only)
+            if subfamily:
+                break
+    style = re.sub(r"[^a-z0-9]+", "", (subfamily or "").casefold())
+    bold = any(term in style for term in ("bold", "semibold", "demibold"))
+    italic = any(term in style for term in ("italic", "oblique", "slanted"))
+
+    os2 = font.get("OS/2")
+    if os2 is not None:
+        selection = int(getattr(os2, "fsSelection", 0))
+        bold = bold or bool(selection & (1 << 5)) or int(getattr(os2, "usWeightClass", 0)) >= 600
+        italic = italic or bool(selection & ((1 << 0) | (1 << 9)))
+    head = font.get("head")
+    if head is not None:
+        mac_style = int(getattr(head, "macStyle", 0))
+        bold = bold or bool(mac_style & 1)
+        italic = italic or bool(mac_style & 2)
+    post = font.get("post")
+    if post is not None:
+        italic = italic or float(getattr(post, "italicAngle", 0)) != 0
+
+    if bold and italic:
+        return "boldItalic"
+    if bold:
+        return "bold"
+    if italic:
+        return "italic"
+    return "regular"
+
+
+def _docx_font_reference(backend):
+    fallback = font_subst.fontBackendName(backend) or getattr(backend, "name", None)
+    metric_backend = _opentype_metric_backend(backend)
+    if metric_backend is None:
+        return None if fallback is None else WordFontReference(fallback)
+    family = _word_font_family(metric_backend, fallback)
+    if not family:
+        return None
+    return WordFontReference(family, _word_font_face(metric_backend))
+
+
 def _docx_font_name(backend):
-    return font_subst.fontBackendName(backend) or getattr(backend, "name", None)
+    reference = _docx_font_reference(backend)
+    return None if reference is None else reference.family
 
 
 def _font_key_bytes(font_key):
@@ -543,16 +659,21 @@ class TextRun(reflow.TextRun):
         self.font = font
         self.line.font = font
         if font is not None:
-            font_name = _docx_font_name(font.backend)
-            if font_name is not None:
-                self._node.font.name = font_name
+            document = _story_document(self.line.story)
+            reference = document.defineFont(font)
+            if reference is not None:
+                self._node.font.name = reference.family
                 rPr = self._node._r.get_or_add_rPr()
                 rFonts = rPr.rFonts
                 if rFonts is None:
                     rFonts = OxmlElement("w:rFonts")
                     rPr.insert(0, rFonts)
                 for attr in ("ascii", "hAnsi", "cs", "eastAsia"):
-                    rFonts.set(qn(f"w:{attr}"), font_name)
+                    rFonts.set(qn(f"w:{attr}"), reference.family)
+                if reference.bold:
+                    self._node.font.bold = True
+                if reference.italic:
+                    self._node.font.italic = True
             self._node.font.size = Pt(round(float(font.at) / 72.27 * 72 * 2) / 2)
             self._node.font.color.rgb = _color(self.color)
 
@@ -1374,7 +1495,8 @@ class Section:
 
 @dataclass
 class EmbeddedFont:
-    name: str
+    family: str
+    face: str
     path: str
     font_number: int = 0
 
@@ -1464,16 +1586,21 @@ class Document(reflow.Document):
         if backend is None:
             return None
         _require_opentype_font_backend(font)
-        name = _docx_font_name(backend)
-        if not name:
+        reference = _docx_font_reference(backend)
+        if reference is None:
             return None
         path = _font_path(backend)
         if _font_kind(backend) == "opentype" and isinstance(path, str) and os.path.isfile(path):
             path = os.path.realpath(path)
-            key = (name, path, _font_number(backend))
+            key = (reference.family, reference.face)
             if key not in self._embedded_fonts:
-                self._embedded_fonts[key] = EmbeddedFont(name, path, _font_number(backend))
-        return name
+                self._embedded_fonts[key] = EmbeddedFont(
+                    reference.family,
+                    reference.face,
+                    path,
+                    _font_number(backend),
+                )
+        return reference
 
     def definePicture(self, key, type, path):
         return None
@@ -1633,7 +1760,13 @@ class Document(reflow.Document):
                 font_parts[part_name] = _obfuscate_font(font_file.read(), font_key)
             extensions.add(suffix[1:])
             self._appendFontRelationship(rels, rid, target)
-            self._appendFontTableEntry(font_table, embedded.name, rid, font_key)
+            self._appendFontTableEntry(
+                font_table,
+                embedded.family,
+                embedded.face,
+                rid,
+                font_key,
+            )
         for extension in extensions:
             self._ensureContentType(content_types, extension)
         self._ensureEmbedTrueTypeFonts(settings)
@@ -1689,19 +1822,20 @@ class Document(reflow.Document):
         rel.set("Target", target)
 
     @staticmethod
-    def _appendFontTableEntry(font_table, name, rid, font_key):
+    def _appendFontTableEntry(font_table, family, face, rid, font_key):
         font = None
         for candidate in font_table.findall(f"{{{_W_NS}}}font"):
-            if candidate.get(f"{{{_W_NS}}}name") == name:
+            if candidate.get(f"{{{_W_NS}}}name") == family:
                 font = candidate
                 break
         if font is None:
             font = ET.SubElement(font_table, f"{{{_W_NS}}}font")
-            font.set(f"{{{_W_NS}}}name", name)
+            font.set(f"{{{_W_NS}}}name", family)
+        embed_name = _WORD_FONT_FACE_ELEMENTS[face]
         for child in list(font):
-            if child.tag == f"{{{_W_NS}}}embedRegular":
+            if child.tag == f"{{{_W_NS}}}{embed_name}":
                 font.remove(child)
-        embed = ET.SubElement(font, f"{{{_W_NS}}}embedRegular")
+        embed = ET.SubElement(font, f"{{{_W_NS}}}{embed_name}")
         embed.set(f"{{{_R_NS}}}id", rid)
         embed.set(f"{{{_W_NS}}}fontKey", font_key)
 
@@ -2067,7 +2201,8 @@ class DocxBackend(reflow.Reflow):
             _require_opentype_font_backend(font)
         if self.document is None:
             return None
-        return self.document.defineFont(font)
+        reference = self.document.defineFont(font)
+        return None if reference is None else reference.family
 
 
 def init(parser):

@@ -1,6 +1,7 @@
 import io
 import math
 import re
+import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -8,6 +9,9 @@ import pytest
 from docx import Document as WordDocument
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from fontTools.fontBuilder import FontBuilder
+from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.ttLib import TTFont
 
 from pytex import align
 from pytex import box as bx
@@ -210,6 +214,56 @@ def _document_relationships_root(data):
 def _install_font(parser, font=None):
     font = _FakeFont() if font is None else font
     parser.parameters["currentfont"] = font
+    return font
+
+
+def _build_test_word_font(path, family, subfamily, *, bold=False, italic=False):
+    builder = FontBuilder(1000, isTTF=True)
+    glyph_order = [".notdef", "A", "B", "I", "R", "T"]
+    builder.setupGlyphOrder(glyph_order)
+    builder.setupCharacterMap({ord(char): char for char in glyph_order[1:]})
+    glyphs = {}
+    for glyph_name in glyph_order:
+        pen = TTGlyphPen(None)
+        if glyph_name != ".notdef":
+            pen.moveTo((80, 0))
+            pen.lineTo((300, 700))
+            pen.lineTo((520, 0))
+            pen.closePath()
+        glyphs[glyph_name] = pen.glyph()
+    builder.setupGlyf(glyphs)
+    builder.setupHorizontalMetrics({glyph_name: (600, 0) for glyph_name in glyph_order})
+    builder.setupHorizontalHeader(ascent=800, descent=-200)
+    builder.setupNameTable(
+        {
+            "familyName": family,
+            "styleName": subfamily,
+            "uniqueFontIdentifier": f"{family} {subfamily}",
+            "fullName": f"{family} {subfamily}",
+            "psName": re.sub(r"[^A-Za-z0-9-]", "", f"{family}-{subfamily}"),
+        }
+    )
+    fs_selection = (1 << 5 if bold else 0) | (1 << 0 if italic else 0)
+    if not bold and not italic:
+        fs_selection |= 1 << 6
+    builder.setupOS2(
+        sTypoAscender=800,
+        sTypoDescender=-200,
+        usWinAscent=800,
+        usWinDescent=200,
+        usWeightClass=700 if bold else 400,
+        fsSelection=fs_selection,
+    )
+    builder.setupPost(italicAngle=-12 if italic else 0)
+    builder.setupMaxp()
+    builder.font["head"].macStyle = (1 if bold else 0) | (2 if italic else 0)
+    builder.save(path)
+
+
+def _font_from_word_metadata(path, tex_name, size=10):
+    font = _FakeFont(tex_name, size=size, kind="opentype", path=str(path))
+    font.backend.font = TTFont(path)
+    font.backend.units_per_em = font.backend.font["head"].unitsPerEm
     return font
 
 
@@ -417,6 +471,100 @@ def test_docx_shipout_embeds_filesystem_opentype_fonts(parser, tmp_path):
     for index in range(32):
         restored[index] ^= key[index % 16]
     assert bytes(restored) == font_bytes
+
+
+def test_docx_groups_embedded_font_faces_by_word_family(parser, tmp_path):
+    specs = {
+        "regular": ("LM Roman 12", "Regular", False, False),
+        "bold": ("LM Roman 12", "Bold", True, False),
+        "italic": ("LM Roman 12", "Italic", False, True),
+        "boldItalic": ("LM Roman 12", "Bold Italic", True, True),
+        "title": ("LM Roman 17", "Regular", False, False),
+    }
+    fonts = {}
+    for face, (family, subfamily, bold, italic) in specs.items():
+        path = tmp_path / f"tex-{face}.ttf"
+        _build_test_word_font(path, family, subfamily, bold=bold, italic=italic)
+        fonts[face] = _font_from_word_metadata(path, f"tex-{face}", size=17 if face == "title" else 12)
+
+    _install_font(parser, fonts["regular"])
+    owner = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.CharNode("R", fonts["regular"]),
+            nd.CharNode("B", fonts["bold"]),
+            nd.CharNode("I", fonts["italic"]),
+            nd.CharNode("A", fonts["boldItalic"]),
+            nd.CharNode("T", fonts["title"]),
+        ],
+        source=owner,
+    )
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    backend.shipout(_page_box([line]))
+    data = _docx_bytes(parser, backend)
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = set(zf.namelist())
+        document_root = ET.fromstring(zf.read("word/document.xml"))
+        font_table = ET.fromstring(zf.read("word/fontTable.xml"))
+        relationships = ET.fromstring(zf.read("word/_rels/fontTable.xml.rels"))
+
+        family_entries = {
+            entry.get(f"{{{docx._W_NS}}}name"): entry
+            for entry in font_table.findall(f"{{{docx._W_NS}}}font")
+        }
+        roman12 = family_entries["LM Roman 12"]
+        roman17 = family_entries["LM Roman 17"]
+        assert "tex-regular" not in family_entries
+        assert [
+            child.tag.rsplit("}", 1)[-1]
+            for child in roman12
+            if child.tag.rsplit("}", 1)[-1].startswith("embed")
+        ] == ["embedRegular", "embedBold", "embedItalic", "embedBoldItalic"]
+        assert roman17.find(f"{{{docx._W_NS}}}embedRegular") is not None
+
+        rel_targets = {
+            rel.get("Id"): rel.get("Target")
+            for rel in relationships.findall(f"{{{docx._REL_NS}}}Relationship")
+        }
+        for entry in (roman12, roman17):
+            for embed in [child for child in entry if child.tag.rsplit("}", 1)[-1].startswith("embed")]:
+                rid = embed.get(f"{{{docx._R_NS}}}id")
+                target = rel_targets[rid]
+                part_name = f"word/{target}"
+                assert part_name in names
+                font_key = embed.get(f"{{{docx._W_NS}}}fontKey")
+                key = uuid.UUID(font_key.strip("{}")).bytes_le[::-1]
+                restored = bytearray(zf.read(part_name))
+                for index in range(min(32, len(restored))):
+                    restored[index] ^= key[index % 16]
+                parsed = TTFont(io.BytesIO(restored))
+                assert parsed["name"].getName(1, 3, 1).toUnicode() == entry.get(f"{{{docx._W_NS}}}name")
+
+    runs = {}
+    for run in document_root.findall(f".//{{{docx._W_NS}}}r"):
+        text = "".join(node.text or "" for node in run.findall(f"{{{docx._W_NS}}}t"))
+        if text in "RBIAT":
+            runs[text] = run
+    assert set(runs) == set("RBIAT")
+
+    for text in "RBIA":
+        rfonts = runs[text].find(f"{{{docx._W_NS}}}rPr/{{{docx._W_NS}}}rFonts")
+        assert rfonts is not None
+        for attr in ("ascii", "hAnsi", "cs", "eastAsia"):
+            assert rfonts.get(f"{{{docx._W_NS}}}{attr}") == "LM Roman 12"
+    title_fonts = runs["T"].find(f"{{{docx._W_NS}}}rPr/{{{docx._W_NS}}}rFonts")
+    assert title_fonts.get(f"{{{docx._W_NS}}}ascii") == "LM Roman 17"
+
+    def has_style(text, tag):
+        return runs[text].find(f"{{{docx._W_NS}}}rPr/{{{docx._W_NS}}}{tag}") is not None
+
+    assert not has_style("R", "b") and not has_style("R", "i")
+    assert has_style("B", "b") and not has_style("B", "i")
+    assert not has_style("I", "b") and has_style("I", "i")
+    assert has_style("A", "b") and has_style("A", "i")
 
 
 def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):

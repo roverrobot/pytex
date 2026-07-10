@@ -25,6 +25,7 @@ from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.oxml.table import CT_Tbl
 from docx.shared import Pt, RGBColor, Twips
+from fontTools.ttLib import TTFont, TTLibError
 
 from pytex import align
 from pytex import box as bx
@@ -502,6 +503,42 @@ def _obfuscate_font(data, font_key):
     for index in range(min(32, len(out))):
         out[index] ^= key[index % 16]
     return bytes(out)
+
+
+def _docx_font_payload(path, font_number=0):
+    """Return embeddable font bytes and their obfuscated-part suffix.
+
+    Word only reliably embeds TrueType outlines. Convert a selected CFF face
+    to a standalone TrueType font here, at the DOCX packaging boundary, while
+    leaving existing TrueType fonts and collections untouched.
+    """
+    with open(path, "rb") as font_file:
+        data = font_file.read()
+    source_suffix = (
+        ".odttc"
+        if Path(path).suffix.lower() in {".ttc", ".otc"}
+        else ".odttf"
+    )
+    try:
+        font = TTFont(
+            BytesIO(data),
+            fontNumber=font_number,
+            lazy=False,
+            recalcTimestamp=False,
+        )
+    except (OSError, TTLibError):
+        return data, source_suffix
+    try:
+        if "CFF " not in font:
+            return data, source_suffix
+        from afdko.otf2ttf import otf_to_ttf
+
+        otf_to_ttf(font)
+        converted = BytesIO()
+        font.save(converted)
+        return converted.getvalue(), ".odttf"
+    finally:
+        font.close()
 
 
 def _xml_bytes(node):
@@ -1750,14 +1787,13 @@ class Document(reflow.Document):
         extensions = set()
         for embedded in self._embedded_fonts.values():
             font_key = "{" + str(uuid.uuid4()).upper() + "}"
-            suffix = ".odttc" if Path(embedded.path).suffix.lower() in {".ttc", ".otc"} else ".odttf"
+            payload, suffix = _docx_font_payload(embedded.path, embedded.font_number)
             part_name = f"word/fonts/font{next_font}{suffix}"
             next_font += 1
             target = f"fonts/{Path(part_name).name}"
             rid = f"rId{next_rid}"
             next_rid += 1
-            with open(embedded.path, "rb") as font_file:
-                font_parts[part_name] = _obfuscate_font(font_file.read(), font_key)
+            font_parts[part_name] = _obfuscate_font(payload, font_key)
             extensions.add(suffix[1:])
             self._appendFontRelationship(rels, rid, target)
             self._appendFontTableEntry(

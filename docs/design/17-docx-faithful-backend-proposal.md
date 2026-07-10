@@ -190,6 +190,12 @@ remain credible once exported.
 
 This is another reason to prefer TeX-chosen line breaks over Word composition.
 
+The current DOCX implementation embeds filesystem-backed OpenType fonts. At
+the DOCX packaging boundary, it converts CFF 1 outlines to TrueType outlines
+with AFDKO before applying Word's font obfuscation. TrueType outlines pass
+through unchanged. This conversion is DOCX-specific; the `html_reflow`
+backend continues to expose the browser-supported source font directly.
+
 ## Page Semantics
 
 DOCX has real page-aware structures:

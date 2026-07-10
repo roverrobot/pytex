@@ -10,6 +10,7 @@ from docx import Document as WordDocument
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from fontTools.fontBuilder import FontBuilder
+from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 
@@ -260,6 +261,47 @@ def _build_test_word_font(path, family, subfamily, *, bold=False, italic=False):
     builder.save(path)
 
 
+def _build_test_cff_word_font(path, family, subfamily):
+    builder = FontBuilder(1000, isTTF=False)
+    glyph_order = [".notdef", "A"]
+    builder.setupGlyphOrder(glyph_order)
+    builder.setupCharacterMap({ord("A"): "A"})
+    builder.setupHorizontalMetrics({glyph_name: (600, 0) for glyph_name in glyph_order})
+    builder.setupHorizontalHeader(ascent=800, descent=-200)
+    builder.setupNameTable(
+        {
+            "familyName": family,
+            "styleName": subfamily,
+            "uniqueFontIdentifier": f"{family} {subfamily}",
+            "fullName": f"{family} {subfamily}",
+            "psName": re.sub(r"[^A-Za-z0-9-]", "", f"{family}-{subfamily}"),
+        }
+    )
+    builder.setupOS2(
+        sTypoAscender=800,
+        sTypoDescender=-200,
+        usWinAscent=800,
+        usWinDescent=200,
+    )
+    builder.setupPost()
+    char_strings = {}
+    for glyph_name in glyph_order:
+        pen = T2CharStringPen(600, None)
+        if glyph_name != ".notdef":
+            pen.moveTo((80, 0))
+            pen.lineTo((300, 700))
+            pen.lineTo((520, 0))
+            pen.closePath()
+        char_strings[glyph_name] = pen.getCharString()
+    builder.setupCFF(
+        re.sub(r"[^A-Za-z0-9-]", "", f"{family}-{subfamily}"),
+        {"FullName": f"{family} {subfamily}", "FamilyName": family, "Weight": subfamily},
+        char_strings,
+        {},
+    )
+    builder.save(path)
+
+
 def _font_from_word_metadata(path, tex_name, size=10):
     font = _FakeFont(tex_name, size=size, kind="opentype", path=str(path))
     font.backend.font = TTFont(path)
@@ -471,6 +513,46 @@ def test_docx_shipout_embeds_filesystem_opentype_fonts(parser, tmp_path):
     for index in range(32):
         restored[index] ^= key[index % 16]
     assert bytes(restored) == font_bytes
+
+
+def test_docx_converts_embedded_cff_font_to_truetype(parser, tmp_path):
+    font_path = tmp_path / "DemoCFF.otf"
+    _build_test_cff_word_font(font_path, "Demo CFF", "Regular")
+    font = _font_from_word_metadata(font_path, "Demo CFF")
+    _install_font(parser, font)
+    owner = pg.Paragraph(parser, indent=False)
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    backend.shipout(_page_box([_line_box("A", owner, font)]))
+    data = _docx_bytes(parser, backend)
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        font_xml = zf.read("word/fontTable.xml").decode("utf-8")
+        obfuscated = zf.read("word/fonts/font1.odttf")
+
+    font_key = re.search(r'w:fontKey="([^"]+)"', font_xml).group(1)
+    restored = bytearray(obfuscated)
+    key = docx._font_key_bytes(font_key)
+    for index in range(min(32, len(restored))):
+        restored[index] ^= key[index % 16]
+    converted = TTFont(io.BytesIO(restored))
+    assert converted.sfntVersion == "\x00\x01\x00\x00"
+    assert "glyf" in converted
+    assert "loca" in converted
+    assert "CFF " not in converted
+    assert converted.getBestCmap()[ord("A")] == "A"
+    converted.close()
+
+
+def test_docx_keeps_truetype_font_payload_unchanged(tmp_path):
+    font_path = tmp_path / "DemoTrueType.ttf"
+    _build_test_word_font(font_path, "Demo TrueType", "Regular")
+
+    payload, suffix = docx._docx_font_payload(font_path)
+
+    assert suffix == ".odttf"
+    assert payload == font_path.read_bytes()
 
 
 def test_docx_groups_embedded_font_faces_by_word_family(parser, tmp_path):

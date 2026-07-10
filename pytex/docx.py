@@ -20,7 +20,7 @@ from docx.text.paragraph import Paragraph as WordParagraph
 from docx.text.run import Run as WordRun
 from docx.enum.section import WD_SECTION_START
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.oxml.table import CT_Tbl
@@ -698,11 +698,26 @@ class TextRun(reflow.TextRun):
             self.newText()
         self.text.setChar(char)
 
-    def newSpace(self, width: Dimen, breakable: bool):
+    def newSpace(
+        self,
+        width: Dimen,
+        breakable: bool,
+        glue=None,
+        tab_position=None,
+        infinite_glue_count=0,
+    ):
         if not self.line.has_visible_content:
             self.line.leading_spacing += width
             return None
         self.line.applyLeadingSpacing()
+        if self.line.useRightTabForGlue(
+            glue,
+            tab_position=tab_position,
+            infinite_glue_count=infinite_glue_count,
+        ):
+            self._node.add_tab()
+            self.text = None
+            return self
         if self.text is None:
             self.newText()
         self.text._node.text = " " if breakable else "\xa0"
@@ -895,6 +910,21 @@ class Line(reflow.Line):
         self.width = line_spec.line_box.rightmost()
         self.line_id = line_id
 
+    def useRightTabForGlue(self, glue, tab_position=None, infinite_glue_count=0):
+        if (
+            glue is None
+            or glue.stretch.order <= 0
+            or tab_position is None
+            or infinite_glue_count != 1
+        ):
+            return False
+        tab_stops = self._node.paragraph_format.tab_stops
+        tab_stops.add_tab_stop(
+            Twips(max(0, _twips(Dimen(tab_position)))),
+            alignment=WD_TAB_ALIGNMENT.RIGHT,
+        )
+        return True
+
     def _wordJustify(self, justify):
         if isinstance(self.story, Story):
             return WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -996,7 +1026,14 @@ class Line(reflow.Line):
             )
         )
 
-    def newSpace(self, width: Dimen, breakable: bool):
+    def newSpace(
+        self,
+        width: Dimen,
+        breakable: bool,
+        glue=None,
+        tab_position=None,
+        infinite_glue_count=0,
+    ):
         if not self.has_visible_content:
             self.leading_spacing += width
             return None
@@ -1063,11 +1100,33 @@ class AnnotationLine(reflow.Line):
         self.parent.registerTextRun(run)
         return run
 
-    def newSpace(self, width: Dimen, breakable: bool):
+    def newSpace(
+        self,
+        width: Dimen,
+        breakable: bool,
+        glue=None,
+        tab_position=None,
+        infinite_glue_count=0,
+    ):
         if not self.has_visible_content and not self.parent.has_visible_content:
-            self.parent.newSpace(width, breakable)
+            self.parent.newSpace(
+                width,
+                breakable,
+                glue=glue,
+                tab_position=tab_position,
+                infinite_glue_count=infinite_glue_count,
+            )
             return None
-        run = Space(self, width, breakable, self.font)
+        if self.parent.useRightTabForGlue(
+            glue,
+            tab_position=tab_position,
+            infinite_glue_count=infinite_glue_count,
+        ):
+            run = TextRun(self, "", self.font)
+            run._node.add_tab()
+            run.text = None
+        else:
+            run = Space(self, width, breakable, self.font)
         self.nodes.append(run)
         self.parent.registerTextRun(run)
         return run

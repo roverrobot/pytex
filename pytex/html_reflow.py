@@ -189,7 +189,14 @@ class TextRun(StyledNode, reflow.TextRun):
         self._node.append(Space(kern, breakable=False).node)
         self._text_node = None
 
-    def newSpace(self, width: Dimen, breakable: bool):
+    def newSpace(
+        self,
+        width: Dimen,
+        breakable: bool,
+        glue=None,
+        tab_position=None,
+        infinite_glue_count=0,
+    ):
         if self.line is not None and not getattr(self.line, "has_visible_content", False):
             self.line.addLeadingSpacing(width, breakable)
             return None
@@ -343,7 +350,14 @@ class Line(StyledNode, reflow.Line):
         self.append(text_run)
         return text_run
     
-    def newSpace(self, width: Dimen, breakable: bool):
+    def newSpace(
+        self,
+        width: Dimen,
+        breakable: bool,
+        glue=None,
+        tab_position=None,
+        infinite_glue_count=0,
+    ):
         if reflow.PT(width) == "0.0pt":
             return None
         if not self.has_visible_content:

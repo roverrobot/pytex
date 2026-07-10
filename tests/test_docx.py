@@ -710,6 +710,61 @@ def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):
     assert int(document.paragraphs[2].paragraph_format.space_before) == int(docx._length(Dimen(8)))
 
 
+def test_docx_single_infinite_glue_becomes_right_tab(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    hfil = Glue(Dimen(), Stretchness(Dimen(1), 1))
+    line = bx.HBox(parser, Dimen(80), None)
+    line.list = [nd.CharNode("A", font), nd.Glue(hfil, None), nd.CharNode("B", font)]
+    line = line.typeset(parser)
+
+    backend.shipout(_page_box([line]))
+
+    root = _document_root(_docx_bytes(parser, backend))
+    tab_stop = root.find(f".//{{{docx._W_NS}}}tabs/{{{docx._W_NS}}}tab")
+    assert tab_stop is not None
+    assert tab_stop.get(f"{{{docx._W_NS}}}val") == "right"
+    assert int(tab_stop.get(f"{{{docx._W_NS}}}pos")) == docx._twips(line.rightmost())
+    assert root.find(f".//{{{docx._W_NS}}}r/{{{docx._W_NS}}}tab") is not None
+
+
+def test_docx_multiple_infinite_glues_keep_fixed_space_fallback(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    hfil = Glue(Dimen(), Stretchness(Dimen(1), 1))
+    line = bx.HBox(parser, Dimen(80), None)
+    line.list = [
+        nd.Glue(hfil, None),
+        nd.CharNode("A", font),
+        nd.Glue(hfil, None),
+    ]
+    line = line.typeset(parser)
+
+    backend.shipout(_page_box([line]))
+
+    root = _document_root(_docx_bytes(parser, backend))
+    assert root.find(f".//{{{docx._W_NS}}}tabs/{{{docx._W_NS}}}tab") is None
+    assert root.find(f".//{{{docx._W_NS}}}r/{{{docx._W_NS}}}tab") is None
+
+
+def test_docx_trailing_infinite_glue_does_not_emit_tab(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    hfil = Glue(Dimen(), Stretchness(Dimen(1), 1))
+    line = bx.HBox(parser, Dimen(80), None)
+    line.list = [nd.CharNode("A", font), nd.Glue(hfil, None)]
+    line = line.typeset(parser)
+
+    backend.shipout(_page_box([line]))
+
+    root = _document_root(_docx_bytes(parser, backend))
+    assert root.find(f".//{{{docx._W_NS}}}tabs/{{{docx._W_NS}}}tab") is None
+    assert root.find(f".//{{{docx._W_NS}}}r/{{{docx._W_NS}}}tab") is None
+
+
 def test_docx_empty_hbox_width_becomes_nonbreaking_spacing(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend

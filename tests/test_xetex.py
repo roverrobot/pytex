@@ -266,7 +266,8 @@ def test_xetex_pdffile_pdf_backend_honors_width_after_bbox(parser, tmp_path):
     reader = PdfReader(str(out) + ".pdf")
     content = reader.pages[0].get_contents().get_data().decode("latin1", "replace")
     assert "FIG" in (reader.pages[0].extract_text() or "")
-    assert "0.25 0.0 0.0 0.25" in content
+    expected_scale = 50 * 72 / 72.27 / 200
+    assert f"{expected_scale:.6f} 0.0 0.0 {expected_scale:.6f}" in content
 
 
 def test_xetex_font_name_parser_marks_bracketed_file_specs(parser):

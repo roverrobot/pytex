@@ -109,7 +109,14 @@ class TextRun(Element):
         self.baseline_from_bottom = Dimen(baseline_from_bottom)
         self.uses_backend_baseline = False
 
-    def newSpace(self, width, breakable: bool):
+    def newSpace(
+        self,
+        width,
+        breakable: bool,
+        glue=None,
+        tab_position=None,
+        infinite_glue_count=0,
+    ):
         pass
 
     def newInlineVBox(self, box: bx.Box):
@@ -1495,7 +1502,13 @@ class Reflow(shipout.Shipout):
                 spacing = Dimen()
         pb.exit()
 
-    def typesetLine(self, line_spec: LineSpec, inline=False, glue_state=None):
+    def typesetLine(
+        self,
+        line_spec: LineSpec,
+        inline=False,
+        glue_state=None,
+        line_origin=Dimen(),
+    ):
         if not isinstance(line_spec, LineSpec):
             line_box = SimpleNamespace(
                 height=Dimen(),
@@ -1514,6 +1527,21 @@ class Reflow(shipout.Shipout):
         baseline_offset = baseline_from_bottom - line_builder_baseline
         font = line_spec.default_font
         glue_state = line_spec.glue_state
+        infinite_glues = [
+            (index, node.glue)
+            for index, node in enumerate(line_spec.nodes)
+            if getattr(node, "node_type", None) == nd.NODE_TYPE.GLUE
+            and node.glue.stretch.order > 0
+            and int(node.glue.stretch.factor) != 0
+        ]
+        tab_glue = None
+        if len(infinite_glues) == 1:
+            index, candidate = infinite_glues[0]
+            if any(
+                getattr(node, "node_type", None) in self._hlist_concrete_type
+                for node in line_spec.nodes[index + 1:]
+            ):
+                tab_glue = candidate
         # Effective kern accounting:
         #
         # TeX's horizontal list width is not always the same as the advance that
@@ -1527,6 +1555,7 @@ class Reflow(shipout.Shipout):
         # effective kern for the parent to combine with the hbox's TeX width.
         pending_space = Dimen()
         pending_breakable = False
+        pending_glue = None
         emitted_advance = Dimen()
 
         def new_text_run(text=None, font=None, baseline=None):
@@ -1541,18 +1570,21 @@ class Reflow(shipout.Shipout):
             except TypeError:
                 return self.builder.newTextRun(font, self.color)
 
-        def add_spacing(space, breakable):
-            nonlocal pending_space, pending_breakable
+        def add_spacing(space, breakable, source_glue=None):
+            nonlocal pending_space, pending_breakable, pending_glue
             space = Dimen(space)
             if int(space) == 0:
                 return
             if int(pending_space) == 0:
                 pending_breakable = breakable
+                pending_glue = source_glue
             else:
                 pending_breakable = pending_breakable or breakable
+                pending_glue = None
             pending_space += space
             if int(pending_space) == 0:
                 pending_breakable = False
+                pending_glue = None
 
         def record_paint(tex_advance, emitted):
             nonlocal emitted_advance
@@ -1570,7 +1602,7 @@ class Reflow(shipout.Shipout):
             )
 
         def flush_spacing(trailing=False):
-            nonlocal pending_space, pending_breakable, emitted_advance
+            nonlocal pending_space, pending_breakable, pending_glue, emitted_advance
             if int(pending_space) != 0:
                 if trailing and pending_breakable and int(pending_space) > 0:
                     append_text_space = getattr(self.builder, "appendTrailingTextSpace", None)
@@ -1583,20 +1615,43 @@ class Reflow(shipout.Shipout):
                         )
                         pending_space = Dimen()
                         pending_breakable = False
+                        pending_glue = None
                         return
                     if getattr(self.builder, "drop_trailing_breakable_spacing", False):
                         pending_space = Dimen()
                         pending_breakable = False
+                        pending_glue = None
                         return
                 text_run = new_text_run(text=None, font=font)
                 new_space = getattr(text_run, "newSpace", None)
                 if new_space is not None:
-                    new_space(pending_space, breakable=pending_breakable)
+                    new_space(
+                        pending_space,
+                        breakable=pending_breakable,
+                        glue=pending_glue,
+                        tab_position=(
+                            Dimen(line_origin) + line_spec.line_box.width
+                            if pending_glue is tab_glue
+                            else None
+                        ),
+                        infinite_glue_count=len(infinite_glues),
+                    )
                 else:
                     text_run.setSpace(pending_space, breakable=pending_breakable)
                 emitted_advance += pending_space
             pending_space = Dimen()
             pending_breakable = False
+            pending_glue = None
+
+        def infinite_stretch_glue(node):
+            stretch = node.glue.stretch
+            return (
+                stretch.order > 0
+                and int(stretch.factor) != 0
+                and glue_state is not None
+                and not glue_state["shrink"]
+                and stretch.order == glue_state["order"]
+            )
 
         def whatsit_text(node):
             text = getattr(node, "text", None)
@@ -1766,6 +1821,12 @@ class Reflow(shipout.Shipout):
             node_type = n.node_type
             if node_type == nd.NODE_TYPE.GLUE:
                 space = Dimen(integer=self._glue_amount(n, None, glue_state)) if glue_state is not None else n.glue.dimen
+                if infinite_stretch_glue(n):
+                    flush_spacing()
+                    add_spacing(space, breakable=True, source_glue=n.glue)
+                    flush_spacing()
+                    n = next(nodes, None)
+                    continue
                 n = emit_space_run(nodes, space, breakable=True)
                 continue
             if node_type == nd.NODE_TYPE.KERN:
@@ -1793,7 +1854,11 @@ class Reflow(shipout.Shipout):
                 flush_spacing()
                 child_line_spec = LineSpec(self, n, spacing_before=Dimen())
                 child_line_spec.baseline_from_bottom = baseline_from_bottom + getattr(n, "shifted", Dimen())
-                child_advance = self.typesetLine(child_line_spec, inline=True)
+                child_advance = self.typesetLine(
+                    child_line_spec,
+                    inline=True,
+                    line_origin=Dimen(line_origin) + emitted_advance,
+                )
                 record_child_box(n.width, child_advance)
             elif node_type == nd.NODE_TYPE.VLIST:
                 flush_spacing()

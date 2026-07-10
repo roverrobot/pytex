@@ -3,7 +3,6 @@ parse and wrap up an hbox
 """
 
 from pytex import node as nd
-from pytex import hmode
 from pytex import vmode
 from pytex import accessor
 from pytex.glue import Glue
@@ -484,7 +483,10 @@ class BuildBox(Command):
         if self.vertical:
             state = vmode.VList(parser, box.list, inner=True)
         else:
-            state = hmode.HList(parser, box.list, inner=True, raw=box.raw)
+            # Import lazily to avoid the box -> hmode -> box initialization cycle.
+            from pytex.hmode import HList
+
+            state = HList(parser, box.list, inner=True, raw=box.raw)
         parser.lists.append(state)
         state.group_type = self.group_type
         every = parser.everyvbox.value if self.vertical else parser.everyhbox.value

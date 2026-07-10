@@ -133,6 +133,11 @@ def _twips(dimen: Dimen):
     return int(float(dimen) / 72.27 * 72 * 20)
 
 
+def _space_twips(dimen: Dimen):
+    """Round inter-word adjustments down so DOCX lines cannot widen."""
+    return math.floor(float(dimen) / 72.27 * 72 * 20)
+
+
 def _length(dimen: Dimen):
     return Twips(_twips(dimen))
 
@@ -709,7 +714,7 @@ class TextRun(reflow.TextRun):
         if int(diff) != 0:
             rPr = self._node._r.get_or_add_rPr()
             spacing_element = OxmlElement("w:spacing")
-            spacing_element.set(qn("w:val"), twips(diff))
+            spacing_element.set(qn("w:val"), str(_space_twips(diff)))
             rPr.append(spacing_element)
         return self
 
@@ -849,7 +854,7 @@ class Space(TextRun):
         if int(diff) != 0:
             rPr = self._node._r.get_or_add_rPr()
             spacing_element = OxmlElement('w:spacing')
-            spacing_element.set(qn('w:val'), twips(diff))
+            spacing_element.set(qn('w:val'), str(_space_twips(diff)))
             rPr.append(spacing_element)
 
 

@@ -334,6 +334,13 @@ def test_docx_twips_truncate_to_word_unit():
     assert docx.half_pt(docx._tex_points(-0.26)) == "-1"
 
 
+def test_docx_space_twips_floor_to_preserve_line_fit():
+    assert docx._space_twips(docx._tex_points(0.099)) == 1
+    assert docx._space_twips(docx._tex_points(-0.099)) == -2
+    assert docx._space_twips(docx._tex_points(0.049)) == 0
+    assert docx._space_twips(docx._tex_points(-0.049)) == -1
+
+
 def _alignment_cell(text, font, width=20):
     box = _FakeHBox(_char_nodes(text, font), width=width, rightmost_value=width)
     box.span = 1
@@ -1380,6 +1387,27 @@ def test_docx_spacing_uses_scaled_font_space_width(parser):
     xml = _document_xml(_docx_bytes(parser, backend))
     assert f'w:val="{docx.twips(Dimen(2))}"' in xml
     assert f'w:val="{docx.twips(Dimen(7))}"' not in xml
+
+
+def test_docx_negative_space_spacing_rounds_down(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    para = pg.Paragraph(parser, indent=False)
+    width = Dimen(5) + docx._tex_points(-0.099)
+    line = _FakeHBox(
+        [
+            nd.CharNode("A", font),
+            nd.Glue(Glue(width), None),
+            nd.CharNode("B", font),
+        ],
+        para,
+    )
+
+    backend.shipout(_page_box([line]))
+
+    xml = _document_xml(_docx_bytes(parser, backend))
+    assert 'w:val="-2"' in xml
 
 
 def test_docx_centered_hbox_uses_tex_glue_not_word_alignment(parser):

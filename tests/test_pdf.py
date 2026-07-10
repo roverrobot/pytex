@@ -96,10 +96,11 @@ def test_pdf_shipout_uses_tex_origin(cmr10, tmp_path):
     cmr10.parse("\\shipout\\vbox{\\hbox{a}}", jobname="origin")
     cmr10.end()
     _page, text = _page_content_text(str(out) + ".pdf")
-    match = re.search(r"BT /F\d+ 10 Tf 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm <61> Tj ET", text)
+    match = re.search(r"BT /F\d+ ([0-9.]+) Tf 1 0 0 1 ([0-9.]+) ([0-9.]+) Tm <61> Tj ET", text)
     assert match is not None
-    x = float(match.group(1))
-    assert 72.0 < x < 72.5
+    assert float(match.group(1)) == pytest.approx(10 * 72 / 72.27)
+    x = float(match.group(2))
+    assert x == pytest.approx(72.0)
 
 
 def test_pdf_shipout_embeds_cff_opentype_without_reportlab_font_parser(parser, tmp_path):
@@ -185,8 +186,21 @@ def test_pdf_pagesize_special_changes_page_size(cmr10, tmp_path):
     page, _text = _page_content_text(str(out) + ".pdf")
     width = float(page.mediabox.width)
     height = float(page.mediabox.height)
-    assert abs(width - 300.0) < 0.2
-    assert abs(height - 200.0) < 0.2
+    assert width == pytest.approx(300 * 72 / 72.27, abs=0.01)
+    assert height == pytest.approx(200 * 72 / 72.27, abs=0.01)
+
+
+def test_pdf_shipout_converts_tex_page_dimensions_to_pdf_points(cmr10, tmp_path):
+    out = tmp_path / "letter"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse(
+        r"\shipout\vbox{\special{pdf:pagesize width 8.5in height 11in}\hbox{a}}",
+        jobname="letter",
+    )
+    cmr10.end()
+    page, _text = _page_content_text(str(out) + ".pdf")
+    assert float(page.mediabox.width) == pytest.approx(612.0, abs=0.01)
+    assert float(page.mediabox.height) == pytest.approx(792.0, abs=0.01)
 
 
 def test_pdf_epdf_special_includes_pdf_figure(cmr10, tmp_path):

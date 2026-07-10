@@ -132,7 +132,8 @@ class PDFBackend(Shipout):
 
     @staticmethod
     def _pt(value):
-        return int(value) / Dimen.scale
+        """Convert a TeX dimension in scaled points to PDF big points."""
+        return int(value) / Dimen.scale * 72 / 72.27
 
     @staticmethod
     def _resource_path(parser, name, file_type):
@@ -364,7 +365,7 @@ class PDFBackend(Shipout):
         return kwargs
 
     def _annotation_font_box(self, x, y, width):
-        size = float(getattr(self.current_font, "at", 10.0) or 10.0)
+        size = self._pt(getattr(self.current_font, "at", 10.0) or 10.0)
         return x, y - 0.2 * size, x + width, y + 0.8 * size
 
     def _pdf_source_reader(self, name):
@@ -982,7 +983,7 @@ class PDFBackend(Shipout):
             return
         font_name = self._font_name(font)
         if font_name not in self._raw_fonts:
-            self.canvas.setFont(font_name, float(font.at))
+            self.canvas.setFont(font_name, self._pt(font.at))
             raw_type1 = self._raw_type1_fonts.get(font_name)
             if raw_type1 is not None:
                 raw_type1.resource_name = self.canvas._doc.getInternalFontName(font_name)
@@ -1042,7 +1043,7 @@ class PDFBackend(Shipout):
         path.strokeColor = None
         path.fillColor = self._reportlab_fill_color()
         drawing.add(path)
-        scale = float(getattr(self.current_font, "at", 10.0) or 10.0) / float(getattr(backend, "units_per_em", 1000) or 1000)
+        scale = self._pt(getattr(self.current_font, "at", 10.0) or 10.0) / float(getattr(backend, "units_per_em", 1000) or 1000)
         self.canvas.saveState()
         self.canvas.translate(x, y)
         self.canvas.scale(scale, scale)
@@ -1060,7 +1061,7 @@ class PDFBackend(Shipout):
             self.canvas.addLiteral(
                 "BT /{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj ET".format(
                     raw_font.name,
-                    self._pdf_number(float(self.current_font.at)),
+                    self._pdf_number(self._pt(self.current_font.at)),
                     self._pdf_number(x),
                     self._pdf_number(y),
                     glyph.code,
@@ -1073,7 +1074,7 @@ class PDFBackend(Shipout):
             self.canvas.addLiteral(
                 "BT {} {} Tf 1 0 0 1 {} {} Tm <{:02X}> Tj ET".format(
                     raw_type1.resource_name,
-                    self._pdf_number(float(self.current_font.at)),
+                    self._pdf_number(self._pt(self.current_font.at)),
                     self._pdf_number(x),
                     self._pdf_number(y),
                     glyph.code,
@@ -1082,7 +1083,7 @@ class PDFBackend(Shipout):
         else:
             drawn = False
             if getattr(getattr(self.current_font, "backend", None), "kind", None) == "tfm" and self._draw_raw_8bit_char(
-                node.char, x, y, float(self.current_font.at)
+                node.char, x, y, self._pt(self.current_font.at)
             ):
                 drawn = True
             elif self._draw_opentype_glyph_outline(node, x, y):

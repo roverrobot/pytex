@@ -5,7 +5,6 @@ import pytest
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
-from pytex import opentype
 from pytex import pdf
 from pytex import texlive
 

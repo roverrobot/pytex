@@ -10,6 +10,7 @@ from docx import Document as WordDocument
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from fontTools.fontBuilder import FontBuilder
+from fontTools.pens.boundsPen import BoundsPen
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
@@ -21,6 +22,7 @@ from pytex import graphics
 from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
+from pytex import opentype
 from pytex import paragraph as pg
 from pytex import reflow
 from pytex.dimen import Dimen
@@ -518,11 +520,29 @@ def test_docx_shipout_embeds_filesystem_opentype_fonts(parser, tmp_path):
 def test_docx_converts_embedded_cff_font_to_truetype(parser, tmp_path):
     font_path = tmp_path / "DemoCFF.otf"
     _build_test_cff_word_font(font_path, "Demo CFF", "Regular")
-    font = _font_from_word_metadata(font_path, "Demo CFF")
-    _install_font(parser, font)
-    owner = pg.Paragraph(parser, indent=False)
+    parser.supported_font_classes = None
+    source_backend = parser.loadFontBackend(str(font_path))
+    assert isinstance(source_backend, opentype.CFFBackend)
+
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
+    assert parser.supported_font_classes == (opentype.TrueTypeBackend,)
+    converted_backend = parser.loadFontBackend(str(font_path))
+    assert isinstance(converted_backend, opentype.TrueTypeBackend)
+    assert "glyf" in converted_backend.font
+    assert "loca" in converted_backend.font
+    assert "CFF " not in converted_backend.font
+
+    font = txfont.Font(converted_backend, Dimen(10))
+    _install_font(parser, font)
+    owner = pg.Paragraph(parser, indent=False)
+
+    info = font.backend.glyphInfo("A")
+    glyph = font.backend.font.getGlyphSet()["A"]
+    bounds_pen = BoundsPen(font.backend.font.getGlyphSet())
+    glyph.draw(bounds_pen)
+    assert info.height == bounds_pen.bounds[3] / font.backend.units_per_em
+    assert info.depth == -bounds_pen.bounds[1] / font.backend.units_per_em
 
     backend.shipout(_page_box([_line_box("A", owner, font)]))
     data = _docx_bytes(parser, backend)
@@ -536,6 +556,7 @@ def test_docx_converts_embedded_cff_font_to_truetype(parser, tmp_path):
     key = docx._font_key_bytes(font_key)
     for index in range(min(32, len(restored))):
         restored[index] ^= key[index % 16]
+    assert bytes(restored) == converted_backend.fontData()
     converted = TTFont(io.BytesIO(restored))
     assert converted.sfntVersion == "\x00\x01\x00\x00"
     assert "glyf" in converted
@@ -545,14 +566,14 @@ def test_docx_converts_embedded_cff_font_to_truetype(parser, tmp_path):
     converted.close()
 
 
-def test_docx_keeps_truetype_font_payload_unchanged(tmp_path):
+def test_docx_keeps_truetype_font_payload_unchanged(parser, tmp_path):
     font_path = tmp_path / "DemoTrueType.ttf"
     _build_test_word_font(font_path, "Demo TrueType", "Regular")
 
-    payload, suffix = docx._docx_font_payload(font_path)
+    backend = parser.loadFontBackend(str(font_path))
 
-    assert suffix == ".odttf"
-    assert payload == font_path.read_bytes()
+    assert isinstance(backend, opentype.TrueTypeBackend)
+    assert backend.fontData() == font_path.read_bytes()
 
 
 def test_docx_groups_embedded_font_faces_by_word_family(parser, tmp_path):

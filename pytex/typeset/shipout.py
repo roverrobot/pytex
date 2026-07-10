@@ -23,9 +23,11 @@ class Shipout:
     """
 
     supported_graphic_formats = ()
+    supported_font_classes = None
 
     def __init__(self, parser, output=None):
         self.parser = parser
+        parser.registerSupportedFontClasses(*(self.supported_font_classes or ()))
         self.output = output
         self.pages = []
         self.h = 0

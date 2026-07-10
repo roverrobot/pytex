@@ -1,9 +1,70 @@
 from pathlib import Path
 
 import pytest
+from pytex import font_backend
 from pytex import opentype
 from pytex import texlive
 from pytex.parser import Parser
+
+
+class _SearchBackend(font_backend.FontBackend):
+    kind = "search-test"
+
+    def __init__(self, name):
+        self._name = name
+
+    @property
+    def name(self):
+        return self._name
+
+
+class _UnsupportedSearchBackend(_SearchBackend):
+    @classmethod
+    def load(cls, parser, name):
+        return cls(name)
+
+
+class _SupportedSearchBackend(_SearchBackend):
+    @classmethod
+    def load(cls, parser, name):
+        return cls(name)
+
+
+def test_font_search_prefers_registered_supported_class(parser, monkeypatch):
+    monkeypatch.setattr(
+        font_backend,
+        "_backend_classes",
+        [_UnsupportedSearchBackend, _SupportedSearchBackend],
+    )
+    monkeypatch.setattr(font_backend, "_system_font_backend_cache", {})
+
+    unrestricted = parser.loadFontBackend("demo.font", kind="search-test")
+    parser.registerSupportedFontClasses(_SupportedSearchBackend)
+    restricted = parser.loadFontBackend("demo.font", kind="search-test")
+
+    assert isinstance(unrestricted, _UnsupportedSearchBackend)
+    assert isinstance(restricted, _SupportedSearchBackend)
+
+
+def test_font_search_converts_only_unsupported_result(parser, monkeypatch):
+    monkeypatch.setattr(font_backend, "_backend_classes", [_UnsupportedSearchBackend])
+    monkeypatch.setattr(
+        font_backend,
+        "_font_converters",
+        [
+            (
+                _UnsupportedSearchBackend,
+                _SupportedSearchBackend,
+                lambda parser, backend: _SupportedSearchBackend(backend.name),
+            )
+        ],
+    )
+    monkeypatch.setattr(font_backend, "_system_font_backend_cache", {})
+    parser.registerSupportedFontClasses(_SupportedSearchBackend)
+
+    backend = parser.loadFontBackend("demo.font", kind="search-test")
+
+    assert isinstance(backend, _SupportedSearchBackend)
 
 
 def test_read_font(cmr10):

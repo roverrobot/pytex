@@ -20,6 +20,7 @@ from pytex.font_backend import (
     GlyphAssemblyPart,
     GlyphInfo,
     registerBackend,
+    registerFontConverter,
 )
 from pytex.module import Module
 
@@ -31,11 +32,19 @@ class OpenTypeBackend(FontBackend):
     _system_font_paths = None
     _system_font_match_cache = {}
 
-    def __init__(self, name: str, font: TTFont, path: Optional[str] = None, font_number: int = 0):
+    def __init__(
+        self,
+        name: str,
+        font: TTFont,
+        path: Optional[str] = None,
+        font_number: int = 0,
+        font_data: Optional[bytes] = None,
+    ):
         self._name = name
         self.font = font
         self.path = path
         self.font_number = font_number
+        self._font_data = font_data
         self.units_per_em = font["head"].unitsPerEm
         self._cmap = font.getBestCmap() or {}
         self._reverse_cmap = {}
@@ -51,6 +60,25 @@ class OpenTypeBackend(FontBackend):
         self._variant_info = None
         self._fontdimen = None
         self._x_height = None
+
+    @staticmethod
+    def _backendClass(font):
+        if "glyf" in font:
+            return TrueTypeBackend
+        if "CFF " in font:
+            return CFFBackend
+        return OpenTypeBackend
+
+    @classmethod
+    def _newBackend(cls, name, font, path=None, font_number=0, font_data=None):
+        backend_cls = cls._backendClass(font)
+        return backend_cls(
+            name,
+            font,
+            path=path,
+            font_number=font_number,
+            font_data=font_data,
+        )
 
     @classmethod
     def _type(cls, name: str):
@@ -215,7 +243,12 @@ class OpenTypeBackend(FontBackend):
             path, font_number = match, 0
         else:
             path, font_number = match
-        return cls(backend_name, cls._loadPath(path, font_number=font_number), path=path, font_number=font_number)
+        return cls._newBackend(
+            backend_name,
+            cls._loadPath(path, font_number=font_number),
+            path=path,
+            font_number=font_number,
+        )
 
     @classmethod
     def _loadFileFont(cls, parser, name: str, backend_name: str, font_number: int = 0, extensionless: bool = False):
@@ -230,7 +263,12 @@ class OpenTypeBackend(FontBackend):
             if not isinstance(path, str) or not os.path.exists(path):
                 path = None
             try:
-                return cls(backend_name, cls._loadFont(file, font_number=font_number), path=path, font_number=font_number)
+                return cls._newBackend(
+                    backend_name,
+                    cls._loadFont(file, font_number=font_number),
+                    path=path,
+                    font_number=font_number,
+                )
             finally:
                 file.close()
         return None
@@ -276,6 +314,21 @@ class OpenTypeBackend(FontBackend):
     @property
     def checksum(self):
         return int(getattr(self.font["head"], "checkSumAdjustment", 0))
+
+    def fontData(self):
+        if self._font_data is not None:
+            return self._font_data
+        if (
+            isinstance(self.path, str)
+            and os.path.isfile(self.path)
+            and self.font_number == 0
+            and os.path.splitext(self.path)[1].lower() not in {".ttc", ".otc"}
+        ):
+            with open(self.path, "rb") as font_file:
+                return font_file.read()
+        out = BytesIO()
+        self.font.save(out)
+        return out.getvalue()
 
     def _scaled(self, value):
         return value / self.units_per_em
@@ -531,3 +584,48 @@ class OpenTypeBackend(FontBackend):
             space / 3,
         ]
         return self._fontdimen
+
+
+class TrueTypeBackend(OpenTypeBackend):
+    """OpenType font with quadratic TrueType outlines."""
+
+
+class CFFBackend(OpenTypeBackend):
+    """OpenType font with CFF 1 outlines."""
+
+
+@registerFontConverter(CFFBackend, TrueTypeBackend)
+def convertCFFToTrueType(parser, backend):
+    from afdko.otf2ttf import otf_to_ttf
+
+    if isinstance(backend.path, str) and os.path.isfile(backend.path):
+        font = TTFont(
+            backend.path,
+            fontNumber=backend.font_number,
+            lazy=False,
+            recalcTimestamp=False,
+        )
+    else:
+        font = TTFont(
+            BytesIO(backend.fontData()),
+            lazy=False,
+            recalcTimestamp=False,
+        )
+    try:
+        otf_to_ttf(font)
+        converted = BytesIO()
+        font.save(converted)
+        data = converted.getvalue()
+    finally:
+        font.close()
+    converted_font = TTFont(
+        BytesIO(data),
+        lazy=False,
+        recalcBBoxes=False,
+        recalcTimestamp=False,
+    )
+    return TrueTypeBackend(
+        backend.name,
+        converted_font,
+        font_data=data,
+    )

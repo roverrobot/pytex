@@ -25,6 +25,7 @@ So the current split is:
 - `FontBackend`: shared font resource and metrics provider
 - `Font`: parser-facing font value at a chosen size
 - backend-specific loaders: `TFMBackend` and `OpenTypeBackend`
+- concrete OpenType outline classes: `TrueTypeBackend` and `CFFBackend`
 - shipout backends: consume the resulting `Font` objects according to their own
   capabilities
 
@@ -59,14 +60,31 @@ assembly information, and a small amount of DVI-facing metadata.
 
 ## Backend Registration And Loading
 
-Backends are registered process-wide with `registerBackend(...)`.
+Backend loaders are registered process-wide with `registerBackend(...)`.
 
 The parser receives the loader as a module-installed attribute:
 
 - `parser.loadFontBackend(name, kind=None)`
 
 The loader keeps a process-wide cache of backend objects. The cache key is based
-on backend kind plus a normalized resource name.
+on backend kind, normalized resource name, and the output backend's registered
+font classes. This prevents an unrestricted CFF lookup from satisfying a later
+DOCX lookup that requires a converted TrueType backend.
+
+### Output capability registration
+
+A shipout backend can declare concrete font classes through
+`supported_font_classes`. The base shipout constructor registers those classes
+with `parser.registerSupportedFontClasses(...)` before TeX loads document fonts.
+
+If no shipout backend registers classes, lookup retains the unrestricted legacy
+behavior. If classes are registered, lookup continues past unsupported results
+in case another loader can provide a supported font. Only after that search is
+exhausted does it try a converter registered with `registerFontConverter(...)`.
+
+This ordering is important: conversion happens before `Font` is constructed,
+so glyph widths, bounds, `fontdimen`, line breaking, and page breaking all use
+the same concrete font that shipout later embeds.
 
 The normalization rule is currently:
 
@@ -155,7 +173,12 @@ into DVI font definitions.
 
 ## `OpenTypeBackend`
 
-`OpenTypeBackend` is implemented in `pytex/opentype.py`.
+`OpenTypeBackend` is implemented in `pytex/opentype.py`. It is the registered
+loader and common implementation; loaded fonts are represented by concrete
+subclasses according to their outline tables:
+
+- `TrueTypeBackend` for `glyf` outlines
+- `CFFBackend` for CFF 1 outlines
 
 Unlike TFM, it is not imported automatically by `parser.py`. A caller must
 import `pytex.opentype` before constructing the parser if OpenType loading is
@@ -212,6 +235,18 @@ The current OpenType backend does **not** provide TeX ligature/kern programs,
 
 So it is currently a metric-and-outline backend, not a full replacement for the
 TFM math machinery.
+
+### CFF to TrueType conversion
+
+`pytex.opentype` registers an AFDKO converter from `CFFBackend` to
+`TrueTypeBackend`. DOCX declares `TrueTypeBackend` as its supported font class,
+so a CFF-only result is converted during font lookup. The converted `TTFont`
+and its serialized bytes stay together on the returned backend: TeX measures
+the converted glyphs, and DOCX later embeds those same bytes.
+
+Other output backends currently register no font restriction, so they keep the
+original CFF font. In particular, `html_reflow` continues to rely on browser
+CFF support and does not request conversion.
 
 ### DVI Name
 

@@ -25,7 +25,6 @@ from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.oxml.table import CT_Tbl
 from docx.shared import Pt, RGBColor, Twips
-from fontTools.ttLib import TTFont, TTLibError
 
 from pytex import align
 from pytex import box as bx
@@ -36,6 +35,7 @@ from pytex import paragraph as pg
 from pytex.dimen import Dimen
 from pytex.glue import Glue
 from pytex.module import Module
+from pytex.opentype import TrueTypeBackend
 from pytex import font_subst
 from pytex import reflow
 from pytex import svg
@@ -503,42 +503,6 @@ def _obfuscate_font(data, font_key):
     for index in range(min(32, len(out))):
         out[index] ^= key[index % 16]
     return bytes(out)
-
-
-def _docx_font_payload(path, font_number=0):
-    """Return embeddable font bytes and their obfuscated-part suffix.
-
-    Word only reliably embeds TrueType outlines. Convert a selected CFF face
-    to a standalone TrueType font here, at the DOCX packaging boundary, while
-    leaving existing TrueType fonts and collections untouched.
-    """
-    with open(path, "rb") as font_file:
-        data = font_file.read()
-    source_suffix = (
-        ".odttc"
-        if Path(path).suffix.lower() in {".ttc", ".otc"}
-        else ".odttf"
-    )
-    try:
-        font = TTFont(
-            BytesIO(data),
-            fontNumber=font_number,
-            lazy=False,
-            recalcTimestamp=False,
-        )
-    except (OSError, TTLibError):
-        return data, source_suffix
-    try:
-        if "CFF " not in font:
-            return data, source_suffix
-        from afdko.otf2ttf import otf_to_ttf
-
-        otf_to_ttf(font)
-        converted = BytesIO()
-        font.save(converted)
-        return converted.getvalue(), ".odttf"
-    finally:
-        font.close()
 
 
 def _xml_bytes(node):
@@ -1534,8 +1498,9 @@ class Section:
 class EmbeddedFont:
     family: str
     face: str
-    path: str
+    path: str | None
     font_number: int = 0
+    data: bytes | None = None
 
 
 @dataclass
@@ -1627,8 +1592,18 @@ class Document(reflow.Document):
         if reference is None:
             return None
         path = _font_path(backend)
-        if _font_kind(backend) == "opentype" and isinstance(path, str) and os.path.isfile(path):
-            path = os.path.realpath(path)
+        metric_backend = _opentype_metric_backend(backend)
+        font_data = None
+        if metric_backend is not None:
+            get_data = getattr(metric_backend, "fontData", None)
+            if get_data is not None:
+                font_data = get_data()
+        if _font_kind(backend) == "opentype" and (
+            font_data is not None
+            or isinstance(path, str) and os.path.isfile(path)
+        ):
+            if isinstance(path, str) and os.path.isfile(path):
+                path = os.path.realpath(path)
             key = (reference.family, reference.face)
             if key not in self._embedded_fonts:
                 self._embedded_fonts[key] = EmbeddedFont(
@@ -1636,6 +1611,7 @@ class Document(reflow.Document):
                     reference.face,
                     path,
                     _font_number(backend),
+                    data=font_data,
                 )
         return reference
 
@@ -1787,7 +1763,16 @@ class Document(reflow.Document):
         extensions = set()
         for embedded in self._embedded_fonts.values():
             font_key = "{" + str(uuid.uuid4()).upper() + "}"
-            payload, suffix = _docx_font_payload(embedded.path, embedded.font_number)
+            payload = embedded.data
+            if payload is None:
+                with open(embedded.path, "rb") as font_file:
+                    payload = font_file.read()
+            suffix = (
+                ".odttc"
+                if embedded.data is None
+                and Path(embedded.path).suffix.lower() in {".ttc", ".otc"}
+                else ".odttf"
+            )
             part_name = f"word/fonts/font{next_font}{suffix}"
             next_font += 1
             target = f"fonts/{Path(part_name).name}"
@@ -1916,6 +1901,7 @@ class DocxBackend(reflow.Reflow):
 
     support_annotation = True
     supported_graphic_formats = ("svg",)
+    supported_font_classes = (TrueTypeBackend,)
 
     def __init__(self, parser, output=None):
         super().__init__(parser, paginate=True)

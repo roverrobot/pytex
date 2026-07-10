@@ -190,11 +190,13 @@ remain credible once exported.
 
 This is another reason to prefer TeX-chosen line breaks over Word composition.
 
-The current DOCX implementation embeds filesystem-backed OpenType fonts. At
-the DOCX packaging boundary, it converts CFF 1 outlines to TrueType outlines
-with AFDKO before applying Word's font obfuscation. TrueType outlines pass
-through unchanged. This conversion is DOCX-specific; the `html_reflow`
-backend continues to expose the browser-supported source font directly.
+The current DOCX implementation embeds OpenType fonts and declares
+`TrueTypeBackend` as its supported font class before TeX loads document fonts.
+If lookup finds only a CFF 1 font, the font backend converts it with AFDKO and
+returns a TrueType-backed font to the engine. TeX therefore measures the same
+glyph outlines that DOCX later embeds and obfuscates. This capability request
+is DOCX-specific; the `html_reflow` backend continues to expose the
+browser-supported CFF source font directly.
 
 ## Page Semantics
 

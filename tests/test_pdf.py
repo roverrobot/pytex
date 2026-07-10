@@ -5,8 +5,11 @@ import pytest
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
+from pytex import font as txfont
+from pytex import opentype
 from pytex import pdf
 from pytex import texlive
+from pytex.dimen import Dimen
 
 
 def _page_content_text(path):
@@ -29,6 +32,25 @@ def test_pdf_warns_once_for_non_bmp_character(cmr10):
     assert log.count("Warning: direct PDF output via ReportLab may misrender non-BMP character") == 1
     assert "U+1F604" in log
     assert "Apple Color Emoji" in log
+
+
+def test_pdf_registers_converted_cff_font_from_backend_bytes(parser):
+    handle = parser.resolver.openIn("lmroman10-regular.otf", "fonts/opentype")
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    path = handle.name
+    handle.close()
+
+    parser.registerSupportedFontClasses()
+    source = parser.loadFontBackend("lmroman10-regular.otf")
+    if not isinstance(source, opentype.CFFBackend):
+        pytest.skip("lmroman10-regular.otf is not a CFF font")
+    parser.registerSupportedFontClasses(opentype.TrueTypeBackend)
+    converted = parser.loadFontBackend("lmroman10-regular.otf")
+    assert converted.path is None
+
+    backend = pdf.PDFBackend(parser)
+    backend._register_opentype(txfont.Font(converted, Dimen(10)), "ConvertedCFF")
 
 
 def test_output_pages_uses_pdf_backend(cmr10, tmp_path):

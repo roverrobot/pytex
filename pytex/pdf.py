@@ -771,12 +771,24 @@ class PDFBackend(Shipout):
         return out.getvalue()
 
     def _register_opentype(self, font, font_name):
-        path = getattr(font.backend, "path", None)
-        if not path:
+        backend = font.backend
+        path = getattr(backend, "path", None)
+        if path:
+            source = path
+            subfont_index = getattr(backend, "font_number", 0)
+        else:
+            font_data = getattr(backend, "fontData", None)
+            if font_data is None:
+                raise ValueError(
+                    f"PDF backend needs font data for OpenType font {backend.name}"
+                )
+            source = BytesIO(font_data())
+            subfont_index = 0
+        if source is None:
             raise ValueError(
-                f"PDF backend needs a filesystem-backed font file for OpenType font {font.backend.name}"
+                f"PDF backend needs font data for OpenType font {backend.name}"
             )
-        registerFont(ReportLabTTFont(font_name, path, subfontIndex=getattr(font.backend, "font_number", 0)))
+        registerFont(ReportLabTTFont(font_name, source, subfontIndex=subfont_index))
 
     def _register_type1(self, font, font_name):
         base = font.backend.name

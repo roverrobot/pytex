@@ -442,7 +442,7 @@ def test_docx_document_interface_uses_pagespec_sections(parser):
     assert int(word_section.left_margin) == int(docx._length(Dimen(10)))
     assert int(word_section.top_margin) == int(docx._length(Dimen(20)))
     assert int(word_section.right_margin) == int(docx._length(Dimen(10)))
-    assert int(word_section.bottom_margin) == int(docx._length(Dimen(20)))
+    assert word_section.bottom_margin.twips == docx._twips(Dimen(20)) - 1
     assert int(word_section.header_distance) == int(docx._length(Dimen(8)))
     assert int(word_section.footer_distance) == int(docx._length(Dimen(12)))
 
@@ -465,9 +465,8 @@ def test_docx_trailing_negative_spacing_moves_body_and_footer_boundaries(parser)
     section.applyTrailingSpacing(Dimen(-4))
 
     word_section = document._node.sections[0]
-    reduction = docx._twips(Dimen(4))
-    assert word_section.bottom_margin.twips == docx._twips(Dimen(20)) - reduction
-    assert word_section.footer_distance.twips == docx._twips(Dimen(12)) - reduction
+    assert word_section.bottom_margin.twips == docx._twips(Dimen(16)) - 1
+    assert word_section.footer_distance.twips == docx._twips(Dimen(8))
 
 
 def test_docx_section_break_uses_minimized_empty_paragraph(parser):
@@ -1256,8 +1255,7 @@ def test_docx_trailing_negative_spacing_keeps_tex_line_height(parser):
     pg_mar = root.find(f".//{{{docx._W_NS}}}pgMar")
     assert pg_mar is not None
     assert int(pg_mar.get(f"{{{docx._W_NS}}}bottom")) == (
-        docx._twips(Dimen(72.27))
-        - docx._twips(Dimen(4))
+        docx._twips(Dimen(72.27) - Dimen(4)) - 1
     )
 
 

@@ -143,6 +143,11 @@ def _length(dimen: Dimen):
     return Twips(_twips(dimen))
 
 
+def _section_bottom_margin(dimen: Dimen):
+    """Reserve one twip for Word's section-marker paragraph."""
+    return Twips(max(0, _twips(dimen) - 1))
+
+
 def _emu(dimen: Dimen):
     return max(1, _round_docx_unit(float(dimen) * _DOCX_EMU_PER_TEX_POINT_NUM / _DOCX_EMU_PER_TEX_POINT_DEN))
 
@@ -1506,6 +1511,7 @@ class Section:
     def __init__(self, document, spec: reflow.PageSpec):
         self.document = document
         self.spec = spec
+        self.trailing_spacing = Dimen()
         self._section = document._node.sections[-1]
         self._apply_spec()
         self._section.header.is_linked_to_previous = False
@@ -1521,7 +1527,7 @@ class Section:
         section.left_margin = _length(self.spec.margin_left)
         section.top_margin = _length(self.spec.margin_top)
         section.right_margin = _length(self.spec.margin_right)
-        section.bottom_margin = _length(self.spec.margin_bottom)
+        section.bottom_margin = _section_bottom_margin(self.spec.margin_bottom)
         if self.spec.header_distance is not None:
             section.header_distance = _length(self.spec.header_distance)
         if self.spec.footer_distance is not None:
@@ -1530,16 +1536,15 @@ class Section:
     def applyTrailingSpacing(self, spacing: Dimen):
         if int(spacing) >= 0:
             return
-        reduction = _twips(Dimen() - spacing)
-        bottom_margin = self._section.bottom_margin
-        if bottom_margin is not None:
-            self._section.bottom_margin = Twips(
-                max(0, int(bottom_margin.twips) - reduction)
-            )
-        footer_distance = self._section.footer_distance
-        if footer_distance is not None:
-            self._section.footer_distance = Twips(
-                max(0, int(footer_distance.twips) - reduction)
+        self.trailing_spacing += spacing
+        bottom_margin = self.spec.margin_bottom + self.trailing_spacing
+        self._section.bottom_margin = _section_bottom_margin(
+            bottom_margin if int(bottom_margin) > 0 else Dimen()
+        )
+        if self.spec.footer_distance is not None:
+            footer_distance = self.spec.footer_distance + self.trailing_spacing
+            self._section.footer_distance = _length(
+                footer_distance if int(footer_distance) > 0 else Dimen()
             )
 
     @property

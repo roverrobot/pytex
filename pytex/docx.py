@@ -130,7 +130,8 @@ def twips(dimen: Dimen):
 
 
 def _twips(dimen: Dimen):
-    return int(float(dimen) / 72.27 * 72 * 20)
+    """Floor layout dimensions so quantization cannot accumulate upward."""
+    return math.floor(float(dimen) / 72.27 * 72 * 20)
 
 
 def _space_twips(dimen: Dimen):

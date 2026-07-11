@@ -325,11 +325,11 @@ def _math_atom(char, fam=0, atom_type=mmode.ATOM_TYPE.ORD):
     return atom
 
 
-def test_docx_twips_truncate_to_word_unit():
+def test_docx_twips_floor_to_word_unit():
     assert docx._twips(docx._tex_points(0.099)) == 1
-    assert docx._twips(docx._tex_points(-0.099)) == -1
+    assert docx._twips(docx._tex_points(-0.099)) == -2
     assert docx._twips(docx._tex_points(0.049)) == 0
-    assert docx._twips(docx._tex_points(-0.049)) == 0
+    assert docx._twips(docx._tex_points(-0.049)) == -1
     assert docx.half_pt(docx._tex_points(0.26)) == "1"
     assert docx.half_pt(docx._tex_points(-0.26)) == "-1"
 

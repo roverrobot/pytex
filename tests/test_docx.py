@@ -1,7 +1,6 @@
 import io
 import math
 import re
-import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -546,6 +545,7 @@ def test_docx_shipout_embeds_filesystem_opentype_fonts(parser, tmp_path):
 
     assert 'w:name="Demo Embedded"' in font_xml
     assert "<w:embedRegular" in font_xml
+    assert 'w:subsetted="0"' in font_xml
     font_key = re.search(r'w:fontKey="([^"]+)"', font_xml).group(1)
     assert font_key.startswith("{") and font_key.endswith("}")
     assert 'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"' in rels_xml
@@ -558,6 +558,12 @@ def test_docx_shipout_embeds_filesystem_opentype_fonts(parser, tmp_path):
     for index in range(32):
         restored[index] ^= key[index % 16]
     assert bytes(restored) == font_bytes
+
+
+def test_docx_font_key_uses_reversed_guid_text_bytes():
+    key = docx._font_key_bytes("{001B70DC-AA60-4AD5-90EC-18A0948E1EAE}")
+
+    assert key.hex().upper() == "AE1E8E94A018EC90D54A60AADC701B00"
 
 
 def test_docx_converts_embedded_cff_font_to_truetype(parser, tmp_path):
@@ -701,7 +707,8 @@ def test_docx_groups_embedded_font_faces_by_word_family(parser, tmp_path):
                 part_name = f"word/{target}"
                 assert part_name in names
                 font_key = embed.get(f"{{{docx._W_NS}}}fontKey")
-                key = uuid.UUID(font_key.strip("{}")).bytes_le[::-1]
+                assert embed.get(f"{{{docx._W_NS}}}subsetted") == "0"
+                key = bytes.fromhex(re.sub(r"[{}-]", "", font_key))[::-1]
                 restored = bytearray(zf.read(part_name))
                 for index in range(min(32, len(restored))):
                     restored[index] ^= key[index % 16]

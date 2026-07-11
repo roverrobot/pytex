@@ -525,8 +525,7 @@ def _docx_font_name(backend):
 
 def _font_key_bytes(font_key):
     data = bytes.fromhex(re.sub(r"[{}-]", "", font_key))
-    guid_memory = data[3::-1] + data[5:3:-1] + data[7:5:-1] + data[8:16]
-    return guid_memory[::-1]
+    return data[::-1]
 
 
 def _obfuscate_font(data, font_key):
@@ -2012,6 +2011,7 @@ class Document(reflow.Document):
         embed = ET.SubElement(font, f"{{{_W_NS}}}{embed_name}")
         embed.set(f"{{{_R_NS}}}id", rid)
         embed.set(f"{{{_W_NS}}}fontKey", font_key)
+        embed.set(f"{{{_W_NS}}}subsetted", "0")
 
     @staticmethod
     def _ensureContentType(content_types, extension, content_type=_OBFUSCATED_FONT_CONTENT_TYPE):

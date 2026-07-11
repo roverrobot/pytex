@@ -1,6 +1,8 @@
+import io
 from pathlib import Path
 
 import pytest
+from fontTools.ttLib import TTFont
 from pytex import font_backend
 from pytex import opentype
 from pytex import texlive
@@ -127,6 +129,24 @@ def test_font_search_converts_type1_tfm_backend_to_truetype(parser):
     assert converted.glyphInfo("A").glyph_name == "A"
     assert converted.glyphInfo("f").program is converted.source_backend.glyphInfo("f").program
     assert converted.glyphInfo("f").program.keys() == source_f.program.keys()
+
+
+@pytest.mark.parametrize(
+    ("font_name", "style"),
+    (("cmr10", "Regular"), ("cmti10", "Italic"), ("cmbx10", "Bold")),
+)
+def test_type1_conversion_corrects_truetype_style_and_embedding(parser, font_name, style):
+    source = parser.loadFontBackend(font_name)
+    if source.pfb_file is None:
+        pytest.skip(f"{font_name} Type 1 font not found")
+    parser.registerSupportedFontClasses(opentype.TrueTypeBackend)
+
+    converted = parser.loadFontBackend(font_name)
+
+    with TTFont(io.BytesIO(converted.fontData())) as font:
+        assert font["OS/2"].fsType == 0
+        assert font["name"].getName(2, 3, 1, 0x0409).toUnicode() == style
+        assert font["name"].getName(17, 3, 1, 0x0409).toUnicode() == style
 
 
 def test_system_font_backend_cache_shared_between_parsers():

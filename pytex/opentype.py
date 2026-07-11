@@ -735,6 +735,23 @@ def _type1PostScriptName(value):
     return value or "Type1Font"
 
 
+def _type1Style(font_info):
+    weight = str(font_info.get("Weight") or "Regular")
+    italic_angle = float(font_info.get("ItalicAngle", 0))
+    style_key = weight.casefold()
+    bold = any(value in style_key for value in ("bold", "demi", "semibold"))
+    italic = italic_angle != 0 or any(value in style_key for value in ("italic", "oblique"))
+    if bold and italic:
+        style = "Bold Italic"
+    elif bold:
+        style = "Bold"
+    elif italic:
+        style = "Italic"
+    else:
+        style = "Regular"
+    return style, weight, italic_angle, bold, italic
+
+
 def _type1OpenTypeData(backend):
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.t2CharStringPen import T2CharStringPen
@@ -771,12 +788,8 @@ def _type1OpenTypeData(backend):
     }
     postscript_name = _type1PostScriptName(source.get("FontName"))
     family = font_info.get("FamilyName") or postscript_name
-    style = font_info.get("Weight") or "Regular"
     full_name = font_info.get("FullName") or postscript_name
-    italic_angle = float(font_info.get("ItalicAngle", 0))
-    style_key = str(style).casefold()
-    bold = any(value in style_key for value in ("bold", "demi", "semibold"))
-    italic = italic_angle != 0 or any(value in style_key for value in ("italic", "oblique"))
+    style, weight, italic_angle, bold, italic = _type1Style(font_info)
     fs_selection = (1 << 5 if bold else 0) | (1 << 0 if italic else 0)
     if not bold and not italic:
         fs_selection |= 1 << 6
@@ -805,6 +818,7 @@ def _type1OpenTypeData(backend):
         usWinDescent=max(0, -descent),
         usWeightClass=700 if bold else 400,
         fsSelection=fs_selection,
+        fsType=0,
     )
     builder.setupPost(italicAngle=italic_angle)
     builder.font["head"].macStyle = (1 if bold else 0) | (2 if italic else 0)
@@ -813,7 +827,7 @@ def _type1OpenTypeData(backend):
         {
             "FullName": full_name,
             "FamilyName": family,
-            "Weight": style,
+            "Weight": weight,
             "ItalicAngle": italic_angle,
         },
         char_strings,
@@ -822,6 +836,28 @@ def _type1OpenTypeData(backend):
     data = BytesIO()
     builder.font.save(data)
     return data.getvalue()
+
+
+def _correctConvertedType1Metadata(font, backend):
+    font_info = backend.font.font.get("FontInfo", {})
+    style, _weight, _italic_angle, _bold, _italic = _type1Style(font_info)
+    os2 = font.get("OS/2")
+    if os2 is not None:
+        os2.fsType = 0
+    name_table = font.get("name")
+    if name_table is None:
+        return
+    for record in list(name_table.names):
+        if record.nameID in (2, 17):
+            name_table.setName(
+                style,
+                record.nameID,
+                record.platformID,
+                record.platEncID,
+                record.langID,
+            )
+    name_table.setName(style, 2, 3, 1, 0x0409)
+    name_table.setName(style, 17, 3, 1, 0x0409)
 
 
 @registerFontConverter(TFMBackend, TrueTypeBackend)
@@ -842,9 +878,12 @@ def convertType1ToTrueType(parser, backend):
         converted = convertCFFToTrueType(parser, cff_backend)
     finally:
         cff_font.close()
+    _correctConvertedType1Metadata(converted.font, backend)
+    data = BytesIO()
+    converted.font.save(data)
     return Type1TrueTypeBackend(
         backend.name,
         converted.font,
         source_backend=backend,
-        font_data=converted.fontData(),
+        font_data=data.getvalue(),
     )

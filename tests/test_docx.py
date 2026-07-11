@@ -14,6 +14,7 @@ from fontTools.pens.boundsPen import BoundsPen
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
+from PIL import Image
 
 from pytex import align
 from pytex import box as bx
@@ -1047,6 +1048,47 @@ def test_docx_epdf_graphic_special_converts_to_svg_picture(parser, monkeypatch):
         assert len(media) == 1
         assert len(svg_media) == 1
         assert zf.read(media[0]).startswith(b"\x89PNG")
+
+
+@pytest.mark.parametrize(
+    ("suffix", "image_format", "content_type"),
+    [
+        ("png", "PNG", "image/png"),
+        ("jpg", "JPEG", "image/jpeg"),
+    ],
+)
+def test_docx_raster_graphic_special_embeds_native_picture(
+    parser,
+    tmp_path,
+    suffix,
+    image_format,
+    content_type,
+):
+    fig = tmp_path / f"fig.{suffix}"
+    Image.new("RGB", (20, 10), "red").save(fig, format=image_format)
+    payload = fig.read_bytes()
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    _install_font(parser)
+    source = pg.Paragraph(parser, indent=False)
+    special = nd.Special(f"pdf: image width 72pt height 36pt ({fig})")
+
+    backend.shipout(
+        _page_box([_FakeHBox([special], source=source, width=72, height=36, depth=0)])
+    )
+    data = _docx_bytes(parser, backend)
+
+    xml = _document_xml(data)
+    assert "<w:drawing" in xml
+    assert "<asvg:svgBlip" not in xml
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        media_name = f"word/media/pytex-inline-image-1.{suffix}"
+        assert zf.read(media_name) == payload
+        rels_xml = zf.read("word/_rels/document.xml.rels").decode("utf-8")
+        content_types = zf.read("[Content_Types].xml").decode("utf-8")
+    assert f'Target="media/pytex-inline-image-1.{suffix}"' in rels_xml
+    assert f'Extension="{suffix}"' in content_types
+    assert content_type in content_types
 
 
 def test_docx_standalone_graphic_line_keeps_normal_edge_spacing(parser, monkeypatch):

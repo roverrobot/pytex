@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from lxml import etree
 from lxml.html import builder
 import pytest
+from PIL import Image
 from reportlab.pdfgen import canvas
 
 from pytex import align
@@ -186,6 +187,37 @@ def test_html_reflow_epdf_graphic_special_creates_inline_svg_image(parser, tmp_p
     assert "width:71.731009pt;" in html
     assert "height:35.865504pt;" in html
     assert (tmp_path / "html-reflow-test.assets" / "graphics" / "graphic-1.svg").exists()
+
+
+@pytest.mark.parametrize(
+    ("suffix", "image_format"),
+    [
+        ("png", "PNG"),
+        ("jpg", "JPEG"),
+    ],
+)
+def test_html_reflow_raster_graphic_special_copies_inline_image(
+    parser,
+    tmp_path,
+    suffix,
+    image_format,
+):
+    fig = tmp_path / f"fig.{suffix}"
+    Image.new("RGB", (20, 10), "red").save(fig, format=image_format)
+    payload = fig.read_bytes()
+    hbox = _node_box(
+        parser,
+        [nd.Special(f"pdf: image width 72pt height 36pt ({fig})")],
+    )
+
+    html = _render(_typeset_hbox(parser, hbox))
+
+    target = tmp_path / "html-reflow-test.assets" / "graphics" / f"graphic-1.{suffix}"
+    assert "<img" in html
+    assert f"html-reflow-test.assets/graphics/graphic-1.{suffix}" in html
+    assert "width:71.731009pt;" in html
+    assert "height:35.865504pt;" in html
+    assert target.read_bytes() == payload
 
 
 def test_html_reflow_epdf_graphic_uses_xdvipdfmx_scale_transform(parser, tmp_path, monkeypatch):

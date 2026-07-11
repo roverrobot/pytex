@@ -72,6 +72,14 @@ _FONT_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relation
 _IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 _OBFUSCATED_FONT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.obfuscatedFont"
 _SVG_CONTENT_TYPE = "image/svg+xml"
+_IMAGE_CONTENT_TYPES = {
+    "bmp": "image/bmp",
+    "gif": "image/gif",
+    "jpg": "image/jpeg",
+    "png": "image/png",
+    "tif": "image/tiff",
+    "tiff": "image/tiff",
+}
 _WORD_FONT_FACE_ELEMENTS = {
     "regular": "embedRegular",
     "bold": "embedBold",
@@ -841,7 +849,10 @@ class TextRun(reflow.TextRun):
         height = request.height or asset.height
         if width is None or height is None:
             return None
-        payload = backend.graphicSvgPayload(asset, width, height)
+        if asset.format == "svg":
+            payload = backend.graphicSvgPayload(asset, width, height)
+        else:
+            payload = backend.graphicPayload(asset)
         if payload is None:
             return None
         visual_height = height + asset.depth
@@ -850,11 +861,19 @@ class TextRun(reflow.TextRun):
         self.text = None
         self.uses_backend_baseline = False
         document = _story_document(self.line.story)
-        fallback_placeholder, svg_placeholder, media_name = document.defineInlineSvg(
-            payload,
-            width=width,
-            height=visual_height,
-        )
+        if asset.format == "svg":
+            fallback_placeholder, svg_placeholder, media_name = document.defineInlineSvg(
+                payload,
+                width=width,
+                height=visual_height,
+            )
+        else:
+            fallback_placeholder, svg_placeholder, media_name = document.defineInlineImage(
+                payload,
+                asset.format,
+            )
+        if fallback_placeholder is None:
+            return None
         drawing_id = document.nextDrawingId()
         visual_cy = _twip_emu(visual_height) if standalone_graphic_line else _emu(visual_height)
         drawing = parse_xml(
@@ -1610,13 +1629,14 @@ class EmbeddedFont:
 
 
 @dataclass
-class InlineSvgPicture:
+class InlinePicture:
     svg_placeholder: str
     media_name: str
     payload: bytes
     fallback_placeholder: str = None
     fallback_media_name: str = None
     fallback_payload: bytes = None
+    fallback_format: str = "png"
 
 
 class DisplayMathPictureBox:
@@ -1650,7 +1670,7 @@ class Document(reflow.Document):
         self._drawing_id = 0
         self._bookmark_id = 0
         self._embedded_fonts = {}
-        self._inline_svg_pictures = {}
+        self._inline_pictures = {}
 
     @property
     def line_id(self):
@@ -1725,7 +1745,7 @@ class Document(reflow.Document):
         return None
 
     def defineInlineSvg(self, payload: bytes, width=None, height=None, use_svg=True):
-        index = len(self._inline_svg_pictures) + 1
+        index = len(self._inline_pictures) + 1
         svg_placeholder = f"pytexInlineSvg{index}"
         fallback_placeholder = f"pytexInlinePng{index}"
         media_name = f"pytex-inline-math-{index}.svg"
@@ -1735,16 +1755,35 @@ class Document(reflow.Document):
             svg_placeholder = None
             media_name = None
         key = svg_placeholder or fallback_placeholder
-        self._inline_svg_pictures[key] = InlineSvgPicture(
+        self._inline_pictures[key] = InlinePicture(
             svg_placeholder,
             media_name,
             payload,
             fallback_placeholder=fallback_placeholder if fallback_payload is not None else svg_placeholder,
             fallback_media_name=fallback_media_name if fallback_payload is not None else media_name,
             fallback_payload=fallback_payload if fallback_payload is not None else payload,
+            fallback_format="png" if fallback_payload is not None else "svg",
         )
         fallback_reference = fallback_placeholder if fallback_payload is not None else svg_placeholder
         return fallback_reference, svg_placeholder, media_name or fallback_media_name
+
+    def defineInlineImage(self, payload: bytes, image_format: str):
+        image_format = image_format.lower()
+        if image_format not in _IMAGE_CONTENT_TYPES:
+            return None, None, None
+        index = len(self._inline_pictures) + 1
+        placeholder = f"pytexInlineImage{index}"
+        media_name = f"pytex-inline-image-{index}.{image_format}"
+        self._inline_pictures[placeholder] = InlinePicture(
+            svg_placeholder=None,
+            media_name=None,
+            payload=b"",
+            fallback_placeholder=placeholder,
+            fallback_media_name=media_name,
+            fallback_payload=payload,
+            fallback_format=image_format,
+        )
+        return placeholder, None, media_name
 
     def save(self):
         buffer = BytesIO()
@@ -1752,7 +1791,7 @@ class Document(reflow.Document):
         data = buffer.getvalue()
         if self._embedded_fonts:
             data = self._embedFonts(data)
-        if self._inline_svg_pictures:
+        if self._inline_pictures:
             data = self._embedPictures(data)
         self.output.write(data)
         if hasattr(self.output, "close"):
@@ -1822,7 +1861,8 @@ class Document(reflow.Document):
         }
         media_parts = {}
         relationship_ids = {}
-        for picture in self._inline_svg_pictures.values():
+        content_type_formats = set()
+        for picture in self._inline_pictures.values():
             if picture.fallback_placeholder != picture.svg_placeholder:
                 fallback_rid = f"rId{next_rid}"
                 next_rid += 1
@@ -1835,6 +1875,7 @@ class Document(reflow.Document):
                 relationship_ids[picture.fallback_placeholder] = fallback_rid
                 media_parts[fallback_part_name] = picture.fallback_payload
                 self._appendImageRelationship(rels, fallback_rid, fallback_target)
+                content_type_formats.add(picture.fallback_format)
 
             if picture.svg_placeholder is not None:
                 svg_media_name = self._uniqueMediaName(
@@ -1848,10 +1889,16 @@ class Document(reflow.Document):
                 relationship_ids[picture.svg_placeholder] = svg_rid
                 media_parts[svg_part_name] = picture.payload
                 self._appendImageRelationship(rels, svg_rid, svg_target)
+                content_type_formats.add("svg")
         for placeholder, rid in sorted(relationship_ids.items(), key=lambda item: len(item[0]), reverse=True):
             document_xml = document_xml.replace(placeholder, rid)
-        self._ensureContentType(content_types, "svg", _SVG_CONTENT_TYPE)
-        self._ensureContentType(content_types, "png", "image/png")
+        for image_format in sorted(content_type_formats):
+            content_type = (
+                _SVG_CONTENT_TYPE
+                if image_format == "svg"
+                else _IMAGE_CONTENT_TYPES[image_format]
+            )
+            self._ensureContentType(content_types, image_format, content_type)
         return {
             "word/document.xml": document_xml.encode("utf-8"),
             "word/_rels/document.xml.rels": _xml_bytes(rels),
@@ -1997,7 +2044,8 @@ class DocxBackend(reflow.Reflow):
     - page-wise reconstruction from shipped TeX pages
     - TeX controls both paragraph and line breaks
     - paragraphs, basic alignments, and inline/display math are supported
-    - images, specials, and broader page semantics remain intentionally narrow
+    - PDF and common raster figures use TeX's computed dimensions
+    - other specials and broader page semantics remain intentionally narrow
 
     The backend reconstructs TeX paragraphs from shipped line boxes, emits one
     Word paragraph per TeX paragraph, inserts explicit line breaks between TeX
@@ -2006,7 +2054,7 @@ class DocxBackend(reflow.Reflow):
     """
 
     support_annotation = True
-    supported_graphic_formats = ("svg",)
+    supported_graphic_formats = ("svg", "png", "jpg", "gif", "bmp", "tif", "tiff")
     supported_font_classes = (TrueTypeBackend,)
 
     def __init__(self, parser, output=None):
@@ -2217,7 +2265,7 @@ class DocxBackend(reflow.Reflow):
         return self.builder.newInlineMath(self, node, box, piece)
 
     def typesetGraphicAsset(self, asset, request):
-        if asset.format != "svg" or self.builder is None:
+        if asset.format not in self.supported_graphic_formats or self.builder is None:
             return
         new_text_run = getattr(self.builder, "newTextRun", None)
         if new_text_run is not None:
@@ -2254,6 +2302,17 @@ class DocxBackend(reflow.Reflow):
         if width is not None and height is not None:
             payload = _retarget_svg_size(payload, Dimen(width), Dimen(height))
         return payload
+
+    @staticmethod
+    def graphicPayload(asset):
+        if asset.data is not None:
+            return asset.data.encode("utf-8") if isinstance(asset.data, str) else asset.data
+        if asset.path is None:
+            return None
+        try:
+            return Path(asset.path).read_bytes()
+        except OSError:
+            return None
 
     def typesetTrailingVListSpacing(self, spacing: Dimen, top_level: bool=False):
         if not top_level or int(spacing) >= 0:

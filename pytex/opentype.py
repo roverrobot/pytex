@@ -8,6 +8,7 @@ import math
 import os
 import platform
 import re
+import unicodedata
 from typing import Optional
 
 from fontTools.pens.boundsPen import BoundsPen
@@ -601,7 +602,26 @@ class Type1TrueTypeBackend(TrueTypeBackend):
     def __init__(self, name, font, source_backend, font_data):
         super().__init__(name, font, font_data=font_data)
         self.source_backend = source_backend
+        source = source_backend.font.font if source_backend.font is not None else {}
+        self._type1_encoding = tuple(source.get("Encoding", ()))
         self._type1_glyph_info = {}
+
+    def _glyphName(self, char: str):
+        codepoint = ord(char)
+        if 0 <= codepoint < len(self._type1_encoding):
+            glyph_name = self._type1_encoding[codepoint]
+            if glyph_name != ".notdef" and glyph_name in self._glyph_set:
+                return glyph_name
+        return super()._glyphName(char)
+
+    def unicodeChar(self, char: str) -> str:
+        glyph_name = self._glyphName(char)
+        value = _type1GlyphUnicode(glyph_name)
+        if value is not None:
+            return value
+        if unicodedata.category(char) not in {"Cc", "Cs"}:
+            return char
+        return ""
 
     @property
     def dvi_name(self):
@@ -735,6 +755,94 @@ def _type1PostScriptName(value):
     return value or "Type1Font"
 
 
+_TYPE1_LIGATURE_UNICODE = {
+    "ff": "\ufb00",
+    "fi": "\ufb01",
+    "fl": "\ufb02",
+    "ffi": "\ufb03",
+    "ffl": "\ufb04",
+}
+
+
+def _type1GlyphUnicode(glyph_name):
+    if not glyph_name or glyph_name == ".notdef":
+        return None
+    value = _TYPE1_LIGATURE_UNICODE.get(glyph_name)
+    if value is None:
+        from fontTools import agl
+
+        value = agl.toUnicode(glyph_name)
+    if len(value) != 1 or unicodedata.category(value) in {"Cc", "Cs"}:
+        return None
+    return value
+
+
+def _type1UnicodeCmap(glyph_order):
+    cmap = {}
+    for glyph_name in glyph_order:
+        value = _type1GlyphUnicode(glyph_name)
+        if value is not None:
+            cmap.setdefault(ord(value), glyph_name)
+    if "space" in glyph_order:
+        cmap.setdefault(0x00A0, "space")
+    return cmap
+
+
+def _type1FontMetadata(backend, font_info):
+    source_name = font_info.get("FamilyName") or backend.name or "Type1 Font"
+    try:
+        design_size = float(backend.design_size)
+    except (TypeError, ValueError):
+        design_size = 0
+    size_suffix = f" {design_size:g}" if design_size > 0 else ""
+    family = f"PyTeX {source_name}{size_suffix}"[:31].rstrip()
+    style, weight, italic_angle, bold, italic = _type1Style(font_info)
+    full_name = family if style == "Regular" else f"{family} {style}"
+    ps_family = _type1PostScriptName(family.replace(" ", ""))
+    ps_style = style.replace(" ", "")
+    postscript_name = f"{ps_family}-{ps_style}"[:63]
+    return {
+        "family": family,
+        "style": style,
+        "weight": weight,
+        "italic_angle": italic_angle,
+        "bold": bold,
+        "italic": italic,
+        "full_name": full_name,
+        "postscript_name": postscript_name,
+        "unique_id": f"PYTX;1.000;{postscript_name}",
+        "version": "Version 1.000",
+    }
+
+
+def _type1GlyphTop(glyph_set, glyph_name, fallback):
+    if glyph_name not in glyph_set:
+        return fallback
+    pen = BoundsPen(glyph_set)
+    glyph_set[glyph_name].draw(pen)
+    return fallback if pen.bounds is None else round(pen.bounds[3])
+
+
+def _addType1Ligatures(font, glyph_order):
+    from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+
+    rules = []
+    for output, inputs in (
+        ("ffi", ("f", "f", "i")),
+        ("ffl", ("f", "f", "l")),
+        ("ff", ("f", "f")),
+        ("fi", ("f", "i")),
+        ("fl", ("f", "l")),
+    ):
+        if output in glyph_order and all(value in glyph_order for value in inputs):
+            rules.append(f"sub {' '.join(inputs)} by {output};")
+    if rules:
+        addOpenTypeFeaturesFromString(
+            font,
+            "feature liga {\n  " + "\n  ".join(rules) + "\n} liga;\n",
+        )
+
+
 def _type1Style(font_info):
     weight = str(font_info.get("Weight") or "Regular")
     italic_angle = float(font_info.get("ItalicAngle", 0))
@@ -780,24 +888,27 @@ def _type1OpenTypeData(backend):
         glyph.draw(char_string_pen)
         char_strings[glyph_name] = char_string_pen.getCharString()
 
-    encoding = source.get("Encoding", ())
-    cmap = {
-        codepoint: glyph_name
-        for codepoint, glyph_name in enumerate(encoding)
-        if glyph_name != ".notdef" and glyph_name in glyph_set
-    }
-    postscript_name = _type1PostScriptName(source.get("FontName"))
-    family = font_info.get("FamilyName") or postscript_name
-    full_name = font_info.get("FullName") or postscript_name
-    style, weight, italic_angle, bold, italic = _type1Style(font_info)
+    cmap = _type1UnicodeCmap(glyph_order)
+    metadata = _type1FontMetadata(backend, font_info)
+    family = metadata["family"]
+    style = metadata["style"]
+    weight = metadata["weight"]
+    italic_angle = metadata["italic_angle"]
+    bold = metadata["bold"]
+    italic = metadata["italic"]
+    full_name = metadata["full_name"]
+    postscript_name = metadata["postscript_name"]
     fs_selection = (1 << 5 if bold else 0) | (1 << 0 if italic else 0)
     if not bold and not italic:
         fs_selection |= 1 << 6
 
     bbox = source.get("FontBBox", (0, -200, 1000, 800))
+    units_per_em = _type1UnitsPerEm(source)
     ascent = round(bbox[3])
     descent = round(bbox[1])
-    builder = FontBuilder(_type1UnitsPerEm(source), isTTF=False)
+    x_height = _type1GlyphTop(glyph_set, "x", round(units_per_em * 0.45))
+    cap_height = _type1GlyphTop(glyph_set, "H", round(units_per_em * 0.7))
+    builder = FontBuilder(units_per_em, isTTF=False)
     builder.setupGlyphOrder(glyph_order)
     builder.setupCharacterMap(cmap)
     builder.setupHorizontalMetrics(metrics)
@@ -806,12 +917,14 @@ def _type1OpenTypeData(backend):
         {
             "familyName": family,
             "styleName": style,
-            "uniqueFontIdentifier": full_name,
+            "uniqueFontIdentifier": metadata["unique_id"],
             "fullName": full_name,
             "psName": postscript_name,
+            "version": metadata["version"],
         }
     )
     builder.setupOS2(
+        version=4,
         sTypoAscender=ascent,
         sTypoDescender=descent,
         usWinAscent=max(0, ascent),
@@ -819,6 +932,19 @@ def _type1OpenTypeData(backend):
         usWeightClass=700 if bold else 400,
         fsSelection=fs_selection,
         fsType=0,
+        achVendID="PYTX",
+        sxHeight=x_height,
+        sCapHeight=cap_height,
+        ySubscriptXSize=round(units_per_em * 0.65),
+        ySubscriptYSize=round(units_per_em * 0.6),
+        ySubscriptXOffset=0,
+        ySubscriptYOffset=round(units_per_em * 0.075),
+        ySuperscriptXSize=round(units_per_em * 0.65),
+        ySuperscriptYSize=round(units_per_em * 0.6),
+        ySuperscriptXOffset=0,
+        ySuperscriptYOffset=round(units_per_em * 0.35),
+        yStrikeoutSize=max(1, round(units_per_em * 0.05)),
+        yStrikeoutPosition=round(x_height * 0.6),
     )
     builder.setupPost(italicAngle=italic_angle)
     builder.font["head"].macStyle = (1 if bold else 0) | (2 if italic else 0)
@@ -833,6 +959,7 @@ def _type1OpenTypeData(backend):
         char_strings,
         {},
     )
+    _addType1Ligatures(builder.font, glyph_order)
     data = BytesIO()
     builder.font.save(data)
     return data.getvalue()
@@ -840,24 +967,52 @@ def _type1OpenTypeData(backend):
 
 def _correctConvertedType1Metadata(font, backend):
     font_info = backend.font.font.get("FontInfo", {})
-    style, _weight, _italic_angle, _bold, _italic = _type1Style(font_info)
+    metadata = _type1FontMetadata(backend, font_info)
     os2 = font.get("OS/2")
     if os2 is not None:
+        os2.version = 4
         os2.fsType = 0
+        os2.achVendID = "PYTX"
+        os2.recalcAvgCharWidth(font)
+        os2.recalcUnicodeRanges(font)
+        os2.recalcCodePageRanges(font)
+        panose = os2.panose
+        panose.bFamilyType = 2
+        panose.bSerifStyle = 2
+        panose.bWeight = 8 if metadata["bold"] else 5
+        panose.bProportion = 3
+        panose.bContrast = 5
+        panose.bStrokeVariation = 3
+        panose.bArmStyle = 4
+        panose.bLetterForm = 9 if metadata["italic"] else 2
+        panose.bMidline = 3
+        panose.bXHeight = 4
     name_table = font.get("name")
     if name_table is None:
         return
+    names = {
+        1: metadata["family"],
+        2: metadata["style"],
+        3: metadata["unique_id"],
+        4: metadata["full_name"],
+        5: metadata["version"],
+        6: metadata["postscript_name"],
+        16: metadata["family"],
+        17: metadata["style"],
+    }
     for record in list(name_table.names):
-        if record.nameID in (2, 17):
+        value = names.get(record.nameID)
+        if value is not None:
             name_table.setName(
-                style,
+                value,
                 record.nameID,
                 record.platformID,
                 record.platEncID,
                 record.langID,
             )
-    name_table.setName(style, 2, 3, 1, 0x0409)
-    name_table.setName(style, 17, 3, 1, 0x0409)
+    for name_id, value in names.items():
+        name_table.setName(value, name_id, 1, 0, 0)
+        name_table.setName(value, name_id, 3, 1, 0x0409)
 
 
 @registerFontConverter(TFMBackend, TrueTypeBackend)

@@ -119,14 +119,24 @@ def test_font_search_converts_type1_tfm_backend_to_truetype(parser):
     assert "glyf" in converted.font
     assert "loca" in converted.font
     assert "CFF " not in converted.font
-    assert converted.font.getBestCmap()[ord("A")] == "A"
-    assert converted.font.getBestCmap()[ord("<")] == "exclamdown"
+    cmap = converted.font.getBestCmap()
+    assert cmap[ord("A")] == "A"
+    assert cmap[ord(" ")] == "space"
+    assert cmap[0x00A1] == "exclamdown"
+    assert cmap[0x2013] == "endash"
+    assert cmap[0x201C] == "quotedblleft"
+    assert cmap[0xFB01] == "fi"
+    assert not any(codepoint < 0x20 for codepoint in cmap)
     assert converted.design_size == source.design_size
     assert converted.checksum == source.checksum
     assert converted.fontdimen == source.fontdimen
     assert converted.glyphInfo("A").width == source_a.width
     assert converted.glyphInfo("A").height == source_a.height
     assert converted.glyphInfo("A").glyph_name == "A"
+    assert converted.glyphInfo("<").glyph_name == "exclamdown"
+    assert converted.unicodeChar("<") == "\u00a1"
+    assert converted.unicodeChar("\\") == "\u201c"
+    assert converted.unicodeChar("{") == "\u2013"
     assert converted.glyphInfo("f").program is converted.source_backend.glyphInfo("f").program
     assert converted.glyphInfo("f").program.keys() == source_f.program.keys()
 
@@ -144,9 +154,34 @@ def test_type1_conversion_corrects_truetype_style_and_embedding(parser, font_nam
     converted = parser.loadFontBackend(font_name)
 
     with TTFont(io.BytesIO(converted.fontData())) as font:
-        assert font["OS/2"].fsType == 0
-        assert font["name"].getName(2, 3, 1, 0x0409).toUnicode() == style
-        assert font["name"].getName(17, 3, 1, 0x0409).toUnicode() == style
+        family = "PyTeX Computer Modern 10"
+        full_name = family if style == "Regular" else f"{family} {style}"
+        postscript_name = f"PyTeXComputerModern10-{style.replace(' ', '')}"
+        names = font["name"]
+        expected_names = {
+            1: family,
+            2: style,
+            3: f"PYTX;1.000;{postscript_name}",
+            4: full_name,
+            5: "Version 1.000",
+            6: postscript_name,
+            16: family,
+            17: style,
+        }
+        for name_id, expected in expected_names.items():
+            assert names.getName(name_id, 3, 1, 0x0409).toUnicode() == expected
+            assert names.getName(name_id, 1, 0, 0).toUnicode() == expected
+
+        os2 = font["OS/2"]
+        assert os2.version == 4
+        assert os2.fsType == 0
+        assert os2.achVendID == "PYTX"
+        assert os2.sxHeight > 0
+        assert os2.sCapHeight > os2.sxHeight
+        assert os2.yStrikeoutSize > 0
+        assert os2.getUnicodeRanges()
+        assert os2.getCodePageRanges()
+        assert "GSUB" in font
 
 
 def test_system_font_backend_cache_shared_between_parsers():

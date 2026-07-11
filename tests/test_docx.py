@@ -25,6 +25,7 @@ from pytex import node as nd
 from pytex import opentype
 from pytex import paragraph as pg
 from pytex import reflow
+from pytex import texlive
 from pytex.dimen import Dimen
 from pytex.font_backend import GlyphInfo
 from pytex.glue import Glue, Stretchness
@@ -613,6 +614,36 @@ def test_docx_converts_embedded_cff_font_to_truetype(parser, tmp_path):
     assert "CFF " not in converted
     assert converted.getBestCmap()[ord("A")] == "A"
     converted.close()
+
+
+def test_docx_emits_unicode_text_for_converted_type1_slots(parser):
+    source = parser.loadFontBackend("cmr10")
+    if isinstance(source, opentype.Type1TrueTypeBackend):
+        converted = source
+    else:
+        if source.pfb_file is None:
+            pytest.skip("cmr10 Type 1 font not found")
+        parser.registerSupportedFontClasses(opentype.TrueTypeBackend)
+        converted = parser.loadFontBackend("cmr10")
+    font = txfont.Font(converted, Dimen(10))
+    _install_font(parser, font)
+    owner = pg.Paragraph(parser, indent=False)
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    backend.shipout(_page_box([_line_box("<\\{A", owner, font)]))
+    data = _docx_bytes(parser, backend)
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        document = ET.fromstring(zf.read("word/document.xml"))
+        font_table = ET.fromstring(zf.read("word/fontTable.xml"))
+    text = "".join(node.text or "" for node in document.iter(f"{{{docx._W_NS}}}t"))
+    assert text == "\u00a1\u201c\u2013A"
+    families = {
+        node.get(f"{{{docx._W_NS}}}name")
+        for node in font_table.findall(f"{{{docx._W_NS}}}font")
+    }
+    assert "PyTeX Computer Modern 10" in families
 
 
 def test_docx_inline_math_svg_restores_font_backend_requirement(parser, monkeypatch):

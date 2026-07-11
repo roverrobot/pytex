@@ -593,12 +593,17 @@ class Text(reflow.Element):
         node.text = ""
         super().__init__(node)
 
-    def setChar(self, char: nd.Node):
+    def setChar(self, char: nd.Node, font_backend=None):
         if char.node_type == nd.NODE_TYPE.LIGATURE:
             for child in char.source:
-                self.setChar(child)
+                self.setChar(child, font_backend)
         else:
-            self._node.text += char.char
+            value = char.char
+            if font_backend is not None:
+                unicode_char = getattr(font_backend, "unicodeChar", None)
+                if unicode_char is not None:
+                    value = unicode_char(value)
+            self._node.text += value
 
 
 class TextBoxStory(reflow.Block):
@@ -664,6 +669,11 @@ class TextRun(reflow.TextRun):
         node = line._node.add_run()
         self.line = line
         self.has_text_glyphs = False
+        word_text = text
+        if text is not None and font is not None:
+            unicode_char = getattr(font.backend, "unicodeChar", None)
+            if unicode_char is not None:
+                word_text = "".join(unicode_char(char) for char in text)
         super().__init__(
             node,
             text=text,
@@ -677,7 +687,7 @@ class TextRun(reflow.TextRun):
             self.has_text_glyphs = True
             self.uses_backend_baseline = True
         t = self.newText()
-        t._node.text = "" if text is None else text
+        t._node.text = "" if word_text is None else word_text
         rPr = node._r.get_or_add_rPr()
         kern = OxmlElement("w:kern")
         rPr.append(kern)
@@ -722,7 +732,8 @@ class TextRun(reflow.TextRun):
         self.uses_backend_baseline = True
         if self.text is None:
             self.newText()
-        self.text.setChar(char)
+        backend = None if self.font is None else self.font.backend
+        self.text.setChar(char, backend)
 
     def newSpace(
         self,

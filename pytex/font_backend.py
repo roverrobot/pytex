@@ -98,6 +98,10 @@ class FontBackend:
     def fallbackGlyphInfo(self, char: str):
         return None
 
+    def unicodeChar(self, char: str) -> str:
+        """Return the Unicode text represented by an engine character slot."""
+        return char
+
     def hasChar(self, char: str) -> bool:
         return self.glyphInfo(char) is not None
 

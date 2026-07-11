@@ -18,6 +18,8 @@ dependencies = [
     "pypdf>=6.9.1",
     "python-docx>=1.2.0",
     "reportlab>=4.4.10",
+    "drawsvg",
+    "lxml",
     "pytest>=8.3.4",
     "uharfbuzz>=0.51.7",
     "pymupdf>=1.26.5"

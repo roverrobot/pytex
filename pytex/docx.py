@@ -134,6 +134,11 @@ def _twips(dimen: Dimen):
     return math.floor(float(dimen) / 72.27 * 72 * 20)
 
 
+def _ceil_twips(dimen: Dimen):
+    """Ceil body dimensions so Word's text area is not smaller than TeX's."""
+    return math.ceil(float(dimen) / 72.27 * 72 * 20)
+
+
 def _space_twips(dimen: Dimen):
     """Round inter-word adjustments down so DOCX lines cannot widen."""
     return math.floor(float(dimen) / 72.27 * 72 * 20)
@@ -143,9 +148,13 @@ def _length(dimen: Dimen):
     return Twips(_twips(dimen))
 
 
-def _section_bottom_margin(dimen: Dimen):
+def _section_bottom_margin_twips(twips_value: int):
     """Reserve one twip for Word's section-marker paragraph."""
-    return Twips(max(0, _twips(dimen) - 1))
+    return max(0, twips_value - 1)
+
+
+def _opposite_margin_twips(page_size: Dimen, leading_margin: Dimen, body_size: Dimen):
+    return max(0, _twips(page_size) - _twips(leading_margin) - _ceil_twips(body_size))
 
 
 def _emu(dimen: Dimen):
@@ -1526,21 +1535,32 @@ class Section:
         section.page_height = _length(self.spec.height)
         section.left_margin = _length(self.spec.margin_left)
         section.top_margin = _length(self.spec.margin_top)
-        section.right_margin = _length(self.spec.margin_right)
-        section.bottom_margin = _section_bottom_margin(self.spec.margin_bottom)
+        section.right_margin = Twips(
+            _opposite_margin_twips(
+                self.spec.width,
+                self.spec.margin_left,
+                self.spec.width - self.spec.margin_left - self.spec.margin_right,
+            )
+        )
+        section.bottom_margin = Twips(self._bottom_margin_twips())
         if self.spec.header_distance is not None:
             section.header_distance = _length(self.spec.header_distance)
         if self.spec.footer_distance is not None:
             section.footer_distance = _length(self.spec.footer_distance)
 
+    def _bottom_margin_twips(self):
+        bottom_margin = self.spec.margin_bottom + self.trailing_spacing
+        bottom_margin = bottom_margin if int(bottom_margin) > 0 else Dimen()
+        body_height = self.spec.height - self.spec.margin_top - bottom_margin
+        return _section_bottom_margin_twips(
+            _opposite_margin_twips(self.spec.height, self.spec.margin_top, body_height)
+        )
+
     def applyTrailingSpacing(self, spacing: Dimen):
         if int(spacing) >= 0:
             return
         self.trailing_spacing += spacing
-        bottom_margin = self.spec.margin_bottom + self.trailing_spacing
-        self._section.bottom_margin = _section_bottom_margin(
-            bottom_margin if int(bottom_margin) > 0 else Dimen()
-        )
+        self._section.bottom_margin = Twips(self._bottom_margin_twips())
         if self.spec.footer_distance is not None:
             footer_distance = self.spec.footer_distance + self.trailing_spacing
             self._section.footer_distance = _length(

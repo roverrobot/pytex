@@ -334,6 +334,13 @@ def test_docx_twips_floor_to_word_unit():
     assert docx.half_pt(docx._tex_points(-0.26)) == "-1"
 
 
+def test_docx_ceil_twips_rounds_body_box_up_to_word_unit():
+    assert docx._ceil_twips(docx._tex_points(0.099)) == 2
+    assert docx._ceil_twips(docx._tex_points(-0.099)) == -1
+    assert docx._ceil_twips(docx._tex_points(0.049)) == 1
+    assert docx._ceil_twips(docx._tex_points(-0.049)) == 0
+
+
 def test_docx_space_twips_floor_to_preserve_line_fit():
     assert docx._space_twips(docx._tex_points(0.099)) == 1
     assert docx._space_twips(docx._tex_points(-0.099)) == -2
@@ -441,8 +448,12 @@ def test_docx_document_interface_uses_pagespec_sections(parser):
     assert int(word_section.page_height) == int(docx._length(Dimen(200)))
     assert int(word_section.left_margin) == int(docx._length(Dimen(10)))
     assert int(word_section.top_margin) == int(docx._length(Dimen(20)))
-    assert int(word_section.right_margin) == int(docx._length(Dimen(10)))
-    assert word_section.bottom_margin.twips == docx._twips(Dimen(20)) - 1
+    assert word_section.right_margin.twips == docx._opposite_margin_twips(
+        Dimen(100), Dimen(10), Dimen(80)
+    )
+    assert word_section.bottom_margin.twips == docx._section_bottom_margin_twips(
+        docx._opposite_margin_twips(Dimen(200), Dimen(20), Dimen(160))
+    )
     assert int(word_section.header_distance) == int(docx._length(Dimen(8)))
     assert int(word_section.footer_distance) == int(docx._length(Dimen(12)))
 
@@ -465,7 +476,9 @@ def test_docx_trailing_negative_spacing_moves_body_and_footer_boundaries(parser)
     section.applyTrailingSpacing(Dimen(-4))
 
     word_section = document._node.sections[0]
-    assert word_section.bottom_margin.twips == docx._twips(Dimen(16)) - 1
+    assert word_section.bottom_margin.twips == docx._section_bottom_margin_twips(
+        docx._opposite_margin_twips(Dimen(200), Dimen(20), Dimen(164))
+    )
     assert word_section.footer_distance.twips == docx._twips(Dimen(8))
 
 
@@ -1254,8 +1267,12 @@ def test_docx_trailing_negative_spacing_keeps_tex_line_height(parser):
     root = _document_root(_docx_bytes(parser, backend))
     pg_mar = root.find(f".//{{{docx._W_NS}}}pgMar")
     assert pg_mar is not None
-    assert int(pg_mar.get(f"{{{docx._W_NS}}}bottom")) == (
-        docx._twips(Dimen(72.27) - Dimen(4)) - 1
+    assert int(pg_mar.get(f"{{{docx._W_NS}}}bottom")) == docx._section_bottom_margin_twips(
+        docx._opposite_margin_twips(
+            Dimen(120 + 2 * 72.27),
+            Dimen(72.27),
+            Dimen(120 + 4),
+        )
     )
 
 

@@ -580,7 +580,7 @@ class Reflow(shipout.Shipout):
         pass
 
     def special(self, text):
-        if not self._dvipdfm.emit(text):
+        if not self._dvipdfm.emit(text) and not self._dvips.emit(text):
             self.rawSpecial(text)
 
     def rawSpecial(self, text):

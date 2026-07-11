@@ -1,3 +1,5 @@
+import pytest
+
 from pytex.typeset.shipout import Shipout
 from pytex import graphics
 from pytex import node as nd
@@ -127,6 +129,32 @@ def test_shipout_parses_dvipdfm_graphic_special(parser):
     ]
 
 
+def test_shipout_parses_dvips_eps_graphic_special(parser):
+    shipout = _CaptureShipout(parser)
+    shipout.special(
+        'PSfile="figure with spaces.eps" llx=0 lly=0 urx=390 ury=451 '
+        'rwi=3240 rhi=3746 angle=90 clip'
+    )
+
+    assert shipout.calls == [
+        (
+            "graphic",
+            GraphicSpec(
+                kind="image",
+                source="figure with spaces.eps",
+                options=(
+                    ("bbox", ("0", "0", "390", "451")),
+                    ("width", "324bp"),
+                    ("height", "374.6bp"),
+                    ("rotate", "90"),
+                    ("clip", "true"),
+                ),
+                format="eps",
+            ),
+        )
+    ]
+
+
 def test_shipout_prepares_graphic_asset_using_supported_format_order(parser, monkeypatch):
     class FakeConverter:
         def convert(self, request):
@@ -177,6 +205,27 @@ def test_shipout_prepares_directly_supported_graphic_without_conversion(parser):
     assert asset.path == "/tmp/figure.png"
     assert asset.width == Dimen(72)
     assert asset.height == Dimen(36)
+
+
+def test_shipout_propagates_graphic_conversion_failure(parser, monkeypatch):
+    class FailingConverter:
+        def convert(self, request):
+            raise RuntimeError("EPS conversion unavailable")
+
+    class GraphicShipout(_CaptureShipout):
+        supported_graphic_formats = ("svg",)
+
+    monkeypatch.setitem(graphics._CONVERTERS, ("eps", "svg"), FailingConverter())
+    request = graphics.GraphicRequest(
+        source="figure.eps",
+        path="/tmp/figure.eps",
+        source_format="eps",
+        width=Dimen(72),
+        height=Dimen(36),
+    )
+
+    with pytest.raises(RuntimeError, match="EPS conversion unavailable"):
+        GraphicShipout(parser).prepareGraphicAsset(request)
 
 
 def test_shipout_keeps_unknown_specials_raw(parser):

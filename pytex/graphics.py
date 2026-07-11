@@ -2,6 +2,10 @@
 
 from dataclasses import dataclass, field
 import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 from typing import Optional, Union
 
 from pytex.dimen import Dimen
@@ -237,4 +241,92 @@ class PDFToSVGConverter(GraphicConverter):
         if rect.width <= 0 or rect.height <= 0:
             return None
         return rect
+
+
+class EPSToSVGConverter(GraphicConverter):
+    source_format = "eps"
+    target_format = "svg"
+
+    def __init__(self, pdf_converter=None):
+        self.pdf_converter = pdf_converter or PDFToSVGConverter()
+
+    def convert(self, request: GraphicRequest) -> GraphicAsset:
+        if request.path is None:
+            raise RuntimeError(f"EPS graphic {request.source} is not filesystem-backed")
+
+        epstopdf = shutil.which("epstopdf")
+        ghostscript = shutil.which("gs") if epstopdf is None else None
+        if epstopdf is None and ghostscript is None:
+            raise RuntimeError(
+                f"could not convert EPS graphic {request.path}: "
+                "neither epstopdf nor Ghostscript (gs) is installed"
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            eps_path = Path(tmpdir) / "graphic.eps"
+            pdf_path = Path(tmpdir) / "graphic.pdf"
+            try:
+                shutil.copyfile(request.path, eps_path)
+            except OSError as exc:
+                raise RuntimeError(f"could not read EPS graphic {request.path}: {exc}") from exc
+            if epstopdf is not None:
+                command = [epstopdf, "--restricted", "--outfile=graphic.pdf", "graphic.eps"]
+                converter_name = "epstopdf"
+            else:
+                command = [
+                    ghostscript,
+                    "-dSAFER",
+                    "-dBATCH",
+                    "-dNOPAUSE",
+                    "-sDEVICE=pdfwrite",
+                    "-dEPSCrop",
+                    "-sOutputFile=graphic.pdf",
+                    "graphic.eps",
+                ]
+                converter_name = "Ghostscript"
+            self._run(command, converter_name, request.path, cwd=tmpdir)
+            if not pdf_path.is_file() or pdf_path.stat().st_size == 0:
+                raise RuntimeError(
+                    f"{converter_name} did not produce a PDF for EPS graphic {request.path}"
+                )
+            pdf_request = GraphicRequest(
+                source=request.source,
+                path=os.fspath(pdf_path),
+                source_format="pdf",
+                kind="epdf",
+                page=1,
+                pagebox="cropbox",
+                bbox=None,
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+                rotate=request.rotate,
+            )
+            return self.pdf_converter.convert(pdf_request)
+
+    @staticmethod
+    def _run(command, converter_name, source, cwd=None):
+        try:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+                cwd=cwd,
+            )
+        except OSError as exc:
+            raise RuntimeError(
+                f"could not run {converter_name} for EPS graphic {source}: {exc}"
+            ) from exc
+        if result.returncode == 0:
+            return
+        detail = (result.stderr or result.stdout or "").strip()
+        message = f"{converter_name} failed to convert EPS graphic {source}"
+        if detail:
+            message += f": {detail}"
+        raise RuntimeError(message)
+
+
 register_converter("pdf", "svg", PDFToSVGConverter())
+register_converter("eps", "svg", EPSToSVGConverter())

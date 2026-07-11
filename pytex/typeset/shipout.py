@@ -7,6 +7,7 @@ from pytex import graphics
 from pytex import node as nd
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, UNITS
 from pytex.typeset.dvipdfm import DVIPDFmSpecialParser
+from pytex.typeset.dvips import DVIPSSpecialParser
 
 
 _DIMEN_RE = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))([A-Za-z]+)\s*$")
@@ -35,6 +36,7 @@ class Shipout:
         self._position_stack = []
         self._defined_fonts = set()
         self._dvipdfm = DVIPDFmSpecialParser(self)
+        self._dvips = DVIPSSpecialParser(self)
 
     def shipout(self, box):
         self.open()
@@ -261,7 +263,7 @@ class Shipout:
         pass
 
     def special(self, text):
-        if not self._dvipdfm.emit(text):
+        if not self._dvipdfm.emit(text) and not self._dvips.emit(text):
             self.rawSpecial(text)
 
     def rawSpecial(self, text):
@@ -458,13 +460,17 @@ class Shipout:
                 height=request.height,
                 depth=request.depth,
             )
+        conversion_errors = []
         for target_format in supported:
             try:
                 asset = graphics.convert_graphic(request, target_format)
-            except RuntimeError:
-                asset = None
+            except RuntimeError as exc:
+                conversion_errors.append(exc)
+                continue
             if asset is not None:
                 return asset
+        if conversion_errors:
+            raise conversion_errors[-1]
         return None
 
     def __enter__(self):

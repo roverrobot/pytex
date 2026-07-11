@@ -447,6 +447,29 @@ def test_docx_document_interface_uses_pagespec_sections(parser):
     assert int(word_section.footer_distance) == int(docx._length(Dimen(12)))
 
 
+def test_docx_trailing_negative_spacing_moves_body_and_footer_boundaries(parser):
+    backend = docx.DocxBackend(parser)
+    document = backend.open()
+    section = document.newPage(
+        reflow.PageSpec(
+            width=Dimen(100),
+            height=Dimen(200),
+            margin_left=Dimen(10),
+            margin_top=Dimen(20),
+            margin_right=Dimen(10),
+            margin_bottom=Dimen(20),
+            footer_distance=Dimen(12),
+        )
+    )
+
+    section.applyTrailingSpacing(Dimen(-4))
+
+    word_section = document._node.sections[0]
+    reduction = docx._twips(Dimen(4))
+    assert word_section.bottom_margin.twips == docx._twips(Dimen(20)) - reduction
+    assert word_section.footer_distance.twips == docx._twips(Dimen(12)) - reduction
+
+
 def test_docx_section_break_uses_minimized_empty_paragraph(parser):
     backend = docx.DocxBackend(parser)
     document = backend.open()
@@ -1418,7 +1441,7 @@ def test_docx_explicit_glue_emits_preserved_space_with_spacing_hint(parser):
 
     xml = _document_xml(_docx_bytes(parser, backend))
     assert 'xml:space="preserve"' in xml
-    assert f'w:val="{docx.twips(Dimen(4))}"' in xml
+    assert f'w:val="{docx._space_twips(Dimen(4))}"' in xml
     expected_position = _text_position_to_tex_baseline(line.depth, backend_baseline)
     assert re.findall(r'<w:position w:val="([^"]+)"/>', xml) == [expected_position] * 3
 
@@ -1722,7 +1745,11 @@ def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
     xml = _document_xml(data)
     assert "<w:drawing" in xml
     assert "<asvg:svgBlip" not in xml
-    assert f'cx="{docx._emu(display_box.shifted + display_box.width)}"' in xml
+    wp_extent = re.search(r'<wp:extent\b[^>]*\bcx="([^"]+)"[^>]*\bcy="([^"]+)"', xml)
+    assert wp_extent.groups() == (
+        str(docx._twip_emu(display_box.shifted + display_box.width)),
+        str(docx._twip_emu(display_box.height + display_box.depth)),
+    )
     drawing_runs = _drawing_runs(xml)
     assert len(drawing_runs) == 1
     expected_position = _box_position_to_tex_baseline(
@@ -1796,14 +1823,14 @@ def test_docx_vlist_tail_negative_glue_keeps_last_line_layout(parser, monkeypatc
         xml,
     )
     assert wp_extent.groups() == (
-        str(docx._emu(display_box.width)),
-        str(docx._emu(Dimen(18))),
+        str(docx._twip_emu(display_box.width)),
+        str(docx._twip_emu(Dimen(18))),
     )
     assert effect.groups() == ("0", "0")
     assert transform.groups() == (
         "0",
-        str(docx._emu(display_box.width)),
-        str(docx._emu(Dimen(18))),
+        str(docx._twip_emu(display_box.width)),
+        str(docx._twip_emu(Dimen(18))),
     )
 
 

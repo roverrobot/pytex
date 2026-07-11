@@ -151,6 +151,10 @@ def _twip_emu(dimen: Dimen):
     return max(1, _twips(dimen) * 635)
 
 
+def _floor_to_twip(dimen: Dimen):
+    return _tex_points(_twips(dimen) / 20)
+
+
 def _docx_points(dimen: Dimen):
     return float(dimen) * _DOCX_POINTS_PER_TEX_POINT_NUM / _DOCX_POINTS_PER_TEX_POINT_DEN
 
@@ -782,20 +786,26 @@ class TextRun(reflow.TextRun):
         payload = backend.inlineMathSvg(box)
         visual_height = box.height + box.depth
         is_display_math = isinstance(box, DisplayMathPictureBox)
+        picture_width = box.width
+        picture_height = visual_height
         if is_display_math:
-            payload = _retarget_svg_size(payload, box.width, visual_height)
+            picture_width = _floor_to_twip(box.width)
+            picture_height = _floor_to_twip(visual_height)
+            payload = _retarget_svg_size(payload, picture_width, picture_height)
         fallback_placeholder, svg_placeholder, media_name = document.defineInlineSvg(
             payload,
-            width=box.width,
-            height=visual_height,
+            width=picture_width,
+            height=picture_height,
             use_svg=not is_display_math,
         )
         drawing_id = document.nextDrawingId()
+        picture_cx = _twip_emu(box.width) if is_display_math else _emu(box.width)
+        picture_cy = _twip_emu(visual_height) if is_display_math else _emu(visual_height)
         drawing = parse_xml(
             _picture_xml(
-                _emu(box.width),
-                _emu(visual_height),
-                _emu(visual_height),
+                picture_cx,
+                picture_cy,
+                picture_cy,
                 0,
                 0,
                 0,
@@ -1520,11 +1530,17 @@ class Section:
     def applyTrailingSpacing(self, spacing: Dimen):
         if int(spacing) >= 0:
             return
-        current = self._section.bottom_margin
-        if current is None:
-            return
         reduction = _twips(Dimen() - spacing)
-        self._section.bottom_margin = Twips(max(0, int(current.twips) - reduction))
+        bottom_margin = self._section.bottom_margin
+        if bottom_margin is not None:
+            self._section.bottom_margin = Twips(
+                max(0, int(bottom_margin.twips) - reduction)
+            )
+        footer_distance = self._section.footer_distance
+        if footer_distance is not None:
+            self._section.footer_distance = Twips(
+                max(0, int(footer_distance.twips) - reduction)
+            )
 
     @property
     def header(self) -> Block:

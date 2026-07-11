@@ -12,7 +12,7 @@ In the current code, the central pieces are:
 
 - `pytex/module.py`, which defines `Module` and the global `ModuleManager`
 - `pytex/parser.py`, which imports the essential modules and populates the parser from the registered modules
-- entry points such as `examples/tex.py`, which activate optional modules by importing them before creating `Parser`
+- the `python -m pytex` entry point in `pytex/__main__.py`, which activates optional modules by importing them before creating `Parser`
 - the individual feature files, which register themselves by constructing a `Module(...)` object at import time
 
 Modules are used broadly. They are not limited to parser commands. The same
@@ -279,14 +279,14 @@ Examples include:
 - `pytex.pdftex`, which adds pdfTeX-related commands
 - `pytex.opentype`, which adds OpenType and font-backend support
 - `pytex.dvi` and `pytex.pdf`, which install shipout backends through module `init` hooks
-- `pytex.html_reflow`, which provides an HTML reflow backend class, although the current `tex.py` entry point attaches it manually rather than through module initialization
+- `pytex.html_reflow`, which installs the HTML reflow backend through its module initialization hook
 
 So the framework supports a simple extension pattern: import the optional
 feature package, then build `Parser()`.
 
-## `examples/tex.py` As The Main Usage Pattern
+## `python -m pytex` As The Main Usage Pattern
 
-`examples/tex.py` shows the current module framework in its actual operating
+`pytex/__main__.py` shows the current module framework in its actual operating
 style.
 
 The sequence is roughly:
@@ -295,7 +295,7 @@ The sequence is roughly:
 2. import optional feature packages such as `pytex.texlive`, `pytex.etex`, `pytex.pdftex`, and `pytex.opentype`
 3. depending on the output mode, optionally import `pytex.dvi`, `pytex.pdf`, or `pytex.html_reflow`
 4. construct `Parser(project_dir=...)`
-5. optionally make a manual adjustment such as replacing `parser.shipout` with `HTMLReflowBackend(parser)`
+5. optionally make a backend-specific adjustment, such as giving the SVG backend its output prefix
 6. set runtime details such as the format name, dumper, profiling options, and tracing
 7. parse the document
 
@@ -311,7 +311,7 @@ attributes afterward when needed.
 The resolver path is a good example.
 
 - `parser.py` imports the default resolver module, which installs a `FileResolver()`
-- `examples/tex.py` imports `pytex.texlive` before `Parser()`
+- `pytex/__main__.py` imports `pytex.texlive` before `Parser()`
 - the `texlive` module installs a different `resolver` attribute
 - because that module is registered later, its attribute wins during population
 - after population, `Parser.__init__` clones the resolver if it is a `FileResolver` or subclass, so the parser instance gets a project-dir-specific resolver object
@@ -320,7 +320,7 @@ The backend path is similar.
 
 - importing `pytex.dvi` or `pytex.pdf` registers a module whose `init` hook sets `parser.shipout`
 - those modules therefore select the backend during parser construction
-- the current HTML reflow path is slightly different: `examples/tex.py` imports `pytex.html_reflow` to get the backend class, then explicitly sets `parser.shipout = html_reflow_backend.HTMLReflowBackend(parser)` after construction
+- importing `pytex.html_reflow` registers its initialization hook before `Parser()` is constructed
 
 So modules do most of the assembly work, but not every configuration choice is
 forced through the module API.

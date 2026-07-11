@@ -9,7 +9,7 @@ It currently supports the following output formats:
 * pdf
 * html-reflow (no pages)
 
-An example tex parsing driver is provided in examples/tex.py, which supports format dumping, and all three supported output formats.
+The compiler is available as `python -m pytex`. It supports format dumping and the available output backends; for example, `python -m pytex -f latex -o docx document.tex`.
 
 This engine provides a very flexible module framework, where parts of the parser can be extended or even replaced using modules. In addition, pipe commands (currently extractbb for extracting boundin boxes for pdf images) and typeset backends are all provided using modules.
 

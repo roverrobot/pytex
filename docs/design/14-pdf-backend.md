@@ -42,7 +42,7 @@ So the usual activation path is:
 - import `pytex.pdf` before constructing `Parser`
 - let module initialization attach the backend
 
-This is the pattern used by the current `examples/tex.py` entry script when the
+This is the pattern used by the current `pytex/__main__.py` entry point when the
 selected output format is PDF.
 
 If the module is not imported, the parser keeps its default shipout object.

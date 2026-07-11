@@ -318,7 +318,7 @@ commands own TeX-level I/O semantics after the stream exists.
 
 ### Format Loading And Dumping
 
-The entry script in `examples/tex.py` also uses the resolver directly.
+The `python -m pytex` entry point in `pytex/__main__.py` also uses the resolver directly.
 
 It sets the parser's format on the resolver and then:
 

@@ -609,6 +609,25 @@ def test_docx_converts_embedded_cff_font_to_truetype(parser, tmp_path):
     converted.close()
 
 
+def test_docx_inline_math_svg_restores_font_backend_requirement(parser, monkeypatch):
+    class NestedSVGBackend:
+        def __init__(self, nested_parser, output):
+            self.output = output
+            nested_parser.registerSupportedFontClasses()
+
+        def shipout(self, box):
+            with open(f"{self.output}-1.svg", "wb") as output:
+                output.write(b"<svg/>")
+
+    backend = docx.DocxBackend(parser)
+    expected = (opentype.TrueTypeBackend,)
+    assert parser.supported_font_classes == expected
+    monkeypatch.setattr(docx.svg, "SVGShipoutBackend", NestedSVGBackend)
+
+    assert backend.inlineMathSvg(object()) == b"<svg/>"
+    assert parser.supported_font_classes == expected
+
+
 def test_docx_keeps_truetype_font_payload_unchanged(parser, tmp_path):
     font_path = tmp_path / "DemoTrueType.ttf"
     _build_test_word_font(font_path, "Demo TrueType", "Regular")

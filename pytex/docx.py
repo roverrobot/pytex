@@ -2373,6 +2373,7 @@ class DocxBackend(reflow.Reflow):
             prefix = Path(tmpdir) / "inline-math"
             hoffset = self.parser.layout["hoffset"]
             voffset = self.parser.layout["voffset"]
+            supported_font_classes = self.parser.supported_font_classes
             try:
                 self.parser.layout["hoffset"] = Dimen()
                 self.parser.layout["voffset"] = Dimen()
@@ -2381,6 +2382,7 @@ class DocxBackend(reflow.Reflow):
             finally:
                 self.parser.layout["hoffset"] = hoffset
                 self.parser.layout["voffset"] = voffset
+                self.parser.registerSupportedFontClasses(*(supported_font_classes or ()))
             return Path(f"{prefix}-1.svg").read_bytes()
 
     def define_font(self, font):

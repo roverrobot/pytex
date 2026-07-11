@@ -23,6 +23,7 @@ from pytex.font_backend import (
     registerFontConverter,
 )
 from pytex.module import Module
+from pytex.tfm import TFMBackend
 
 
 @registerBackend
@@ -594,6 +595,92 @@ class CFFBackend(OpenTypeBackend):
     """OpenType font with CFF 1 outlines."""
 
 
+class Type1TrueTypeBackend(TrueTypeBackend):
+    """TrueType outlines paired with the metrics of a TeX Type 1 font."""
+
+    def __init__(self, name, font, source_backend, font_data):
+        super().__init__(name, font, font_data=font_data)
+        self.source_backend = source_backend
+        self._type1_glyph_info = {}
+
+    @property
+    def dvi_name(self):
+        return self.source_backend.dvi_name
+
+    @property
+    def design_size(self):
+        return self.source_backend.design_size
+
+    @property
+    def checksum(self):
+        return self.source_backend.checksum
+
+    @property
+    def fontdimen(self):
+        return self.source_backend.fontdimen
+
+    def glyphInfo(self, char: str):
+        cached = self._type1_glyph_info.get(char)
+        if cached is not None:
+            return cached
+        metric = self.source_backend.glyphInfo(char)
+        if metric is None:
+            return None
+        outline = super().glyphInfo(char)
+        if outline is None:
+            return None
+        info = GlyphInfo(
+            char=metric.char,
+            width=metric.width,
+            height=metric.height,
+            depth=metric.depth,
+            italic=metric.italic,
+            glyph_name=outline.glyph_name,
+            glyph_id=outline.glyph_id,
+            program=metric.program,
+            next_larger=metric.next_larger,
+            assembly=metric.assembly,
+        )
+        self._type1_glyph_info[char] = info
+        return info
+
+    def glyphInfos(self):
+        for metric in self.source_backend.glyphInfos():
+            info = self.glyphInfo(metric.char)
+            if info is not None:
+                yield info
+
+    def fallbackGlyphInfo(self, char: str):
+        metric = self.source_backend.fallbackGlyphInfo(char)
+        outline = super().fallbackGlyphInfo(char)
+        if metric is None:
+            return outline
+        return GlyphInfo(
+            char=metric.char,
+            width=metric.width,
+            height=metric.height,
+            depth=metric.depth,
+            italic=metric.italic,
+            glyph_name=outline.glyph_name,
+            glyph_id=outline.glyph_id,
+            program=metric.program,
+            next_larger=metric.next_larger,
+            assembly=metric.assembly,
+        )
+
+    def leftBoundaryProgram(self):
+        return self.source_backend.leftBoundaryProgram()
+
+    def rightBoundaryChar(self):
+        return self.source_backend.rightBoundaryChar()
+
+    def _spaceWidth(self):
+        info = self.source_backend.glyphInfo(" ")
+        if info is not None and info.width > 0:
+            return info.width
+        return super()._spaceWidth()
+
+
 @registerFontConverter(CFFBackend, TrueTypeBackend)
 def convertCFFToTrueType(parser, backend):
     from afdko.otf2ttf import otf_to_ttf
@@ -628,4 +715,136 @@ def convertCFFToTrueType(parser, backend):
         backend.name,
         converted_font,
         font_data=data,
+    )
+
+
+def _type1UnitsPerEm(font):
+    matrix = font.get("FontMatrix") or ()
+    if len(matrix) >= 4:
+        x_scale = abs(float(matrix[0]))
+        y_scale = abs(float(matrix[3]))
+        if x_scale > 0 and math.isclose(x_scale, y_scale):
+            units_per_em = round(1 / x_scale)
+            if 16 <= units_per_em <= 16384:
+                return units_per_em
+    return 1000
+
+
+def _type1PostScriptName(value):
+    value = re.sub(r"[^A-Za-z0-9-]", "", str(value or "Type1Font"))
+    return value or "Type1Font"
+
+
+def _type1OpenTypeData(backend):
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.t2CharStringPen import T2CharStringPen
+
+    type1_font = backend.font
+    if type1_font is None:
+        return None
+    glyph_set = type1_font.getGlyphSet()
+    source = type1_font.font
+    font_info = source.get("FontInfo", {})
+    glyph_order = list(source.get("CharStrings", glyph_set).keys())
+    if ".notdef" in glyph_order:
+        glyph_order.remove(".notdef")
+    glyph_order.insert(0, ".notdef")
+
+    metrics = {}
+    char_strings = {}
+    for glyph_name in glyph_order:
+        glyph = glyph_set[glyph_name]
+        bounds_pen = BoundsPen(glyph_set)
+        glyph.draw(bounds_pen)
+        width = round(getattr(glyph, "width", 0))
+        left_side_bearing = 0 if bounds_pen.bounds is None else round(bounds_pen.bounds[0])
+        metrics[glyph_name] = (width, left_side_bearing)
+        char_string_pen = T2CharStringPen(width, glyph_set)
+        glyph.draw(char_string_pen)
+        char_strings[glyph_name] = char_string_pen.getCharString()
+
+    encoding = source.get("Encoding", ())
+    cmap = {
+        codepoint: glyph_name
+        for codepoint, glyph_name in enumerate(encoding)
+        if glyph_name != ".notdef" and glyph_name in glyph_set
+    }
+    postscript_name = _type1PostScriptName(source.get("FontName"))
+    family = font_info.get("FamilyName") or postscript_name
+    style = font_info.get("Weight") or "Regular"
+    full_name = font_info.get("FullName") or postscript_name
+    italic_angle = float(font_info.get("ItalicAngle", 0))
+    style_key = str(style).casefold()
+    bold = any(value in style_key for value in ("bold", "demi", "semibold"))
+    italic = italic_angle != 0 or any(value in style_key for value in ("italic", "oblique"))
+    fs_selection = (1 << 5 if bold else 0) | (1 << 0 if italic else 0)
+    if not bold and not italic:
+        fs_selection |= 1 << 6
+
+    bbox = source.get("FontBBox", (0, -200, 1000, 800))
+    ascent = round(bbox[3])
+    descent = round(bbox[1])
+    builder = FontBuilder(_type1UnitsPerEm(source), isTTF=False)
+    builder.setupGlyphOrder(glyph_order)
+    builder.setupCharacterMap(cmap)
+    builder.setupHorizontalMetrics(metrics)
+    builder.setupHorizontalHeader(ascent=ascent, descent=descent)
+    builder.setupNameTable(
+        {
+            "familyName": family,
+            "styleName": style,
+            "uniqueFontIdentifier": full_name,
+            "fullName": full_name,
+            "psName": postscript_name,
+        }
+    )
+    builder.setupOS2(
+        sTypoAscender=ascent,
+        sTypoDescender=descent,
+        usWinAscent=max(0, ascent),
+        usWinDescent=max(0, -descent),
+        usWeightClass=700 if bold else 400,
+        fsSelection=fs_selection,
+    )
+    builder.setupPost(italicAngle=italic_angle)
+    builder.font["head"].macStyle = (1 if bold else 0) | (2 if italic else 0)
+    builder.setupCFF(
+        postscript_name,
+        {
+            "FullName": full_name,
+            "FamilyName": family,
+            "Weight": style,
+            "ItalicAngle": italic_angle,
+        },
+        char_strings,
+        {},
+    )
+    data = BytesIO()
+    builder.font.save(data)
+    return data.getvalue()
+
+
+@registerFontConverter(TFMBackend, TrueTypeBackend)
+def convertType1ToTrueType(parser, backend):
+    if backend.pfb_file is None:
+        return None
+    cff_data = _type1OpenTypeData(backend)
+    if cff_data is None:
+        return None
+    cff_font = TTFont(
+        BytesIO(cff_data),
+        lazy=False,
+        recalcBBoxes=False,
+        recalcTimestamp=False,
+    )
+    cff_backend = CFFBackend(backend.name, cff_font, font_data=cff_data)
+    try:
+        converted = convertCFFToTrueType(parser, cff_backend)
+    finally:
+        cff_font.close()
+    return Type1TrueTypeBackend(
+        backend.name,
+        converted.font,
+        source_backend=backend,
+        font_data=converted.fontData(),
     )

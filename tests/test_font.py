@@ -102,6 +102,33 @@ def test_load_font_backend(parser):
     assert backend.design_size == 10.0
 
 
+def test_font_search_converts_type1_tfm_backend_to_truetype(parser):
+    source = parser.loadFontBackend("cmr10")
+    if source.pfb_file is None:
+        pytest.skip("cmr10 Type 1 font not found")
+    source_a = source.glyphInfo("A")
+    source_f = source.glyphInfo("f")
+
+    parser.registerSupportedFontClasses(opentype.TrueTypeBackend)
+    converted = parser.loadFontBackend("cmr10")
+
+    assert isinstance(converted, opentype.Type1TrueTypeBackend)
+    assert converted.source_backend.name == source.name
+    assert "glyf" in converted.font
+    assert "loca" in converted.font
+    assert "CFF " not in converted.font
+    assert converted.font.getBestCmap()[ord("A")] == "A"
+    assert converted.font.getBestCmap()[ord("<")] == "exclamdown"
+    assert converted.design_size == source.design_size
+    assert converted.checksum == source.checksum
+    assert converted.fontdimen == source.fontdimen
+    assert converted.glyphInfo("A").width == source_a.width
+    assert converted.glyphInfo("A").height == source_a.height
+    assert converted.glyphInfo("A").glyph_name == "A"
+    assert converted.glyphInfo("f").program is converted.source_backend.glyphInfo("f").program
+    assert converted.glyphInfo("f").program.keys() == source_f.program.keys()
+
+
 def test_system_font_backend_cache_shared_between_parsers():
     p1 = Parser()
     p2 = Parser()

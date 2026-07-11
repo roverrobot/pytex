@@ -24,3 +24,6 @@ dependencies = [
     "uharfbuzz>=0.51.7",
     "pymupdf>=1.26.5"
 ]
+
+[tool.setuptools.packages.find]
+include = ["pytex", "pytex.*"]

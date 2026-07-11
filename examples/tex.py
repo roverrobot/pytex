@@ -15,7 +15,7 @@ from argparse import ArgumentParser
 import os
 import types
 
-backends = ["dvi", "xdv", "pdf", "pdf-ttf", "html-reflow", "docx", "svg"]
+backends = ["dvi", "xdv", "pdf", "html-reflow", "docx", "svg"]
 engines = ["xetex", "pdftex"]
 
 argparser = ArgumentParser()
@@ -64,7 +64,7 @@ if args.sort is not None and not args.profile:
 importlib.import_module(f"pytex.{args.engine}")
 
 if args.format != "initex":
-    output_module = "pdf" if args.output == "pdf-ttf" else args.output.replace("-", "_")
+    output_module = args.output.replace("-", "_")
     importlib.import_module(f"pytex.{output_module}")
 
 parser = Parser(project_dir=args.project_dir)
@@ -103,10 +103,6 @@ else:
     if args.output == "svg":
         from pytex import svg
         parser.shipout = svg.SVGShipoutBackend(parser, file)
-    elif args.output == "pdf-ttf":
-        from pytex.opentype import TrueTypeBackend
-        parser.registerSupportedFontClasses(TrueTypeBackend)
-        parser.font_size_in_bp = True
     parser.resolver.format = args.format
     fmt = parser.resolver.openIn(engine_format_name(parser.resolver.format), "dump")
     if fmt is None:

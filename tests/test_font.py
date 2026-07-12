@@ -70,6 +70,33 @@ def test_font_search_converts_only_unsupported_result(parser, monkeypatch):
     assert isinstance(backend, _SupportedSearchBackend)
 
 
+def test_font_search_prefers_conversion_of_earlier_candidate(parser, monkeypatch):
+    monkeypatch.setattr(
+        font_backend,
+        "_backend_classes",
+        [_UnsupportedSearchBackend, _SupportedSearchBackend],
+    )
+    monkeypatch.setattr(
+        font_backend,
+        "_font_converters",
+        [
+            (
+                _UnsupportedSearchBackend,
+                _SupportedSearchBackend,
+                lambda parser, backend: _SupportedSearchBackend(
+                    f"converted-{backend.name}"
+                ),
+            )
+        ],
+    )
+    monkeypatch.setattr(font_backend, "_system_font_backend_cache", {})
+    parser.registerSupportedFontClasses(_SupportedSearchBackend)
+
+    backend = parser.loadFontBackend("demo.font", kind="search-test")
+
+    assert backend.name == "converted-demo.font"
+
+
 def test_read_font(cmr10):
     assert cmr10.equitable["\\f"].backend.kind == "tfm"
     assert cmr10.equitable["\\f"].backend.name == 'cmr10'
@@ -160,6 +187,18 @@ def test_font_search_converts_type1_tfm_backend_to_truetype(parser):
     assert (("hyphen", "hyphen", "hyphen"), "emdash") in ligatures
     assert (("quoteleft", "quoteleft"), "quotedblleft") in ligatures
     assert (("quoteright", "quoteright"), "quotedblright") in ligatures
+
+    pair_adjustments = {}
+    for lookup in converted.font["GPOS"].table.LookupList.Lookup:
+        for subtable in lookup.SubTable:
+            coverage = getattr(getattr(subtable, "Coverage", None), "glyphs", ())
+            for first, pair_set in zip(coverage, getattr(subtable, "PairSet", ())):
+                for pair in pair_set.PairValueRecord:
+                    pair_adjustments[(first, pair.SecondGlyph)] = pair.Value1.XAdvance
+    source_av = source.glyphInfo("A").program[ord("V")].kern
+    assert pair_adjustments[("A", "V")] == round(
+        source_av * converted.units_per_em
+    )
 
 
 @pytest.mark.parametrize(

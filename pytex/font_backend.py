@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pytex.module import Module
+from pytex.serialization import Serializable
 
 
 @dataclass
@@ -41,7 +42,7 @@ class GlyphInfo:
 
 
 @dataclass(frozen=True)
-class FontSpec:
+class FontSpec(Serializable):
     """
     Parsed engine-specific font lookup information.
 
@@ -60,6 +61,16 @@ class FontSpec:
     @property
     def backend_name(self):
         return self.display_name if self.display_name is not None else self.name
+
+    def saveInfo(self):
+        return {
+            "name": self.name,
+            "lookup": self.lookup,
+            "display_name": self.display_name,
+            "font_number": self.font_number,
+            "options": self.options,
+            "features": self.features,
+        }, None
 
 
 class FontBackend:
@@ -155,7 +166,6 @@ def _selectBackend(parser, candidates):
     for backend in candidates:
         if isinstance(backend, supported):
             return backend
-    for backend in candidates:
         for source_cls, target_cls, converter in _font_converters:
             if not isinstance(backend, source_cls):
                 continue

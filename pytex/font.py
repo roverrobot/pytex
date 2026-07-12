@@ -27,44 +27,82 @@ class Font(Command):
     @param backend: the backend that provides the font data
     @param at: the size of the font
     """
-    def __init__(self, backend: FontBackend, at):
+    def __init__(self, backend: FontBackend, at, font_name=None):
         self.backend = backend
+        # Preserve the font request, not the backend selected for it.  A
+        # deserializing parser must repeat font search under its output
+        # backend's supported font classes.
+        self.font_name = backend.name if font_name is None else font_name
         self.at = at if isinstance(at, Dimen) else Dimen(at)
-        raw_param = list(backend.fontdimen)
-        self.param = [0] * len(raw_param)
-        if self.param:
-            # param[0] is the only parameter that does not scale with the design size
-            self.param[0] = Dimen(raw_param[0])
-            for i in range(1, len(raw_param)):
-                self.param[i] = raw_param[i] * self.at
+        self.param = self._backendParams(backend, self.at)
         self.charnode = {}
+        self._rebuildSpaceGlue()
+        # special characters
+        self.fontchar = {"skewchar": 0, "hyphenchar": 0}
+
+    @staticmethod
+    def _backendParams(backend, at):
+        raw_param = list(backend.fontdimen)
+        params = [Dimen()] * len(raw_param)
+        if params:
+            # param[0] is the only parameter that does not scale with the design size
+            params[0] = Dimen(raw_param[0])
+            for index in range(1, len(raw_param)):
+                params[index] = raw_param[index] * at
+        return params
+
+    def _rebuildSpaceGlue(self):
         zero = Dimen()
         space = self.param[1] if len(self.param) > 1 else zero
         stretch = self.param[2] if len(self.param) > 2 else zero
         shrink = self.param[3] if len(self.param) > 3 else zero
         self.spaceglue = Glue(space, Stretchness(stretch, 0), Stretchness(shrink, 0))
-        # special characters
-        self.fontchar = {"skewchar": 0, "hyphenchar": 0}
+
+    def _paramOverrides(self):
+        defaults = self._backendParams(self.backend, self.at)
+        return [
+            None if index < len(defaults) and value == defaults[index] else value
+            for index, value in enumerate(self.param)
+        ]
+
+    def _saveExtras(self):
+        return {
+            "fontchar": self.fontchar,
+            "name": getattr(self, "name", None),
+            "param_overrides": self._paramOverrides(),
+        }
     
     def className(self):
         return Serializable.className(self)
     
     def saveInfo(self):
         return {
-            "name": self.backend.name,
-            "kind": self.backend.kind,
+            "font_name": self.font_name,
             "at": self.at,
-        }, {
-            "fontchar": self.fontchar,
-            "name": getattr(self, "name", None),
-            "param": self.param,
-            "spaceglue": self.spaceglue,
-        }
+        }, self._saveExtras()
 
     @classmethod
-    def new(cls, parser, at, name, kind=None):
-        backend = parser.loadFontBackend(name, kind=kind)
-        return cls(backend, at)
+    def new(cls, parser, at, font_name=None, name=None, kind=None):
+        # ``name`` and ``kind`` are accepted for old format files.  Backend
+        # kind is intentionally ignored so even those formats repeat generic
+        # font search and can select or create an output-compatible backend.
+        font_name = name if font_name is None else font_name
+        backend = parser.loadFontBackend(font_name)
+        return cls(backend, at, font_name=font_name)
+
+    def afterDeserialize(self, parser):
+        """Merge serialized fontdimen overrides into the selected backend."""
+        overrides = getattr(self, "param_overrides", None)
+        if overrides is None:
+            # Legacy formats restored full param and spaceglue snapshots.
+            return
+        for index, value in enumerate(overrides):
+            if index >= len(self.param):
+                self.param.extend(Dimen() for _ in range(index - len(self.param) + 1))
+            if value is not None:
+                self.param[index] = value
+        del self.param_overrides
+        self._rebuildSpaceGlue()
 
     def glyphInfo(self, char):
         return self.backend.glyphInfo(char)
@@ -139,11 +177,25 @@ class NullFont(Font):
     Regular font values should keep concrete serialization, but the parser's
     builtin \\nullfont should round-trip by builtin name.
     """
+    def _serializeAsBuiltin(self):
+        return (
+            all(value is None for value in self._paramOverrides())
+            and self.fontchar == {"skewchar": 0, "hyphenchar": 0}
+        )
+
     def className(self):
-        return Builtin.className(self)
+        if self._serializeAsBuiltin():
+            return Builtin.className(self)
+        return Serializable.className(self)
 
     def saveInfo(self):
-        return Builtin.saveInfo(self)
+        if self._serializeAsBuiltin():
+            return Builtin.saveInfo(self)
+        return {}, self._saveExtras()
+
+    @classmethod
+    def new(cls, parser):
+        return parser.builtin["\\nullfont"]
 
 
 def readFont(parser):
@@ -246,7 +298,7 @@ class FontDefineAccessor(EquitableAccessor):
             at = design * mag
         if parser.font_size_in_bp:
             at = at / 72 * 72.27 #round to 0.5bp
-        f = Font(backend, at)
+        f = Font(backend, at, font_name=name)
         f.name = self.key
         f.fontchar["hyphenchar"] = parser.parameters["defaulthyphenchar"]
         f.fontchar["skewchar"] = parser.parameters["defaultskewchar"]
@@ -314,6 +366,8 @@ class FontDimenSlot:
         if self.index >= len(self.params):
             self.params.extend([Dimen() for _ in range(self.index - len(self.params) + 1)])
         self.params[self.index] = new_value
+        if self.index in (1, 2, 3):
+            self.font._rebuildSpaceGlue()
 
 
 class FontName(Command):

@@ -639,11 +639,40 @@ def test_docx_emits_unicode_text_for_converted_type1_slots(parser):
         font_table = ET.fromstring(zf.read("word/fontTable.xml"))
     text = "".join(node.text or "" for node in document.iter(f"{{{docx._W_NS}}}t"))
     assert text == "\u00a1\u201c\u2013A"
+    assert document.find(f".//{{{docx._W_NS}}}kern") is not None
+    assert document.find(f".//{{{docx._W14_NS}}}ligatures") is not None
     families = {
         node.get(f"{{{docx._W_NS}}}name")
         for node in font_table.findall(f"{{{docx._W_NS}}}font")
     }
     assert "PyTeX Computer Modern 10" in families
+
+
+def test_docx_delegates_automatic_tfm_kern_to_embedded_font(parser):
+    font = _install_font(parser)
+    font.backend.uses_font_program_kerning = True
+    owner = pg.Paragraph(parser, indent=False)
+    line = _FakeHBox(
+        [
+            nd.CharNode("A", font),
+            nd.Kern(Dimen(-1), automatic=True),
+            nd.CharNode("V", font),
+        ],
+        source=owner,
+        width=80,
+    )
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+
+    backend.shipout(_page_box([line]))
+    root = _document_root(_docx_bytes(parser, backend))
+
+    text_runs = [node.text or "" for node in root.iter(f"{{{docx._W_NS}}}t")]
+    assert "AV" in text_runs
+    assert root.find(f".//{{{docx._W_NS}}}kern") is not None
+    assert not root.findall(
+        f".//{{{docx._W_NS}}}rPr/{{{docx._W_NS}}}spacing"
+    )
 
 
 def test_docx_inline_math_svg_restores_font_backend_requirement(parser, monkeypatch):
@@ -1188,7 +1217,7 @@ def test_docx_standalone_graphic_line_keeps_normal_edge_spacing(parser, monkeypa
 
     assert int(para.paragraph_format.left_indent) == int(docx._length(left))
     assert para.paragraph_format.right_indent is None
-    assert para.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
+    assert para.alignment == WD_ALIGN_PARAGRAPH.LEFT
     xml = _document_xml(data)
     assert "<w:drawing" in xml
     first_spacing = re.search(r"<w:p><w:pPr><w:spacing([^>]*)/>", xml)
@@ -1621,7 +1650,7 @@ def test_docx_centered_hbox_uses_tex_glue_not_word_alignment(parser):
     backend.shipout(_page_box([line]))
 
     document = _word_document(parser, backend)
-    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
+    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
     assert int(document.paragraphs[0].paragraph_format.left_indent) == int(docx._length(Dimen(10)))
 
 
@@ -1848,7 +1877,7 @@ def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
 
     document = _word_document(parser, backend)
     assert document.paragraphs[0].text == ""
-    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
+    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
     assert document.paragraphs[1].text == "After"
     assert int(document.paragraphs[1].paragraph_format.space_before) == int(docx._length(Dimen(4)))
     assert len(captured) == 1

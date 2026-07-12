@@ -1778,8 +1778,23 @@ class Reflow(shipout.Shipout):
             text = n.char if n.node_type == nd.NODE_TYPE.CHAR else ligature_text(n)
             font = n.font
             width = n.width
+            use_font_kerning = getattr(
+                font.backend, "uses_font_program_kerning", False
+            )
             while True:
                 n = next(nodes, None)
+                if (
+                    n is not None
+                    and n.node_type == nd.NODE_TYPE.KERN
+                    and n.automatic
+                    and use_font_kerning
+                ):
+                    # TeX used this TFM kern for line measurement. The
+                    # converted font contains the same pair in GPOS, so keep
+                    # the source glyphs in one run and let the reflow backend
+                    # apply it exactly once.
+                    width += n.kern
+                    n = next(nodes, None)
                 if n is None or n.node_type not in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE) or n.font != font:
                     break
                 text += n.char if n.node_type == nd.NODE_TYPE.CHAR else ligature_text(n)

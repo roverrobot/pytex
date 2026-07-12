@@ -497,6 +497,7 @@ def test_html_reflow_emits_ligature_sources_for_opentype_shaping(parser):
     quotes.setChar(double_quote)
 
     assert ">---<" in _render(dashes)
+    assert "font-kerning:normal" in _render(dashes)
     assert "font-variant-ligatures:common-ligatures" in _render(dashes)
     assert ">‘‘<" in _render(quotes)
 

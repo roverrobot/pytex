@@ -929,7 +929,10 @@ class Space(TextRun):
 
 class Line(reflow.Line):
     JUSTIFY = {
-        "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+        # TeX has already resolved justification into concrete glue widths.
+        # Asking Word to justify again changes those widths and can rewrap an
+        # otherwise exact TeX line.
+        "justify": WD_ALIGN_PARAGRAPH.LEFT,
         "left": WD_ALIGN_PARAGRAPH.LEFT,
         "right": WD_ALIGN_PARAGRAPH.RIGHT,
         "center": WD_ALIGN_PARAGRAPH.CENTER,
@@ -981,7 +984,7 @@ class Line(reflow.Line):
 
     def _wordJustify(self, justify):
         if isinstance(self.story, Story):
-            return WD_ALIGN_PARAGRAPH.JUSTIFY
+            return WD_ALIGN_PARAGRAPH.LEFT
         return self.JUSTIFY[justify]
 
     def _setLineHeight(self, height):

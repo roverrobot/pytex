@@ -599,6 +599,8 @@ class CFFBackend(OpenTypeBackend):
 class Type1TrueTypeBackend(TrueTypeBackend):
     """Converted TrueType metrics paired with TeX ligature/kern programs."""
 
+    uses_font_program_kerning = True
+
     def __init__(self, name, font, source_backend, font_data):
         super().__init__(name, font, font_data=font_data)
         self.source_backend = source_backend
@@ -883,18 +885,56 @@ def _type1LigatureRules(backend, glyph_order):
     return sorted(rules, key=lambda rule: (-len(rule[0]), rule[0], rule[1]))
 
 
-def _addType1Ligatures(font, backend, glyph_order):
+def _type1KerningRules(backend, glyph_order, units_per_em):
+    """Return GPOS pair adjustments equivalent to the TFM kern program."""
+    encoding = tuple(backend.font.font.get("Encoding", ()))
+    available = set(glyph_order)
+    rules = set()
+    for metric in backend.glyphInfos():
+        if metric.program is None:
+            continue
+        left_code = ord(metric.char)
+        if not 0 <= left_code < len(encoding):
+            continue
+        left = encoding[left_code]
+        for right_code, step in metric.program.items():
+            if (
+                not step.isKern
+                or not 0 <= right_code < len(encoding)
+                or left not in available
+            ):
+                continue
+            right = encoding[right_code]
+            adjustment = round(step.kern * units_per_em)
+            if right in available and adjustment:
+                rules.add((left, right, adjustment))
+    return sorted(rules)
+
+
+def _addType1LayoutFeatures(font, backend, glyph_order, units_per_em):
     from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 
-    rules = [
+    ligature_rules = [
         f"sub {' '.join(inputs)} by {output};"
         for inputs, output in _type1LigatureRules(backend, glyph_order)
     ]
-    if rules:
-        addOpenTypeFeaturesFromString(
-            font,
-            "feature liga {\n  " + "\n  ".join(rules) + "\n} liga;\n",
+    kerning_rules = [
+        f"pos {left} {right} {adjustment};"
+        for left, right, adjustment in _type1KerningRules(
+            backend, glyph_order, units_per_em
         )
+    ]
+    features = []
+    if ligature_rules:
+        features.append(
+            "feature liga {\n  " + "\n  ".join(ligature_rules) + "\n} liga;\n"
+        )
+    if kerning_rules:
+        features.append(
+            "feature kern {\n  " + "\n  ".join(kerning_rules) + "\n} kern;\n"
+        )
+    if features:
+        addOpenTypeFeaturesFromString(font, "".join(features))
 
 
 def _type1Style(font_info):
@@ -1013,7 +1053,7 @@ def _type1OpenTypeData(backend):
         char_strings,
         {},
     )
-    _addType1Ligatures(builder.font, backend, glyph_order)
+    _addType1LayoutFeatures(builder.font, backend, glyph_order, units_per_em)
     data = BytesIO()
     builder.font.save(data)
     return data.getvalue()

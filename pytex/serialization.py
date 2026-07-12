@@ -60,6 +60,9 @@ def deserialize(parser, data):
     if extra:
         for key, value in extra.items():
             setattr(obj, key, deserialize(parser, value))
+    after_deserialize = getattr(obj, "afterDeserialize", None)
+    if after_deserialize is not None:
+        after_deserialize(parser)
     return obj
 
 

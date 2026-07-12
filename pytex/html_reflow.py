@@ -160,6 +160,7 @@ class TextRun(StyledNode, reflow.TextRun):
         if font is not None:
             self.style["font-family"] = _font_family_name(font.backend)
             self.style["font-size"] = reflow.PT(font.at)
+            self.style["font-kerning"] = "normal"
             self.style["font-variant-ligatures"] = "common-ligatures"
 
     def _appendText(self, text):

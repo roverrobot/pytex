@@ -597,7 +597,7 @@ class CFFBackend(OpenTypeBackend):
 
 
 class Type1TrueTypeBackend(TrueTypeBackend):
-    """TrueType outlines paired with the metrics of a TeX Type 1 font."""
+    """Converted TrueType metrics paired with TeX ligature/kern programs."""
 
     def __init__(self, name, font, source_backend, font_data):
         super().__init__(name, font, font_data=font_data)
@@ -637,7 +637,11 @@ class Type1TrueTypeBackend(TrueTypeBackend):
 
     @property
     def fontdimen(self):
-        return self.source_backend.fontdimen
+        params = super().fontdimen
+        source_params = self.source_backend.fontdimen
+        if len(source_params) > len(params):
+            params.extend(source_params[len(params):])
+        return params
 
     def glyphInfo(self, char: str):
         cached = self._type1_glyph_info.get(char)
@@ -650,11 +654,11 @@ class Type1TrueTypeBackend(TrueTypeBackend):
         if outline is None:
             return None
         info = GlyphInfo(
-            char=metric.char,
-            width=metric.width,
-            height=metric.height,
-            depth=metric.depth,
-            italic=metric.italic,
+            char=outline.char,
+            width=outline.width,
+            height=outline.height,
+            depth=outline.depth,
+            italic=outline.italic,
             glyph_name=outline.glyph_name,
             glyph_id=outline.glyph_id,
             program=metric.program,
@@ -676,11 +680,11 @@ class Type1TrueTypeBackend(TrueTypeBackend):
         if metric is None:
             return outline
         return GlyphInfo(
-            char=metric.char,
-            width=metric.width,
-            height=metric.height,
-            depth=metric.depth,
-            italic=metric.italic,
+            char=outline.char,
+            width=outline.width,
+            height=outline.height,
+            depth=outline.depth,
+            italic=outline.italic,
             glyph_name=outline.glyph_name,
             glyph_id=outline.glyph_id,
             program=metric.program,
@@ -695,9 +699,11 @@ class Type1TrueTypeBackend(TrueTypeBackend):
         return self.source_backend.rightBoundaryChar()
 
     def _spaceWidth(self):
-        info = self.source_backend.glyphInfo(" ")
-        if info is not None and info.width > 0:
-            return info.width
+        glyph_name = self._cmap.get(ord(" "))
+        if glyph_name is not None:
+            advance, _ = self.font["hmtx"].metrics[glyph_name]
+            if advance > 0:
+                return self._scaled(advance)
         return super()._spaceWidth()
 
 
@@ -823,19 +829,67 @@ def _type1GlyphTop(glyph_set, glyph_name, fallback):
     return fallback if pen.bounds is None else round(pen.bounds[3])
 
 
-def _addType1Ligatures(font, glyph_order):
+def _type1LigatureRules(backend, glyph_order):
+    """Return OpenType ligature rules equivalent to simple TFM ligatures."""
+    encoding = tuple(backend.font.font.get("Encoding", ()))
+    available = set(glyph_order)
+    direct = []
+    for metric in backend.glyphInfos():
+        if metric.program is None:
+            continue
+        left_code = ord(metric.char)
+        if not 0 <= left_code < len(encoding):
+            continue
+        left = encoding[left_code]
+        for right_code, step in metric.program.items():
+            # A GSUB ligature replaces all input glyphs with one output glyph.
+            # Other TeX ligature opcodes retain an input and cannot be represented
+            # by a standard OpenType ligature substitution.
+            if (
+                step.isKern
+                or not step.delete_current
+                or step.keep_next
+                or not 0 <= right_code < len(encoding)
+                or not 0 <= step.insert < len(encoding)
+            ):
+                continue
+            right = encoding[right_code]
+            output = encoding[step.insert]
+            if left in available and right in available and output in available:
+                direct.append(((left, right), output))
+
+    # TFM programs form longer ligatures in stages (f+f=ff, ff+i=ffi).
+    # A single GSUB lookup does not revisit its replacement, so also emit the
+    # recursively expanded source sequence (f f i -> ffi).
+    definitions = {}
+    for inputs, output in direct:
+        definitions.setdefault(output, []).append(inputs)
+
+    def expand(glyph, active=frozenset()):
+        values = {(glyph,)}
+        if glyph in active:
+            return values
+        for inputs in definitions.get(glyph, ()):
+            left_values = expand(inputs[0], active | {glyph})
+            right_values = expand(inputs[1], active | {glyph})
+            values.update(left + right for left in left_values for right in right_values)
+        return values
+
+    rules = set(direct)
+    for inputs, output in direct:
+        for left in expand(inputs[0]):
+            for right in expand(inputs[1]):
+                rules.add((left + right, output))
+    return sorted(rules, key=lambda rule: (-len(rule[0]), rule[0], rule[1]))
+
+
+def _addType1Ligatures(font, backend, glyph_order):
     from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 
-    rules = []
-    for output, inputs in (
-        ("ffi", ("f", "f", "i")),
-        ("ffl", ("f", "f", "l")),
-        ("ff", ("f", "f")),
-        ("fi", ("f", "i")),
-        ("fl", ("f", "l")),
-    ):
-        if output in glyph_order and all(value in glyph_order for value in inputs):
-            rules.append(f"sub {' '.join(inputs)} by {output};")
+    rules = [
+        f"sub {' '.join(inputs)} by {output};"
+        for inputs, output in _type1LigatureRules(backend, glyph_order)
+    ]
     if rules:
         addOpenTypeFeaturesFromString(
             font,
@@ -959,7 +1013,7 @@ def _type1OpenTypeData(backend):
         char_strings,
         {},
     )
-    _addType1Ligatures(builder.font, glyph_order)
+    _addType1Ligatures(builder.font, backend, glyph_order)
     data = BytesIO()
     builder.font.save(data)
     return data.getvalue()

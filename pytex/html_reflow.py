@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 from pathlib import Path
 import platform
@@ -14,6 +15,7 @@ from pytex import mmode
 from pytex import node as nd
 from pytex.dimen import Dimen
 from pytex.module import Module
+from pytex.opentype import TrueTypeBackend
 from pytex import reflow
 from pytex.font import Font
 from pytex import font_subst
@@ -158,6 +160,7 @@ class TextRun(StyledNode, reflow.TextRun):
         if font is not None:
             self.style["font-family"] = _font_family_name(font.backend)
             self.style["font-size"] = reflow.PT(font.at)
+            self.style["font-variant-ligatures"] = "common-ligatures"
 
     def _appendText(self, text):
         self.text = (self.text or "") + text
@@ -172,7 +175,12 @@ class TextRun(StyledNode, reflow.TextRun):
 
     def setChar(self, char: nd.Node):
         if char.node_type == nd.NODE_TYPE.CHAR:
-            self._appendText(char.char)
+            value = char.char
+            if self.font is not None:
+                unicode_char = getattr(self.font.backend, "unicodeChar", None)
+                if unicode_char is not None:
+                    value = unicode_char(value)
+            self._appendText(value)
         elif char.node_type == nd.NODE_TYPE.LIGATURE:
             for node in char.source:
                 self.setChar(node)
@@ -617,6 +625,7 @@ class HTMLReflowBackend(reflow.Reflow):
     """
 
     supported_graphic_formats = ("svg", "png", "jpg", "gif", "webp")
+    supported_font_classes = (TrueTypeBackend,)
     support_annotation = True
 
     def __init__(self, parser):
@@ -782,21 +791,26 @@ class HTMLReflowBackend(reflow.Reflow):
             return family
         path = getattr(backend, "path", None)
         format_name = None if not path else self._font_face_format(path)
+        data = None
+        if getattr(backend, "kind", None) == "opentype" and not path:
+            font_data = getattr(backend, "fontData", None)
+            if font_data is not None:
+                data = font_data()
+                format_name = "truetype" if "glyf" in backend.font else "opentype"
         if (
             getattr(backend, "kind", None) == "opentype"
-            and isinstance(path, str)
-            and path
-            and os.path.isfile(path)
+            and ((isinstance(path, str) and path and os.path.isfile(path)) or data is not None)
             and format_name is not None
-            and not self._is_system_font_path(path)
+            and (not path or not self._is_system_font_path(path))
         ):
             face = self._font_faces.get(key)
             if face is None:
                 family = _font_family_name(backend) or self._next_font_family()
                 face = {
                     "family": family,
-                    "path": os.path.realpath(path),
-                    "suffix": Path(path).suffix.lower(),
+                    "path": None if not path else os.path.realpath(path),
+                    "data": data,
+                    "suffix": Path(path).suffix.lower() if path else ".ttf",
                     "format_name": format_name,
                 }
                 self._font_faces[key] = face
@@ -809,18 +823,26 @@ class HTMLReflowBackend(reflow.Reflow):
         return family
 
     def _font_face_url(self, face, html_path):
-        source = Path(face["path"]).resolve()
+        source = None if face["path"] is None else Path(face["path"]).resolve()
         if html_path is None:
-            return source.as_uri()
+            if source is not None:
+                return source.as_uri()
+            payload = base64.b64encode(face["data"]).decode("ascii")
+            return f"data:font/ttf;base64,{payload}"
         asset_dir = html_path.with_name(f"{html_path.stem}.assets") / "fonts"
         target = asset_dir / f"{face['family']}{face['suffix']}"
         try:
             asset_dir.mkdir(parents=True, exist_ok=True)
-            if source != target.resolve():
+            if source is None:
+                target.write_bytes(face["data"])
+            elif source != target.resolve():
                 shutil.copyfile(source, target)
             return os.path.relpath(target, html_path.parent).replace(os.sep, "/")
         except Exception:
-            return source.as_uri()
+            if source is not None:
+                return source.as_uri()
+            payload = base64.b64encode(face["data"]).decode("ascii")
+            return f"data:font/ttf;base64,{payload}"
 
     def _math_font_stack(self):
         stack = []

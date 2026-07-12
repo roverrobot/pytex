@@ -2,6 +2,7 @@ import io
 from pathlib import Path
 
 import pytest
+from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTFont
 from pytex import font_backend
 from pytex import opentype
@@ -129,16 +130,36 @@ def test_font_search_converts_type1_tfm_backend_to_truetype(parser):
     assert not any(codepoint < 0x20 for codepoint in cmap)
     assert converted.design_size == source.design_size
     assert converted.checksum == source.checksum
-    assert converted.fontdimen == source.fontdimen
-    assert converted.glyphInfo("A").width == source_a.width
-    assert converted.glyphInfo("A").height == source_a.height
-    assert converted.glyphInfo("A").glyph_name == "A"
+    converted_a = converted.glyphInfo("A")
+    advance, _ = converted.font["hmtx"].metrics["A"]
+    glyph = converted.font.getGlyphSet()["A"]
+    bounds_pen = BoundsPen(converted.font.getGlyphSet())
+    glyph.draw(bounds_pen)
+    assert converted.fontdimen != source.fontdimen
+    assert converted.fontdimen[1] == converted.font["hmtx"].metrics["space"][0] / converted.units_per_em
+    assert converted_a.width == advance / converted.units_per_em
+    assert converted_a.height == bounds_pen.bounds[3] / converted.units_per_em
+    assert converted_a.width != source_a.width
+    assert converted_a.glyph_name == "A"
     assert converted.glyphInfo("<").glyph_name == "exclamdown"
     assert converted.unicodeChar("<") == "\u00a1"
     assert converted.unicodeChar("\\") == "\u201c"
     assert converted.unicodeChar("{") == "\u2013"
     assert converted.glyphInfo("f").program is converted.source_backend.glyphInfo("f").program
     assert converted.glyphInfo("f").program.keys() == source_f.program.keys()
+
+    ligatures = set()
+    for lookup in converted.font["GSUB"].table.LookupList.Lookup:
+        for subtable in lookup.SubTable:
+            for first, values in getattr(subtable, "ligatures", {}).items():
+                for value in values:
+                    ligatures.add(((first, *value.Component), value.LigGlyph))
+    assert (("f", "i"), "fi") in ligatures
+    assert (("f", "f", "i"), "ffi") in ligatures
+    assert (("hyphen", "hyphen"), "endash") in ligatures
+    assert (("hyphen", "hyphen", "hyphen"), "emdash") in ligatures
+    assert (("quoteleft", "quoteleft"), "quotedblleft") in ligatures
+    assert (("quoteright", "quoteright"), "quotedblright") in ligatures
 
 
 @pytest.mark.parametrize(
@@ -182,6 +203,19 @@ def test_type1_conversion_corrects_truetype_style_and_embedding(parser, font_nam
         assert os2.getUnicodeRanges()
         assert os2.getCodePageRanges()
         assert "GSUB" in font
+
+
+def test_type1_conversion_keeps_trailing_tex_math_fontdimens(parser):
+    source = parser.loadFontBackend("cmsy10")
+    if source.pfb_file is None:
+        pytest.skip("cmsy10 Type 1 font not found")
+    parser.registerSupportedFontClasses(opentype.TrueTypeBackend)
+
+    converted = parser.loadFontBackend("cmsy10")
+
+    assert len(converted.fontdimen) == len(source.fontdimen)
+    assert converted.fontdimen[:7] != source.fontdimen[:7]
+    assert converted.fontdimen[7:] == source.fontdimen[7:]
 
 
 def test_system_font_backend_cache_shared_between_parsers():

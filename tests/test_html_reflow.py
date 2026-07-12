@@ -11,10 +11,13 @@ from pytex import font as txfont
 from pytex import glue
 from pytex import graphics
 from pytex import html_reflow
+from pytex import hmode
 from pytex import mmode
 from pytex import node as nd
+from pytex import opentype
 from pytex import paragraph as pg
 from pytex import reflow
+from pytex import texlive
 from pytex.dimen import Dimen
 
 # prevent module side effects
@@ -456,6 +459,46 @@ def test_html_reflow_reuses_bundled_font_face_for_same_file(parser, tmp_path):
     html = (tmp_path / "font-reuse.html").read_text()
     assert html.count("@font-face{") == 1
     assert html.count('font-family:"Custom Font"') == 1
+
+
+def test_html_reflow_converts_and_bundles_type1_font(parser, tmp_path):
+    parser.resolver.output_in_memory = False
+    backend, _body = _open_body(parser, jobname="type1-font-bundle")
+    converted = parser.loadFontBackend("cmr10")
+    if not isinstance(converted, opentype.Type1TrueTypeBackend):
+        pytest.skip("cmr10 Type 1 font not found")
+    font = txfont.Font(converted, Dimen(10))
+
+    family = backend.define_font(font)
+    backend.close()
+
+    html = (tmp_path / "type1-font-bundle.html").read_text()
+    copied = tmp_path / "type1-font-bundle.assets" / "fonts" / f"{family}.ttf"
+    assert parser.supported_font_classes == (opentype.TrueTypeBackend,)
+    assert f'font-family:"{family}"' in html
+    assert copied.read_bytes() == converted.fontData()
+
+
+def test_html_reflow_emits_ligature_sources_for_opentype_shaping(parser):
+    parser.registerSupportedFontClasses(opentype.TrueTypeBackend)
+    converted = parser.loadFontBackend("cmr10")
+    if not isinstance(converted, opentype.Type1TrueTypeBackend):
+        pytest.skip("cmr10 Type 1 font not found")
+    font = txfont.Font(converted, Dimen(10))
+
+    hyphens = [nd.CharNode("-", font) for _ in range(3)]
+    emdash = hmode.Ligature(nd.CharNode(chr(124), font), hyphens)
+    dashes = html_reflow.TextRun(font)
+    dashes.setChar(emdash)
+
+    quote_sources = [nd.CharNode(chr(96), font) for _ in range(2)]
+    double_quote = hmode.Ligature(nd.CharNode(chr(92), font), quote_sources)
+    quotes = html_reflow.TextRun(font)
+    quotes.setChar(double_quote)
+
+    assert ">---<" in _render(dashes)
+    assert "font-variant-ligatures:common-ligatures" in _render(dashes)
+    assert ">‘‘<" in _render(quotes)
 
 
 def test_html_reflow_emits_destination_anchor_for_pdf_dest_special(parser):

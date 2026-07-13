@@ -24,12 +24,13 @@ from pytex.font_backend import (
     registerFontConverter,
 )
 from pytex.module import Module
-from pytex.tfm import TFMBackend
+from pytex.tfm import KernOp, TFMBackend
 
 
 @registerBackend
 class OpenTypeBackend(FontBackend):
     kind = "opentype"
+    uses_font_program_kerning = True
     DEFAULT_DESIGN_SIZE = 10.0
     _system_font_paths = None
     _system_font_match_cache = {}
@@ -60,6 +61,7 @@ class OpenTypeBackend(FontBackend):
         self._synthetic_glyphs = {}
         self._next_synthetic_codepoint = 0xF0000
         self._variant_info = None
+        self._kerning_programs = None
         self._fontdimen = None
         self._x_height = None
 
@@ -464,6 +466,77 @@ class OpenTypeBackend(FontBackend):
         glyph.draw(pen)
         return pen.bounds
 
+    @staticmethod
+    def _pairAdjustment(record):
+        adjustment = 0
+        for value in (getattr(record, "Value1", None), getattr(record, "Value2", None)):
+            adjustment += getattr(value, "XAdvance", 0) or 0
+        return adjustment
+
+    def _buildKerningPrograms(self):
+        """Translate active GPOS ``kern`` pairs into TeX kern programs."""
+        table = self.font.get("GPOS")
+        if table is None or table.table.FeatureList is None or table.table.LookupList is None:
+            return {}
+        lookup_indices = {
+            index
+            for record in table.table.FeatureList.FeatureRecord
+            if record.FeatureTag == "kern"
+            for index in record.Feature.LookupListIndex
+        }
+        pairs = {}
+
+        def add_pair(left, right, adjustment):
+            left_char = self._reverse_cmap.get(left)
+            right_char = self._reverse_cmap.get(right)
+            if left_char is None or right_char is None or not adjustment:
+                return
+            pairs.setdefault(left, {})[right_char] = KernOp(
+                chr(right_char), self._scaled(adjustment)
+            )
+
+        def add_subtable(subtable):
+            if getattr(subtable, "Format", None) == 1:
+                coverage = getattr(getattr(subtable, "Coverage", None), "glyphs", ())
+                for left, pair_set in zip(coverage, getattr(subtable, "PairSet", ())):
+                    for record in pair_set.PairValueRecord:
+                        add_pair(left, record.SecondGlyph, self._pairAdjustment(record))
+                return
+            if getattr(subtable, "Format", None) != 2:
+                return
+            coverage = getattr(getattr(subtable, "Coverage", None), "glyphs", ())
+            right_by_class = {}
+            class2 = getattr(getattr(subtable, "ClassDef2", None), "classDefs", {})
+            for right in self._reverse_cmap:
+                right_by_class.setdefault(class2.get(right, 0), []).append(right)
+            class1 = getattr(getattr(subtable, "ClassDef1", None), "classDefs", {})
+            records = getattr(subtable, "Class1Record", ())
+            for left in coverage:
+                left_class = class1.get(left, 0)
+                if left_class >= len(records):
+                    continue
+                for right_class, record in enumerate(records[left_class].Class2Record):
+                    adjustment = self._pairAdjustment(record)
+                    if not adjustment:
+                        continue
+                    for right in right_by_class.get(right_class, ()):
+                        add_pair(left, right, adjustment)
+
+        lookups = table.table.LookupList.Lookup
+        for index in lookup_indices:
+            lookup = lookups[index]
+            for subtable in lookup.SubTable:
+                if lookup.LookupType == 2:
+                    add_subtable(subtable)
+                elif lookup.LookupType == 9 and getattr(subtable, "ExtensionLookupType", None) == 2:
+                    add_subtable(subtable.ExtSubTable)
+        return pairs
+
+    def _kerningProgram(self, glyph_name):
+        if self._kerning_programs is None:
+            self._kerning_programs = self._buildKerningPrograms()
+        return self._kerning_programs.get(glyph_name)
+
     def _glyphInfoByName(self, char: str, glyph_name: str):
         info = self._glyph_info.get(char)
         if info is not None:
@@ -486,7 +559,7 @@ class OpenTypeBackend(FontBackend):
             italic=0,
             glyph_name=glyph_name,
             glyph_id=self.font.getGlyphID(glyph_name),
-            program=None,
+            program=self._kerningProgram(glyph_name),
             next_larger=variant.get("next_larger"),
             assembly=variant.get("assembly"),
         )

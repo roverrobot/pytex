@@ -291,6 +291,33 @@ def test_load_opentype_font_backend(parser):
     assert float(backend.fontdimen[5]) == 1.0
 
 
+def test_opentype_backend_exposes_gpos_kern_to_tex(parser):
+    try:
+        backend = parser.loadFontBackend("lmroman10-regular.otf")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+
+    step = backend.glyphInfo("b").program[ord("e")]
+
+    assert step.isKern
+    assert step.kern > 0
+
+
+def test_tex_line_measurement_applies_opentype_gpos_kern(parser):
+    try:
+        parser.parse("\\font\\f=lmroman10-regular.otf at 10pt \\f\\setbox0=\\hbox{be}")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+
+    box = parser.box[0]
+    automatic = [node for node in box.list if getattr(node, "automatic", False)]
+    font = parser.lookup("\\f")
+    expected = font.at * font.backend.glyphInfo("b").program[ord("e")].kern
+
+    assert len(automatic) == 1
+    assert automatic[0].kern == expected
+
+
 def test_read_opentype_font(parser):
     try:
         parser.parse("\\font\\f=lmroman10-regular.otf at 10pt \\f A")

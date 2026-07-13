@@ -1,7 +1,7 @@
 """
 Helpers for pytex format-file containers.
 
-The current container format is an uncompressed zip archive that stores:
+The current container format is a deflated zip archive that stores:
 - `manifest.json`: versioned metadata
 - `state.json`: serialized parser state
 - `hyphen/<language>.json`: one hyphenator payload per language
@@ -54,7 +54,11 @@ def isContainer(data: bytes) -> bool:
 
 def dump(parser) -> bytes:
     """
-    Dump the current parser state as an uncompressed zip container.
+    Dump the current parser state as a compressed zip container.
+
+    Readers accept both compressed and historical stored containers. Deflating
+    the JSON payload keeps bundled format files small enough for ordinary Git
+    hosting while preserving their inspectable zip layout.
     """
     manifest = {
         "kind": FORMAT_KIND,
@@ -62,7 +66,12 @@ def dump(parser) -> bytes:
         "state": "state.json",
     }
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(
+        buffer,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as archive:
         state_data = serialization.serialize(parser.dumpState())
         archive.writestr("state.json", json.dumps(state_data))
         if hasattr(parser, "hyphenator"):

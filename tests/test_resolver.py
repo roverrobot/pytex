@@ -21,11 +21,43 @@ def test_resolve_read(parser):
     f.close()
 
 
-def test_bundled_standard_format_is_available(parser):
-    f = parser.resolver.openIn("plain-xetex", "dump")
-    assert f is not None
-    assert formatfile.isContainer(f.read())
-    f.close()
+@pytest.mark.parametrize(
+    "format_name",
+    [
+        "plain-xetex",
+        "eplain-xetex",
+        "latex-xetex",
+        "plain-pdftex",
+        "eplain-pdftex",
+        "latex-pdftex",
+    ],
+)
+def test_bundled_standard_format_is_available(tmp_path, format_name):
+    engine = format_name.rsplit("-", 1)[1]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib; "
+            "from pytex import etex, opentype, texlive; "
+            f"importlib.import_module('pytex.{engine}'); "
+            "from pytex.parser import Parser; "
+            "from pytex import formatfile; "
+            "parser = Parser(); "
+            f"f = parser.resolver.openIn('{format_name}', 'dump'); "
+            "assert f is not None; "
+            "data = f.read(); f.close(); "
+            "assert formatfile.isContainer(data); "
+            "parser.load(__import__('io').BytesIO(data)); "
+            "assert parser.formatfile is not None; "
+            "parser.close()",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_bundled_format_lookup_works_with_namespace_package_directory(tmp_path):

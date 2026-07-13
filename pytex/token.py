@@ -199,7 +199,7 @@ class Token(Command):
 
         This is used by \\meaning
         """
-        return NotImplementedError("Must be implemented in subclasses")
+        raise NotImplementedError("Must be implemented in subclasses")
 
 
 class BeginGroupToken(Token):
@@ -395,7 +395,7 @@ class CharToken(Token):
         parser.addChar(self.name)
     
     def meaning(self, parser):
-        if self.token == CATCODE.LETTER:
+        if self.catcode == CATCODE.LETTER:
             return f"the letter {self.name}"
         return f"the character {self.name}"
     

@@ -1,0 +1,57 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install TeX Live test inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes texlive-base texlive-latex-base texlive-fonts-recommended
+          sudo mkdir --parents /usr/share/texlive/2026
+          sudo ln --symbolic /usr/share/texlive/texmf-dist /usr/share/texlive/2026/texmf-dist
+      - name: Install package and test dependencies
+        run: python -m pip install '.[test]'
+      - name: Run test suite
+        run: python -m pytest -q
+
+  wheel-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install TeX Live test inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes texlive-base texlive-latex-base texlive-fonts-recommended
+          sudo mkdir --parents /usr/share/texlive/2026
+          sudo ln --symbolic /usr/share/texlive/texmf-dist /usr/share/texlive/2026/texmf-dist
+      - name: Build and install wheel
+        run: |
+          python -m pip install build
+          python -m build
+          python -m venv /tmp/pytex-wheel
+          /tmp/pytex-wheel/bin/python -m pip install dist/*.whl
+      - name: Compile with an installed bundled format
+        working-directory: /tmp
+        run: |
+          printf 'Hello from Pytex.\\bye\n' > smoke.tex
+          /tmp/pytex-wheel/bin/python -m pytex --format plain --output pdf smoke.tex
+          test -s smoke.pdf

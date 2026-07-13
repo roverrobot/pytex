@@ -2,8 +2,7 @@
 
 Pytex is a TeX engine reimplemented in Python 3.
 
-It does not currently support leaders or the e-TeX extension `\mid`. It
-implements the minimal set of pdfTeX primitives needed by LaTeX2e.
+It implements the minimal set of pdfTeX primitives needed by LaTeX2e.
 
 Supported output formats include:
 
@@ -29,6 +28,15 @@ fonts can be selected by typeface name, for example:
 
 CJK text works the same way with a suitable system font. TTF/OTF output is
 currently supported by the PDF, SVG, DOCX, and reflowable HTML backends.
+
+## Status and limitations
+
+Pytex is an actively developed compatibility implementation rather than a
+drop-in replacement for a full TeX distribution. It does not currently support
+leaders or the e-TeX extension `\mid`; it implements the subset of pdfTeX
+primitives needed by LaTeX2e. The DOCX and HTML backends are reflowable, so
+their rendering is constrained by the target application's layout and font
+support.
 
 ## Requirements
 
@@ -76,10 +84,16 @@ Editable installation is useful for development because changes in the
 checkout take effect without reinstalling the package. For a regular install
 from the checkout, use `python -m pip install .` instead.
 
-Verify the installation and, optionally, run the test suite:
+Verify the installation:
 
 ```console
 python -m pytex --help
+```
+
+To run the test suite, install the test extra:
+
+```console
+python -m pip install -e ".[test]"
 python -m pytest
 ```
 
@@ -107,6 +121,9 @@ python -m pytex --engine xetex --format latex --output pdf document.tex
 
 The engine suffix is added automatically: `--format latex --engine xetex`
 loads `latex-xetex.pfmt`, while `--engine pdftex` loads `latex-pdftex.pfmt`.
+The bundled formats are compressed, generated from TeX Live 2023, and their
+source provenance and redistribution notes are recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 To use a format not bundled with Pytex, such as ConTeXt, first dump it from the
 appropriate TeX Live initializer. Format dumping is the default `--format

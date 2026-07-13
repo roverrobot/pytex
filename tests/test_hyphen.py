@@ -1,4 +1,5 @@
 import io
+import zipfile
 
 from pytex.parser import Parser
 from pytex.token import CATCODE
@@ -25,6 +26,12 @@ def test_hyphenator_dump_load_roundtrip(parser):
     )
 
     data = parser.dump()
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        assert all(
+            entry.compress_type == zipfile.ZIP_DEFLATED
+            for entry in archive.infolist()
+        )
 
     loaded = Parser()
     _set_common_catcodes(loaded)

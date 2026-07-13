@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,7 +10,18 @@ authors = [
 ]
 description = "A TeX parser in Python 3"
 readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENCE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
 dependencies = [
     "afdko>=4.0.3",
     "fonttools>=4.60.2",
@@ -20,10 +31,17 @@ dependencies = [
     "reportlab>=4.4.10",
     "drawsvg",
     "lxml",
-    "pytest>=8.3.4",
     "uharfbuzz>=0.51.7",
     "pymupdf>=1.26.5"
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8.3.4"]
+
+[project.urls]
+Documentation = "https://github.com/roverrobot/pytex#readme"
+Repository = "https://github.com/roverrobot/pytex"
+Issues = "https://github.com/roverrobot/pytex/issues"
 
 [tool.setuptools.packages.find]
 include = ["pytex", "pytex.*"]

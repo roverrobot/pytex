@@ -1,5 +1,5 @@
 import pytest
-from pytex.token import CATCODE, CommandToken, Token
+from pytex.token import CATCODE, CharToken, CommandToken, Token
 from pytex import toks
 from pytex import node as nd
 from pytex import glue
@@ -104,6 +104,16 @@ def test_token_catcode_predicates_check_current_meaning():
     space.definition = Token(" ", CATCODE.SPACE)
     assert not space.isSpace(False)
     assert space.isSpace(True)
+
+
+def test_char_token_meaning_uses_its_catcode():
+    assert CharToken("a", CATCODE.LETTER).meaning(None) == "the letter a"
+    assert CharToken("!", CATCODE.OTHER).meaning(None) == "the character !"
+
+
+def test_base_token_meaning_must_be_overridden():
+    with pytest.raises(NotImplementedError):
+        Token("x", CATCODE.OTHER).meaning(None)
 
 
 def test_read_general_text_accepts_begin_group_alias(parser):

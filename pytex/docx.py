@@ -49,6 +49,7 @@ _DOCX_TWIPS_PER_TEX_POINT_NUM = 144000
 _DOCX_TWIPS_PER_TEX_POINT_DEN = 7227
 _DOCX_EMU_PER_TEX_POINT_NUM = 91440000
 _DOCX_EMU_PER_TEX_POINT_DEN = 7227
+_BOTTOM_INK_ALLOWANCE_TWIPS = 2
 _INLINE_TEXTBOX_PAD_PT = 0.75
 _DOCX_DEFAULT_TEXT_FONT = font_subst.DEFAULT_TEXT_FONT
 _MATH_FAMILY_TEXT_OVERRIDES = font_subst.MATH_FAMILY_TEXT_OVERRIDES
@@ -953,19 +954,28 @@ class Line(reflow.Line):
         self.story = story
         self.justify = self._wordJustify(justify)
         para.alignment = self.justify
-        self.line_height = line_spec.line_height
+        self.line_height = Dimen(line_spec.line_height)
         self.inline_drawings = []
         self.leading_spacing = Dimen()
         self.has_visible_content = False
         self.has_text_glyphs = False
+        self.spacing_before = Dimen(line_spec.spacing_before)
+        self._reserveBottomInkSpace()
         self._setLineHeight(self.line_height)
         fmt = para.paragraph_format
-        self.spacing_before = Dimen(line_spec.spacing_before)
         self._setSpaceBefore(self.spacing_before)
         fmt.space_after = Pt(0)
         self.font = line_spec.default_font
         self.width = line_spec.line_box.rightmost()
         self.line_id = line_id
+
+    def _reserveBottomInkSpace(self):
+        """Give Word a small descent allowance without changing TeX advance."""
+        if _twips(self.spacing_before) <= _BOTTOM_INK_ALLOWANCE_TWIPS:
+            return
+        allowance = _tex_points(_BOTTOM_INK_ALLOWANCE_TWIPS / 20)
+        self.spacing_before -= allowance
+        self.line_height += allowance
 
     def useRightTabForGlue(self, glue, tab_position=None, infinite_glue_count=0):
         if (

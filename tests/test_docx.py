@@ -181,6 +181,10 @@ def _page_box(items):
     return _FakeVBox([nd.Glue(Glue(Dimen(10)), "\\topskip"), *items])
 
 
+def _bottom_ink_allowance():
+    return docx._tex_points(docx._BOTTOM_INK_ALLOWANCE_TWIPS / 20)
+
+
 def _docx_bytes(parser, backend):
     backend.close()
     return parser.resolver.in_memory_files["texput.docx"].content
@@ -829,8 +833,53 @@ def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):
         "Again soon",
         "Second paragraph",
     ]
-    assert int(document.paragraphs[1].paragraph_format.space_before) == int(docx._length(Dimen(3)))
-    assert int(document.paragraphs[2].paragraph_format.space_before) == int(docx._length(Dimen(8)))
+    allowance = _bottom_ink_allowance()
+    assert int(document.paragraphs[0].paragraph_format.space_before) == int(
+        docx._length(Dimen(10) - allowance)
+    )
+    assert int(document.paragraphs[1].paragraph_format.space_before) == int(
+        docx._length(Dimen(3) - allowance)
+    )
+    assert int(document.paragraphs[2].paragraph_format.space_before) == int(
+        docx._length(Dimen(8) - allowance)
+    )
+    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(
+        docx._length(Dimen(9) + allowance)
+    )
+    assert int(document.paragraphs[1].paragraph_format.line_spacing) == int(
+        docx._length(Dimen(9) + allowance)
+    )
+    assert int(document.paragraphs[2].paragraph_format.line_spacing) == int(
+        docx._length(Dimen(9) + allowance)
+    )
+
+
+def test_docx_bottom_ink_allowance_requires_more_than_two_twips(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    owner = pg.Paragraph(parser, indent=False)
+    threshold = _bottom_ink_allowance()
+
+    backend.shipout(
+        _FakeVBox(
+            [
+                _line_box("First", owner, font),
+                nd.Glue(Glue(threshold), "\\baselineskip"),
+                _line_box("Second", owner, font),
+            ]
+        )
+    )
+
+    document = _word_document(parser, backend)
+    assert int(document.paragraphs[0].paragraph_format.space_before) == 0
+    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(docx._length(Dimen(9)))
+    assert int(document.paragraphs[1].paragraph_format.space_before) == int(
+        docx._length(threshold)
+    )
+    assert int(document.paragraphs[1].paragraph_format.line_spacing) == int(
+        docx._length(Dimen(9))
+    )
 
 
 def test_docx_emits_selected_discretionary_prebreak_text(parser):
@@ -1244,13 +1293,13 @@ def test_docx_standalone_graphic_line_keeps_normal_edge_spacing(parser, monkeypa
     assert first_spacing is not None
     assert 'w:after="0"' in first_spacing.group(1)
     assert 'w:lineRule="exact"' in first_spacing.group(1)
-    assert f'w:line="{docx._twips(Dimen(36))}"' in first_spacing.group(1)
+    assert f'w:line="{docx._twips(Dimen(36) + _bottom_ink_allowance())}"' in first_spacing.group(1)
     wp_extent = re.search(r'<wp:extent\b[^>]*\bcy="([^"]+)"', xml)
     assert wp_extent is not None
     assert int(wp_extent.group(1)) == docx._twip_emu(Dimen(36))
 
 
-def test_docx_standalone_graphic_line_keeps_tex_line_height(parser, monkeypatch):
+def test_docx_standalone_graphic_line_reserves_bottom_ink_space(parser, monkeypatch):
     class FakeConverter:
         def convert(self, request):
             return graphics.GraphicAsset(
@@ -1275,7 +1324,7 @@ def test_docx_standalone_graphic_line_keeps_tex_line_height(parser, monkeypatch)
     xml = _document_xml(_docx_bytes(parser, backend))
     first_spacing = re.search(r"<w:p><w:pPr><w:spacing([^>]*)/>", xml)
     assert first_spacing is not None
-    assert f'w:line="{docx._twips(Dimen(45))}"' in first_spacing.group(1)
+    assert f'w:line="{docx._twips(Dimen(45) + _bottom_ink_allowance())}"' in first_spacing.group(1)
     assert f'w:line="{docx._twips(Dimen(36))}"' not in first_spacing.group(1)
 
 
@@ -1398,7 +1447,7 @@ def test_docx_graphic_followed_by_text_keeps_normal_space(parser, monkeypatch):
     assert document.paragraphs[0].paragraph_format.right_indent is None
 
 
-def test_docx_trailing_negative_spacing_keeps_tex_line_height(parser):
+def test_docx_trailing_negative_spacing_keeps_bottom_ink_allowance(parser):
     backend = docx.DocxBackend(parser)
     parser.shipout = backend
     font = _install_font(parser)
@@ -1410,7 +1459,7 @@ def test_docx_trailing_negative_spacing_keeps_tex_line_height(parser):
     xml = _document_xml(_docx_bytes(parser, backend))
     first_spacing = re.search(r"<w:p><w:pPr><w:spacing([^>]*)/>", xml)
     assert first_spacing is not None
-    assert f'w:line="{docx._twips(Dimen(10))}"' in first_spacing.group(1)
+    assert f'w:line="{docx._twips(Dimen(10) + _bottom_ink_allowance())}"' in first_spacing.group(1)
     assert f'w:line="{docx._twips(Dimen(6))}"' not in first_spacing.group(1)
     root = _document_root(_docx_bytes(parser, backend))
     pg_mar = root.find(f".//{{{docx._W_NS}}}pgMar")
@@ -1899,7 +1948,9 @@ def test_docx_display_math_embeds_shifted_svg_picture(parser, monkeypatch):
     assert document.paragraphs[0].text == ""
     assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
     assert document.paragraphs[1].text == "After"
-    assert int(document.paragraphs[1].paragraph_format.space_before) == int(docx._length(Dimen(4)))
+    assert int(document.paragraphs[1].paragraph_format.space_before) == int(
+        docx._length(Dimen(4) - _bottom_ink_allowance())
+    )
     assert len(captured) == 1
     assert captured[0].node_type == nd.NODE_TYPE.VLIST
     assert captured[0].list == [display_box]
@@ -1955,7 +2006,9 @@ def test_docx_display_math_uses_page_glue_state_for_display_skip(parser, monkeyp
 
     document = _word_document(parser, backend)
     assert len(document.paragraphs) == 1
-    assert int(document.paragraphs[0].paragraph_format.space_before) == int(docx._length(Dimen(6)))
+    assert int(document.paragraphs[0].paragraph_format.space_before) == int(
+        docx._length(Dimen(6) - _bottom_ink_allowance())
+    )
 
 
 def test_docx_vlist_tail_negative_glue_keeps_last_line_layout(parser, monkeypatch):
@@ -1977,7 +2030,9 @@ def test_docx_vlist_tail_negative_glue_keeps_last_line_layout(parser, monkeypatc
 
     document = _word_document(parser, backend)
     assert len(document.paragraphs) == 1
-    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(docx._length(Dimen(18)))
+    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(
+        docx._length(Dimen(18) + _bottom_ink_allowance())
+    )
     xml = _document_xml(_docx_bytes(parser, backend))
     wp_extent = re.search(r'<wp:extent\b[^>]*\bcx="([^"]+)"[^>]*\bcy="([^"]+)"', xml)
     effect = re.search(r'<wp:effectExtent\b[^>]*\bt="([^"]+)"[^>]*\bb="([^"]+)"', xml)
@@ -2008,7 +2063,9 @@ def test_docx_vlist_tail_positive_glue_does_not_expand_last_line(parser):
 
     document = _word_document(parser, backend)
     assert len(document.paragraphs) == 1
-    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(docx._length(Dimen(12)))
+    assert int(document.paragraphs[0].paragraph_format.line_spacing) == int(
+        docx._length(Dimen(12) + _bottom_ink_allowance())
+    )
 
 
 def test_docx_alignment_should_emit_word_table(parser):
@@ -2284,4 +2341,4 @@ def test_docx_alignment_row_heights_include_tex_interline_spacing(parser):
         for value in re.findall(r'<w:trHeight\b[^>]*\bw:val="(\d+)"', xml)
     ]
     assert heights == [int(docx.twips(Dimen(10))), int(docx.twips(Dimen(15)))]
-    assert f'w:before="{docx.twips(Dimen(5))}"' in xml
+    assert f'w:before="{docx.twips(Dimen(5) - _bottom_ink_allowance())}"' in xml

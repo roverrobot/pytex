@@ -188,6 +188,13 @@ def test_font_search_converts_type1_tfm_backend_to_truetype(parser):
     assert (("quoteleft", "quoteleft"), "quotedblleft") in ligatures
     assert (("quoteright", "quoteright"), "quotedblright") in ligatures
 
+    for table_name in ("GSUB", "GPOS"):
+        scripts = {
+            record.ScriptTag
+            for record in converted.font[table_name].table.ScriptList.ScriptRecord
+        }
+        assert {"DFLT", "latn"} <= scripts
+
     pair_adjustments = {}
     for lookup in converted.font["GPOS"].table.LookupList.Lookup:
         for subtable in lookup.SubTable:

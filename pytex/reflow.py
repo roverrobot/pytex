@@ -15,6 +15,7 @@ from pytex import paragraph
 from enum import IntEnum
 from dataclasses import dataclass, field
 import colorsys
+from itertools import chain
 from types import SimpleNamespace
 
 
@@ -1834,6 +1835,14 @@ class Reflow(shipout.Shipout):
             n = next(nodes, None)
         while n is not None:
             node_type = n.node_type
+            if node_type == nd.NODE_TYPE.DISC:
+                # Paragraph line breaking has already selected either the
+                # discretionary replacement or its pre-break material and put
+                # that choice in ``list``.  Reflow must paint the selected
+                # nodes just as fixed-layout shipout does.
+                nodes = chain(n.list, nodes)
+                n = next(nodes, None)
+                continue
             if node_type == nd.NODE_TYPE.GLUE:
                 space = Dimen(integer=self._glue_amount(n, None, glue_state)) if glue_state is not None else n.glue.dimen
                 if infinite_stretch_glue(n):

@@ -924,7 +924,10 @@ def _addType1LayoutFeatures(font, backend, glyph_order, units_per_em):
             backend, glyph_order, units_per_em
         )
     ]
-    features = []
+    # Office associates Latin text with the ``latn`` script and does not
+    # reliably fall back to DFLT for GPOS kerning.  Register both so the same
+    # TFM layout programs are active in generic shapers and in Word.
+    features = ["languagesystem DFLT dflt;\nlanguagesystem latn dflt;\n"]
     if ligature_rules:
         features.append(
             "feature liga {\n  " + "\n  ".join(ligature_rules) + "\n} liga;\n"
@@ -933,7 +936,7 @@ def _addType1LayoutFeatures(font, backend, glyph_order, units_per_em):
         features.append(
             "feature kern {\n  " + "\n  ".join(kerning_rules) + "\n} kern;\n"
         )
-    if features:
+    if ligature_rules or kerning_rules:
         addOpenTypeFeaturesFromString(font, "".join(features))
 
 

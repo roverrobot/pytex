@@ -20,6 +20,16 @@ from pytex.expandable import toToks
 from pytex.serialization import Builtin, Serializable
 
 
+def _fontSizeForOutput(parser, at):
+    at = at if isinstance(at, Dimen) else Dimen(at)
+    if parser.font_size_in_bp:
+        # Reflow backends express font sizes in PostScript points.  Increase
+        # the internal TeX-point size so its physical size is unchanged when
+        # DOCX/CSS writes the same numeric value in bp.
+        return at / 72 * 72.27
+    return at
+
+
 class Font(Command):
     """
     A font. Using it as a command set the current font.
@@ -27,13 +37,18 @@ class Font(Command):
     @param backend: the backend that provides the font data
     @param at: the size of the font
     """
-    def __init__(self, backend: FontBackend, at, font_name=None):
+    def __init__(self, backend: FontBackend, at, font_name=None, requested_at=None):
         self.backend = backend
         # Preserve the font request, not the backend selected for it.  A
         # deserializing parser must repeat font search under its output
         # backend's supported font classes.
         self.font_name = backend.name if font_name is None else font_name
         self.at = at if isinstance(at, Dimen) else Dimen(at)
+        self.requested_at = (
+            self.at
+            if requested_at is None
+            else requested_at if isinstance(requested_at, Dimen) else Dimen(requested_at)
+        )
         self.param = self._backendParams(backend, self.at)
         self.charnode = {}
         self._rebuildSpaceGlue()
@@ -78,7 +93,9 @@ class Font(Command):
     def saveInfo(self):
         return {
             "font_name": self.font_name,
-            "at": self.at,
+            # Store TeX's requested size, not the output-specific size used by
+            # the backend that happened to serialize this font.
+            "at": self.requested_at,
         }, self._saveExtras()
 
     @classmethod
@@ -88,7 +105,12 @@ class Font(Command):
         # font search and can select or create an output-compatible backend.
         font_name = name if font_name is None else font_name
         backend = parser.loadFontBackend(font_name)
-        return cls(backend, at, font_name=font_name)
+        return cls(
+            backend,
+            _fontSizeForOutput(parser, at),
+            font_name=font_name,
+            requested_at=at,
+        )
 
     def afterDeserialize(self, parser):
         """Merge serialized fontdimen overrides into the selected backend."""
@@ -296,9 +318,9 @@ class FontDefineAccessor(EquitableAccessor):
             at = design * Fraction(parser.readInteger(), 1000) * mag
         else:
             at = design * mag
-        if parser.font_size_in_bp:
-            at = at / 72 * 72.27 #round to 0.5bp
-        f = Font(backend, at, font_name=name)
+        requested_at = at
+        at = _fontSizeForOutput(parser, requested_at)
+        f = Font(backend, at, font_name=name, requested_at=requested_at)
         f.name = self.key
         f.fontchar["hyphenchar"] = parser.parameters["defaulthyphenchar"]
         f.fontchar["skewchar"] = parser.parameters["defaultskewchar"]

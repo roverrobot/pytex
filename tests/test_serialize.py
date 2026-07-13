@@ -148,12 +148,28 @@ def test_format_font_rebuilds_metrics_for_reflow_conversion(parser):
     restored = serialization.deserialize(parser, data)
 
     assert isinstance(restored.backend, opentype.Type1TrueTypeBackend)
-    assert restored.at == source.at
+    assert restored.requested_at == source.requested_at
+    assert restored.at == source.requested_at / 72 * 72.27
     assert restored.param[:7] != source.param[:7]
     assert restored.param[1] == dimen.Dimen(6)
     assert restored.param[2] == restored.backend.fontdimen[2] * restored.at
     assert restored.spaceglue.dimen == restored.param[1]
     assert restored.param[7] == source.param[7]
+
+
+def test_font_serialization_applies_bp_size_once_during_font_search(parser):
+    parser.parse("\\font\\f=cmr10 at 12pt")
+    source = parser.lookup("\\f")
+    data = serialization.serialize(source)
+    parser.font_size_in_bp = True
+
+    restored = serialization.deserialize(parser, data)
+    rerestored = serialization.deserialize(parser, serialization.serialize(restored))
+
+    assert restored.requested_at == dimen.Dimen(12)
+    assert restored.at == dimen.Dimen(12) / 72 * 72.27
+    assert rerestored.requested_at == restored.requested_at
+    assert rerestored.at == restored.at
 
 
 def test_modified_nullfont_uses_sparse_font_serialization(parser):

@@ -19,6 +19,7 @@ from pytex import align
 from pytex import box as bx
 from pytex import docx
 from pytex import graphics
+from pytex import hmode
 from pytex import font as txfont
 from pytex import mmode
 from pytex import node as nd
@@ -830,6 +831,25 @@ def test_docx_shipout_writes_one_word_paragraph_per_tex_line(parser):
     ]
     assert int(document.paragraphs[1].paragraph_format.space_before) == int(docx._length(Dimen(3)))
     assert int(document.paragraphs[2].paragraph_format.space_before) == int(docx._length(Dimen(8)))
+
+
+def test_docx_emits_selected_discretionary_prebreak_text(parser):
+    backend = docx.DocxBackend(parser)
+    parser.shipout = backend
+    font = _install_font(parser)
+    owner = pg.Paragraph(parser, indent=False)
+    disc = hmode.Disc(_char_nodes("-", font), [], [])
+    disc.list = disc.pre
+    line = _FakeHBox(
+        [*_char_nodes("config", font), disc],
+        source=owner,
+        width=Dimen(80),
+    )
+
+    backend.shipout(_page_box([line]))
+
+    document = _word_document(parser, backend)
+    assert [paragraph.text for paragraph in document.paragraphs] == ["config-"]
 
 
 def test_docx_single_infinite_glue_becomes_right_tab(parser):

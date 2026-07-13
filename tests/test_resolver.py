@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 from reportlab.pdfgen import canvas
@@ -24,6 +26,24 @@ def test_bundled_standard_format_is_available(parser):
     assert f is not None
     assert formatfile.isContainer(f.read())
     f.close()
+
+
+def test_bundled_format_lookup_works_with_namespace_package_directory(tmp_path):
+    (tmp_path / "pytex").mkdir()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from pytex.parser import Parser; "
+            "f = Parser().resolver.openIn('latex-xetex', 'dump'); "
+            "assert f is not None; f.close()",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_local_standard_format_overrides_bundled_copy(parser, tmp_path):

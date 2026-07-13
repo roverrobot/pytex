@@ -11,8 +11,8 @@ from io import BytesIO, StringIO
 from types import MethodType
 from typing import Tuple
 import copy
-from importlib import resources
 import os
+from pathlib import Path
 
 
 class InMemoryTextFile:
@@ -347,9 +347,7 @@ class FileResolver:
             return None
         for ext in info["extensions"]:
             filename = f'{info["name"]}.{ext}'
-            resource = resources.files("pytex").joinpath(
-                "data", "formats", filename
-            )
+            resource = Path(__file__).parent / "data" / "formats" / filename
             if resource.is_file():
                 return resource.open("rb")
         return None

@@ -217,6 +217,13 @@ def test_texlive_resolver_caches_directory_walks(tmp_path, monkeypatch):
     assert walk_calls.count(plain_root) == 1
 
 
+def test_deferred_texlive_resolver_validates_when_it_is_first_used(tmp_path):
+    missing = tmp_path / "missing"
+    resolver = texlive.TexliveResolver(texlive_path=str(missing), defer=True)
+    with pytest.raises(ValueError, match="texlive path does not exist"):
+        resolver.openIn("plain", "source")
+
+
 def test_texlive_resolver_instances_share_directory_cache(tmp_path, monkeypatch):
     texmf = tmp_path / "2026" / "texmf-dist"
     plain = texmf / "tex" / "plain" / "base"

@@ -10,13 +10,6 @@ import types
 
 from pytex.parser import Parser
 
-# Register the resolver, e-TeX features, and OpenType support before Parser()
-# populates itself from the module registry.
-from pytex import etex  # noqa: F401,E402
-from pytex import opentype  # noqa: F401,E402
-from pytex import texlive  # noqa: F401,E402
-
-
 BACKENDS = ("dvi", "xdv", "pdf", "html-reflow", "docx", "svg")
 ENGINES = ("xetex", "pdftex")
 PROFILE_SORT_KEYS = (
@@ -80,6 +73,11 @@ def argument_parser():
         default=os.getcwd(),
         help="project directory for source reads (default: current directory)",
     )
+    parser.add_argument(
+        "--texlive",
+        metavar="DIRECTORY",
+        help="TeX Live root directory (overrides the platform default)",
+    )
     parser.add_argument("file")
     return parser
 
@@ -89,10 +87,29 @@ def engine_format_name(name, engine):
     return name if name.endswith(suffix) else f"{name}{suffix}"
 
 
+def configureTexliveResolver(parser, texlive_path, format_name, project_dir):
+    """Replace the parser resolver when a CLI TeX Live root was supplied."""
+    if texlive_path is None:
+        return
+    from pytex import texlive
+
+    parser.resolver = texlive.TexliveResolver(
+        texlive_path=texlive_path,
+        format=format_name,
+        project_dir=project_dir,
+    )
+
+
 def main(argv=None):
     args = argument_parser().parse_args(argv)
     if args.sort is not None and not args.profile:
         print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
+
+    # Register the resolver, e-TeX features, and OpenType support before
+    # Parser() populates itself from the module registry.
+    from pytex import etex  # noqa: F401
+    from pytex import opentype  # noqa: F401
+    from pytex import texlive  # noqa: F401
 
     importlib.import_module(f"pytex.{args.engine}")
     output_module = None
@@ -106,6 +123,9 @@ def main(argv=None):
     jobname, extension = os.path.splitext(base)
 
     parser = Parser(project_dir=args.project_dir)
+    configureTexliveResolver(
+        parser, args.texlive, args.format, args.project_dir
+    )
     parser.resolver.format = args.format
     if output_module is not None:
         if args.output == "svg":

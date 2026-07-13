@@ -17,9 +17,28 @@ class TexliveResolver(FileResolver):
     A file resolver that resolves files by searching in the texlive installation
     """
 
-    def __init__(self, texlive_path: str=None, format: str="tex", project_dir: str=None, output_in_memory: bool=False):
+    def __init__(
+        self,
+        texlive_path: str=None,
+        format: str="tex",
+        project_dir: str=None,
+        output_in_memory: bool=False,
+        defer: bool=False,
+    ):
         super().__init__(project_dir=project_dir, output_in_memory=output_in_memory)
-        path = self.defaultTeXLivePath() if texlive_path is None else texlive_path
+        self.texlive_path = self.defaultTeXLivePath() if texlive_path is None else texlive_path
+        self.paths = None
+        self.format = format
+        # Cache the first matching full path for each file name under a search root.
+        # This is process-wide so separate resolver instances and parser-local clones
+        # can reuse the same expensive directory walks.
+        self._index = _directory_index_cache
+        if not defer:
+            self._configurePaths()
+
+    def _configurePaths(self):
+        """Validate the TeX Live root and record its searchable trees."""
+        path = self.texlive_path
         if not os.path.exists(path):
             raise ValueError("texlive path does not exist: ", path)
         # iterate over all the directories in the texlive path to search for the latest year
@@ -33,15 +52,14 @@ class TexliveResolver(FileResolver):
         texmf_local = os.path.join(path, "texmf-local")
         if os.path.exists(texmf_local):
             self.paths.append(texmf_local)
-        self.format = format
-        # Cache the first matching full path for each file name under a search root.
-        # This is process-wide so separate resolver instances and parser-local clones
-        # can reuse the same expensive directory walks.
-        self._index = _directory_index_cache
+
+    def _ensurePaths(self):
+        if self.paths is None:
+            self._configurePaths()
 
     def clone(self, project_dir: str=None):
         cloned = super().clone(project_dir=project_dir)
-        cloned.paths = list(self.paths)
+        cloned.paths = None if self.paths is None else list(self.paths)
         # Share the expensive directory index across parser-local resolver clones while
         # keeping per-parser mutable state such as in-memory files isolated.
         cloned._index = self._index
@@ -52,6 +70,7 @@ class TexliveResolver(FileResolver):
         """
         Get the paths to search for the file
         """
+        self._ensurePaths()
         if info["category"] == "source":
             subdirs = [self.format, "generic"]
             if self.format != "plain":
@@ -113,6 +132,8 @@ class TexliveResolver(FileResolver):
 
 mod = Module("texlive", 
     attributes={
-        "resolver": TexliveResolver(format="plain"),
+        # Parser construction should not prevent the CLI from selecting a
+        # nonstandard TeX Live root with --texlive.
+        "resolver": TexliveResolver(format="plain", defer=True),
     }
 )

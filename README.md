@@ -36,6 +36,11 @@ currently supported by the PDF, SVG, DOCX, and reflowable HTML backends.
 - A TeX Live installation containing the source files, fonts, metrics, and
   hyphenation data used to build and run formats
 
+Pytex currently requires TeX Live even though Plain TeX, ePlain, and LaTeX
+format files are bundled with the package. The bundled files avoid an initial
+format dump, but TeX Live still supplies package inputs, Type 1/OpenType font
+programs and metrics, and hyphenation data while a document is compiled.
+
 Pytex searches the following default TeX Live roots and selects the greatest
 numeric release directory beneath the root:
 
@@ -178,6 +183,17 @@ python -m pytex -e xetex -f latex -o docx document.tex
 Sets the project directory used for source reads and document outputs. It
 defaults to the current working directory. The generated `.pfmt` file in
 `initex` mode is always written to the current working directory.
+
+### `--texlive DIRECTORY`
+
+Uses a TeX Live installation rooted at `DIRECTORY` instead of the platform
+default. The directory must contain release directories such as
+`DIRECTORY/2026/texmf-dist`. This is useful for a portable, testing, or
+nonstandard TeX Live installation:
+
+```console
+python -m pytex --texlive /opt/texlive -f latex document.tex
+```
 
 ### `-p`, `--profile`
 

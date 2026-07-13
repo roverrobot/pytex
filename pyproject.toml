@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pytex"
-version = "0.2.3"
+dynamic = ["version"]
 authors = [
     { name="Junling Ma", email="junlingm@gmail.com" },
 ]
@@ -45,6 +45,9 @@ Issues = "https://github.com/roverrobot/pytex/issues"
 
 [tool.setuptools.packages.find]
 include = ["pytex", "pytex.*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pytex.__version__"}
 
 [tool.setuptools.package-data]
 pytex = ["data/formats/*.pfmt"]

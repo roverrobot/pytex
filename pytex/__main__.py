@@ -3,12 +3,12 @@
 from argparse import ArgumentParser
 import cProfile
 import importlib
-from importlib.metadata import version as distribution_version
 import os
 import pstats
 import sys
 import types
 
+from pytex import __version__
 from pytex.parser import Parser
 
 BACKENDS = ("dvi", "xdv", "pdf", "html-reflow", "docx", "svg")
@@ -32,7 +32,7 @@ def argument_parser():
     parser.add_argument(
         "--version",
         action="version",
-        version=f"pytex {distribution_version('pytex')}",
+        version=f"pytex {__version__}",
         help="print the Pytex version and exit",
     )
     parser.add_argument(

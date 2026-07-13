@@ -1,6 +1,7 @@
 import subprocess
 import sys
-from importlib.metadata import version as distribution_version
+
+from pytex import __version__
 
 
 def test_python_m_pytex_exposes_compiler_cli():
@@ -20,7 +21,7 @@ def test_python_m_pytex_exposes_compiler_cli():
     assert "file" in result.stdout
 
 
-def test_python_m_pytex_prints_distribution_version():
+def test_python_m_pytex_prints_package_version():
     result = subprocess.run(
         [sys.executable, "-m", "pytex", "--version"],
         stdout=subprocess.PIPE,
@@ -30,7 +31,7 @@ def test_python_m_pytex_prints_distribution_version():
     )
 
     assert result.returncode == 0
-    assert result.stdout == f"pytex {distribution_version('pytex')}\n"
+    assert result.stdout == f"pytex {__version__}\n"
     assert result.stderr == ""
 
 

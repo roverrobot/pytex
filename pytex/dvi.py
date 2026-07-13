@@ -294,6 +294,5 @@ def init(parser):
 
 mod = Module(
     "dvi",
-    init=init,
     attributes={}
 )

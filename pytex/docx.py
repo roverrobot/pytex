@@ -2415,6 +2415,5 @@ def init(parser):
 
 mod = Module(
     "docx",
-    init=init,
     attributes={},
 )

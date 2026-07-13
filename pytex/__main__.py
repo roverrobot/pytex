@@ -95,11 +95,23 @@ def main(argv=None):
         print("Warning: --sort/-s has no effect without --profile", file=sys.stderr)
 
     importlib.import_module(f"pytex.{args.engine}")
+    output_module = None
     if args.format != "initex":
-        importlib.import_module(f"pytex.{args.output.replace('-', '_')}")
+        output_module = importlib.import_module(
+            f"pytex.{args.output.replace('-', '_')}"
+        )
+
+    source = args.file
+    base = os.path.basename(source)
+    jobname, extension = os.path.splitext(base)
 
     parser = Parser(project_dir=args.project_dir)
     parser.resolver.format = args.format
+    if output_module is not None:
+        if args.output == "svg":
+            parser.shipout = output_module.SVGShipoutBackend(parser, jobname)
+        else:
+            output_module.init(parser)
 
     def dumper(parser, data):
         filename = engine_format_name(parser.resolver.format, args.engine) + ".pfmt"
@@ -109,10 +121,6 @@ def main(argv=None):
     parser.dumper = types.MethodType(dumper, parser)
     if args.profile:
         parser.console = open(os.devnull, "w")
-
-    source = args.file
-    base = os.path.basename(source)
-    jobname, extension = os.path.splitext(base)
 
     if args.format == "initex":
         if extension == "" and source != "plain":
@@ -125,10 +133,6 @@ def main(argv=None):
             file=parser.console,
         )
     else:
-        if args.output == "svg":
-            from pytex import svg
-
-            parser.shipout = svg.SVGShipoutBackend(parser, jobname)
         parser.resolver.format = args.format
         format_file = parser.resolver.openIn(
             engine_format_name(parser.resolver.format, args.engine),

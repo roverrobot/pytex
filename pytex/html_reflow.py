@@ -1309,5 +1309,4 @@ def init(parser):
 mod = Module(
     "html_reflow",
     attributes={},
-    init=init,
 )

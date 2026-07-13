@@ -1245,6 +1245,5 @@ def init(parser):
 
 mod = Module(
     "pdf",
-    init=init,
     attributes={}
 )

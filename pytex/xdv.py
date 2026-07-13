@@ -96,6 +96,5 @@ def init(parser):
 
 mod = Module(
     "xdv",
-    init=init,
     attributes={}
 )

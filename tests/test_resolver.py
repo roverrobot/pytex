@@ -4,6 +4,7 @@ import pytest
 from reportlab.pdfgen import canvas
 from pytex import texlive
 from pytex import pipes
+from pytex import formatfile
 from pytex.parser import Parser
 from pytex.resolver import InMemoryTextFile
 import os
@@ -15,6 +16,22 @@ def test_resolve_read(parser):
     f.close()
     f = parser.resolver.openIn("plain", "source")
     assert f is not None
+    f.close()
+
+
+def test_bundled_standard_format_is_available(parser):
+    f = parser.resolver.openIn("plain-xetex", "dump")
+    assert f is not None
+    assert formatfile.isContainer(f.read())
+    f.close()
+
+
+def test_local_standard_format_overrides_bundled_copy(parser, tmp_path):
+    local = tmp_path / "plain-xetex.pfmt"
+    local.write_bytes(b"project format")
+    f = parser.resolver.openIn("plain-xetex", "dump")
+    assert f is not None
+    assert f.read() == b"project format"
     f.close()
 
 

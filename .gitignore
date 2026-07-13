@@ -6,5 +6,4 @@
 dist/*
 pytex.egg-info/*
 .codex/environments/environment.toml
-*.pfmt
 .cache/*

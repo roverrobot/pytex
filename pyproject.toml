@@ -27,3 +27,6 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["pytex", "pytex.*"]
+
+[tool.setuptools.package-data]
+pytex = ["data/formats/*.pfmt"]

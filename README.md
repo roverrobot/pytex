@@ -90,66 +90,49 @@ python -m pytex --help
 
 Replace `main` with a tag or commit hash to install a specific revision.
 
-## Dump format files
+## Bundled and custom format files
 
-Pytex loads its runtime state from `.pfmt` format files. These generated files
-are engine-specific, so a format dumped with the XeTeX compatibility layer must
-also be loaded with `--engine xetex`; the same rule applies to pdfTeX.
-
-Run the dump commands in the directory where you want to keep the format files.
-The default engine is `xetex`, so the following commands create the standard
-XeTeX-compatible formats:
-
-```console
-python -m pytex plain
-python -m pytex eplain.ini
-python -m pytex latex.ltx
-```
-
-They produce:
-
-```text
-plain-xetex.pfmt
-eplain-xetex.pfmt
-latex-xetex.pfmt
-```
-
-`plain` is a special extensionless input name. Other extensionless initializer
-names are treated as `.ini` files, so `eplain` and `eplain.ini` are equivalent.
-LaTeX is initialized from `latex.ltx`. Pytex resolves all three inputs through
-the installed TeX Live tree. Building eplain or LaTeX can take considerably
-longer than building plain.
-
-To build pdfTeX-compatible formats instead, select that engine explicitly:
-
-```console
-python -m pytex --engine pdftex plain
-python -m pytex --engine pdftex eplain.ini
-python -m pytex --engine pdftex latex.ltx
-```
-
-These commands produce `plain-pdftex.pfmt`, `eplain-pdftex.pfmt`, and
-`latex-pdftex.pfmt`.
-
-Format dumping is selected by the default `--format initex` mode. The explicit
-equivalent is:
-
-```console
-python -m pytex --format initex --engine xetex latex.ltx
-```
-
-The `.pfmt` file itself is written to the current working directory. Keep it in
-the project directory from which you compile, or in the directory supplied with
-`--project-dir`, so that Pytex can find it later.
-
-For example, after dumping `latex-xetex.pfmt`, compile a document with:
+Pytex includes ready-to-use format files for Plain TeX, ePlain, and LaTeX, for
+both the `xetex` and `pdftex` compatibility layers. No initial format dump is
+needed for these standard formats. For example, compile a LaTeX document with:
 
 ```console
 python -m pytex --engine xetex --format latex --output pdf document.tex
 ```
 
-The engine suffix is added automatically when a format is loaded. For example,
-`--format latex --engine xetex` looks for `latex-xetex.pfmt`.
+The engine suffix is added automatically: `--format latex --engine xetex`
+loads `latex-xetex.pfmt`, while `--engine pdftex` loads `latex-pdftex.pfmt`.
+
+To use a format not bundled with Pytex, such as ConTeXt, first dump it from the
+appropriate TeX Live initializer. Format dumping is the default `--format
+initex` mode; the explicit form is:
+
+```console
+python -m pytex --format initex --engine xetex path/to/context.ini
+```
+
+This writes `context-xetex.pfmt` to the current working directory. Use the
+matching format name and engine to compile a document:
+
+```console
+python -m pytex --format context --engine xetex document.tex
+```
+
+The initializer and supported engine depend on the format's TeX Live
+installation. The same approach applies to any other non-bundled format.
+
+You may also regenerate the bundled formats, for example to test a locally
+modified TeX Live tree:
+
+```console
+python -m pytex --engine xetex plain
+python -m pytex --engine xetex eplain.ini
+python -m pytex --engine xetex latex.ltx
+```
+
+Each command writes an engine-specific `.pfmt` file to the current working
+directory. A local format file takes precedence over the bundled copy, which
+makes these commands a convenient override mechanism.
 
 ## Command-line flags
 
@@ -168,8 +151,9 @@ a dumped format, it is the document to compile.
 ### `-f FMT`, `--format FMT`
 
 Selects the format to load. The default, `initex`, initializes the engine from
-the input and dumps a new format. Any other value loads that named format; for
-example, `--format latex` loads the engine-specific `latex-*.pfmt` file.
+the input and dumps a new format. Any other value loads that named,
+engine-specific format; Plain TeX, ePlain, and LaTeX are bundled, while other
+formats must first be dumped locally.
 
 ### `-e ENGINE`, `--engine ENGINE`
 

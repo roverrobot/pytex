@@ -11,6 +11,7 @@ from io import BytesIO, StringIO
 from types import MethodType
 from typing import Tuple
 import copy
+from importlib import resources
 import os
 
 
@@ -334,6 +335,25 @@ class FileResolver:
         """
         return None
 
+    def openBundled(self, info: dict):
+        """
+        Open a bundled read-only resource for this file type, if one exists.
+
+        Standard format files are package data rather than TeX Live inputs, so
+        they are searched after a project-local file but before resolver
+        backends such as TeX Live.
+        """
+        if info.get("category") != "dump":
+            return None
+        for ext in info["extensions"]:
+            filename = f'{info["name"]}.{ext}'
+            resource = resources.files("pytex").joinpath(
+                "data", "formats", filename
+            )
+            if resource.is_file():
+                return resource.open("rb")
+        return None
+
     def openPipeIn(self, name: str):
         """
         Open an allowlisted pipe command for reading.
@@ -389,7 +409,11 @@ class FileResolver:
             # explicit paths are not searched via resolver backends
             if self._hasExplicitDirectory(info["name"]):
                 return None
-        # at last, we resolve the file name
+        # Next, look for package data such as the bundled standard formats.
+        bundled = self.openBundled(info)
+        if bundled is not None:
+            return bundled
+        # At last, resolve the file name through the configured backend.
         f = self.resolve(info)
         if f is not None:
             return open(f, mode)

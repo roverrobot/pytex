@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from importlib.metadata import version as distribution_version
 
 
 def test_python_m_pytex_exposes_compiler_cli():
@@ -17,6 +18,20 @@ def test_python_m_pytex_exposes_compiler_cli():
     assert "[-o {dvi,xdv,pdf,html-reflow,docx,svg}]" in result.stdout
     assert "--texlive DIRECTORY" in result.stdout
     assert "file" in result.stdout
+
+
+def test_python_m_pytex_prints_distribution_version():
+    result = subprocess.run(
+        [sys.executable, "-m", "pytex", "--version"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == f"pytex {distribution_version('pytex')}\n"
+    assert result.stderr == ""
 
 
 def test_texlive_option_replaces_parser_resolver(tmp_path):

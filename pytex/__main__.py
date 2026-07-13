@@ -3,6 +3,7 @@
 from argparse import ArgumentParser
 import cProfile
 import importlib
+from importlib.metadata import version as distribution_version
 import os
 import pstats
 import sys
@@ -28,6 +29,12 @@ PROFILE_SORT_KEYS = (
 
 def argument_parser():
     parser = ArgumentParser(prog="python -m pytex")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"pytex {distribution_version('pytex')}",
+        help="print the Pytex version and exit",
+    )
     parser.add_argument(
         "-f",
         "--format",

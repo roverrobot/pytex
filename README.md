@@ -232,3 +232,7 @@ python -m pytex -p -s cumulative -f latex document.tex
 ### `-h`, `--help`
 
 Prints the command-line help and exits.
+
+### `--version`
+
+Prints the installed Pytex version and exits.

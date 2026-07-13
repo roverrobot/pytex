@@ -3,3 +3,8 @@
 * eTex
   * \mid
   * \currentifbranch
+* Distribution
+  * Currently we require a texlive distribution, but eventually, we need our own package system. We may use texlive packages, but we do not need to download everything at once. Instead, we should search for missing files, and download the corresponding package. In addition, we may use zip files directly instead of unzipping them. This should save the size of the installation
+* Optimization
+  * pfmt. The current json file is huge for latex. It requires a significant time to load the dump.
+  * Overal performance bump. Python is slow.

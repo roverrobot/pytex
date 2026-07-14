@@ -113,7 +113,7 @@ def test_cluster_requires_one_glyph_or_one_packed_hbox(parser):
     source = [glyph.TextChar("A", font, True)]
     output = glyph.Glyph.fromCharNode(font["A"])
 
-    with pytest.raises(TypeError, match="one Glyph or one packed HBox"):
+    with pytest.raises(TypeError, match="one character/glyph node or one packed HBox"):
         glyph.GlyphCluster(source, [output])
 
     unpacked = bx.HBox(parser, None, None)

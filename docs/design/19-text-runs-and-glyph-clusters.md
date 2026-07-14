@@ -18,7 +18,7 @@ The design is based on the following decisions.
 1. `GlyphCluster` is the generalization and eventual replacement of the current
    `Ligature` node.
 2. A cluster is one indivisible horizontal layout unit. It may contain one
-   glyph, several glyphs, automatic kerns, and horizontally or vertically
+   glyph, several glyphs, internal font kerns, and horizontally or vertically
    shifted boxes.
 3. A cluster keeps its logical source characters independently of its concrete
    glyph layout. Hyphenation and reflow consume the logical source, never infer
@@ -102,14 +102,15 @@ two required parts:
 
 - `source`: the non-empty sequence of logical characters represented by the
   cluster, in logical order
-- `layout`: either one `Glyph`, for a one-glyph result such as a ligature, or
-  one already-packed `HBox` containing the fixed-layout composition
+- `layout`: either one character/glyph node, for a one-glyph result such as a
+  ligature, or one already-packed `HBox` containing the fixed-layout
+  composition
 
 It has its own `NODE_TYPE.GLYPH_CLUSTER` and copies the measured dimensions of
 its payload. It is therefore one indivisible measured unit to packing and line
-breaking, not a bare `HList`. Shipout emits a single-glyph payload directly or
-hands an `HBox` payload to the standard box walker. The cluster wrapper never
-becomes a second box-layout algorithm.
+breaking, not a bare `HList`. Shipout emits a single character/glyph payload
+directly or hands an `HBox` payload to the standard box walker. The cluster
+wrapper never becomes a second box-layout algorithm.
 
 Its dimensions have the usual TeX meaning:
 
@@ -129,16 +130,17 @@ The current forms map into the new node as follows:
 
 | Case | Logical source | Fixed cluster contents |
 |---|---|---|
-| ordinary character | one character | one glyph |
-| TFM ligature | several characters | one glyph |
+| ordinary character | one character | one character/glyph node |
+| TFM ligature | several characters | one character node |
+| TFM kern program | connected characters | character nodes and kerns in one `HBox` |
 | multiple substitution | one or more characters | several glyph boxes |
 | combining mark | base and mark characters | glyph boxes with vertical and possibly horizontal shifts |
 | TeX text accent | semantic accent/base source | accent and base boxes with the existing TeX positioning |
 
-Automatic pair kerns may remain concrete automatic `Kern` nodes between
-clusters. A backend may instead express positioning by changing glyph advances
-inside clusters when that is the natural form of its shaping result. The line
-breaker must support both representations.
+Font-generated pair kerns are contained inside the cluster's packed `HBox`.
+They need no separate `automatic` marker: containment already identifies them
+as part of fixed font layout. Explicit TeX kerns remain independent nodes in
+the parent `HList`.
 
 ### Source versus ownership
 
@@ -153,9 +155,9 @@ If a cluster itself needs an owner/provenance link, that link is stored as
 
 ## Fixed-Layout Cluster Construction
 
-Font shaping returns glyph identities, source ranges, advances, and offsets.
-The base text-layout layer lowers those results into ordinary TeX boxes before
-the clusters enter the concrete `HList`.
+Font shaping returns realized `GlyphCluster` nodes. TFM-backed clusters may use
+the existing character nodes directly. OpenType shaping uses `Glyph` nodes when
+the output identity cannot be represented by a character slot.
 
 Each positioned output glyph is represented by a fixed-width placement box:
 
@@ -165,12 +167,13 @@ Each positioned output glyph is represented by a fixed-width placement box:
 - vertical offset is represented by a shifted child box
 - the child's ink dimensions contribute to the placement box's height/depth
 
-For a multi-glyph result, the cluster's packed `HBox` contains those placement
-boxes in output order, plus automatic kerns where appropriate. This
+For a multi-glyph result, the cluster's packed `HBox` contains character/glyph
+nodes and placement boxes in output order, plus internal kerns where
+appropriate. This
 representation can express HarfBuzz's one-to-one, many-to-one, one-to-many, and
 many-to-many results without giving the shipout backend a second positioning
-algorithm. A one-glyph result uses the `Glyph` directly and avoids a redundant
-box layer.
+algorithm. A one-glyph result uses its character or `Glyph` node directly and
+avoids a redundant box layer.
 
 This also supplies the intended foundation for `\accent`: its current sequence
 of a leading kern, shifted accent box, compensating kern, and base glyph can be
@@ -183,32 +186,26 @@ shaping migration.
 The common operation is conceptually:
 
 ```python
-Font.shape(source, *, left_boundary=False, right_boundary=False)
+Font.shape(source, *, parser=None, left_boundary=False, right_boundary=False)
 ```
 
-`Font` supplies size and selected features and delegates to its
-`FontBackend`. The backend-neutral result stream contains:
+`Font` supplies size and selected features and delegates to its `FontBackend`.
+The result is a list of realized `GlyphCluster` nodes. Their `.source` ranges
+partition the logical input without reordering it in this first left-to-right
+implementation. The parser is supplied only so a composed result can be packed
+into an ordinary `HBox`; shaping does not mutate parser lists.
 
-- `ShapedCluster`: a logical source range and one or more `ShapedGlyph` records
-- `ShapedGlyph`: glyph identity, horizontal advance, and horizontal/vertical
-  offsets
-- `ShapedKern`: an automatic adjustment between clusters, including the source
-  pair that caused it for tracing/debugging
-
-`ShapedCluster` source ranges must partition the shaped logical characters
-without reordering them in this first left-to-right implementation.
-`ShapedKern` references source but does not consume it.
+`ShapedCluster`, `ShapedGlyph`, and `ShapedKern` remain useful transient records
+inside an OpenType adapter, but they are not exposed as the result of
+`Font.shape(...)`.
 
 The backend boundary is responsible for font-specific shaping rules:
 
-- `TFMBackend` runs the existing TeX ligature/kern and boundary programs.
+- `TFMBackend` runs the existing TeX ligature/kern and boundary programs,
+  grouping glyphs connected by a kern into one packed cluster.
 - `OpenTypeBackend` passes the full run, font features, and boundary context to
   HarfBuzz and returns HarfBuzz cluster mappings and positions.
 - the null/fallback backend produces one simple cluster per character.
-
-The backend returns shaping information; the base text-layout code owns its
-conversion into engine nodes and boxes. This keeps `FontBackend` independent of
-live parser lists and keeps fixed-layout lowering shared by all fonts.
 
 The existing OpenType conversion of selected GPOS pairs into TFM-style kern
 programs is transitional. It should be removed once HarfBuzz shaping covers the
@@ -289,8 +286,8 @@ Both fragments are reshaped from source. This preserves ligature and kerning
 behavior at the new line boundary and works equally for TFM and HarfBuzz.
 
 Discretionary `pre`, `post`, and replacement text is also shaped through the
-same base `HList` path. Automatic kerns remain discardable/transparent in the
-same places where the current paragraph code treats them that way.
+same base `HList` path. Legacy external automatic kerns remain supported during
+migration, but new font shaping keeps its kerns inside clusters.
 
 ## Fixed Layout Versus Reflow
 

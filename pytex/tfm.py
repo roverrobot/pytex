@@ -408,6 +408,9 @@ class TFMBackend(FontBackend):
         step = self.tfm.program.right_boundary
         return None if step is None else chr(step.next_char)
 
+    def shape(self, font, source, **kwargs):
+        return self._shapeLigKern(font, source, **kwargs)
+
 nullfont_backend = TFMBackend(nullfont)
 
 

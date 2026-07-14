@@ -208,9 +208,10 @@ shifts. Character-addressed backends may delegate to `set_char(...)`; native
 OpenType backends use the glyph ID or glyph name directly.
 
 The cluster is one measured node in its parent horizontal list. A one-glyph
-cluster emits that glyph directly; a composed cluster delegates its packed
-`HBox` payload to the ordinary box walker. Concrete backends do not rerun
-GSUB/GPOS or implement cluster positioning.
+cluster emits its character or glyph node directly; a composed cluster
+delegates its packed `HBox` payload, including internal font kerns, to the
+ordinary box walker. Concrete backends do not rerun GSUB/GPOS or implement
+cluster positioning.
 
 ### `set_rule(node, box, move)`
 

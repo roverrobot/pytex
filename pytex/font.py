@@ -144,6 +144,22 @@ class Font(Command):
     def rightBoundaryChar(self):
         return self.backend.rightBoundaryChar()
 
+    def shape(
+        self,
+        source,
+        *,
+        parser=None,
+        left_boundary=False,
+        right_boundary=False,
+    ):
+        return self.backend.shape(
+            self,
+            source,
+            parser=parser,
+            left_boundary=left_boundary,
+            right_boundary=right_boundary,
+        )
+
     def _charNode(self, char):
         node = self.charnode.get(char)
         if node is not None:

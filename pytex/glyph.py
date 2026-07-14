@@ -237,12 +237,14 @@ class GlyphCluster(nd.Box):
         source = builtins.list(source)
         if not source or not all(isinstance(item, TextChar) for item in source):
             raise ValueError("a glyph cluster requires one or more TextChar sources")
-        if not isinstance(layout, Glyph) and not (
+        if not isinstance(layout, (Glyph, nd.CharNode)) and not (
             isinstance(layout, nd.Box)
             and layout.node_type == nd.NODE_TYPE.HLIST
             and hasattr(layout, "list")
         ):
-            raise TypeError("a glyph cluster layout must be one Glyph or one packed HBox")
+            raise TypeError(
+                "a glyph cluster layout must be one character/glyph node or one packed HBox"
+            )
         if layout.width is None or layout.height is None or layout.depth is None:
             raise ValueError("a glyph cluster layout must already be packed")
         super().__init__(layout.width, layout.height, layout.depth)

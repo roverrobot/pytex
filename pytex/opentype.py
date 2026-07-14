@@ -595,6 +595,11 @@ class OpenTypeBackend(FontBackend):
             assembly=None,
         )
 
+    def shape(self, font, source, **kwargs):
+        # Transitional path: retain the GPOS-derived TeX kern programs until
+        # HarfBuzz replaces this method with full OpenType shaping.
+        return self._shapeLigKern(font, source, **kwargs)
+
     def _spaceWidth(self):
         space = self.glyphInfo(" ")
         if space is not None and space.width > 0:

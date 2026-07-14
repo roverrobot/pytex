@@ -164,6 +164,9 @@ class Shipout:
         if layout.node_type == nd.NODE_TYPE.GLYPH:
             self._ship_glyph(layout)
             return
+        if layout.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            self._ship_char(layout)
+            return
         self._ship_box(layout, parent)
 
     def _ship_rule(self, node, box, move):

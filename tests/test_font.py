@@ -5,8 +5,12 @@ import pytest
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTFont
 from pytex import font_backend
+from pytex import glyph
+from pytex import node as nd
 from pytex import opentype
 from pytex import texlive
+from pytex.dimen import Dimen
+from pytex.font import Font
 from pytex.parser import Parser
 
 
@@ -301,6 +305,26 @@ def test_opentype_backend_exposes_gpos_kern_to_tex(parser):
 
     assert step.isKern
     assert step.kern > 0
+
+
+def test_opentype_font_shape_contains_transitional_gpos_kern_in_cluster(parser):
+    try:
+        backend = parser.loadFontBackend("lmroman10-regular.otf")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+    font = Font(backend, Dimen(10))
+    source = [glyph.TextChar(char, font, True) for char in "be"]
+
+    shaped = font.shape(source, parser=parser)
+
+    assert len(shaped) == 1
+    assert shaped[0].text == "be"
+    assert shaped[0].layout.node_type == nd.NODE_TYPE.HLIST
+    left, kern, right = shaped[0].layout.list
+    assert left.char_info.glyph_id == backend.glyphInfo("b").glyph_id
+    assert right.char_info.glyph_id == backend.glyphInfo("e").glyph_id
+    assert kern.node_type == nd.NODE_TYPE.KERN
+    assert not kern.automatic
 
 
 def test_tex_line_measurement_applies_opentype_gpos_kern(parser):

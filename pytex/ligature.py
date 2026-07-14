@@ -29,7 +29,13 @@ def ligature_step(base, nxt):
     return program.get(ord(nxt.char))
 
 
-def run_ligature_program(working, make_ligature, make_kern, source_nodes):
+def run_ligature_program(
+    working,
+    make_ligature,
+    make_kern,
+    source_nodes,
+    make_insert=None,
+):
     """
     Run a TeX ligature/kern program on a temporary working list.
 
@@ -41,6 +47,9 @@ def run_ligature_program(working, make_ligature, make_kern, source_nodes):
         callback(step, base, nxt) -> kern-like node
     @param source_nodes:
         callback(node) -> list of source nodes represented by node
+    @param make_insert:
+        optional callback(insert_char, step, base, nxt) for the TeX opcode that
+        retains both input glyphs and inserts a third glyph between them
     """
     cursor = 0
     while cursor < len(working) - 1:
@@ -65,6 +74,11 @@ def run_ligature_program(working, make_ligature, make_kern, source_nodes):
             replaced = source_nodes(nxt)
             working[cursor + 1] = make_ligature(insert_char, replaced, step, base, nxt)
         else:
-            working.insert(cursor + 1, insert_char)
+            inserted = (
+                insert_char
+                if make_insert is None
+                else make_insert(insert_char, step, base, nxt)
+            )
+            working.insert(cursor + 1, inserted)
         cursor += step.move
     return working

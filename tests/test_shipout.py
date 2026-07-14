@@ -160,6 +160,48 @@ def test_shipout_emits_single_glyph_cluster_as_one_measured_node(parser):
     assert cluster.width == layout.width
 
 
+def test_shipout_emits_character_node_cluster_directly(parser):
+    class CharacterShipout(_CaptureShipout):
+        def move_to(self, h, v):
+            pass
+
+        def set_char(self, node):
+            self.calls.append(("char", node.char, Dimen(integer=self.h)))
+
+    class Font:
+        at = Dimen(1)
+
+        @staticmethod
+        def glyphInfo(char):
+            return type(
+                "Info",
+                (),
+                {
+                    "char": char,
+                    "width": 3,
+                    "height": 4,
+                    "depth": 1,
+                    "italic": 0,
+                    "program": None,
+                },
+            )()
+
+    font = Font()
+    layout = nd.CharNode("A", font)
+    cluster = glyph.GlyphCluster(
+        [glyph.TextChar("A", font, True)],
+        layout,
+    )
+    hbox = _FakeHBox()
+    hbox.list = [cluster, nd.CharNode("B", font)]
+    shipout = CharacterShipout(parser)
+
+    shipout.shipout(hbox)
+
+    assert ("char", "A", Dimen()) in shipout.calls
+    assert ("char", "B", layout.width) in shipout.calls
+
+
 def test_base_glyph_callback_supports_character_addressed_backends(parser):
     class CharacterShipout(_CaptureShipout):
         def set_char(self, node):

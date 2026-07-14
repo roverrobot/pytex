@@ -13,6 +13,7 @@ from pytex import serialization
 from pytex import texlive  # noqa: F401
 from pytex import mmode
 from pytex import lists
+from pytex import node as nd
 from pytex.dimen import Dimen
 from pytex.font_backend import FontSpec
 from pytex import state
@@ -159,6 +160,81 @@ def test_xetex_interchar_accessors_accept_class_4096(parser):
 def test_xetex_interchar_accessors_reject_out_of_range_values(parser, source, message):
     with pytest.raises(ValueError, match=message):
         parser.parse(source)
+
+
+def _raw_box_chars(box):
+    return "".join(
+        node.char
+        for node in box.raw
+        if node.node_type == nd.NODE_TYPE.CHAR
+    )
+
+
+@pytest.mark.parametrize("body", ["AB", r"A\char66", r"\def\next{B}A\next"])
+def test_xetex_interchar_tokens_are_inserted_before_character_append(cmr10, body):
+    cmr10.parse(
+        r"\XeTeXinterchartokenstate=1 "
+        r"\XeTeXcharclass65=1 \XeTeXcharclass66=2 "
+        r"\XeTeXinterchartoks 1 2={X} "
+        rf"\setbox0=\hbox{{{body}}}"
+    )
+
+    assert _raw_box_chars(cmr10.box[0]) == "AXB"
+
+
+def test_xetex_interchar_tokens_require_positive_token_state(cmr10):
+    cmr10.parse(
+        r"\XeTeXcharclass65=1 \XeTeXcharclass66=2 "
+        r"\XeTeXinterchartoks 1 2={X} "
+        r"\XeTeXinterchartokenstate=-1 \setbox0=\hbox{AB} "
+        r"\XeTeXinterchartokenstate=1 \setbox1=\hbox{AB}"
+    )
+
+    assert _raw_box_chars(cmr10.box[0]) == "AB"
+    assert _raw_box_chars(cmr10.box[1]) == "AXB"
+
+
+def test_xetex_interchar_boundary_tokens_surround_lexical_space(cmr10):
+    cmr10.parse(
+        r"\XeTeXinterchartokenstate=1 "
+        r"\XeTeXcharclass65=1 \XeTeXcharclass66=2 \XeTeXcharclass32=3 "
+        r"\XeTeXinterchartoks 4095 1={L} "
+        r"\XeTeXinterchartoks 1 4095={S} "
+        r"\XeTeXinterchartoks 4095 2={R} "
+        r"\XeTeXinterchartoks 1 3={X} "
+        r"\setbox0=\hbox{A B}"
+    )
+
+    box = cmr10.box[0]
+    assert _raw_box_chars(box) == "LASRB"
+    assert sum(node.node_type == nd.NODE_TYPE.GLUE for node in box.raw) == 1
+
+
+def test_xetex_ignored_interchar_class_is_transparent(cmr10):
+    cmr10.parse(
+        r"\XeTeXinterchartokenstate=1 "
+        r"\XeTeXcharclass65=1 \XeTeXcharclass66=2 "
+        r"\XeTeXcharclass67=4096 "
+        r"\XeTeXinterchartoks 1 2={X} "
+        r"\XeTeXinterchartoks 1 4096={Y} "
+        r"\XeTeXinterchartoks 4096 2={Z} "
+        r"\setbox0=\hbox{ACB}"
+    )
+
+    assert _raw_box_chars(cmr10.box[0]) == "ACXB"
+
+
+def test_xetex_inserted_characters_participate_in_interchar_transitions(cmr10):
+    cmr10.parse(
+        r"\XeTeXinterchartokenstate=1 "
+        r"\XeTeXcharclass65=1 \XeTeXcharclass66=2 \XeTeXcharclass67=3 "
+        r"\XeTeXinterchartoks 1 2={C} "
+        r"\XeTeXinterchartoks 4095 3={D} "
+        r"\XeTeXinterchartoks 3 2={E} "
+        r"\setbox0=\hbox{AB}"
+    )
+
+    assert _raw_box_chars(cmr10.box[0]) == "ADCEB"
 
 
 def _write_test_pdf(path, pages=1):

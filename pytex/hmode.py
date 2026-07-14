@@ -8,12 +8,35 @@ from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen
 from pytex.module import Module
-from pytex.token import Command, CATCODE, relax
+from pytex.token import Command, Token, CATCODE, relax
 from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget
 from pytex.define import CharDefValue
 from pytex.ligature import ligature_step, run_ligature_program
 import types
+
+
+INTERCHAR_CLASS_BOUNDARY = 4095
+INTERCHAR_CLASS_IGNORED = 4096
+
+
+class _IntercharAppendToken(Token):
+    """Runtime continuation used while an interchar token list is executed."""
+
+    __slots__ = ("hlist", "resume")
+
+    def __init__(self, hlist, resume):
+        super().__init__("<interchar append>", None)
+        self.hlist = hlist
+        self.resume = resume
+
+    def execute(self, parser):
+        if parser is not self.hlist.parser:
+            raise RuntimeError("interchar append resumed in a different parser")
+        self.resume()
+
+    def meaning(self, parser):
+        return "interchar append continuation"
 
 
 class Ligature(nd.CharNode):
@@ -157,6 +180,7 @@ class HList(lists.List):
         self.sfcode = parser.sfcode
         self.type = lists.LISTTYPE.HORIZONTAL
         self._ligature_state = {"lig_base": None, "in_word": False}
+        self._interchar_class = INTERCHAR_CLASS_BOUNDARY
 
     def open(self):
         super().open()
@@ -169,6 +193,7 @@ class HList(lists.List):
             self._applyRightBoundary(self.list, self._ligature_state)
             self._ligature_state["in_word"] = False
             self._ligature_state["lig_base"] = None
+        self._interchar_class = INTERCHAR_CLASS_BOUNDARY
         self.parser.globals["spacefactor"] = self.saved_spacefactor
         super().close()
 
@@ -206,13 +231,74 @@ class HList(lists.List):
         self._ligature_state["lig_base"] = None
         self.parser.globals["spacefactor"] = 1000
 
-    def appendInlineMath(self, node, cache):
+    def _intercharClass(self, item):
+        if not isinstance(item, str) and item.node_type == nd.NODE_TYPE.CHAR:
+            return self.parser.xetexcharclass[ord(item.char)], True
+        return INTERCHAR_CLASS_BOUNDARY, False
+
+    def _deferIntercharAppend(self, toks, resume):
+        self.parser.input.unread(_IntercharAppendToken(self, resume))
+        self.parser.input.pushTokenList(toks)
+
+    def _insertIntercharTokens(self, item, resume, backed_up=False):
+        """
+        Insert the class-pair token list before an hlist append when required.
+
+        A deferred character is marked as backed up.  If the inserted token
+        list leaves the previous class at the boundary, this suppresses the
+        same boundary-to-character transition when the character resumes.
+        Material appended by the token list still participates normally.
+        """
+        token_state_entry = dict.get(
+            self.parser.parameters,
+            "XeTeXinterchartokenstate",
+        )
+        token_state = 0 if token_state_entry is None else token_state_entry.value
+        if token_state <= 0:
+            self._interchar_class = INTERCHAR_CLASS_BOUNDARY
+            return False
+
+        current, is_character = self._intercharClass(item)
+        if current == INTERCHAR_CLASS_IGNORED:
+            return False
+
+        previous = self._interchar_class
+        if previous == INTERCHAR_CLASS_BOUNDARY:
+            if backed_up and is_character:
+                self._interchar_class = current
+                return False
+            if current == INTERCHAR_CLASS_BOUNDARY and not is_character:
+                return False
+
+        toks = self.parser.xetexinterchartoks[(previous, current)]
+        if toks is None:
+            self._interchar_class = current
+            return False
+
+        if previous != INTERCHAR_CLASS_BOUNDARY:
+            self._interchar_class = INTERCHAR_CLASS_BOUNDARY
+        self._deferIntercharAppend(toks, resume)
+        return True
+
+    def appendInlineMath(self, node, cache, _interchar_backed_up=False):
+        if self._insertIntercharTokens(
+            node,
+            lambda: self.appendInlineMath(node, cache, _interchar_backed_up=True),
+            _interchar_backed_up,
+        ):
+            return
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         self._resetNonCharState()
         self.list.extend(cache)
 
-    def appendAccent(self, node):
+    def appendAccent(self, node, _interchar_backed_up=False):
+        if self._insertIntercharTokens(
+            node,
+            lambda: self.appendAccent(node, _interchar_backed_up=True),
+            _interchar_backed_up,
+        ):
+            return
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         self._resetNonCharState()
@@ -222,7 +308,13 @@ class HList(lists.List):
             if getattr(concrete, "source", None) is None:
                 concrete.source = node
 
-    def appendVAlignment(self, node):
+    def appendVAlignment(self, node, _interchar_backed_up=False):
+        if self._insertIntercharTokens(
+            node,
+            lambda: self.appendVAlignment(node, _interchar_backed_up=True),
+            _interchar_backed_up,
+        ):
+            return
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         self._resetNonCharState()
@@ -232,7 +324,13 @@ class HList(lists.List):
             if getattr(concrete, "source", None) is None:
                 concrete.source = node
 
-    def append(self, node):
+    def append(self, node, _interchar_backed_up=False):
+        if self._insertIntercharTokens(
+            node,
+            lambda: self.append(node, _interchar_backed_up=True),
+            _interchar_backed_up,
+        ):
+            return
         if isinstance(node, str):
             if node != "\u0020":
                 raise ValueError("horizontal text strings must be U+0020 spaces")

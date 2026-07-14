@@ -24,3 +24,5 @@ Read in this order:
     * [16-html-faithful-backend-proposal.md](16-html-faithful-backend-proposal.md)
     * [17-docx-faithful-backend-proposal.md](17-docx-faithful-backend-proposal.md)
     * [18-reflow-document-ir.md](18-reflow-document-ir.md)
+* Proposed text-layout refactor:
+    * [19-text-runs-and-glyph-clusters.md](19-text-runs-and-glyph-clusters.md)

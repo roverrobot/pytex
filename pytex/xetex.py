@@ -27,7 +27,7 @@ from pytex.glue import Glue
 from pytex.integer import FixedInteger
 from pytex.serialization import Serializable
 from pytex.module import Module
-from pytex.state import Array
+from pytex.state import Array, Dict
 from pytex.typeset.dvipdfm import _encode_pdf_string, serialize_xObject
 
 
@@ -523,6 +523,35 @@ class UDelCodeArray(Array):
         super().__init__("udelcode", state, -1)
 
 
+class XeTeXCharClassArray(Array):
+    """Sparse Unicode character-to-interchar-class table."""
+
+    def __init__(self, state):
+        super().__init__("xetexcharclass", state, 0)
+
+
+class XeTeXIntercharToksDict(Dict):
+    """Grouped map from interchar-class pairs to token lists."""
+
+    def __init__(self, state):
+        super().__init__("xetexinterchartoks", state)
+
+    def dump(self):
+        # JSON object keys cannot be tuples, so keep tuple keys in memory and
+        # encode them only at the format-file boundary.
+        return {
+            f"{class1},{class2}": toks
+            for (class1, class2), toks in super().dump().items()
+        }
+
+    def load(self, data):
+        for key, toks in data.items():
+            if isinstance(key, str):
+                class1, class2 = (int(value) for value in key.split(",", 1))
+                key = (class1, class2)
+            self.setGlobal(key, toks)
+
+
 class UMathSymbol(mmode.MathSymbol):
     """
     A Unicode math symbol using the XeTeX/LuaTeX packed mathchar form.
@@ -751,6 +780,8 @@ mod = Module(
     domains={
         "umathcode": {"generator": UMathCodeArray, "accessor": None},
         "udelcode": {"generator": UDelCodeArray, "accessor": None},
+        "xetexcharclass": {"generator": XeTeXCharClassArray, "accessor": None},
+        "xetexinterchartoks": {"generator": XeTeXIntercharToksDict, "accessor": None},
     },
     commands={
         "Uchar": UChar(),

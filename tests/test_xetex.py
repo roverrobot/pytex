@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -8,12 +9,14 @@ from pytex import dvi
 from pytex import opentype
 from pytex import font_subst
 from pytex import pdf
+from pytex import serialization
 from pytex import texlive  # noqa: F401
 from pytex import mmode
 from pytex import lists
 from pytex.dimen import Dimen
 from pytex.font_backend import FontSpec
-from pytex.token import CATCODE
+from pytex import state
+from pytex.token import CATCODE, Token
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -24,6 +27,58 @@ def _enable_xetex_module():
 def test_xetex_version_primitives_expand_like_engine_identity(collector):
     collector.parse("\\number\\XeTeXversion\\XeTeXrevision")
     assert collector.getString().strip() == "0.999995"
+
+
+def test_xetex_interchar_state_defaults(parser):
+    assert parser.xetexcharclass[ord("A")] == 0
+    assert parser.xetexcharclass[0x1F600] == 0
+    assert parser.xetexinterchartoks[(1, 2)] is None
+
+
+def test_xetex_interchar_state_respects_groups(parser):
+    char = 0x1F600
+    unassigned_char = 0x1F642
+    pair = (7, 8)
+    unassigned_pair = (8, 9)
+    outer_tokens = [Token.token("A", CATCODE.OTHER)]
+    inner_tokens = [Token.token("B", CATCODE.OTHER)]
+
+    parser.xetexcharclass[char] = 7
+    parser.xetexinterchartoks[pair] = outer_tokens
+    parser.beginGroup(position=0, group_type=state.GROUP_TYPE.SEMI_SIMPLE)
+    parser.xetexcharclass[char] = 8
+    parser.xetexcharclass[unassigned_char] = 9
+    parser.xetexinterchartoks[pair] = inner_tokens
+    parser.xetexinterchartoks[unassigned_pair] = inner_tokens
+
+    assert parser.xetexcharclass[char] == 8
+    assert parser.xetexcharclass[unassigned_char] == 9
+    assert parser.xetexinterchartoks[pair] is inner_tokens
+    assert parser.xetexinterchartoks[unassigned_pair] is inner_tokens
+
+    parser.endGroup(position=1, group_type=state.GROUP_TYPE.SEMI_SIMPLE)
+
+    assert parser.xetexcharclass[char] == 7
+    assert parser.xetexcharclass[unassigned_char] == 0
+    assert parser.xetexinterchartoks[pair] is outer_tokens
+    assert parser.xetexinterchartoks[unassigned_pair] is None
+
+
+def test_xetex_interchar_state_dump_uses_json_safe_pair_keys(parser):
+    toks = [Token.token("A", CATCODE.OTHER)]
+    parser.xetexcharclass[0x1F600] = 7
+    parser.xetexinterchartoks[(7, 8)] = toks
+
+    state_data = parser.dumpState()
+
+    assert state_data["xetexcharclass"][0x1F600] == 7
+    assert state_data["xetexinterchartoks"] == {"7,8": toks}
+
+    encoded = json.dumps(serialization.serialize(state_data))
+    decoded = serialization.deserialize(parser, json.loads(encoded))
+    restored = type(parser.xetexinterchartoks)(parser)
+    restored.load(decoded["xetexinterchartoks"])
+    assert restored[(7, 8)] == toks
 
 
 def _write_test_pdf(path, pages=1):

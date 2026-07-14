@@ -592,18 +592,8 @@ class Parser:
             fam = self.parameters["fam"]
             return mmode.MathSymbol(code, fam)
 
-    def addSpace(self):
-        """
-        add a space to the current list
-        @param c: the token representing space
-        """
-        # Spaces have no eﬀect in vertical modes or math modes.
-        top = self.lists[-1]
-        type = top.type 
-        if type == lists.LISTTYPE.VERTICAL or type == lists.LISTTYPE.MATH:
-            return
-        # In horizontal mode, a space token appends glue to the current list,
-        # see the TeX Book pp.76 for more details.
+    def interwordGlue(self):
+        """Return the interword glue for the current horizontal state."""
         f = self.globals["spacefactor"]
         # If the space factor f is diﬀerent from 1000, the interword glue is 
         # computed as follows: Take the normal space glue for the current font, 
@@ -635,7 +625,18 @@ class Parser:
             else:
                 spaceglue = font.spaceglue
             spaceglue = spaceglue.scale(scale)
-        top.append(node.Glue(spaceglue, None))
+        return spaceglue
+
+    def addSpace(self):
+        """Add a U+0020 space to the current horizontal list."""
+        # Spaces have no effect in vertical modes or math modes.
+        top = self.lists[-1]
+        if top.type in (lists.LISTTYPE.VERTICAL, lists.LISTTYPE.MATH):
+            return
+        # The horizontal list owns the interpretation of spaces.  It currently
+        # converts U+0020 to TeX interword glue, but font backends may eventually
+        # retain it as part of a text run.
+        top.append("\u0020")
 
     def lookup(self, name):
         """

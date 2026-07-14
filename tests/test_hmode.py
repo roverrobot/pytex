@@ -119,6 +119,42 @@ def test_controlled_space(cmr10):
     assert node.glue == cmr10.parameters["currentfont"].spaceglue
 
 
+def test_addspace_passes_u0020_to_hlist(cmr10, monkeypatch):
+    cmr10.parse("\\noindent A")
+    expected = glue.Glue(7)
+    monkeypatch.setattr(cmr10, "interwordGlue", lambda: expected)
+    appended = []
+    original_append = hmode.HList.append
+
+    def capture_append(hlist, item):
+        if isinstance(item, str):
+            appended.append(item)
+        return original_append(hlist, item)
+
+    monkeypatch.setattr(hmode.HList, "append", capture_append)
+    cmr10.addSpace()
+
+    assert appended == ["\u0020"]
+    node = cmr10.lists[-1][-1]
+    assert node.node_type == nd.NODE_TYPE.GLUE
+    assert node.glue == expected
+
+
+def test_addspace_ignores_vertical_and_math_modes(cmr10):
+    vlist = cmr10.lists[-1]
+    vertical_nodes = list(vlist)
+    cmr10.addSpace()
+    assert list(vlist) == vertical_nodes
+
+    cmr10.parse("\\noindent$")
+    mlist = cmr10.lists[-1]
+    assert mlist.type == lists.LISTTYPE.MATH
+    math_nodes = list(mlist)
+    cmr10.addSpace()
+    assert list(mlist) == math_nodes
+    cmr10.parse("$\\par")
+
+
 def test_spacefactor_accessor(cmr10):
     cmr10.parse("\\noindent\\spacefactor=1200\\count0=\\spacefactor\\par")
     assert cmr10.count[0] == 1200

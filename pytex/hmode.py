@@ -233,6 +233,10 @@ class HList(lists.List):
                 concrete.source = node
 
     def append(self, node):
+        if isinstance(node, str):
+            if node != "\u0020":
+                raise ValueError("horizontal text strings must be U+0020 spaces")
+            node = nd.Glue(self.parser.interwordGlue(), None)
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         if node.node_type != nd.NODE_TYPE.CHAR:

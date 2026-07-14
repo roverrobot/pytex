@@ -4,6 +4,7 @@ The base class for reflow shipout backends. providing common utilities for reflo
 
 from pytex import box as bx
 from pytex import graphics
+from pytex import glyph as glyph_data
 from pytex.dimen import Dimen, UNITS
 from pytex.font import Font
 from pytex.glue import Glue
@@ -898,7 +899,13 @@ class Reflow(shipout.Shipout):
 
     def _horizontal_advance(self, box, node, glue_state):
         node_type = getattr(node, "node_type", None)
-        if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+        if node_type in (
+            nd.NODE_TYPE.HLIST,
+            nd.NODE_TYPE.VLIST,
+            nd.NODE_TYPE.CHAR,
+            nd.NODE_TYPE.LIGATURE,
+            nd.NODE_TYPE.GLYPH_CLUSTER,
+        ):
             return node.width
         if node_type == nd.NODE_TYPE.GLUE:
             return Dimen(integer=self._glue_amount(node, box, glue_state))
@@ -990,7 +997,7 @@ class Reflow(shipout.Shipout):
             ):
                 return True
             return any(self._region_node_has_layout(child) for child in getattr(node, "list", ()))
-        if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+        if glyph_data.isTextNode(node):
             return True
         if node_type == nd.NODE_TYPE.RULE:
             return (
@@ -1011,7 +1018,13 @@ class Reflow(shipout.Shipout):
             if node_type == nd.NODE_TYPE.WHATSIT:
                 items.append(HModeRegionItem(node, Dimen(), Dimen(y)))
                 continue
-            if node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            if node_type not in (
+                nd.NODE_TYPE.HLIST,
+                nd.NODE_TYPE.VLIST,
+                nd.NODE_TYPE.CHAR,
+                nd.NODE_TYPE.LIGATURE,
+                nd.NODE_TYPE.GLYPH_CLUSTER,
+            ):
                 continue
             x = Dimen(x)
             items.append(HModeRegionItem(node, x - cursor_right, Dimen(y)))
@@ -1411,10 +1424,20 @@ class Reflow(shipout.Shipout):
                 if row.noalign:
                     noalign(table, row.noalign, columns)
 
-    _hlist_concrete_type = (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE, nd.NODE_TYPE.VLIST, nd.NODE_TYPE.HLIST)
+    _hlist_concrete_type = (
+        nd.NODE_TYPE.CHAR,
+        nd.NODE_TYPE.LIGATURE,
+        nd.NODE_TYPE.VLIST,
+        nd.NODE_TYPE.HLIST,
+        nd.NODE_TYPE.GLYPH_CLUSTER,
+    )
 
     def _hlist_has_visible_content(self, box):
         for node in getattr(box, "list", ()):
+            if isinstance(node, glyph_data.GlyphCluster):
+                if not node.text.isspace():
+                    return True
+                continue
             node_type = getattr(node, "node_type", None)
             if node_type == nd.NODE_TYPE.CHAR:
                 if not getattr(node, "char", "").isspace():
@@ -1764,19 +1787,16 @@ class Reflow(shipout.Shipout):
             record_paint(math_box.width, math_box.width)
             return n, math_box.width, closing_kern
 
-        def ligature_text(node):
-            text = ""
-            for n in node.source:
-                if n.node_type == nd.NODE_TYPE.CHAR:
-                    text += n.char
-                elif n.node_type == nd.NODE_TYPE.LIGATURE:
-                    text += ligature_text(n)
-            return text
+        def source_text(node):
+            source = glyph_data.textSource(node)
+            if source is None:
+                return None
+            return "".join(item.char for item in source)
 
         def emit_text(nodes, n):
             nonlocal font
             flush_spacing()
-            text = n.char if n.node_type == nd.NODE_TYPE.CHAR else ligature_text(n)
+            text = source_text(n)
             font = n.font
             width = n.width
             use_font_kerning = getattr(
@@ -1796,9 +1816,10 @@ class Reflow(shipout.Shipout):
                     # apply it exactly once.
                     width += n.kern
                     n = next(nodes, None)
-                if n is None or n.node_type not in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE) or n.font != font:
+                next_text = None if n is None else source_text(n)
+                if next_text is None or n.font != font:
                     break
-                text += n.char if n.node_type == nd.NODE_TYPE.CHAR else ligature_text(n)
+                text += next_text
                 width += n.width
             new_text_run(text=text, font=font)
             record_paint(width, width)
@@ -1856,7 +1877,7 @@ class Reflow(shipout.Shipout):
             if node_type == nd.NODE_TYPE.KERN:
                 n = emit_space_run(nodes, n.kern, breakable=False)
                 continue
-            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            if glyph_data.isTextNode(n):
                 n, _, font = emit_text(nodes, n)
                 continue
             if node_type == nd.NODE_TYPE.MATH:

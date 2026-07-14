@@ -153,6 +153,19 @@ class Shipout:
         self.set_char(node)
         self.h += int(node.width)
 
+    def _ship_glyph(self, node):
+        self.move_to(self.h, self.v)
+        self._ensure_font(node.font)
+        self.set_glyph(node)
+        self.h += int(node.width)
+
+    def _ship_glyph_cluster(self, node, parent):
+        layout = node.layout
+        if layout.node_type == nd.NODE_TYPE.GLYPH:
+            self._ship_glyph(layout)
+            return
+        self._ship_box(layout, parent)
+
     def _ship_rule(self, node, box, move):
         # Preserve the current DVI-compatible rule placement semantics. In
         # horizontal lists, the current point for a rule is lowered by its
@@ -209,6 +222,10 @@ class Shipout:
             node_type = node.node_type
             if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
                 self._ship_char(node)
+            elif node_type == nd.NODE_TYPE.GLYPH:
+                self._ship_glyph(node)
+            elif node_type == nd.NODE_TYPE.GLYPH_CLUSTER:
+                self._ship_glyph_cluster(node, box)
             elif node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
                 self._ship_box(node, box)
             elif node_type == nd.NODE_TYPE.RULE:
@@ -258,6 +275,14 @@ class Shipout:
 
     def set_char(self, node):
         pass
+
+    def set_glyph(self, node):
+        """Compatibility path for character-addressed output backends."""
+        if node.char is None:
+            raise ValueError(
+                f"{self.__class__.__name__} cannot emit glyph {node.glyph_id!r} without a character slot"
+            )
+        self.set_char(node)
 
     def set_rule(self, node, box, move):
         pass

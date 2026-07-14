@@ -320,7 +320,7 @@ def test_hyphenation_reshapes_a_split_inside_glyph_cluster(cmr10):
     font = cmr10.parameters["currentfont"]
     prefix = glyph.GlyphCluster.fromLegacy(font["a"], word_char=True)
     source = [glyph.TextChar(char, font, True) for char in "technical"]
-    word = glyph.GlyphCluster(source, [glyph.Glyph.fromCharNode(font["t"])])
+    word = glyph.GlyphCluster(source, glyph.Glyph.fromCharNode(font["t"]))
     nodes = [
         prefix,
         nd.Glue(glue.Glue(), None),

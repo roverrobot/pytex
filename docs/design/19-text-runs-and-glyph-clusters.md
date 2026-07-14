@@ -102,13 +102,14 @@ two required parts:
 
 - `source`: the non-empty sequence of logical characters represented by the
   cluster, in logical order
-- `list`: the already-realized fixed-layout contents, made from glyphs,
-  automatic kerns, and packed/shifted boxes
+- `layout`: either one `Glyph`, for a one-glyph result such as a ligature, or
+  one already-packed `HBox` containing the fixed-layout composition
 
-It has its own `NODE_TYPE.GLYPH_CLUSTER`; it is not exposed to its parent as a
-general `HLIST`. The shipout walker may traverse its contents like a packed
-horizontal box, while the paragraph builder still recognizes it as an
-indivisible text unit.
+It has its own `NODE_TYPE.GLYPH_CLUSTER` and copies the measured dimensions of
+its payload. It is therefore one indivisible measured unit to packing and line
+breaking, not a bare `HList`. Shipout emits a single-glyph payload directly or
+hands an `HBox` payload to the standard box walker. The cluster wrapper never
+becomes a second box-layout algorithm.
 
 Its dimensions have the usual TeX meaning:
 
@@ -164,10 +165,12 @@ Each positioned output glyph is represented by a fixed-width placement box:
 - vertical offset is represented by a shifted child box
 - the child's ink dimensions contribute to the placement box's height/depth
 
-The cluster contains those placement boxes in output order, plus automatic
-kerns where appropriate. This representation can express HarfBuzz's one-to-one,
-many-to-one, one-to-many, and many-to-many results without giving the shipout
-backend a second positioning algorithm.
+For a multi-glyph result, the cluster's packed `HBox` contains those placement
+boxes in output order, plus automatic kerns where appropriate. This
+representation can express HarfBuzz's one-to-one, many-to-one, one-to-many, and
+many-to-many results without giving the shipout backend a second positioning
+algorithm. A one-glyph result uses the `Glyph` directly and avoids a redundant
+box layer.
 
 This also supplies the intended foundation for `\accent`: its current sequence
 of a leading kern, shifted accent box, compensating kern, and base glyph can be
@@ -281,7 +284,7 @@ small generic text-source protocol:
 - reshape the affected left and right fragments with their new boundary
   context
 
-A break inside a many-character cluster never slices the existing glyph list.
+A break inside a many-character cluster never slices the existing layout.
 Both fragments are reshaped from source. This preserves ligature and kerning
 behavior at the new line boundary and works equally for TFM and HarfBuzz.
 
@@ -305,7 +308,7 @@ breaking.
 
 ### HTML and DOCX reflow
 
-Reflow backends consume logical text, not the concrete cluster glyph list. They
+Reflow backends consume logical text, not the concrete cluster layout. They
 join adjacent compatible cluster sources into Unicode text runs and carry
 forward the selected font, language, and OpenType feature settings.
 

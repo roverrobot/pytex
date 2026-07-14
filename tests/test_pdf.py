@@ -1,6 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 import re
+from types import SimpleNamespace
 
 import pytest
 from pypdf import PdfReader
@@ -23,6 +24,34 @@ def _page_content_text(path):
     else:
         data = content.get_data()
     return page, data.decode("latin1", "replace")
+
+
+def test_pdf_raw_opentype_glyph_accepts_explicit_glyph_id():
+    class FontData:
+        def getGlyphName(self, glyph_id):
+            assert glyph_id == 37
+            return "f_i"
+
+        def __getitem__(self, table):
+            assert table == "hmtx"
+            return SimpleNamespace(metrics={"f_i": (600, 0)})
+
+    font = SimpleNamespace(
+        backend=SimpleNamespace(
+            font=FontData(),
+            name="Example",
+            units_per_em=1000,
+        )
+    )
+    raw_font = pdf._RawOpenTypeFont(font, "ExampleRaw")
+    backend = pdf.PDFBackend.__new__(pdf.PDFBackend)
+
+    output = backend._raw_font_glyph(raw_font, glyph_id=37)
+
+    assert output.code == 37
+    assert output.width == 600
+    assert output.char is None
+    assert output.unicode_hex is None
 
 
 def test_pdf_warns_once_for_non_bmp_character(cmr10):

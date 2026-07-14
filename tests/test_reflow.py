@@ -1,4 +1,5 @@
 from pytex import box as bx
+from pytex import glyph
 from pytex import glue
 from pytex import mmode
 from pytex import node as nd
@@ -67,6 +68,15 @@ class _ProbeParagraph(reflow.Element):
 
 class _ProbeLine(_ProbeParagraph):
     pass
+
+
+class _TextCaptureParagraph(_ProbeParagraph):
+    def newTextRun(self, text=None, font=None, color=None, baseline_from_bottom=None):
+        run = _ProbeTextRun()
+        run.text = text
+        run.font = font
+        self.append(run)
+        return run
 
 
 class _ProbeBlock(reflow.Element):
@@ -399,6 +409,26 @@ def test_typeset_line_packs_inline_math_with_line_glue_state(parser):
     assert _pt(paragraph.text_run.spaces[-1]) == 5
     assert glue_state["factor_sum"] == int(Dimen(2))
     assert glue_state["applied"] == int(Dimen(10))
+
+
+def test_typeset_line_recovers_cluster_source_without_walking_glyph_layout(parser):
+    backend = _ProbeBackend(parser)
+    paragraph = _TextCaptureParagraph()
+    font = parser.parameters["currentfont"]
+    cluster = glyph.GlyphCluster(
+        [glyph.TextChar("f", font, True), glyph.TextChar("i", font, True)],
+        glyph.Glyph(font, 7, 5, 1, glyph_id=42),
+    )
+    following = glyph.GlyphCluster(
+        [glyph.TextChar("x", font, True)],
+        glyph.Glyph(font, 4, 5, 1, char="x", glyph_id=43),
+    )
+
+    with reflow.Builder(backend, paragraph):
+        backend.paragraph = paragraph
+        backend.typesetLine([cluster, following])
+
+    assert [run.text for run in paragraph.nodes] == ["fix"]
 
 
 def test_inline_math_fragment_ignores_inactive_glue_order(parser):

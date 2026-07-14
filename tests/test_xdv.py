@@ -169,6 +169,28 @@ def test_xdv_native_font_chars_emit_xdv_glyphs(parser):
     assert shipout.dvi_h == 12345
 
 
+def test_xdv_native_glyphs_use_explicit_glyph_id(parser):
+    output = BytesIO()
+    shipout = xdv.XDVBackend(parser, output)
+    shipout.file = output
+    font = SimpleNamespace(backend=SimpleNamespace(kind="opentype"))
+    node = SimpleNamespace(
+        char=None,
+        glyph_id=91,
+        glyph_name="alternate",
+        width=23456,
+        font=font,
+    )
+
+    shipout.set_glyph(node)
+
+    payload = _xdv_glyphs_payload(output.getvalue())
+    assert payload["width"] == 23456
+    assert payload["positions"] == [(0, 0)]
+    assert payload["glyphs"] == [91]
+    assert shipout.dvi_h == 23456
+
+
 def test_xdv_graphic_special_is_serialized(parser):
     output = BytesIO()
     shipout = xdv.XDVBackend(parser, output)

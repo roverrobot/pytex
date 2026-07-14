@@ -67,12 +67,14 @@ _ONE_INCH = Dimen(integer=Dimen._trunc_div(UNITS["in"][0] * Dimen.scale, UNITS["
 
 @dataclass
 class _RawOpenTypeGlyph:
-    char: str
+    char: str | None
     code: int
     width: int
 
     @property
     def unicode_hex(self):
+        if self.char is None:
+            return None
         return self.char.encode("utf-16-be").hex().upper()
 
 
@@ -526,12 +528,16 @@ class PDFBackend(Shipout):
             "end\n"
         ).encode("ascii")
 
-    def _raw_font_glyph(self, raw_font, char):
+    def _raw_font_glyph(self, raw_font, char=None, glyph_id=None, glyph_name=None):
         backend = raw_font.font.backend
-        glyph_name = backend._glyphName(char)
-        if glyph_name is None:
-            glyph_name = ".notdef"
-        glyph_id = backend.font.getGlyphID(glyph_name)
+        if glyph_id is None:
+            if glyph_name is None and char is not None:
+                glyph_name = backend._glyphName(char)
+            if glyph_name is None:
+                glyph_name = ".notdef"
+            glyph_id = backend.font.getGlyphID(glyph_name)
+        elif glyph_name is None:
+            glyph_name = backend.font.getGlyphName(glyph_id)
         if glyph_id > 0xFFFF:
             raise ValueError(f"PDF backend cannot encode glyph id {glyph_id} in font {backend.name}")
         glyph = raw_font.glyphs.get(glyph_id)
@@ -1057,9 +1063,15 @@ class PDFBackend(Shipout):
             return colors.CMYKColor(*vals)
         return colors.black
 
-    def _draw_opentype_glyph_outline(self, node, x, y):
+    def _draw_opentype_glyph_outline(self, node, x, y, force=False):
         backend = getattr(self.current_font, "backend", None)
-        glyph_name = getattr(node.char_info, "glyph_name", None)
+        glyph_name = getattr(node, "glyph_name", None)
+        glyph_id = getattr(node, "glyph_id", None)
+        if glyph_name is None and glyph_id is not None:
+            glyph_name = backend.font.getGlyphName(glyph_id)
+        char_info = getattr(node, "char_info", None)
+        if glyph_name is None:
+            glyph_name = getattr(char_info, "glyph_name", None)
         glyph_set = getattr(backend, "_glyph_set", None)
         if glyph_name is None or glyph_set is None:
             return False
@@ -1069,8 +1081,9 @@ class PDFBackend(Shipout):
         # If the node's Unicode character already maps to the selected glyph,
         # normal text drawing is preferable. Outline fallback is for variant-only
         # glyphs that have no usable cmap entry.
-        mapped = getattr(backend, "_glyphName", lambda _char: None)(node.char)
-        if mapped == glyph_name and ord(node.char) < 0xF0000:
+        char = getattr(node, "char", None)
+        mapped = None if char is None else getattr(backend, "_glyphName", lambda _char: None)(char)
+        if not force and mapped == glyph_name and ord(char) < 0xF0000:
             return False
         path = ReportLabPen(glyph_set).path
         glyph.draw(ReportLabPen(glyph_set, path))
@@ -1126,6 +1139,39 @@ class PDFBackend(Shipout):
             if not drawn:
                 self._warn_reportlab_non_bmp(node.char)
                 self.canvas.drawString(x, y, node.char)
+        if self._active_annotations:
+            self._grow_annotation_rect(*self._annotation_font_box(x, y, self._pt(node.width)))
+
+    def set_glyph(self, node):
+        x = self._x(self.h)
+        y = self._page_y(self.v)
+        raw_font = getattr(self, "_raw_fonts", {}).get(self.current_font_name)
+        if raw_font is not None:
+            glyph = self._raw_font_glyph(
+                raw_font,
+                char=node.char,
+                glyph_id=node.glyph_id,
+                glyph_name=node.glyph_name,
+            )
+            self._page_raw_fonts[-1].add(raw_font.name)
+            self.canvas.addLiteral(
+                "BT /{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj ET".format(
+                    raw_font.name,
+                    self._pdf_number(self._pt(self.current_font.at)),
+                    self._pdf_number(x),
+                    self._pdf_number(y),
+                    glyph.code,
+                )
+            )
+        elif getattr(getattr(self.current_font, "backend", None), "kind", None) == "opentype":
+            if not self._draw_opentype_glyph_outline(node, x, y, force=True):
+                if node.char is None:
+                    raise ValueError(
+                        f"PDF backend cannot resolve OpenType glyph {node.glyph_id!r}"
+                    )
+                self.canvas.drawString(x, y, node.char)
+        else:
+            return super().set_glyph(node)
         if self._active_annotations:
             self._grow_annotation_rect(*self._annotation_font_box(x, y, self._pt(node.width)))
 

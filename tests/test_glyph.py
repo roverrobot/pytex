@@ -1,6 +1,7 @@
 import pytest
 
 from pytex import glyph
+from pytex import box as bx
 from pytex import hmode
 from pytex import node as nd
 from pytex import serialization
@@ -80,9 +81,8 @@ def test_legacy_ligature_adapts_to_one_glyph_cluster():
     assert cluster.node_type == nd.NODE_TYPE.GLYPH_CLUSTER
     assert cluster.text == "fi"
     assert all(item.word_char for item in cluster.source)
-    assert len(cluster.list) == 1
-    assert cluster.list[0].node_type == nd.NODE_TYPE.GLYPH
-    assert cluster.list[0].char == ligature.char
+    assert cluster.layout.node_type == nd.NODE_TYPE.GLYPH
+    assert cluster.layout.char == ligature.char
     assert cluster.width == ligature.width
     assert cluster.height == ligature.height
     assert cluster.depth == ligature.depth
@@ -98,11 +98,28 @@ def test_cluster_measures_boxes_kerns_and_vertical_shifts(parser):
         glyph.TextChar("V", font, True),
     ]
 
-    cluster = glyph.GlyphCluster(source, [first, nd.Kern(-0.5, True), second])
+    layout = bx.HBox(parser, None, None)
+    layout.list = [first, nd.Kern(-0.5, True), second]
+    layout = layout.typeset(parser)
+    cluster = glyph.GlyphCluster(source, layout)
 
-    assert cluster.width == first.width - Dimen(0.5) + second.width
-    assert cluster.height == max(first.height, second.height + Dimen(2))
-    assert cluster.depth == max(first.depth, second.depth - Dimen(2))
+    assert cluster.width == layout.width == first.width - Dimen(0.5) + second.width
+    assert cluster.height == layout.height == max(first.height, second.height + Dimen(2))
+    assert cluster.depth == layout.depth == max(first.depth, second.depth - Dimen(2))
+
+
+def test_cluster_requires_one_glyph_or_one_packed_hbox(parser):
+    font = parser.parameters["currentfont"]
+    source = [glyph.TextChar("A", font, True)]
+    output = glyph.Glyph.fromCharNode(font["A"])
+
+    with pytest.raises(TypeError, match="one Glyph or one packed HBox"):
+        glyph.GlyphCluster(source, [output])
+
+    unpacked = bx.HBox(parser, None, None)
+    unpacked.list = [output]
+    with pytest.raises(ValueError, match="already be packed"):
+        glyph.GlyphCluster(source, unpacked)
 
 
 def test_text_source_supports_new_and_legacy_nodes(parser):
@@ -125,8 +142,10 @@ def test_realized_cluster_serialization_round_trip(parser):
         glyph.TextChar("A", font, True),
         glyph.TextChar(" ", font, False, spacing),
     ]
-    content = [glyph.Glyph.fromCharNode(font["A"]), nd.Kern(1, True)]
-    cluster = glyph.GlyphCluster(source, content)
+    layout = bx.HBox(parser, None, None)
+    layout.list = [glyph.Glyph.fromCharNode(font["A"]), nd.Kern(1, True)]
+    layout = layout.typeset(parser)
+    cluster = glyph.GlyphCluster(source, layout)
 
     restored = serialization.deserialize(
         parser,
@@ -137,7 +156,8 @@ def test_realized_cluster_serialization_round_trip(parser):
     assert restored.text == "A "
     assert restored.source[0].word_char is True
     assert restored.source[1].interword_glue == spacing
-    assert restored.list[0].node_type == nd.NODE_TYPE.GLYPH
-    assert restored.list[0].glyph_id == content[0].glyph_id
-    assert restored.list[1].automatic is True
+    assert restored.layout.node_type == nd.NODE_TYPE.HLIST
+    assert restored.layout.list[0].node_type == nd.NODE_TYPE.GLYPH
+    assert restored.layout.list[0].glyph_id == layout.list[0].glyph_id
+    assert restored.layout.list[1].automatic is True
     assert restored.width == cluster.width

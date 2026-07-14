@@ -1,6 +1,8 @@
 import pytest
 
 from pytex.typeset.shipout import Shipout
+from pytex import box as bx
+from pytex import glyph
 from pytex import graphics
 from pytex import node as nd
 from pytex.dimen import Dimen
@@ -53,6 +55,24 @@ class _FakeChar:
     font = object()
 
 
+class _PlacedHBox(nd.Box):
+    node_type = nd.NODE_TYPE.HLIST
+
+    def __init__(self, child, shifted=0):
+        super().__init__(child.width, child.height, child.depth)
+        self.list = [child]
+        self.shifted = Dimen(shifted)
+
+
+class _PlacedVBox(nd.Box):
+    node_type = nd.NODE_TYPE.VLIST
+
+    def __init__(self, child, shifted=0):
+        super().__init__(child.width, child.height, child.depth)
+        self.list = [child]
+        self.shifted = Dimen(shifted)
+
+
 def test_top_level_hbox_shipout_starts_at_baseline(parser):
     class BaselineShipout(_CaptureShipout):
         def move_to(self, h, v):
@@ -70,6 +90,89 @@ def test_top_level_hbox_shipout_starts_at_baseline(parser):
     shipout.shipout(hbox)
 
     assert ("char", Dimen(5), Dimen(18)) in shipout.calls
+
+
+def test_shipout_traverses_cluster_layout_and_advances_once(parser):
+    class GlyphShipout(_CaptureShipout):
+        def move_to(self, h, v):
+            pass
+
+        def set_char(self, node):
+            self.calls.append(("char", node.char, Dimen(integer=self.h), Dimen(integer=self.v)))
+
+        def set_glyph(self, node):
+            self.calls.append(("glyph", node.glyph_id, Dimen(integer=self.h), Dimen(integer=self.v)))
+
+    parser.layout["hoffset"] = Dimen(5)
+    parser.layout["voffset"] = Dimen(11)
+    font = object()
+    first = glyph.Glyph(font, 3, 4, 1, char="A", glyph_id=17)
+    second = glyph.Glyph(font, 4, 5, 1, char="B", glyph_id=23)
+    placement = _PlacedHBox(first, shifted=-2)
+    layout = bx.HBox(parser, None, None)
+    layout.list = [placement, nd.Kern(1, True), _PlacedVBox(_PlacedHBox(second))]
+    layout = layout.typeset(parser)
+    cluster = glyph.GlyphCluster(
+        [glyph.TextChar("A", font, True), glyph.TextChar("B", font, True)],
+        layout,
+    )
+    trailing = _FakeChar()
+    trailing.char = "C"
+    hbox = _FakeHBox()
+    hbox.list = [cluster, trailing]
+    shipout = GlyphShipout(parser)
+
+    shipout.shipout(hbox)
+
+    assert ("glyph", 17, Dimen(5), Dimen(16)) in shipout.calls
+    assert ("glyph", 23, Dimen(9), Dimen(18)) in shipout.calls
+    assert ("char", "C", Dimen(13), Dimen(18)) in shipout.calls
+    assert cluster.width == layout.width == Dimen(8)
+
+
+def test_shipout_emits_single_glyph_cluster_as_one_measured_node(parser):
+    class GlyphShipout(_CaptureShipout):
+        def move_to(self, h, v):
+            pass
+
+        def set_char(self, node):
+            self.calls.append(("char", node.char, Dimen(integer=self.h)))
+
+        def set_glyph(self, node):
+            self.calls.append(("glyph", node.glyph_id, Dimen(integer=self.h)))
+
+    font = object()
+    layout = glyph.Glyph(font, 3, 4, 1, glyph_id=31)
+    cluster = glyph.GlyphCluster(
+        [glyph.TextChar("f", font, True), glyph.TextChar("i", font, True)],
+        layout,
+    )
+    trailing = _FakeChar()
+    trailing.char = "C"
+    hbox = _FakeHBox()
+    hbox.list = [cluster, trailing]
+    shipout = GlyphShipout(parser)
+
+    shipout.shipout(hbox)
+
+    assert ("glyph", 31, Dimen()) in shipout.calls
+    assert ("char", "C", Dimen(3)) in shipout.calls
+    assert cluster.width == layout.width
+
+
+def test_base_glyph_callback_supports_character_addressed_backends(parser):
+    class CharacterShipout(_CaptureShipout):
+        def set_char(self, node):
+            self.calls.append(("char", node.char))
+
+    shipout = CharacterShipout(parser)
+    font = object()
+
+    shipout.set_glyph(glyph.Glyph(font, 3, 4, 1, char="A", glyph_id=17))
+
+    assert shipout.calls == [("char", "A")]
+    with pytest.raises(ValueError, match="without a character slot"):
+        shipout.set_glyph(glyph.Glyph(font, 3, 4, 1, glyph_id=18))
 
 
 def test_shipout_parses_dvipdfm_color_special(parser):

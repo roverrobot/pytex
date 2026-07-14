@@ -29,7 +29,13 @@ class GlyphCache(dict):
             self.scale = _float(font.at) / self.font['head'].unitsPerEm
 
     def __getitem__(self, char):
-        name = getattr(char.char_info, "glyph_name", None)
+        name = getattr(char, "glyph_name", None)
+        glyph_id = getattr(char, "glyph_id", None)
+        if name is None and glyph_id is not None:
+            name = self.font.getGlyphName(glyph_id)
+        char_info = getattr(char, "char_info", None)
+        if name is None:
+            name = getattr(char_info, "glyph_name", None)
         if name is None:
             try:
                 name = self.cmap[ord(char.char)]
@@ -85,6 +91,9 @@ class SVGShipoutBackend(Shipout):
         glyph.draw(t_pen)
         self.canvas.append(draw.Path(d=svg_pen.getCommands(), fill='black'))
         self.x += glyph.width * self.font.scale
+
+    def set_glyph(self, node):
+        self.set_char(node)
 
     def set_rule(self, node, box, move):
         width = _float(box.width) if node.width == NEG_MAX_DIMEN else _float(node.width)

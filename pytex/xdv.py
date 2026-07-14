@@ -73,13 +73,18 @@ class XDVBackend(DVIBackend):
         super()._write_font_def(font_id, font)
 
     def _native_glyph_id(self, node):
-        glyph_id = getattr(node.font.backend, "glyphId", lambda _char: 0)(node.char)
+        glyph_id = getattr(node, "glyph_id", None)
+        if glyph_id is not None:
+            return glyph_id
+        backend = node.font.backend
+        glyph_name = getattr(node, "glyph_name", None)
+        if glyph_name is not None:
+            glyph_id = backend.font.getGlyphID(glyph_name)
+        else:
+            glyph_id = getattr(backend, "glyphId", lambda _char: 0)(node.char)
         return 0 if glyph_id is None else glyph_id
 
-    def set_char(self, node):
-        if getattr(node.font.backend, "kind", None) != "opentype":
-            super().set_char(node)
-            return
+    def _set_native_glyph(self, node):
         width = int(node.width)
         self._write_byte(self.XDV_GLYPHS)
         self._write_unsigned(width, 4)
@@ -88,6 +93,18 @@ class XDVBackend(DVIBackend):
         self._write_signed(0, 4)
         self._write_unsigned(self._native_glyph_id(node), 2)
         self.dvi_h += width
+
+    def set_char(self, node):
+        if getattr(node.font.backend, "kind", None) != "opentype":
+            super().set_char(node)
+            return
+        self._set_native_glyph(node)
+
+    def set_glyph(self, node):
+        if getattr(node.font.backend, "kind", None) != "opentype":
+            super().set_glyph(node)
+            return
+        self._set_native_glyph(node)
 
 
 def init(parser):

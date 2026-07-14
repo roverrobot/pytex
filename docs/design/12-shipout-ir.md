@@ -75,6 +75,7 @@ The base walker currently owns all of the following.
 It traverses:
 
 - character and ligature nodes
+- glyph clusters and their fixed-layout glyph/box contents
 - nested `HLIST` / `VLIST` boxes
 - rules
 - glue and kerns
@@ -142,6 +143,7 @@ Concrete shipout backends currently implement this method family:
 - `select_font(font)`
 - `move_to(h, v)`
 - `set_char(node)`
+- `set_glyph(node)`
 - `set_rule(node, box, move)`
 - `rawSpecial(text)`
 - `setColor(mode, space=None, values=None)`
@@ -197,6 +199,18 @@ In the current code:
 This emits one shipped character or ligature node at the current position.
 
 The base class ensures the right font is selected first.
+
+### `set_glyph(node)`
+
+This emits one backend glyph identity from inside a `GlyphCluster`. The shared
+walker has already applied the cluster's boxes, kerns, advances, and vertical
+shifts. Character-addressed backends may delegate to `set_char(...)`; native
+OpenType backends use the glyph ID or glyph name directly.
+
+The cluster is one measured node in its parent horizontal list. A one-glyph
+cluster emits that glyph directly; a composed cluster delegates its packed
+`HBox` payload to the ordinary box walker. Concrete backends do not rerun
+GSUB/GPOS or implement cluster positioning.
 
 ### `set_rule(node, box, move)`
 

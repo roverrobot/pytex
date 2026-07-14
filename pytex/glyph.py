@@ -224,51 +224,31 @@ class Glyph(nd.Box):
 
 
 class GlyphCluster(nd.Box):
-    """An indivisible text unit with logical source and concrete box layout."""
+    """An indivisible text unit with one measured fixed-layout payload."""
 
     node_type = nd.NODE_TYPE.GLYPH_CLUSTER
 
     def __init__(
         self,
         source: Sequence[TextChar],
-        list,
-        width=None,
-        height=None,
-        depth=None,
+        layout,
         owner=None,
     ):
         source = builtins.list(source)
         if not source or not all(isinstance(item, TextChar) for item in source):
             raise ValueError("a glyph cluster requires one or more TextChar sources")
-        content = builtins.list(list)
-        natural_width, natural_height, natural_depth = self.measure(content)
-        super().__init__(
-            natural_width if width is None else width,
-            natural_height if height is None else height,
-            natural_depth if depth is None else depth,
-        )
+        if not isinstance(layout, Glyph) and not (
+            isinstance(layout, nd.Box)
+            and layout.node_type == nd.NODE_TYPE.HLIST
+            and hasattr(layout, "list")
+        ):
+            raise TypeError("a glyph cluster layout must be one Glyph or one packed HBox")
+        if layout.width is None or layout.height is None or layout.depth is None:
+            raise ValueError("a glyph cluster layout must already be packed")
+        super().__init__(layout.width, layout.height, layout.depth)
         self.source = source
-        self.list = content
+        self.layout = layout
         self.owner = owner
-
-    @staticmethod
-    def measure(content):
-        width = Dimen()
-        height = Dimen()
-        depth = Dimen()
-        for node in content:
-            if node.node_type == nd.NODE_TYPE.KERN:
-                width += node.kern
-                continue
-            if not isinstance(node, nd.Box):
-                raise TypeError("glyph cluster contents must be boxes or kerns")
-            if node.width is None or node.height is None or node.depth is None:
-                raise ValueError("glyph cluster contents must already be realized")
-            shifted = Dimen(getattr(node, "shifted", 0))
-            width += node.width
-            height = max(height, node.height - shifted)
-            depth = max(depth, node.depth + shifted)
-        return width, height, depth
 
     @classmethod
     def fromLegacy(cls, node, word_char=False):
@@ -283,10 +263,7 @@ class GlyphCluster(nd.Box):
         source = _legacyTextChars(source_nodes, classify)
         return cls(
             source,
-            [Glyph.fromCharNode(node)],
-            width=node.width,
-            height=node.height,
-            depth=node.depth,
+            Glyph.fromCharNode(node),
         )
 
     @property
@@ -300,15 +277,12 @@ class GlyphCluster(nd.Box):
     def saveInfo(self):
         return {
             "source": self.source,
-            "list": self.list,
-            "width": self.width,
-            "height": self.height,
-            "depth": self.depth,
+            "layout": self.layout,
             "owner": self.owner,
         }, None
 
     def __repr__(self):
-        return f"GlyphCluster({self.text!r}, {self.list!r})"
+        return f"GlyphCluster({self.text!r}, {self.layout!r})"
 
     def meaning(self, parser):
         return f"glyph cluster {self.text!r}"
@@ -331,8 +305,7 @@ def textSource(node, word_char=False):
 
 def isTextNode(node):
     """Whether a parent horizontal list should treat a node as text."""
-    return getattr(node, "node_type", None) in (
+    return isinstance(node, GlyphCluster) or getattr(node, "node_type", None) in (
         nd.NODE_TYPE.CHAR,
         nd.NODE_TYPE.LIGATURE,
-        nd.NODE_TYPE.GLYPH_CLUSTER,
     )

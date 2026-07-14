@@ -81,6 +81,86 @@ def test_xetex_interchar_state_dump_uses_json_safe_pair_keys(parser):
     assert restored[(7, 8)] == toks
 
 
+def test_xetex_charclass_accessor_reads_and_writes_unicode_slots(collector):
+    collector.parse(
+        "\\XeTeXcharclass\"1F600=7 "
+        "\\number\\XeTeXcharclass\"1F600"
+    )
+
+    assert collector.xetexcharclass[0x1F600] == 7
+    assert collector.getString().strip() == "7"
+
+
+def test_xetex_interchartoks_accessor_reads_and_writes_token_lists(collector):
+    collector.parse(
+        "\\XeTeXinterchartoks 7 8={A B}"
+        "\\the\\XeTeXinterchartoks 7 8"
+    )
+
+    assert collector.expandedToksToString(collector.xetexinterchartoks[(7, 8)]) == "A B"
+    assert collector.getString().strip() == "A B"
+
+
+def test_xetex_unassigned_interchartoks_expands_to_empty(collector):
+    collector.parse("\\the\\XeTeXinterchartoks 7 8")
+
+    assert collector.getString().strip() == ""
+
+
+def test_xetex_interchar_accessors_respect_local_and_global_assignments(parser):
+    parser.parse(
+        "\\XeTeXcharclass65=1 "
+        "\\XeTeXinterchartoks 1 2={A}"
+        "{\\XeTeXcharclass65=2 \\XeTeXinterchartoks 1 2={B}}"
+    )
+
+    assert parser.xetexcharclass[65] == 1
+    assert parser.expandedToksToString(parser.xetexinterchartoks[(1, 2)]) == "A"
+
+    parser.parse(
+        "{\\global\\XeTeXcharclass65=3 "
+        "\\global\\XeTeXinterchartoks 1 2={C}}"
+    )
+
+    assert parser.xetexcharclass[65] == 3
+    assert parser.expandedToksToString(parser.xetexinterchartoks[(1, 2)]) == "C"
+
+
+def test_xetex_interchartokenstate_is_grouped_integer_accessor(parser):
+    assert parser.parameters["XeTeXinterchartokenstate"] == 0
+
+    parser.parse(
+        "\\XeTeXinterchartokenstate=1"
+        "{\\XeTeXinterchartokenstate=2}"
+    )
+
+    assert parser.parameters["XeTeXinterchartokenstate"] == 1
+
+
+def test_xetex_interchar_accessors_accept_class_4096(parser):
+    parser.parse(
+        "\\XeTeXcharclass65=4096 "
+        "\\XeTeXinterchartoks 4096 0={A}"
+    )
+
+    assert parser.xetexcharclass[65] == 4096
+    assert parser.expandedToksToString(parser.xetexinterchartoks[(4096, 0)]) == "A"
+
+
+@pytest.mark.parametrize(
+    "source, message",
+    [
+        ("\\XeTeXcharclass\"110000=1", "character code"),
+        ("\\XeTeXcharclass65=4097", "character class"),
+        ("\\XeTeXinterchartoks -1 0={}", "character class"),
+        ("\\XeTeXinterchartoks 0 4097={}", "character class"),
+    ],
+)
+def test_xetex_interchar_accessors_reject_out_of_range_values(parser, source, message):
+    with pytest.raises(ValueError, match=message):
+        parser.parse(source)
+
+
 def _write_test_pdf(path, pages=1):
     c = canvas.Canvas(str(path), pagesize=(200, 100))
     for page in range(pages):

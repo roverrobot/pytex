@@ -24,7 +24,7 @@ from pytex.dimen import Dimen, UNITS
 from pytex.etex import StringCommand
 from pytex.font_backend import FontSpec
 from pytex.glue import Glue
-from pytex.integer import FixedInteger
+from pytex.integer import FixedInteger, IntegerArrayItemAccessor
 from pytex.serialization import Serializable
 from pytex.module import Module
 from pytex.state import Array, Dict
@@ -34,6 +34,7 @@ from pytex.typeset.dvipdfm import _encode_pdf_string, serialize_xObject
 version = "0.999995"
 
 UNICODE_MAX = 0x10FFFF
+INTERCHAR_CLASS_MAX = 4096
 UCHARCAT_CATCODES = {
     token.CATCODE.BEGIN_GROUP,
     token.CATCODE.END_GROUP,
@@ -63,6 +64,16 @@ def _read_unicode_scalar(parser, primitive):
     if value < 0 or value > UNICODE_MAX:
         raise ValueError(
             f"{primitive} character code {value} out of range",
+            parser.input.position(),
+        )
+    return value
+
+
+def _read_interchar_class(parser, primitive):
+    value = parser.readInteger()
+    if value < 0 or value > INTERCHAR_CLASS_MAX:
+        raise ValueError(
+            f"{primitive} character class {value} out of range",
             parser.input.position(),
         )
     return value
@@ -552,6 +563,50 @@ class XeTeXIntercharToksDict(Dict):
             self.setGlobal(key, toks)
 
 
+class XeTeXCharClassAccessor(accessor.Accessor):
+    r"""Readable and assignable \XeTeXcharclass primitive."""
+
+    value_type = accessor.VALUE_TYPE.INT
+
+    def readKey(self, parser):
+        return _read_unicode_scalar(parser, "\\XeTeXcharclass")
+
+    def readValue(self, parser):
+        return _read_interchar_class(parser, "\\XeTeXcharclass")
+
+    def getTarget(self, parser):
+        return accessor.KeyTarget(
+            parser.xetexcharclass,
+            self.currentKey(parser),
+            self.value_type,
+        )
+
+
+class XeTeXIntercharToksAccessor(accessor.Accessor):
+    r"""Readable and assignable \XeTeXinterchartoks primitive."""
+
+    value_type = accessor.VALUE_TYPE.TOKS
+
+    def readKey(self, parser):
+        return (
+            _read_interchar_class(parser, "\\XeTeXinterchartoks"),
+            _read_interchar_class(parser, "\\XeTeXinterchartoks"),
+        )
+
+    def getTarget(self, parser):
+        return accessor.KeyTarget(
+            parser.xetexinterchartoks,
+            self.currentKey(parser),
+            self.value_type,
+        )
+
+    def fetchValue(self, parser, requested_type):
+        value, value_type = super().fetchValue(parser, requested_type)
+        if value_type == self.value_type and value is None:
+            value = []
+        return value, value_type
+
+
 class UMathSymbol(mmode.MathSymbol):
     """
     A Unicode math symbol using the XeTeX/LuaTeX packed mathchar form.
@@ -786,6 +841,8 @@ mod = Module(
     commands={
         "Uchar": UChar(),
         "Ucharcat": UCharCat(),
+        "XeTeXcharclass": XeTeXCharClassAccessor(),
+        "XeTeXinterchartoks": XeTeXIntercharToksAccessor(),
         "XeTeXpdffile": XeTeXPDFFile(),
         "XeTeXpicfile": XeTeXPicFile(),
         "Umathchar": UMathChar(),
@@ -806,5 +863,12 @@ mod = Module(
         "elapsedtime": pdftex_sys.PDFElapsedtime(),
         "resettimer": pdftex_sys.PDFResettimer(),
         "shellescape": FixedInteger(0),
+    },
+    parameters={
+        "XeTeXinterchartokenstate": {
+            "value": 0,
+            "accessor": IntegerArrayItemAccessor,
+            "domain": "parameters",
+        },
     },
 )

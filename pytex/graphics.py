@@ -243,16 +243,15 @@ class PDFToSVGConverter(GraphicConverter):
         return rect
 
 
-class EPSToSVGConverter(GraphicConverter):
+class EPSToPDFConverter(GraphicConverter):
     source_format = "eps"
-    target_format = "svg"
-
-    def __init__(self, pdf_converter=None):
-        self.pdf_converter = pdf_converter or PDFToSVGConverter()
+    target_format = "pdf"
 
     def convert(self, request: GraphicRequest) -> GraphicAsset:
         if request.path is None:
-            raise RuntimeError(f"EPS graphic {request.source} is not filesystem-backed")
+            raise RuntimeError(
+                f"EPS graphic {request.source} is not filesystem-backed"
+            )
 
         epstopdf = shutil.which("epstopdf")
         ghostscript = shutil.which("gs") if epstopdf is None else None
@@ -268,9 +267,16 @@ class EPSToSVGConverter(GraphicConverter):
             try:
                 shutil.copyfile(request.path, eps_path)
             except OSError as exc:
-                raise RuntimeError(f"could not read EPS graphic {request.path}: {exc}") from exc
+                raise RuntimeError(
+                    f"could not read EPS graphic {request.path}: {exc}"
+                ) from exc
             if epstopdf is not None:
-                command = [epstopdf, "--restricted", "--outfile=graphic.pdf", "graphic.eps"]
+                command = [
+                    epstopdf,
+                    "--restricted",
+                    "--outfile=graphic.pdf",
+                    "graphic.eps",
+                ]
                 converter_name = "epstopdf"
             else:
                 command = [
@@ -289,20 +295,13 @@ class EPSToSVGConverter(GraphicConverter):
                 raise RuntimeError(
                     f"{converter_name} did not produce a PDF for EPS graphic {request.path}"
                 )
-            pdf_request = GraphicRequest(
-                source=request.source,
-                path=os.fspath(pdf_path),
-                source_format="pdf",
-                kind="epdf",
-                page=1,
-                pagebox="cropbox",
-                bbox=None,
+            return GraphicAsset(
+                format="pdf",
+                data=pdf_path.read_bytes(),
                 width=request.width,
                 height=request.height,
                 depth=request.depth,
-                rotate=request.rotate,
             )
-            return self.pdf_converter.convert(pdf_request)
 
     @staticmethod
     def _run(command, converter_name, source, cwd=None):
@@ -328,5 +327,42 @@ class EPSToSVGConverter(GraphicConverter):
         raise RuntimeError(message)
 
 
+class EPSToSVGConverter(GraphicConverter):
+    source_format = "eps"
+    target_format = "svg"
+
+    def __init__(self, pdf_converter=None, eps_converter=None):
+        self.pdf_converter = pdf_converter or PDFToSVGConverter()
+        self.eps_converter = eps_converter or EPSToPDFConverter()
+
+    def convert(self, request: GraphicRequest) -> GraphicAsset:
+        pdf_asset = self.eps_converter.convert(request)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = Path(tmpdir) / "graphic.pdf"
+            if pdf_asset.data is not None:
+                pdf_path.write_bytes(pdf_asset.data)
+            elif pdf_asset.path is not None:
+                shutil.copyfile(pdf_asset.path, pdf_path)
+            else:
+                raise RuntimeError(
+                    f"EPS-to-PDF conversion produced no PDF for graphic {request.path}"
+                )
+            pdf_request = GraphicRequest(
+                source=request.source,
+                path=os.fspath(pdf_path),
+                source_format="pdf",
+                kind="epdf",
+                page=1,
+                pagebox="cropbox",
+                bbox=None,
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+                rotate=request.rotate,
+            )
+            return self.pdf_converter.convert(pdf_request)
+
+
 register_converter("pdf", "svg", PDFToSVGConverter())
+register_converter("eps", "pdf", EPSToPDFConverter())
 register_converter("eps", "svg", EPSToSVGConverter())

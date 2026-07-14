@@ -46,6 +46,31 @@ def _write_converted_pdf(command, cwd):
     return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
 
+def test_eps_to_pdf_converter_returns_vector_pdf_asset(tmp_path, monkeypatch):
+    eps = tmp_path / "figure.eps"
+    eps.write_text(
+        "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 10 20 110 70\n"
+    )
+    monkeypatch.setattr(
+        graphics.shutil,
+        "which",
+        lambda name: "/texbin/epstopdf" if name == "epstopdf" else None,
+    )
+    monkeypatch.setattr(
+        graphics.subprocess,
+        "run",
+        lambda command, **kwargs: _write_converted_pdf(command, kwargs["cwd"]),
+    )
+
+    asset = graphics.EPSToPDFConverter().convert(_eps_request(eps))
+
+    assert asset.format == "pdf"
+    assert asset.data == b"%PDF-converted"
+    assert asset.width == Dimen(72)
+    assert asset.height == Dimen(36)
+    assert asset.depth == Dimen(2)
+
+
 def test_eps_converter_prefers_epstopdf_and_reuses_pdf_converter(tmp_path, monkeypatch):
     eps = tmp_path / "figure.eps"
     eps.write_text("%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 10 20 110 70\n")

@@ -34,6 +34,7 @@ from reportlab.lib import colors
 from reportlab.lib.rl_accel import fp_str
 from fontTools.pens.reportLabPen import ReportLabPen
 
+from pytex import graphics
 from pytex import node as nd
 from pytex.dimen import Dimen, NEG_MAX_DIMEN, UNITS
 from pytex.graphics import GraphicSpec
@@ -313,6 +314,38 @@ class PDFBackend(Shipout):
             }
         )
 
+    def _queue_converted_eps_overlay(self, options, source, asset):
+        if asset.data is not None:
+            if not isinstance(asset.data, (bytes, bytearray)):
+                raise RuntimeError(
+                    f"EPS-to-PDF conversion returned non-binary data for {source}"
+                )
+            reader = PdfReader(BytesIO(asset.data))
+        elif asset.path is not None:
+            reader = PdfReader(asset.path)
+        else:
+            raise RuntimeError(f"EPS-to-PDF conversion produced no PDF for {source}")
+
+        bbox = self._bbox_from_options(options)
+        target_width, target_height = self._transformed_target_size(options, bbox)
+        self._page_overlays[-1].append(
+            {
+                "kind": "epdf",
+                "source": source,
+                "reader": reader,
+                "page": 1,
+                "pagebox": "cropbox",
+                # epstopdf/Ghostscript has already cropped and translated the EPS
+                # bounding box into the converted PDF page coordinates.
+                "bbox": (0.0, 0.0, 0.0, 0.0),
+                "width": target_width,
+                "height": target_height,
+                "x": self._x(self.h),
+                "y": self._page_y(self.v),
+                "rotate": float(options.get("rotate", "0")),
+            }
+        )
+
     @staticmethod
     def _parse_annotation_payload(payload):
         info = {"kind": "raw", "payload": payload}
@@ -401,7 +434,9 @@ class PDFBackend(Shipout):
             for overlay in self._page_overlays[page_index]:
                 if overlay["kind"] != "epdf":
                     continue
-                source_reader = self._pdf_source_reader(overlay["source"])
+                source_reader = overlay.get("reader")
+                if source_reader is None:
+                    source_reader = self._pdf_source_reader(overlay["source"])
                 source_page = source_reader.pages[overlay["page"] - 1]
                 source_box = self._page_box(source_page, overlay["pagebox"])
                 llx, lly, urx, ury = overlay["bbox"]
@@ -1202,6 +1237,26 @@ class PDFBackend(Shipout):
     def graphic(self, spec: GraphicSpec):
         options = spec.option_map
         if spec.kind == "image" and spec.source:
+            source_format = spec.format or graphics.graphic_format(spec.source)
+            if source_format == "eps":
+                request = self.graphicRequestFromSpec(spec)
+                if request is None:
+                    raise RuntimeError(f"could not resolve EPS graphic {spec.source}")
+                asset = graphics.convert_graphic(request, "pdf")
+                if asset is None or asset.format != "pdf":
+                    raise RuntimeError(
+                        f"no EPS-to-PDF converter is available for graphic {spec.source}"
+                    )
+                self._queue_converted_eps_overlay(options, spec.source, asset)
+                if self._active_annotations:
+                    bbox = self._bbox_from_options(options)
+                    target_width, target_height = self._transformed_target_size(
+                        options, bbox
+                    )
+                    x = self._x(self.h)
+                    y = self._page_y(self.v)
+                    self._grow_annotation_rect(x, y, x + target_width, y + target_height)
+                return
             decoded, path = self._source_path_name(self.parser, spec.source)
             if path is None:
                 self._note_ignored(f"xObject image missing: {decoded}")

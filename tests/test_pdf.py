@@ -1,3 +1,4 @@
+from io import BytesIO
 from pathlib import Path
 import re
 
@@ -6,6 +7,7 @@ from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
 from pytex import font as txfont
+from pytex import graphics
 from pytex import opentype
 from pytex import pdf
 from pytex import texlive
@@ -217,6 +219,52 @@ def test_pdf_epdf_special_includes_pdf_figure(cmr10, tmp_path):
     cmr10.end()
     reader = PdfReader(str(out) + ".pdf")
     assert "FIG" in (reader.pages[0].extract_text() or "")
+
+
+def test_pdf_dvips_eps_special_converts_to_pdf_overlay(
+    cmr10, tmp_path, monkeypatch
+):
+    eps = tmp_path / "fig.eps"
+    eps.write_text(
+        "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 200 100\n"
+    )
+    converted = BytesIO()
+    c = canvas.Canvas(converted, pagesize=(200, 100))
+    c.drawString(20, 50, "EPS FIG")
+    c.save()
+
+    class FakeEPSToPDFConverter:
+        def __init__(self):
+            self.requests = []
+
+        def convert(self, request):
+            self.requests.append(request)
+            return graphics.GraphicAsset(
+                format="pdf",
+                data=converted.getvalue(),
+                width=request.width,
+                height=request.height,
+                depth=request.depth,
+            )
+
+    converter = FakeEPSToPDFConverter()
+    monkeypatch.setitem(graphics._CONVERTERS, ("eps", "pdf"), converter)
+    out = tmp_path / "eps-overlay"
+    cmr10.shipout = pdf.PDFBackend(cmr10, str(out))
+    cmr10.parse(
+        r'\shipout\vbox{\hbox{\special{PSfile="fig.eps" llx=0 lly=0 '
+        r'urx=200 ury=100 rwi=720}\kern72bp}}',
+        jobname="eps-overlay",
+    )
+    cmr10.end()
+
+    reader = PdfReader(str(out) + ".pdf")
+    assert "EPS FIG" in (reader.pages[0].extract_text() or "")
+    assert len(converter.requests) == 1
+    request = converter.requests[0]
+    assert request.source == "fig.eps"
+    assert request.source_format == "eps"
+    assert request.bbox == ("0", "0", "200", "100")
 
 
 def test_pdf_epdf_special_honors_xdvipdfmx_scale_transform(cmr10, tmp_path):

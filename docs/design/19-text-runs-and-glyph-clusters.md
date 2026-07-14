@@ -92,6 +92,9 @@ include a glyph ID and glyph name.
 A glyph does not claim a one-to-one Unicode mapping. Its logical meaning comes
 from its containing cluster.
 
+It has its own `NODE_TYPE.GLYPH`. The existing `CharNode` remains as the
+character-addressed compatibility primitive while consumers migrate.
+
 ### Glyph cluster
 
 A `GlyphCluster` is an indivisible `Box` in its parent horizontal list. It has

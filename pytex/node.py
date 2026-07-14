@@ -28,6 +28,8 @@ class NODE_TYPE(enum.IntEnum):
     ACCENT = 16 # accent node
     # pytex extension
     ALIGNMENT = 17
+    GLYPH = 18
+    GLYPH_CLUSTER = 19
 
 
 class Node(serialization.Serializable):

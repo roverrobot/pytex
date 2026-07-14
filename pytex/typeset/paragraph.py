@@ -1,6 +1,7 @@
 """Paragraph line breaking and paragraph-to-vlist realization."""
 
 from pytex import box as bx
+from pytex import glyph
 from pytex import hmode
 from pytex import node as nd
 from pytex import dimen
@@ -178,7 +179,8 @@ class ParagraphTypesetter:
         helper._ligature_state["in_word"] = True
         helper._ligature_state["lig_base"] = None
         try:
-            for node in chars:
+            for item in chars:
+                node = item.font[item.char] if isinstance(item, glyph.TextChar) else item
                 helper.append(node)
         finally:
             helper.close()
@@ -188,21 +190,18 @@ class ParagraphTypesetter:
     def virtualDisc(pre, post):
         return hmode.Disc(pre, post, [])
 
-    @staticmethod
-    def _hyphenItemLetters(node):
-        if node.node_type == nd.NODE_TYPE.CHAR:
-            return [node]
-        if node.node_type == nd.NODE_TYPE.LIGATURE:
-            source = getattr(node, "source", None) or []
-            if all(c.node_type == nd.NODE_TYPE.CHAR for c in source):
-                return list(source)
-        return None
+    def _hyphenItemLetters(self, node):
+        return glyph.textSource(
+            node,
+            word_char=lambda char: self.parser.lccode[ord(char)] != 0,
+        )
 
     def _hyphenSkipToStart(self, nodes, start, language):
         parser = self.parser
         j = start - 1
         n = len(nodes) - 1
         found = False
+        hyphen_font = None
         while j < n:
             j += 1
             trial = nodes[j]
@@ -214,30 +213,27 @@ class ParagraphTypesetter:
                 continue
             if trial_type == nd.NODE_TYPE.KERN and trial.automatic:
                 continue
-            if trial_type == nd.NODE_TYPE.CHAR:
-                char = ord(trial.char)
+            letters = self._hyphenItemLetters(trial)
+            if letters:
+                first = letters[0]
+                char = ord(first.char)
                 lc = parser.lccode[char]
                 if lc == 0:
                     continue
                 if lc != char and not (parser.layout["uchyph"] > 0):
                     break
                 found = True
-                break
-            if trial_type == nd.NODE_TYPE.LIGATURE:
-                char = ord(trial.source[0].char)
-                lc = parser.lccode[char]
-                if lc == 0:
-                    continue
-                if lc != char and not (parser.layout["uchyph"] > 0):
-                    break
-                found = True
+                hyphen_font = first.font
                 break
             break
-        hyphen = trial.font.hyphenChar() if found else None
+        hyphen = hyphen_font.hyphenChar() if found else None
         return j, hyphen, language
 
     def _hyphenCollectWord(self, nodes, start):
-        font = nodes[start].font
+        first_letters = self._hyphenItemLetters(nodes[start])
+        if not first_letters:
+            return start, "", []
+        font = first_letters[0].font
         parts = []
         text = []
         k = start
@@ -279,7 +275,7 @@ class ParagraphTypesetter:
         n = len(nodes)
         while tail < n:
             tail_node = nodes[tail]
-            if tail_node.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            if glyph.isTextNode(tail_node):
                 tail += 1
                 continue
             if tail_node.node_type == nd.NODE_TYPE.KERN and tail_node.automatic:
@@ -548,15 +544,11 @@ def _discHyphenated(disc):
     if not disc.pre:
         return False
     last = disc.pre[-1]
-    if last.node_type == nd.NODE_TYPE.CHAR:
-        return ord(last.char) == last.font.fontchar["hyphenchar"]
-    if last.node_type == nd.NODE_TYPE.LIGATURE and getattr(last, "source", None):
-        tail = last.source[-1]
-        return (
-            tail.node_type == nd.NODE_TYPE.CHAR
-            and ord(tail.char) == tail.font.fontchar["hyphenchar"]
-        )
-    return False
+    source = glyph.textSource(last)
+    if not source:
+        return False
+    tail = source[-1]
+    return ord(tail.char) == tail.font.fontchar["hyphenchar"]
 
 
 def _isDiscardable(node):

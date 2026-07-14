@@ -362,10 +362,10 @@ The refactor will be implemented and committed in independently tested slices.
 
 1. Add the neutral glyph/cluster data model and compatibility helpers without
    changing `HList` behavior.
-2. Teach packing, tracing, serialization, fixed shipout, and reflow source
-   recovery about clusters while retaining current `CharNode`/`Ligature` input.
-3. Generalize paragraph word collection, hyphenation, discretionary handling,
+2. Generalize paragraph word collection, hyphenation, discretionary handling,
    and fragment reshaping to the cluster source protocol.
+3. Teach packing, tracing, serialization, fixed shipout, and reflow source
+   recovery about clusters while retaining current `CharNode`/`Ligature` input.
 4. Move current TFM ligature/kern realization behind the common shape
    interface and emit clusters.
 5. Add the transient `HList` run accumulator and all materialization barriers.

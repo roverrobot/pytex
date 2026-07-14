@@ -1,6 +1,8 @@
 import pytest
 import types
 from pytex import paragraph
+from pytex import glyph
+from pytex import hmode
 from pytex import lists
 from pytex import node as nd
 from pytex import texlive
@@ -10,7 +12,7 @@ from pytex import page
 from pytex import glue
 from pytex.dimen import Dimen
 from pytex import typeset
-from pytex.typeset.paragraph import _LineBreaker
+from pytex.typeset.paragraph import _LineBreaker, _discHyphenated
 
 def _raw_nodes(vlist):
     return vlist.rawNodes() if hasattr(vlist, "rawNodes") else getattr(vlist, "raw", vlist)
@@ -240,28 +242,22 @@ def test_lineshape_parshape_precedes_hangindent():
 def _lineEndingWord(hbox):
     def append_nodes(text, nodes):
         for sub in nodes:
-            if sub.node_type == nd.NODE_TYPE.CHAR:
-                text += sub.char
+            source = glyph.textSource(sub)
+            if source:
+                text += "".join(char.char for char in source)
             elif sub.node_type == nd.NODE_TYPE.LIGATURE:
-                source = getattr(sub, "source", None)
-                if source:
-                    text += "".join(char.char for char in source)
-                else:
-                    text += sub.char
+                text += sub.char
         return text
 
     words = []
     current = ""
     for node in hbox.list:
-        if node.node_type == nd.NODE_TYPE.CHAR:
-            current += node.char
+        source = glyph.textSource(node)
+        if source:
+            current += "".join(char.char for char in source)
             continue
         if node.node_type == nd.NODE_TYPE.LIGATURE:
-            source = getattr(node, "source", None)
-            if source:
-                current += "".join(char.char for char in source)
-            else:
-                current += node.char
+            current += node.char
             continue
         if node.node_type == nd.NODE_TYPE.DISC:
             current = append_nodes(current, getattr(node, "list", node.replace))
@@ -283,16 +279,71 @@ def _lineBoxes(vlist):
 def _lineText(hbox):
     chars = []
     for node in hbox.list:
-        if node.node_type == nd.NODE_TYPE.CHAR:
+        source = glyph.textSource(node)
+        if source:
+            chars.extend(c.char for c in source)
+        elif node.node_type == nd.NODE_TYPE.LIGATURE:
             chars.append(node.char)
-            continue
-        if node.node_type == nd.NODE_TYPE.LIGATURE:
-            source = getattr(node, "source", None)
-            if source:
-                chars.extend(c.char for c in source)
-            else:
-                chars.append(node.char)
     return "".join(chars)
+
+
+def _nodeText(nodes):
+    text = []
+    for node in nodes:
+        source = glyph.textSource(node)
+        if source:
+            text.extend(item.char for item in source)
+    return "".join(text)
+
+
+def test_linebreaker_treats_glyph_clusters_as_indivisible_boxes(cmr10):
+    font = cmr10.parameters["currentfont"]
+    first = glyph.GlyphCluster.fromLegacy(font["A"], word_char=True)
+    second = glyph.GlyphCluster.fromLegacy(font["A"], word_char=True)
+    para = paragraph.Paragraph(cmr10, False)
+    para.list = [first, nd.Glue(glue.Glue(), None), second]
+    cmr10.layout["hsize"] = first.width
+
+    breaks = cmr10.typeset.paragraph.scanBreaks(para, para.list)
+    working, lines = cmr10.typeset.paragraph.lineBreak(para, para.list, breaks)
+
+    assert working is para.list
+    assert [candidate.break_index for candidate in breaks] == [0, 1, 3]
+    assert len(lines) == 2
+    assert lines[0].end.break_index == 1
+    assert lines[1].begin.line_start_index == 2
+    assert _LineBreaker._nodeContribution(first)[0] == first.width
+
+
+def test_hyphenation_reshapes_a_split_inside_glyph_cluster(cmr10):
+    cmr10.parse("\\hyphenation{tech-nical}")
+    font = cmr10.parameters["currentfont"]
+    prefix = glyph.GlyphCluster.fromLegacy(font["a"], word_char=True)
+    source = [glyph.TextChar(char, font, True) for char in "technical"]
+    word = glyph.GlyphCluster(source, [glyph.Glyph.fromCharNode(font["t"])])
+    nodes = [
+        prefix,
+        nd.Glue(glue.Glue(), None),
+        word,
+        nd.Glue(glue.Glue(), None),
+    ]
+
+    candidates = cmr10.typeset.paragraph._hyphenBreakCandidates(nodes)
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.break_index == 2
+    assert candidate.disc_skip == 1
+    assert _nodeText(candidate.disc.pre) == "tech-"
+    assert _nodeText(candidate.disc.post) == "nical"
+    assert word.text == "technical"
+
+
+def test_discretionary_hyphen_detection_uses_cluster_source(cmr10):
+    font = cmr10.parameters["currentfont"]
+    hyphen = glyph.GlyphCluster.fromLegacy(font[chr(font.fontchar["hyphenchar"])])
+
+    assert _discHyphenated(hmode.Disc([hyphen], [], []))
 
 
 def test_linebreak_matches_tex_reference_paragraph(cmr10):

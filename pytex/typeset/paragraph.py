@@ -428,18 +428,19 @@ class ParagraphTypesetter:
         return hlist, hyphenated
 
     def typesetFragment(self, chars):
-        packed = []
-        helper = hmode.HList(self.parser, packed, raw=[])
-        helper.open()
-        helper._ligature_state["in_word"] = True
-        helper._ligature_state["lig_base"] = None
-        try:
-            for item in chars:
-                node = item.font[item.char] if isinstance(item, glyph.TextChar) else item
-                helper.append(node)
-        finally:
-            helper.close()
-        return packed
+        if not chars:
+            return []
+        if not all(isinstance(item, glyph.TextChar) for item in chars):
+            raise TypeError("text fragments require TextChar source values")
+        font = chars[0].font
+        if any(item.font is not font for item in chars):
+            raise ValueError("text fragments must use one font")
+        return font.shape(
+            chars,
+            parser=self.parser,
+            left_boundary=True,
+            right_boundary=True,
+        )
 
     @staticmethod
     def virtualDisc(pre, post):

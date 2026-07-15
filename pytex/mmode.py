@@ -18,8 +18,7 @@ from pytex.define import EquitableAccessor
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen, NEG_MAX_DIMEN
 from pytex import box
-from pytex.hmode import Ligature
-from pytex.ligature import ligature_step, run_ligature_program
+from pytex.ligature import ligature_step
 from pytex.serialization import Serializable
 import enum
 

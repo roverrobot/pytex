@@ -1,8 +1,9 @@
 """
 Shared ligature-program helpers.
 
-This module factors out the low-level ligature/kern program walk so both
-horizontal text handling and math Rule 14 can reuse the same logic.
+This module factors out the low-level ligature/kern program walk used by the
+TFM font backend and math Rule 14. Horizontal lists call the font backend's
+shape interface and do not interpret ligature programs directly.
 """
 
 

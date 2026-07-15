@@ -1,5 +1,4 @@
 import pytest
-import types
 from pytex import node as nd
 from pytex import glyph
 from pytex import texlive
@@ -193,91 +192,44 @@ def test_font_shape_packs_source_less_insert_with_retained_inputs(parser):
     assert shaped[0].width == dimen.Dimen(3)
 
 
-class _FakeChar:
-    node_type = nd.NODE_TYPE.CHAR
-    typeset = None
-
-    def __init__(self, char, font, char_info):
-        self.char = char
-        self.font = font
-        self.char_info = char_info
-
-
-class _FakeFont:
-    at = dimen.Dimen(1)
-
-    def __init__(self, left_boundary=None, right_boundary=None):
-        self._nodes = {}
-        self._left_boundary = None
-        if left_boundary is not None:
-            self._left_boundary = {}
-            step = left_boundary
-            while step is not None:
-                self._left_boundary[step.next_char] = step
-                step = step.next_step
-        self._right_boundary = None if right_boundary is None else chr(right_boundary.next_char)
-
-    def __getitem__(self, char):
-        return self._nodes[char]
-
-    def glyphInfo(self, char):
-        node = self._nodes.get(char)
-        return None if node is None else node.char_info
-
-    def leftBoundaryProgram(self):
-        return self._left_boundary
-
-    def rightBoundaryChar(self):
-        return self._right_boundary
-
-    def add(self, char, program=None):
-        node = _FakeChar(char, self, types.SimpleNamespace(
-            char=char,
-            width=dimen.Dimen(),
-            height=dimen.Dimen(),
-            depth=dimen.Dimen(),
-            italic=dimen.Dimen(),
-            program=program,
-        ))
-        self._nodes[char] = node
-        return node
-
-
-def test_left_boundary_ligature_is_applied(parser):
+def test_hlist_delegates_left_boundary_program_to_font_backend(parser):
     parser.lccode[ord("a")] = ord("a")
-    left = tfm.LigOp(ord("a"), ord("b"), 0)
-    font = _FakeFont(left_boundary=left)
-    a = font.add("a", {})
-    font.add("b", {})
+    left_step = tfm.LigOp(ord("a"), ord("b"), 0)
+    font = Font(
+        _ShapeBackend(left_boundary={ord("a"): left_step}),
+        dimen.Dimen(1),
+    )
     hlist = hmode.HList(parser, [], inner=True)
     hlist.open()
     try:
-        hlist.append(a)
+        hlist.append(font["a"])
     finally:
         hlist.close()
-    packed = _concrete_nodes(hlist)
-    assert len(packed) == 1
-    lig = packed[0]
-    assert isinstance(lig, hmode.Ligature)
-    assert lig.char == "b"
-    assert lig.source == [a]
+
+    cluster = _concrete_nodes(hlist)[0]
+    assert cluster.text == "a"
+    assert cluster.layout.char == "b"
 
 
-def test_right_boundary_kern_is_applied(parser):
+def test_hlist_delegates_right_boundary_program_to_font_backend(parser):
     parser.lccode[ord("a")] = ord("a")
-    bchar = types.SimpleNamespace(next_char=ord("#"))
-    font = _FakeFont(right_boundary=bchar)
-    a = font.add("a", {ord("#"): tfm.KernOp(ord("#"), 2)})
+    right_step = tfm.KernOp(ord("#"), 2)
+    font = Font(
+        _ShapeBackend(
+            programs={"a": {ord("#"): right_step}},
+            right_boundary="#",
+        ),
+        dimen.Dimen(1),
+    )
     hlist = hmode.HList(parser, [], inner=True)
     hlist.open()
     try:
-        hlist.append(a)
+        hlist.append(font["a"])
     finally:
         hlist.close()
-    packed = _concrete_nodes(hlist)
-    assert len(packed) == 2
-    assert packed[0] is a
-    kern = packed[1]
-    assert isinstance(kern, nd.Kern)
-    assert kern.kern == 2
-    assert kern.automatic
+
+    cluster = _concrete_nodes(hlist)[0]
+    assert cluster.text == "a"
+    assert cluster.layout.node_type == nd.NODE_TYPE.HLIST
+    assert cluster.layout.list[1].node_type == nd.NODE_TYPE.KERN
+    assert cluster.layout.list[1].kern == dimen.Dimen(2)

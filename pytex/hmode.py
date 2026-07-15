@@ -13,8 +13,6 @@ from pytex.token import Command, Token, CATCODE, relax
 from pytex.state import GROUP_TYPE
 from pytex.accessor import Accessor, VALUE_TYPE, KeyTarget
 from pytex.define import CharDefValue
-from pytex.ligature import ligature_step, run_ligature_program
-import types
 
 
 INTERCHAR_CLASS_BOUNDARY = 4095
@@ -42,10 +40,9 @@ class _IntercharAppendToken(Token):
 
 class Ligature(nd.CharNode):
     """
-    A ligature node.
+    Compatibility ligature node used by math and legacy material.
 
-    It is a char node that stores the characters that are combined into the
-    ligature.
+    Horizontal font shaping emits GlyphCluster nodes instead.
     @param char: the ligature character
     @param replaced: the original char nodes replaced by the ligature
     """
@@ -69,118 +66,12 @@ class HList(lists.List):
     This is what lives on parser.lists while horizontal material is scanned.
     It serves a concrete horizontal list node and updates \\spacefactor.
     """
-    @staticmethod
-    def _leftBoundaryNode(font):
-        program = font.leftBoundaryProgram()
-        if program is None:
-            return None
-        return types.SimpleNamespace(
-            _boundary=True,
-            font=font,
-            char="\0",
-            node_type=nd.NODE_TYPE.CHAR,
-            char_info=types.SimpleNamespace(program=program),
-        )
-
-    @staticmethod
-    def _rightBoundaryNode(font):
-        boundary_char = font.rightBoundaryChar()
-        if boundary_char is None:
-            return None
-        return types.SimpleNamespace(
-            _boundary=True,
-            font=font,
-            char=boundary_char,
-            node_type=nd.NODE_TYPE.CHAR,
-            char_info=types.SimpleNamespace(program=None),
-        )
-
-    @staticmethod
-    def _runBoundaryProgram(working):
-        working = run_ligature_program(
-            working,
-            make_ligature=lambda insert_char, replaced, step, current, nxt: Ligature(insert_char, replaced),
-            make_kern=lambda step, current, nxt: nd.Kern(step.kern * current.font.at, True),
-            source_nodes=lambda n: [] if getattr(n, "_boundary", False) else (list(n.source) if isinstance(n, Ligature) else [n]),
-        )
-        return [n for n in working if not getattr(n, "_boundary", False)]
-
-    @staticmethod
-    def _lastLigBase(packed):
-        for n in reversed(packed):
-            if n.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-                return n
-            if n.node_type not in (nd.NODE_TYPE.KERN,):
-                break
-        return None
-
-    @classmethod
-    def _applyLeftBoundary(cls, node, packed, state):
-        boundary = cls._leftBoundaryNode(node.font)
-        if boundary is None:
-            return False
-        working = cls._runBoundaryProgram([boundary, node])
-        packed.extend(working)
-        state["lig_base"] = cls._lastLigBase(working)
-        return True
-
-    @classmethod
-    def _applyRightBoundary(cls, packed, state):
-        base = state["lig_base"]
-        if base is None:
-            return
-        boundary = cls._rightBoundaryNode(base.font)
-        if boundary is None:
-            return
-        assert packed[-1] is base, "the ligature base should be the last emitted character"
-        packed.pop()
-        packed.extend(cls._runBoundaryProgram([base, boundary]))
-
-    @classmethod
-    def processLigature(cls, parser, node, packed, state):
-        """
-        Append one character node, forming ligatures from adjacent characters.
-        """
-        assert node.node_type == nd.NODE_TYPE.CHAR
-        is_word = parser.lccode[ord(node.char)] != 0
-        if is_word:
-            if not state["in_word"]:
-                state["in_word"] = True
-                state["lig_base"] = None
-                if cls._applyLeftBoundary(node, packed, state):
-                    return
-        elif state["in_word"]:
-            cls._applyRightBoundary(packed, state)
-            state["in_word"] = False
-            state["lig_base"] = None
-        base = state["lig_base"]
-        if base is None:
-            packed.append(node)
-            state["lig_base"] = node
-            return
-        assert packed[-1] is base, "the ligature base should be the last emitted character"
-        if ligature_step(base, node) is None:
-            packed.append(node)
-            state["lig_base"] = node
-            return
-        packed.pop()
-        working = run_ligature_program(
-            [base, node],
-            make_ligature=lambda insert_char, replaced, step, current, nxt: Ligature(insert_char, replaced),
-            make_kern=lambda step, current, nxt: nd.Kern(step.kern * current.font.at, True),
-            source_nodes=lambda n: list(n.source) if isinstance(n, Ligature) else [n],
-        )
-        for n in working:
-            packed.append(n)
-        state["lig_base"] = working[-1]
-
     def __init__(self, parser, list, inner=True, raw=None, paragraph=None):
         super().__init__(parser, list, inner)
         self.raw = [] if raw is None else raw
         self.paragraph = paragraph
         self.sfcode = parser.sfcode
         self.type = lists.LISTTYPE.HORIZONTAL
-        self._ligature_state = {"lig_base": None, "in_word": False}
         self._interchar_class = INTERCHAR_CLASS_BOUNDARY
         self._pending_text = []
         self._pending_space = None
@@ -189,14 +80,9 @@ class HList(lists.List):
         super().open()
         self.saved_spacefactor = self.parser.globals["spacefactor"]
         self.parser.globals["spacefactor"] = 1000
-        self._syncLigatureState()
 
     def finish(self):
         self._flushTextRun()
-        if self._ligature_state["in_word"]:
-            self._applyRightBoundary(self.list, self._ligature_state)
-            self._ligature_state["in_word"] = False
-            self._ligature_state["lig_base"] = None
         self._interchar_class = INTERCHAR_CLASS_BOUNDARY
 
     def close(self):
@@ -236,15 +122,12 @@ class HList(lists.List):
     def __delitem__(self, key):
         self._flushTextRun()
         self._pending_space = None
-        result = super().__delitem__(key)
-        self._syncLigatureState()
-        return result
+        return super().__delitem__(key)
 
     def clear(self):
         self._flushTextRun()
         self._pending_space = None
         super().clear()
-        self._syncLigatureState()
 
     def _interwordSpaceShaping(self):
         entry = dict.get(self.parser.parameters, "XeTeXinterwordspaceshaping")
@@ -353,36 +236,10 @@ class HList(lists.List):
             }
         else:
             self._pending_space = None
-        self._ligature_state["lig_base"] = None
-        self._ligature_state["in_word"] = False
         self.parser.globals["spacefactor"] = 1000
-
-    def _nodeEndsWord(self, node):
-        if node is None:
-            return False
-        if node.node_type == nd.NODE_TYPE.CHAR:
-            return self.parser.lccode[ord(node.char)] != 0
-        if node.node_type == nd.NODE_TYPE.LIGATURE:
-            source = getattr(node, "source", None) or []
-            tail = source[-1] if source else None
-            if tail is not None and tail.node_type == nd.NODE_TYPE.CHAR:
-                return self.parser.lccode[ord(tail.char)] != 0
-        source = glyph_data.textSource(node)
-        if source:
-            return source[-1].word_char
-        return False
-
-    def _syncLigatureState(self):
-        base = self._lastLigBase(self.list)
-        self._ligature_state["lig_base"] = base
-        self._ligature_state["in_word"] = self._nodeEndsWord(base)
 
     def _resetNonCharState(self):
         self._flushTextRun()
-        if self._ligature_state["in_word"]:
-            self._applyRightBoundary(self.list, self._ligature_state)
-            self._ligature_state["in_word"] = False
-        self._ligature_state["lig_base"] = None
         self.parser.globals["spacefactor"] = 1000
 
     def _intercharClass(self, item):
@@ -512,15 +369,6 @@ class HList(lists.List):
             if spacefactor < 1000 < sf:
                 sf = 1000
             self.parser.globals["spacefactor"] = sf
-        if not hasattr(node.font, "shape"):
-            self._flushTextRun()
-            self.processLigature(
-                self.parser,
-                node,
-                self.list,
-                self._ligature_state,
-            )
-            return
         if self._pending_text and self._pending_text[-1].font is not node.font:
             self._flushTextRun()
             self._pending_space = None
@@ -535,7 +383,6 @@ class HList(lists.List):
         self._flushTextRun()
         self._pending_space = None
         node = self.list.pop(*args)
-        self._syncLigatureState()
         return node
 
 

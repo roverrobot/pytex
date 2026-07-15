@@ -2156,7 +2156,7 @@ def test_box(math):
     box = node.nucleus
     assert box.node_type == nd.NODE_TYPE.HLIST
     assert len(box.list) == 1
-    assert box.list[0].char == "a"
+    assert box.list[0].text == "a"
     math.parse("$")
 
 

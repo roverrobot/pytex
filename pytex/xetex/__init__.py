@@ -39,6 +39,7 @@ from .math import (
     UMathCodeNum,
     UMathSymbol,
 )
+from . import spacing as _spacing  # registers interword-space shaping state
 from .unicode import (
     UCHARCAT_CATCODES,
     UNICODE_MAX,

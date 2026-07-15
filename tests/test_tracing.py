@@ -38,7 +38,7 @@ def test_showbox_dumps_box_contents(cmr10):
     log = cmr10.logContent()
     assert "> \\box1=" in log
     assert "\\hbox(" in log
-    assert "\\f a" in log
+    assert "glyph cluster 'a'" in log
 
 
 def test_showbox_respects_breadth_limit(cmr10):
@@ -67,7 +67,7 @@ def test_showlists_dumps_current_list_stack(cmr10):
     assert "> \\showlists" in log
     assert "### list 0" in log
     assert "Paragraph" in log
-    assert "\\f a" in log
+    assert "glyph cluster 'a'" in log
 
 
 def test_showlists_omits_main_vlist_wrapper(cmr10):

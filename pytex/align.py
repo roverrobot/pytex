@@ -70,6 +70,7 @@ class CellBuildState:
                 parser.input.pushTokenList(template)
 
     def close(self, parser):
+        parser.lists[-1].finish()
         self.node.typeset(parser)
         parser.endGroup(parser.input.position(), GROUP_TYPE.ALIGN)
         parser.lists.pop()

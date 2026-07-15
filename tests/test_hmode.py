@@ -4,6 +4,7 @@ from pytex import glue
 from pytex import lists
 from pytex import texlive
 from pytex import hmode
+from pytex import glyph
 from pytex import paragraph
 from pytex.box import LEADERS_TYPE
 from pytex import texlive
@@ -55,14 +56,18 @@ def test_new_paragraph(cmr10):
     assert node.char  == "H"
     node = hlist[7]
     assert node.node_type == nd.NODE_TYPE.GLUE
-    assert any(node.node_type == nd.NODE_TYPE.KERN and node.automatic for node in _concrete_nodes(hlist))
+    assert any(
+        node.node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+        and any(child.node_type == nd.NODE_TYPE.KERN for child in getattr(node.layout, "list", ()))
+        for node in _concrete_nodes(hlist)
+    )
 
 
 def test_everypar_runs_before_first_character(cmr10):
     cmr10.parse("\\everypar={\\setbox0=\\lastbox}123")
     hlist = cmr10.lists[-1]
     assert hlist.type == lists.LISTTYPE.HORIZONTAL
-    assert "".join(node.char for node in hlist if node.node_type == nd.NODE_TYPE.CHAR) == "123"
+    assert "".join(node.text for node in hlist if glyph.isTextNode(node)) == "123"
     assert not any(isinstance(node, hmode.IndentBox) for node in hlist)
     assert isinstance(cmr10.box[0], hmode.IndentBox)
 
@@ -77,8 +82,8 @@ def test_par(cmr10):
     node = hlist[0]
     assert isinstance(node, hmode.IndentBox)
     node = hlist[1]
-    assert node.node_type == nd.NODE_TYPE.CHAR
-    assert node.char == "h"
+    assert node.node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert node.text == "h"
     node = hlist[6]
     assert node.node_type == nd.NODE_TYPE.PENALTY
     assert node.penalty == 10000
@@ -233,16 +238,16 @@ def test_discretionary(cmr10):
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.DISC
     assert len(node.pre) == 2
-    assert node.pre[0].node_type == nd.NODE_TYPE.CHAR
-    assert node.pre[0].char == "a"
-    assert node.pre[1].node_type == nd.NODE_TYPE.CHAR
-    assert node.pre[1].char == "-"
+    assert node.pre[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert node.pre[0].text == "a"
+    assert node.pre[1].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert node.pre[1].text == "-"
     assert len(node.post) == 1
-    assert node.post[0].node_type == nd.NODE_TYPE.CHAR
-    assert node.post[0].char == "b"
+    assert node.post[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert node.post[0].text == "b"
     assert len(node.replace) == 1
-    assert node.replace[0].node_type == nd.NODE_TYPE.CHAR
-    assert node.replace[0].char == "c"
+    assert node.replace[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert node.replace[0].text == "c"
 
 
 def test_discretionary_parts_are_immediately_typeset(cmr10):
@@ -251,19 +256,19 @@ def test_discretionary_parts_are_immediately_typeset(cmr10):
     node = top[1]
     assert node.node_type == nd.NODE_TYPE.DISC
     assert len(node.pre) == 1
-    assert node.pre[0].node_type == nd.NODE_TYPE.LIGATURE
+    assert node.pre[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
     assert "".join(char.char for char in node.pre[0].source) == "fi"
     assert len(node.replace) == 1
-    assert node.replace[0].node_type == nd.NODE_TYPE.CHAR
-    assert node.replace[0].char == "x"
+    assert node.replace[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert node.replace[0].text == "x"
 
 
 def test_discretionary_inside_hbox_typesets(cmr10):
     cmr10.parse("\\setbox0=\\hbox{a\\discretionary{\\hbox{-}}{}{}}")
     box0 = cmr10.box[0].typeset(cmr10)
     assert len(box0.list) == 2
-    assert box0.list[0].node_type == nd.NODE_TYPE.CHAR
-    assert box0.list[0].char == "a"
+    assert box0.list[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert box0.list[0].text == "a"
     assert box0.list[1].node_type == nd.NODE_TYPE.DISC
 
 
@@ -337,7 +342,7 @@ def test_leaders(cmr10, cmd, type):
     assert ltype == type
     assert box.node_type == nd.NODE_TYPE.HLIST
     assert len(box.list) == 1
-    assert box.list[0].char == "."
+    assert box.list[0].text == "."
     try:
         cmr10.parse("1\\leaders\\hbox{.}")
         assert False
@@ -372,7 +377,8 @@ def test_unkern(cmr10, cmd):
     assert len(top) == 2
     assert len(_raw_nodes(top)) == 3
     node = top[1]
-    assert node.node_type == nd.NODE_TYPE.CHAR
+    assert node.node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert node.text == "1"
 
 
 def test_last_item_quantities_hmode(cmr10):
@@ -404,11 +410,11 @@ def test_italic_correction(cmr10):
     cmr10.parse(r"\font\it=cmti10 \it l\/")
     top = cmr10.lists[-1]
     assert top.type == lists.LISTTYPE.HORIZONTAL
-    # the indent box, the char, and the kern, and a (trailing) white space
+    # the indent box, the cluster, the kern, and a trailing white space
     assert len(top) == 4
     node = top[1]
-    assert node.node_type == nd.NODE_TYPE.CHAR
-    assert node.char == "l"
+    assert node.node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert node.text == "l"
     node = top[2]
     assert node.node_type == nd.NODE_TYPE.KERN
     assert node.kern == cmr10.parameters["currentfont"]["l"].italic

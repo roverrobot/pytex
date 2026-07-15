@@ -246,25 +246,65 @@ never serialized.
 
 ## U+0020 And Interword Glue
 
-Space resolution happens after shaping, not before it.
+The XeTeX engine exposes the grouped integer parameter
+`\XeTeXinterwordspaceshaping`, whose default is zero. The effective modes map
+onto the pending-run model as follows.
 
-When U+0020 is appended, `HList` snapshots `parser.interwordGlue()` in its
-logical source record, resets the horizontal spacing state as TeX requires,
-and leaves U+0020 in the run presented to the font backend.
+### Mode 0: ordinary TeX spacing
 
-After shaping:
+U+0020 terminates and materializes the pending text run. `HList` snapshots
+`parser.interwordGlue()`, appends that glue, resets the horizontal spacing state
+as TeX requires, and starts a new run at the next character. The glue retains a
+logical U+0020 `TextChar` as `.text_source` for reflow.
 
-- if a U+0020 remains an independent, one-character cluster, it is replaced by
-  the glue snapshot associated with that source character; the generated glue
-  retains the `TextChar` as `.text_source`
-- if U+0020 shares a cluster with other source characters, it was consumed by
-  shaping and the glyph cluster is retained; no interword glue is added for it
+### Mode 1: contextual space width
 
-Any positioning adjacent to an independent space must survive the conversion,
-either in neighboring advances or as automatic kerns. In particular, an
-adjustment carried by the shaped space advance must be separated from the
-discarded glyph advance before the cluster is replaced by glue. Detailed
-spacing tests will be added in the dedicated spacing implementation slice.
+The paragraph list has the same breakable structure as mode 0:
+
+```text
+left clusters -> interword glue -> space-adjustment kern -> right clusters
+```
+
+Once both adjacent same-font native text runs are known, the backend also
+shapes `left + U+0020 + right` as an auxiliary measurement. It does not put
+that cross-space result in the paragraph list. The difference between the
+contextual space advance and the ordinary glue width becomes a
+`space_adjustment` kern immediately after the glue. This kern is discardable:
+when the glue is selected as a breakpoint, both the glue and the adjustment at
+the new line start disappear.
+
+TFM and Type 1 fonts keep their ordinary TeX spacing. Contextual space shaping
+is a native OpenType operation.
+
+### Mode 2: completed-line reshaping
+
+Line breaking uses the mode-1 nodes and measurements. After all breakpoints
+have been chosen and discretionary material has been resolved, each compatible
+same-font text span in a completed line is reconstructed from logical source,
+including surviving U+0020 spaces, and shaped again as one run. This can create
+clusters that did not exist in the paragraph HList. A space discarded at the
+selected breakpoint is absent and can never shape across lines.
+
+The completed line keeps the width allocated by TeX. Fixed-layout output must
+not replace that width with the new run's unconstrained natural advance.
+Following XeTeX, final shaping is a width-constrained output operation rather
+than a second line-breaking pass.
+
+Hyphenation can change the line-start form and width of the post-break
+fragment. The post fragment stays anchored at the line origin. Immediately
+after its reshaped cluster, before its following glue or content, the line
+builder inserts an explicit compensation kern:
+
+```text
+post-fragment cluster
+    -> Kern(previous post advance - reshaped post advance)
+    -> following glue/content
+```
+
+The kern is neither a font-internal kern nor a discardable mode-1
+`space_adjustment`. It is explicit fixed-width structure and survives reflow
+serialization, so subsequent DOCX content begins at the advance used by the
+line breaker.
 
 ## Line Breaking And Hyphenation
 

@@ -80,6 +80,7 @@ class FontSpec(Serializable):
 
 class FontBackend:
     kind = None
+    supports_contextual_space_shaping = False
 
     @classmethod
     def load(cls, parser, name: str):

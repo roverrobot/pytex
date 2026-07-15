@@ -451,6 +451,7 @@ class BoxPretypesetCallback:
             top = parser.lists[-1]
             if top.type == LISTTYPE.HORIZONTAL and not top.inner:
                 parser.endParagraph()
+        parser.lists[-1].finish()
         self.box = self.box.typeset(parser)
 
 

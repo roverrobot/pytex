@@ -6,7 +6,11 @@ from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
 from pytex import dvi
+from pytex import box as bx
+from pytex import glyph
+from pytex import hmode
 from pytex import opentype
+from pytex import paragraph
 from pytex import font_subst
 from pytex import pdf
 from pytex import serialization
@@ -15,7 +19,9 @@ from pytex import mmode
 from pytex import lists
 from pytex import node as nd
 from pytex.dimen import Dimen
-from pytex.font_backend import FontSpec
+from pytex.glue import Glue, Stretchness
+from pytex.font import Font
+from pytex.font_backend import FontBackend, FontSpec, GlyphInfo
 from pytex import state
 from pytex.token import CATCODE, Token
 
@@ -136,6 +142,194 @@ def test_xetex_interchartokenstate_is_grouped_integer_accessor(parser):
     )
 
     assert parser.parameters["XeTeXinterchartokenstate"] == 1
+
+
+def test_xetex_interwordspaceshaping_is_grouped_integer_accessor(parser):
+    assert parser.parameters["XeTeXinterwordspaceshaping"] == 0
+
+    parser.parse(
+        "\\XeTeXinterwordspaceshaping=1"
+        "{\\XeTeXinterwordspaceshaping=2}"
+    )
+
+    assert parser.parameters["XeTeXinterwordspaceshaping"] == 1
+
+
+class _ContextSpaceBackend(FontBackend):
+    supports_contextual_space_shaping = True
+
+    @property
+    def name(self):
+        return "context-space-test"
+
+    @property
+    def design_size(self):
+        return 1
+
+    @property
+    def fontdimen(self):
+        return (0, 1, 0, 0, 0.5, 1, 0)
+
+    def glyphInfo(self, char):
+        return GlyphInfo(char, 1, 1, 0, glyph_id=ord(char))
+
+    def glyphInfos(self):
+        return ()
+
+    def shape(self, font, source, **kwargs):
+        source = self._shapeSource(font, source)
+        width = sum(3 if item.char == " " else 1 for item in source)
+        layout = glyph.Glyph(
+            font,
+            Dimen(width),
+            Dimen(1),
+            Dimen(),
+            char=source[0].char,
+        )
+        return [glyph.GlyphCluster(source, layout)]
+
+
+def _context_space_hlist(parser, mode):
+    font = Font(_ContextSpaceBackend(), Dimen(1))
+    parser.parameters["currentfont"] = font
+    parser.parameters["XeTeXinterwordspaceshaping"] = mode
+    out = hmode.HList(parser, [], inner=True)
+    out.open()
+    try:
+        out.append(font["A"])
+        out.append(" ")
+        out.append(font["B"])
+        return out.concreteNodes()
+    finally:
+        out.close()
+
+
+def test_xetex_interwordspaceshaping_zero_uses_ordinary_glue(parser):
+    nodes = _context_space_hlist(parser, 0)
+
+    assert [node.node_type for node in nodes] == [
+        nd.NODE_TYPE.GLYPH_CLUSTER,
+        nd.NODE_TYPE.GLUE,
+        nd.NODE_TYPE.GLYPH_CLUSTER,
+    ]
+    assert nodes[1].text_source.char == " "
+
+
+def test_xetex_interwordspaceshaping_one_adds_discardable_adjustment(parser):
+    nodes = _context_space_hlist(parser, 1)
+
+    assert [node.node_type for node in nodes] == [
+        nd.NODE_TYPE.GLYPH_CLUSTER,
+        nd.NODE_TYPE.GLUE,
+        nd.NODE_TYPE.KERN,
+        nd.NODE_TYPE.GLYPH_CLUSTER,
+    ]
+    adjustment = nodes[2]
+    assert adjustment.space_adjustment
+    assert not adjustment.automatic
+    assert adjustment.kern == Dimen(2)
+
+    breaks = list(parser.typeset.paragraph.scanBreaks(None, nodes))
+    space_break = next(item for item in breaks if item.break_index == 1)
+    assert space_break.line_start_index == 3
+
+
+def test_xetex_interwordspaceshaping_two_reshapes_completed_span(parser):
+    nodes = _context_space_hlist(parser, 2)
+    line = bx.HBox(parser, None, None)
+    line.list[:] = nodes
+    line = line.typeset(parser)
+
+    parser.typeset.paragraph._reshapeModeTwoSpans(line)
+
+    assert len(line.list) == 1
+    cluster = line.list[0]
+    assert cluster.node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert cluster.text == "A B"
+    assert cluster.width == Dimen(5)
+
+
+def test_xetex_interwordspaceshaping_two_runs_after_line_breaking(parser):
+    font = Font(_ContextSpaceBackend(), Dimen(1))
+    parser.parameters["currentfont"] = font
+    parser.parameters["XeTeXinterwordspaceshaping"] = 2
+    parser.layout["hsize"] = Dimen(5)
+
+    parser.parse("\\noindent A B\\par")
+
+    line = next(
+        node for node in parser.typeset.page.contrib
+        if (
+            node.node_type == nd.NODE_TYPE.HLIST
+            and isinstance(getattr(node, "source", None), paragraph.Paragraph)
+        )
+    )
+    clusters = [
+        node for node in line.list
+        if node.node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    ]
+    assert [cluster.text for cluster in clusters] == ["A B"]
+    assert clusters[0].width == Dimen(5)
+
+
+def test_xetex_interwordspaceshaping_two_preserves_resolved_span_width(parser):
+    nodes = _context_space_hlist(parser, 2)
+    nodes[1].glue = Glue(1, Stretchness(2), Stretchness())
+    line = bx.HBox(parser, Dimen(7), None)
+    line.list[:] = nodes
+    line = line.typeset(parser)
+
+    parser.typeset.paragraph._reshapeModeTwoSpans(line)
+
+    assert len(line.list) == 1
+    cluster = line.list[0]
+    assert cluster.text == "A B"
+    assert cluster.width == Dimen(7)
+    assert cluster.layout.node_type == nd.NODE_TYPE.HLIST
+    assert sum(
+        child.kern
+        for child in cluster.layout.list
+        if child.node_type == nd.NODE_TYPE.KERN
+    ) == Dimen(2)
+
+
+def test_mode_two_post_fragment_compensation_follows_fragment(parser):
+    font = Font(_ContextSpaceBackend(), Dimen(1))
+    post_source = [glyph.TextChar("B", font, True)]
+    previous_layout = glyph.Glyph(
+        font,
+        Dimen(4),
+        Dimen(1),
+        Dimen(),
+        char="B",
+    )
+    previous_post = glyph.GlyphCluster(post_source, previous_layout)
+    following = font.shape(
+        [glyph.TextChar("C", font, True)],
+        parser=parser,
+        left_boundary=True,
+        right_boundary=True,
+    )[0]
+    line = bx.HBox(parser, None, None)
+    line.list[:] = [previous_post, following]
+    line = line.typeset(parser)
+
+    parser.typeset.paragraph._reshapePostFragment(
+        line,
+        0,
+        1,
+        previous_post.width,
+    )
+    parser.typeset.paragraph._reshapeModeTwoSpans(line)
+
+    post, compensation, following = line.list
+    assert post.text == "B"
+    assert post.width == Dimen(1)
+    assert compensation.node_type == nd.NODE_TYPE.KERN
+    assert compensation.kern == Dimen(3)
+    assert not compensation.automatic
+    assert not compensation.space_adjustment
+    assert following.text == "C"
 
 
 def test_xetex_interchar_accessors_accept_class_4096(parser):

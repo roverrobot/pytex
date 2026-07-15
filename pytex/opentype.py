@@ -29,6 +29,8 @@ from pytex.tfm import KernOp, TFMBackend
 
 @registerBackend
 class OpenTypeBackend(FontBackend):
+    supports_contextual_space_shaping = True
+
     kind = "opentype"
     uses_font_program_kerning = True
     DEFAULT_DESIGN_SIZE = 10.0
@@ -678,6 +680,7 @@ class Type1TrueTypeBackend(TrueTypeBackend):
     """Converted TrueType metrics paired with TeX ligature/kern programs."""
 
     uses_font_program_kerning = True
+    supports_contextual_space_shaping = False
 
     def __init__(self, name, font, source_backend, font_data):
         super().__init__(name, font, font_data=font_data)

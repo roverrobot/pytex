@@ -1,5 +1,7 @@
 """Paragraph line breaking and paragraph-to-vlist realization."""
 
+from copy import copy
+
 from pytex import box as bx
 from pytex import glyph
 from pytex import hmode
@@ -17,6 +19,246 @@ class ParagraphTypesetter:
     def __init__(self, parser):
         self.parser = parser
 
+    @staticmethod
+    def _shapeWidth(nodes):
+        return sum((node.width for node in nodes), Dimen())
+
+    def _shapeCluster(self, source, target_width=None):
+        """Shape logical text into one fixed-layout, post-break cluster."""
+        source = list(source)
+        if not source:
+            return None
+        font = source[0].font
+        shaped = font.shape(
+            source,
+            parser=self.parser,
+            left_boundary=True,
+            right_boundary=True,
+        )
+        if not shaped:
+            return None
+        natural_width = self._shapeWidth(shaped)
+        target_width = natural_width if target_width is None else Dimen(target_width)
+        if (
+            len(shaped) == 1
+            and list(shaped[0].source) == source
+            and shaped[0].width == target_width
+        ):
+            return shaped[0]
+
+        adjustment = target_width - natural_width
+        space_count = sum(item.char == " " for item in source)
+        layout_nodes = []
+        applied = 0
+        spaces_seen = 0
+        for index, cluster in enumerate(shaped):
+            if adjustment != 0 and not space_count and len(shaped) > 1:
+                wanted = Dimen._round_div(
+                    int(adjustment) * index,
+                    len(shaped) - 1,
+                )
+                delta = wanted - applied
+                if delta:
+                    layout_nodes.append(nd.Kern(Dimen(integer=delta)))
+                    applied = wanted
+            layout_nodes.append(cluster.layout)
+            if adjustment == 0:
+                continue
+            if space_count:
+                spaces_seen += sum(item.char == " " for item in cluster.source)
+                wanted = Dimen._round_div(
+                    int(adjustment) * spaces_seen,
+                    space_count,
+                )
+                delta = wanted - applied
+                if delta:
+                    layout_nodes.append(nd.Kern(Dimen(integer=delta)))
+                    applied = wanted
+        if applied != int(adjustment):
+            layout_nodes.append(
+                nd.Kern(Dimen(integer=int(adjustment) - applied))
+            )
+
+        layout = bx.HBox(self.parser, target_width, None)
+        layout.list[:] = layout_nodes
+        layout = layout.typeset(self.parser)
+        return glyph.GlyphCluster(source, layout)
+
+    @staticmethod
+    def _modeTwoInvisible(node):
+        return node.node_type in (
+            nd.NODE_TYPE.PENALTY,
+            nd.NODE_TYPE.INS,
+            nd.NODE_TYPE.MARK,
+            nd.NODE_TYPE.ADJUST,
+        ) or isinstance(node, Language)
+
+    @staticmethod
+    def _resolvedGlueWidths(hbox):
+        """Return each glue's exact packed advance, including roundoff."""
+        sign, num, den = hbox._ratioParts(hbox.glue_ratio)
+        if sign > 0:
+            order = hbox.natural.stretch.order
+        elif sign < 0:
+            order = hbox.natural.shrink.order
+        else:
+            order = 0
+        factor_sum = 0
+        applied = 0
+        widths = {}
+        for index, node in enumerate(hbox.list):
+            if node.node_type != nd.NODE_TYPE.GLUE:
+                continue
+            amount = int(node.glue.dimen)
+            if sign:
+                part = node.glue.stretch if sign > 0 else node.glue.shrink
+                if part.order == order:
+                    factor_sum += int(part.factor)
+                    wanted = Dimen._round_div(sign * factor_sum * num, den)
+                    amount += wanted - applied
+                    applied = wanted
+            widths[index] = Dimen(integer=amount)
+        return widths
+
+    def _reshapePostFragment(self, hbox, start, end, previous_width):
+        """Reshape a discretionary post fragment and pin following content."""
+        fragment = hbox.list[start:end]
+        if not fragment:
+            return end
+        source = []
+        font = None
+        for node in fragment:
+            letters = glyph.textSource(node)
+            if not letters:
+                return end
+            if font is None:
+                font = letters[0].font
+            if any(item.font is not font for item in letters):
+                return end
+            source.extend(letters)
+        if not getattr(font.backend, "supports_contextual_space_shaping", False):
+            return end
+        cluster = self._shapeCluster(source)
+        if cluster is None:
+            return end
+        compensation = nd.Kern(Dimen(previous_width) - cluster.width)
+        hbox.list[start:end] = [cluster, compensation]
+        return start + 2
+
+    def _reshapeModeTwoSpans(self, hbox):
+        """Merge compatible completed-line text and spaces at fixed width."""
+        glue_widths = self._resolvedGlueWidths(hbox)
+        items = hbox.list
+        resolved_by_node = {
+            id(items[index]): width
+            for index, width in glue_widths.items()
+        }
+        out = []
+        i = 0
+        while i < len(items):
+            first_source = glyph.textSource(items[i])
+            if not first_source:
+                out.append(items[i])
+                i += 1
+                continue
+            font = first_source[0].font
+            if not getattr(font.backend, "supports_contextual_space_shaping", False):
+                out.append(items[i])
+                i += 1
+                continue
+
+            source = list(first_source)
+            target_width = Dimen(items[i].width)
+            invisible = []
+            merged = False
+            j = i + 1
+            while j < len(items):
+                probe = j
+                gap_invisible = []
+                while probe < len(items) and self._modeTwoInvisible(items[probe]):
+                    gap_invisible.append(items[probe])
+                    probe += 1
+                if probe >= len(items):
+                    break
+
+                next_source = glyph.textSource(items[probe])
+                if next_source and all(item.font is font for item in next_source):
+                    source.extend(next_source)
+                    target_width += items[probe].width
+                    invisible.extend(gap_invisible)
+                    merged = True
+                    j = probe + 1
+                    continue
+
+                glue_node = items[probe]
+                space = getattr(glue_node, "text_source", None)
+                if (
+                    glue_node.node_type != nd.NODE_TYPE.GLUE
+                    or space is None
+                    or space.char != " "
+                    or space.font is not font
+                ):
+                    break
+                glue_index = probe
+                probe += 1
+                after_glue = []
+                while probe < len(items) and self._modeTwoInvisible(items[probe]):
+                    after_glue.append(items[probe])
+                    probe += 1
+                adjustment = None
+                if (
+                    probe < len(items)
+                    and items[probe].node_type == nd.NODE_TYPE.KERN
+                    and items[probe].space_adjustment
+                ):
+                    adjustment = items[probe]
+                    probe += 1
+                    while probe < len(items) and self._modeTwoInvisible(items[probe]):
+                        after_glue.append(items[probe])
+                        probe += 1
+                standard_glue = glue_node.glue == font.spaceglue
+                if not standard_glue and adjustment is None:
+                    break
+                if probe >= len(items):
+                    break
+                next_source = glyph.textSource(items[probe])
+                if not next_source or any(item.font is not font for item in next_source):
+                    break
+
+                source.append(space)
+                source.extend(next_source)
+                target_width += glue_widths[glue_index]
+                if adjustment is not None:
+                    target_width += adjustment.kern
+                target_width += items[probe].width
+                invisible.extend(gap_invisible)
+                invisible.extend(after_glue)
+                merged = True
+                j = probe + 1
+
+            if not merged:
+                out.append(items[i])
+                i += 1
+                continue
+            cluster = self._shapeCluster(source, target_width)
+            if cluster is None:
+                out.extend(items[i:j])
+            else:
+                out.append(cluster)
+                out.extend(invisible)
+            i = j
+        fixed = []
+        for node in out:
+            width = resolved_by_node.get(id(node))
+            if width is None:
+                fixed.append(node)
+                continue
+            node = copy(node)
+            node.glue = Glue(width)
+            node.kern = None
+            fixed.append(node)
+        hbox.list[:] = fixed
+
     def _packLine(self, para, hlist, line):
         parser = self.parser
         packed = []
@@ -26,8 +268,15 @@ class ParagraphTypesetter:
         leftskip = parser.layout["leftskip"]
         if leftskip != Glue():
             packed.append(nd.Glue(leftskip, "\\leftskip"))
+        post_range = None
         if line.begin.disc is not None:
+            post_start = len(packed)
             packed.extend(line.begin.disc.post)
+            post_range = (
+                post_start,
+                len(packed),
+                line.begin.disc.post_width,
+            )
         for node in hlist[line.begin.line_start_index:line.end.break_index]:
             if node.node_type == nd.NODE_TYPE.DISC:
                 packed.append(para._lineDisc(parser, node, broken=False))
@@ -43,6 +292,12 @@ class ParagraphTypesetter:
         hbox = bx.HBox(parser, measure, None)
         hbox.list[:] = packed
         hbox = hbox.typeset(parser)
+        entry = dict.get(parser.parameters, "XeTeXinterwordspaceshaping")
+        mode = 0 if entry is None else entry.value
+        if mode > 1:
+            if post_range is not None:
+                self._reshapePostFragment(hbox, *post_range)
+            self._reshapeModeTwoSpans(hbox)
         migratory = [n for n in hbox.list if n.node_type in para._migratory_node_types]
         if migratory:
             hbox.list[:] = [n for n in hbox.list if n.node_type not in para._migratory_node_types]

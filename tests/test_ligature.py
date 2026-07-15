@@ -74,8 +74,8 @@ def test_ligatures(cmr10, input, char):
     assert len(packed) == 3
     assert packed[2].node_type == nd.NODE_TYPE.GLUE
     lig = packed[1]
-    assert ord(lig.char) == char
-    assert isinstance(lig, hmode.Ligature)
+    assert isinstance(lig, glyph.GlyphCluster)
+    assert ord(lig.layout.char) == char
     assert len(lig.source) == len(input)
     content = "".join([c.char for c in lig.source])
     assert content == input
@@ -90,11 +90,15 @@ def test_kern(cmr10, input):
     top = cmr10.lists[-1]
     assert len(_raw_nodes(top)) == len(input) + 2
     packed = _concrete_nodes(top)
-    assert len(packed) == 5
-    assert packed[4].node_type == nd.NODE_TYPE.GLUE
-    knode = packed[2]
+    assert len(packed) == 3
+    assert packed[2].node_type == nd.NODE_TYPE.GLUE
+    cluster = packed[1]
+    assert isinstance(cluster, glyph.GlyphCluster)
+    assert cluster.text == input
+    assert cluster.layout.node_type == nd.NODE_TYPE.HLIST
+    knode = cluster.layout.list[1]
     assert isinstance(knode, nd.Kern)
-    assert knode.automatic
+    assert not knode.automatic
     font = cmr10.parameters["currentfont"]
     char = font[input[0]]
     next = ord(input[1])

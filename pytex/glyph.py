@@ -276,6 +276,18 @@ class GlyphCluster(nd.Box):
     def font(self):
         return self.source[0].font
 
+    @property
+    def italic(self):
+        layout = self.layout
+        italic = getattr(layout, "italic", None)
+        if italic is not None:
+            return Dimen(italic)
+        for node in reversed(getattr(layout, "list", ())):
+            italic = getattr(node, "italic", None)
+            if italic is not None:
+                return Dimen(italic)
+        return Dimen()
+
     def saveInfo(self):
         return {
             "source": self.source,

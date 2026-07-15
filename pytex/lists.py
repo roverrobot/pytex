@@ -86,6 +86,10 @@ class List:
             raise RuntimeError(f"{self.__class__.__name__} is not open")
         self._opened = False
 
+    def finish(self):
+        """Materialize any content deferred while the list was being built."""
+        pass
+
 
 class ListStack(list):
     """
@@ -379,8 +383,10 @@ class ItalicCorrection(ModeDependentCommand):
     def horizontal(self, parser, hlist):
         if len(hlist) > 1:
             last = hlist[-1]
-            if isinstance(last, nd.CharNode):
-                hlist.append(nd.Kern(last.italic))
+            from pytex import glyph
+
+            if glyph.isTextNode(last):
+                hlist.append(nd.Kern(getattr(last, "italic", 0)))
     
     def math(self, parser, mlist):
         # append a 0-width kern

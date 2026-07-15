@@ -334,12 +334,19 @@ def test_tex_line_measurement_applies_opentype_gpos_kern(parser):
         pytest.skip("lmroman10-regular.otf not found")
 
     box = parser.box[0]
-    automatic = [node for node in box.list if getattr(node, "automatic", False)]
+    assert len(box.list) == 1
+    cluster = box.list[0]
+    assert cluster.text == "be"
+    assert cluster.layout.node_type == nd.NODE_TYPE.HLIST
+    kerns = [
+        node for node in cluster.layout.list
+        if node.node_type == nd.NODE_TYPE.KERN
+    ]
     font = parser.lookup("\\f")
     expected = font.at * font.backend.glyphInfo("b").program[ord("e")].kern
 
-    assert len(automatic) == 1
-    assert automatic[0].kern == expected
+    assert len(kerns) == 1
+    assert kerns[0].kern == expected
 
 
 def test_read_opentype_font(parser):
@@ -400,7 +407,7 @@ def test_opentype_math_variants_populate_next_larger_and_assembly(parser):
 
 def test_missing_character_is_logged_and_omitted(cmr10):
     cmr10.parse('\\setbox0=\\hbox{A\\char"53EF B}')
-    chars = [node.char for node in cmr10.box[0].list if hasattr(node, "char")]
+    chars = [node.text for node in cmr10.box[0].list if hasattr(node, "text")]
     assert chars == ["A", "B"]
     assert "Missing character: There is no 可 (U+53EF) in font cmr10!" in cmr10.logContent()
 

@@ -719,8 +719,8 @@ def test_output_routine_can_carry_material_forward(cmr10):
     second = shipout.pages[1].list[1]
     assert first.node_type == nd.NODE_TYPE.HLIST
     assert second.node_type == nd.NODE_TYPE.HLIST
-    first_chars = [n.char for n in first.list if n.node_type == nd.NODE_TYPE.CHAR]
-    second_chars = [n.char for n in second.list if n.node_type == nd.NODE_TYPE.CHAR]
+    first_chars = [n.text for n in first.list if n.node_type == nd.NODE_TYPE.GLYPH_CLUSTER]
+    second_chars = [n.text for n in second.list if n.node_type == nd.NODE_TYPE.GLYPH_CLUSTER]
     assert "A" in first_chars
     assert "X" in second_chars
 

@@ -4,6 +4,7 @@ Implementation of horizontal commands and hlist handling.
 
 
 from pytex import node as nd
+from pytex import glyph as glyph_data
 from pytex import lists
 from pytex.glue import Glue, Stretchness
 from pytex.dimen import Dimen
@@ -181,6 +182,8 @@ class HList(lists.List):
         self.type = lists.LISTTYPE.HORIZONTAL
         self._ligature_state = {"lig_base": None, "in_word": False}
         self._interchar_class = INTERCHAR_CLASS_BOUNDARY
+        self._pending_text = []
+        self._pending_space = None
 
     def open(self):
         super().open()
@@ -188,12 +191,16 @@ class HList(lists.List):
         self.parser.globals["spacefactor"] = 1000
         self._syncLigatureState()
 
-    def close(self):
+    def finish(self):
+        self._flushTextRun()
         if self._ligature_state["in_word"]:
             self._applyRightBoundary(self.list, self._ligature_state)
             self._ligature_state["in_word"] = False
             self._ligature_state["lig_base"] = None
         self._interchar_class = INTERCHAR_CLASS_BOUNDARY
+
+    def close(self):
+        self.finish()
         self.parser.globals["spacefactor"] = self.saved_spacefactor
         super().close()
 
@@ -202,10 +209,153 @@ class HList(lists.List):
         return "HList" if self.inner else "Paragraph"
 
     def concreteNodes(self):
+        self._flushTextRun()
         return list(self.list)
 
     def rawNodes(self):
+        self._flushTextRun()
         return list(self.raw)
+
+    def __len__(self):
+        self._flushTextRun()
+        return super().__len__()
+
+    def __iter__(self):
+        self._flushTextRun()
+        return super().__iter__()
+
+    def __getitem__(self, index):
+        self._flushTextRun()
+        return super().__getitem__(index)
+
+    def __setitem__(self, index, value):
+        self._flushTextRun()
+        self._pending_space = None
+        return super().__setitem__(index, value)
+
+    def __delitem__(self, key):
+        self._flushTextRun()
+        self._pending_space = None
+        result = super().__delitem__(key)
+        self._syncLigatureState()
+        return result
+
+    def clear(self):
+        self._flushTextRun()
+        self._pending_space = None
+        super().clear()
+        self._syncLigatureState()
+
+    def _interwordSpaceShaping(self):
+        entry = dict.get(self.parser.parameters, "XeTeXinterwordspaceshaping")
+        return 0 if entry is None else entry.value
+
+    @staticmethod
+    def _shapeWidth(nodes):
+        width = Dimen()
+        for node in nodes:
+            width += node.width
+        return width
+
+    @staticmethod
+    def _contextualSpaceBackend(font):
+        return bool(
+            getattr(font.backend, "supports_contextual_space_shaping", False)
+        )
+
+    def _applyContextualSpace(self, right_source, right_width):
+        pending = self._pending_space
+        self._pending_space = None
+        if pending is None or not right_source:
+            return
+        font = pending["font"]
+        if right_source[0].font is not font:
+            return
+        source = pending["left_source"] + [pending["space_source"]] + right_source
+        shaped = font.shape(
+            source,
+            parser=self.parser,
+            left_boundary=True,
+            right_boundary=True,
+        )
+        contextual_space = (
+            self._shapeWidth(shaped)
+            - pending["left_width"]
+            - right_width
+        )
+        adjustment = contextual_space - font.spaceglue.dimen
+        glue_node = pending["glue"]
+        for index, item in enumerate(self.list):
+            if item is glue_node:
+                self.list.insert(
+                    index + 1,
+                    nd.Kern(adjustment, space_adjustment=True),
+                )
+                return
+
+    def _flushTextRun(self):
+        if not self._pending_text:
+            return None
+        source = self._pending_text
+        self._pending_text = []
+        font = source[0].font
+        shaped = font.shape(
+            source,
+            parser=self.parser,
+            left_boundary=True,
+            right_boundary=True,
+        )
+        width = self._shapeWidth(shaped)
+        self._applyContextualSpace(source, width)
+        self.list.extend(shaped)
+        result = {
+            "source": source,
+            "font": font,
+            "width": width,
+        }
+        return result
+
+    @staticmethod
+    def _invisibleToInterwordSpace(node):
+        return node.node_type in (
+            nd.NODE_TYPE.PENALTY,
+            nd.NODE_TYPE.INS,
+            nd.NODE_TYPE.MARK,
+            nd.NODE_TYPE.ADJUST,
+        )
+
+    def _appendSpace(self):
+        left = self._flushTextRun()
+        font = self.parser.parameters["currentfont"]
+        glue = self.parser.interwordGlue()
+        source = glyph_data.TextChar(
+            " ",
+            font,
+            False,
+            interword_glue=glue,
+        )
+        glue_node = nd.Glue(glue, None, text_source=source)
+        self.raw.append(glue_node)
+        self.list.append(glue_node)
+        mode = self._interwordSpaceShaping()
+        if (
+            mode > 0
+            and left is not None
+            and left["font"] is font
+            and self._contextualSpaceBackend(font)
+        ):
+            self._pending_space = {
+                "font": font,
+                "left_source": left["source"],
+                "left_width": left["width"],
+                "space_source": source,
+                "glue": glue_node,
+            }
+        else:
+            self._pending_space = None
+        self._ligature_state["lig_base"] = None
+        self._ligature_state["in_word"] = False
+        self.parser.globals["spacefactor"] = 1000
 
     def _nodeEndsWord(self, node):
         if node is None:
@@ -217,6 +367,9 @@ class HList(lists.List):
             tail = source[-1] if source else None
             if tail is not None and tail.node_type == nd.NODE_TYPE.CHAR:
                 return self.parser.lccode[ord(tail.char)] != 0
+        source = glyph_data.textSource(node)
+        if source:
+            return source[-1].word_char
         return False
 
     def _syncLigatureState(self):
@@ -225,6 +378,7 @@ class HList(lists.List):
         self._ligature_state["in_word"] = self._nodeEndsWord(base)
 
     def _resetNonCharState(self):
+        self._flushTextRun()
         if self._ligature_state["in_word"]:
             self._applyRightBoundary(self.list, self._ligature_state)
             self._ligature_state["in_word"] = False
@@ -290,6 +444,7 @@ class HList(lists.List):
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         self._resetNonCharState()
+        self._pending_space = None
         self.list.extend(cache)
 
     def appendAccent(self, node, _interchar_backed_up=False):
@@ -302,6 +457,7 @@ class HList(lists.List):
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         self._resetNonCharState()
+        self._pending_space = None
         start = len(self.list)
         node.typeset(self.parser, self.list)
         for concrete in self.list[start:]:
@@ -318,6 +474,7 @@ class HList(lists.List):
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         self._resetNonCharState()
+        self._pending_space = None
         start = len(self.list)
         self.parser.typeset.align.typesetVAlignment(node, self.list)
         for concrete in self.list[start:]:
@@ -334,11 +491,14 @@ class HList(lists.List):
         if isinstance(node, str):
             if node != "\u0020":
                 raise ValueError("horizontal text strings must be U+0020 spaces")
-            node = nd.Glue(self.parser.interwordGlue(), None)
+            self._appendSpace()
+            return
         if getattr(node, "source", None) is None:
             self.raw.append(node)
         if node.node_type != nd.NODE_TYPE.CHAR:
             self._resetNonCharState()
+            if not self._invisibleToInterwordSpace(node):
+                self._pending_space = None
             if node.node_type in (nd.NODE_TYPE.ADJUST, nd.NODE_TYPE.MARK, nd.NODE_TYPE.INS):
                 self.list.append(node)
                 return
@@ -352,14 +512,28 @@ class HList(lists.List):
             if spacefactor < 1000 < sf:
                 sf = 1000
             self.parser.globals["spacefactor"] = sf
-        self.processLigature(
-            self.parser,
-            node,
-            self.list,
-            self._ligature_state,
+        if not hasattr(node.font, "shape"):
+            self._flushTextRun()
+            self.processLigature(
+                self.parser,
+                node,
+                self.list,
+                self._ligature_state,
+            )
+            return
+        if self._pending_text and self._pending_text[-1].font is not node.font:
+            self._flushTextRun()
+            self._pending_space = None
+        self._pending_text.append(
+            glyph_data.TextChar.fromCharNode(
+                node,
+                self.parser.lccode[ord(node.char)] != 0,
+            )
         )
 
     def pop(self, *args):
+        self._flushTextRun()
+        self._pending_space = None
         node = self.list.pop(*args)
         self._syncLigatureState()
         return node

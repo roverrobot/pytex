@@ -1,6 +1,7 @@
 import pytest
 from pytex import box as bx
 from pytex import glue
+from pytex import glyph
 from pytex import node as nd
 from pytex import lists
 from pytex import page
@@ -33,6 +34,16 @@ def _source_nodes(vlist, cls):
         seen.add(key)
         out.append(source)
     return out
+
+
+def _text(node):
+    source = glyph.textSource(node)
+    if source is not None:
+        return "".join(item.char for item in source)
+    text_source = getattr(node, "text_source", None)
+    if text_source is not None:
+        return text_source.char
+    return "".join(_text(child) for child in getattr(node, "list", ()))
 
 
 def _expanded_vbox(parser, nodes):
@@ -90,12 +101,12 @@ def test_ifvoid(box):
     box0 = box.box[0]
     box.parse("\\ifvoid0 a\\else b\\fi")
     top = box.lists[-1]
-    assert top[-1].char == "b"
+    assert _text(top[-1]) == "b"
     box.parse("\\setbox1=\\box0")
     box.parse("\\ifvoid1 c\\else d\\fi")
-    assert top[-1].char == "d"
+    assert _text(top[-1]) == "d"
     box.parse("\\ifvoid0 a\\else b\\fi")
-    assert top[-1].char == "a"
+    assert _text(top[-1]) == "a"
 
 
 def test_hbox(cmr10):
@@ -108,7 +119,8 @@ def test_hbox(cmr10):
     assert typed.width == 55.58344
     assert typed.height == 6.94444
     assert typed.depth == 1.94444
-    assert len(typed.list) == 14
+    assert len(typed.list) == 12
+    assert _text(typed) == "Hello, world!"
 
 
 def test_hbox_accepts_bgroup_alias(cmr10):
@@ -620,15 +632,10 @@ def test_vtop_uses_first_packed_row_height_for_halign(cmr10):
 
 def test_vbox_uses_lineskip_after_vtop_halign(cmr10):
     def text_of(node):
-        out = []
-        for child in getattr(node, "list", []):
-            if child.node_type == NODE_TYPE.CHAR:
-                out.append(child.char)
-            elif child.node_type == NODE_TYPE.LIGATURE:
-                out.append("".join(c.char for c in child.source))
-            elif child.node_type in (NODE_TYPE.HLIST, NODE_TYPE.VLIST):
-                out.append(text_of(child))
-        return "".join(out)
+        source = glyph.textSource(node)
+        if source is not None:
+            return "".join(item.char for item in source)
+        return "".join(text_of(child) for child in getattr(node, "list", ()))
 
     def find_parent(items):
         for i, node in enumerate(items):
@@ -697,9 +704,13 @@ def test_unhbox(box):
     box.parse("1\\unhbox0")
     top = box.lists[-1]
     nodes = _concrete_nodes(top)
-    assert len(nodes) == 16
+    assert len(nodes) == 14
     assert nodes[0].node_type == NODE_TYPE.HLIST
-    assert any(node.node_type == NODE_TYPE.KERN for node in nodes)
+    assert any(
+        child.node_type == NODE_TYPE.KERN
+        for node in nodes
+        for child in getattr(getattr(node, "layout", None), "list", ())
+    )
     assert box.box[0] is None
 
 
@@ -725,11 +736,15 @@ def test_unhcopy(box):
     box.parse("1\\unhcopy0")
     top = box.lists[-1]
     nodes = _concrete_nodes(top)
-    assert len(nodes) == 16
+    assert len(nodes) == 14
     assert nodes[0].node_type == NODE_TYPE.HLIST
-    assert any(node.node_type == NODE_TYPE.KERN for node in nodes)
+    assert any(
+        child.node_type == NODE_TYPE.KERN
+        for node in nodes
+        for child in getattr(getattr(node, "layout", None), "list", ())
+    )
     box0 = box.box[0]
-    assert len(box0.list) == 14 # exoanded node, with an automatic kern
+    assert len(box0.list) == 12
 
 
 def test_unvbox(box):
@@ -757,7 +772,7 @@ def test_accent_nochar(cmr10):
     assert accent.node_type == NODE_TYPE.ACCENT
     assert accent.base is None
     assert accent.accent.char == "A"
-    assert top[2].char == "1"
+    assert _text(top[2]) == "1"
 
 
 def test_accent(cmr10):
@@ -826,7 +841,7 @@ def test_lastbox(cmr10):
     assert top.type == lists.LISTTYPE.HORIZONTAL
     assert len(top) == 2
     box = cmr10.box[0]
-    assert len(box.list) == 14 # expanded nodes, with an automatic kern
+    assert len(box.list) == 12
 
 
 def test_lastbox_empty(cmr10):
@@ -874,5 +889,5 @@ def test_afterassignment(cmr10):
     cmr10.parse("\\afterassignment a\\setbox1=\\hbox{}")
     box1 = cmr10.box[1]
     assert len(box1.list) == 1
-    assert box1.list[0].char == "a"
+    assert _text(box1.list[0]) == "a"
     assert cmr10.globals["afterassignment"] is None

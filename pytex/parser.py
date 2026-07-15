@@ -556,8 +556,8 @@ class Parser:
             # current font. If two or more commands of this type occur in succession,
             # TeX processes them all as a unit, converting to ligatures and/or
             # inserting kerns as directed by the font information. The live HList
-            # keeps the raw characters for source tracking while immediately
-            # materializing ligatures and automatic kerns into its concrete list.
+            # accumulates logical text and asks the font backend to materialize the
+            # run when a shaping boundary is reached.
             # Each character command adjusts
             # \spacefactor, using the \sfcode table as described in Chapter 12. 
             # In unrestricted horizontal mode, a ‘\discretionary{}{}{}’ item is 

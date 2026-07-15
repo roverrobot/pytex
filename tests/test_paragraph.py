@@ -177,8 +177,8 @@ def test_linebreak_discards_leading_discardables(cmr10):
     line = out[0]
     assert line.node_type == nd.NODE_TYPE.HLIST
     assert len(line.list) >= 1
-    assert line.list[0].node_type == nd.NODE_TYPE.CHAR
-    assert line.list[0].char == "a"
+    assert line.list[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert line.list[0].text == "a"
 
 
 def test_linebreak_typesets_mlist_before_breaking(cmr10):
@@ -523,8 +523,8 @@ def test_parshape_resets_after_paragraph_end(parser):
     assert first[0].list[0].node_type == nd.NODE_TYPE.GLUE
     assert first[0].list[0].glue.dimen == 20
     assert second[0].width == 200
-    assert second[0].list[0].node_type == nd.NODE_TYPE.CHAR
-    assert second[0].list[0].char == "B"
+    assert second[0].list[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert second[0].list[0].text == "B"
 
 
 def test_internal_paragraph_end_uses_current_par_definition(parser):

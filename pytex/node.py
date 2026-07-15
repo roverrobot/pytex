@@ -165,13 +165,18 @@ class Glue(Node):
     A glue node.
     @param glue: the glue
     """
-    def __init__(self, glue, name):
+    def __init__(self, glue, name, text_source=None):
         self.glue = glue
         self.name = name
         self.kern = None
+        self.text_source = text_source
 
     def saveInfo(self):
-        return {"glue": self.glue, "name": self.name}, None
+        return {
+            "glue": self.glue,
+            "name": self.name,
+            "text_source": self.text_source,
+        }, None
 
     def __repr__(self):
         set = self.glue if self.kern is None else f"{self.kern}pt"
@@ -196,12 +201,22 @@ class Kern(Node):
     @param kern: the kern
     @param automatic: whether the kern is automatic (from a ligature)
     """
-    def __init__(self, kern, automatic: bool = False):
+    def __init__(
+        self,
+        kern,
+        automatic: bool = False,
+        space_adjustment: bool = False,
+    ):
         self.kern = Dimen(kern)
         self.automatic = automatic
+        self.space_adjustment = bool(space_adjustment)
 
     def saveInfo(self):
-        return {"kern": self.kern, "automatic": self.automatic}, None
+        return {
+            "kern": self.kern,
+            "automatic": self.automatic,
+            "space_adjustment": self.space_adjustment,
+        }, None
 
     node_type = NODE_TYPE.KERN
 

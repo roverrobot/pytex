@@ -119,7 +119,7 @@ def _drop_redundant_wrapper(box_node, allow_char):
     Drop one outer hbox/vbox layer if it only wraps a single box child.
 
     This mirrors TeX's "don't keep useless wrappers" behavior while allowing
-    callers to retain wrappers around char/ligature nodes when needed.
+    callers to retain wrappers around glyph clusters when needed.
     """
     if box_node.node_type not in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
         return box_node
@@ -128,7 +128,7 @@ def _drop_redundant_wrapper(box_node, allow_char):
     child = box_node.list[0]
     if not isinstance(child, nd.Box):
         return box_node
-    if (not allow_char) and child.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+    if (not allow_char) and child.node_type == nd.NODE_TYPE.GLYPH_CLUSTER:
         return box_node
     return child
 
@@ -470,7 +470,7 @@ class Atom(nd.Node):
         if not translated:
             return False
         first = translated[0]
-        if first.node_type not in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+        if first.node_type != nd.NODE_TYPE.GLYPH_CLUSTER:
             return False
         if len(translated) == 1:
             return True
@@ -688,7 +688,7 @@ class Atom(nd.Node):
         out.list.extend(b.list)
         if b.list:
             right = b.list[-1]
-            if right.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            if right.node_type == nd.NODE_TYPE.GLYPH_CLUSTER:
                 italic = getattr(right, "italic", None)
         if italic is not None and int(italic) != 0:
             out.list.append(nd.Kern(italic, automatic=True))
@@ -746,7 +746,12 @@ class Op(Atom):
         if style.style == MATH_STYLE.D and node.char_info.next_larger is not None:
             node = font[node.char_info.next_larger]
         delta = Dimen(node.italic)
-        y.list.append(node)
+        y.list.append(
+            parser.math_typesetter.mathCharCluster(
+                node,
+                source_chars=getattr(symbol, "source_chars", (symbol.char,)),
+            )
+        )
         # Include italic correction in width iff limits are used or there is no subscript.
         if int(delta) != 0 and (use_limits or self.sub is None):
             y.list.append(nd.Kern(delta, automatic=True))
@@ -864,7 +869,9 @@ class MathSymbol(serialization.Serializable):
         self.type, self.fam, self.char = self.decode(mathcode, fam)
 
     def saveInfo(self):
-        return {"mathcode": self.encode(), "fam": -1}, None
+        source_chars = getattr(self, "source_chars", None)
+        extra = None if source_chars is None else {"source_chars": list(source_chars)}
+        return {"mathcode": self.encode(), "fam": -1}, extra
 
     def encode(self):
         return (self.type.value << 12) | (self.fam << 8) | ord(self.char)

@@ -19,6 +19,7 @@ from pytex.opentype import TrueTypeBackend
 from pytex import reflow
 from pytex.font import Font
 from pytex import font_subst
+from pytex import glyph as glyph_data
 from lxml.html import builder
 from lxml import etree
 from lxml.builder import ElementMaker
@@ -175,16 +176,16 @@ class TextRun(StyledNode, reflow.TextRun):
         self._appendText(text)
 
     def setChar(self, char: nd.Node):
-        if char.node_type == nd.NODE_TYPE.CHAR:
-            value = char.char
+        source = glyph_data.textSource(char)
+        if source is None:
+            return
+        for item in source:
+            value = item.char
             if self.font is not None:
                 unicode_char = getattr(self.font.backend, "unicodeChar", None)
                 if unicode_char is not None:
                     value = unicode_char(value)
             self._appendText(value)
-        elif char.node_type == nd.NODE_TYPE.LIGATURE:
-            for node in char.source:
-                self.setChar(node)
 
     def setSpace(self, width: Dimen, breakable: bool=True):
         if breakable and int(width) >= 0:
@@ -1120,12 +1121,9 @@ class HTMLReflowBackend(reflow.Reflow):
                 n = next(nodes, None)
                 if n is None:
                     break
-                if n.node_type == nd.NODE_TYPE.CHAR:
-                    text += n.char
-                    continue
-                if n.node_type == nd.NODE_TYPE.LIGATURE:
-                    for p in n.source:
-                        text += p.char
+                source = glyph_data.textSource(n)
+                if source is not None:
+                    text += "".join(p.char for p in source)
                     continue
                 if n.node_type == nd.NODE_TYPE.GLUE:
                     text += " "

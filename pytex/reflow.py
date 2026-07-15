@@ -903,7 +903,6 @@ class Reflow(shipout.Shipout):
             nd.NODE_TYPE.HLIST,
             nd.NODE_TYPE.VLIST,
             nd.NODE_TYPE.CHAR,
-            nd.NODE_TYPE.LIGATURE,
             nd.NODE_TYPE.GLYPH_CLUSTER,
         ):
             return node.width
@@ -1022,7 +1021,6 @@ class Reflow(shipout.Shipout):
                 nd.NODE_TYPE.HLIST,
                 nd.NODE_TYPE.VLIST,
                 nd.NODE_TYPE.CHAR,
-                nd.NODE_TYPE.LIGATURE,
                 nd.NODE_TYPE.GLYPH_CLUSTER,
             ):
                 continue
@@ -1426,7 +1424,6 @@ class Reflow(shipout.Shipout):
 
     _hlist_concrete_type = (
         nd.NODE_TYPE.CHAR,
-        nd.NODE_TYPE.LIGATURE,
         nd.NODE_TYPE.VLIST,
         nd.NODE_TYPE.HLIST,
         nd.NODE_TYPE.GLYPH_CLUSTER,
@@ -1442,8 +1439,6 @@ class Reflow(shipout.Shipout):
             if node_type == nd.NODE_TYPE.CHAR:
                 if not getattr(node, "char", "").isspace():
                     return True
-            elif node_type == nd.NODE_TYPE.LIGATURE:
-                return True
             elif node_type == nd.NODE_TYPE.HLIST:
                 if self._hlist_has_visible_content(node):
                     return True

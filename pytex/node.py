@@ -16,7 +16,6 @@ class NODE_TYPE(enum.IntEnum):
     INS = 4
     MARK = 5
     ADJUST = 6
-    LIGATURE = 7
     DISC = 8
     WHATSIT = 9
     MATH = 10 # math on/off

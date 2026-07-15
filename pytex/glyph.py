@@ -26,11 +26,11 @@ def _wordClassifier(word_char):
     return lambda char: value
 
 
-def _legacyTextChars(source_nodes, classify):
+def _textCharsFromNodes(source_nodes, classify):
     source = []
     for node in source_nodes:
         if getattr(node, "node_type", None) != nd.NODE_TYPE.CHAR:
-            raise TypeError("legacy text source must contain only CharNode values")
+            raise TypeError("text source must contain only CharNode values")
         source.append(TextChar.fromCharNode(node, classify(node.char)))
     return source
 
@@ -167,11 +167,8 @@ class Glyph(nd.Box):
 
     @classmethod
     def fromCharNode(cls, node):
-        if getattr(node, "node_type", None) not in (
-            nd.NODE_TYPE.CHAR,
-            nd.NODE_TYPE.LIGATURE,
-        ):
-            raise TypeError("Glyph.fromCharNode requires a character or ligature node")
+        if getattr(node, "node_type", None) != nd.NODE_TYPE.CHAR:
+            raise TypeError("Glyph.fromCharNode requires a CharNode")
         info = node.char_info
         return cls(
             node.font,
@@ -253,19 +250,15 @@ class GlyphCluster(nd.Box):
         self.owner = owner
 
     @classmethod
-    def fromLegacy(cls, node, word_char=False):
-        node_type = getattr(node, "node_type", None)
-        if node_type == nd.NODE_TYPE.CHAR:
-            source_nodes = [node]
-        elif node_type == nd.NODE_TYPE.LIGATURE:
-            source_nodes = builtins.list(getattr(node, "source", ()))
-        else:
-            raise TypeError("GlyphCluster.fromLegacy requires a character or ligature node")
-        classify = _wordClassifier(word_char)
-        source = _legacyTextChars(source_nodes, classify)
+    def fromCharNode(cls, node, word_char=False, source=None, owner=None):
+        if getattr(node, "node_type", None) != nd.NODE_TYPE.CHAR:
+            raise TypeError("GlyphCluster.fromCharNode requires a CharNode")
+        if source is None:
+            source = [TextChar.fromCharNode(node, _wordClassifier(word_char)(node.char))]
         return cls(
             source,
             Glyph.fromCharNode(node),
+            owner=owner,
         )
 
     @property
@@ -299,27 +292,20 @@ class GlyphCluster(nd.Box):
         return f"GlyphCluster({self.text!r}, {self.layout!r})"
 
     def meaning(self, parser):
-        return f"glyph cluster {self.text!r}"
+        return f"glyph cluster {self.text!r} ({self.font} {self.text})"
 
 
 def textSource(node, word_char=False):
-    """Return logical text for new clusters and legacy text nodes."""
+    """Return logical text for clusters and unclustered CharNode values."""
     if isinstance(node, GlyphCluster):
         return list(node.source)
     node_type = getattr(node, "node_type", None)
-    if node_type == nd.NODE_TYPE.CHAR:
-        source_nodes = [node]
-    elif node_type == nd.NODE_TYPE.LIGATURE:
-        source_nodes = list(getattr(node, "source", ()))
-    else:
+    if node_type != nd.NODE_TYPE.CHAR:
         return None
     classify = _wordClassifier(word_char)
-    return _legacyTextChars(source_nodes, classify)
+    return _textCharsFromNodes([node], classify)
 
 
 def isTextNode(node):
     """Whether a parent horizontal list should treat a node as text."""
-    return isinstance(node, GlyphCluster) or getattr(node, "node_type", None) in (
-        nd.NODE_TYPE.CHAR,
-        nd.NODE_TYPE.LIGATURE,
-    )
+    return isinstance(node, GlyphCluster) or getattr(node, "node_type", None) == nd.NODE_TYPE.CHAR

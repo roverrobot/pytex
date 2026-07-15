@@ -15,8 +15,7 @@ engine.
 
 The design is based on the following decisions.
 
-1. `GlyphCluster` is the generalization and eventual replacement of the current
-   `Ligature` node.
+1. `GlyphCluster` generalizes and replaces the former dedicated ligature node.
 2. A cluster is one indivisible horizontal layout unit. It may contain one
    glyph, several glyphs, internal font kerns, and horizontally or vertically
    shifted boxes.
@@ -405,7 +404,8 @@ The refactor will be implemented and committed in independently tested slices.
 2. Generalize paragraph word collection, hyphenation, discretionary handling,
    and fragment reshaping to the cluster source protocol.
 3. Teach packing, tracing, serialization, fixed shipout, and reflow source
-   recovery about clusters while retaining current `CharNode`/`Ligature` input.
+   recovery about clusters while retaining unclustered `CharNode` input where
+   box composition still requires it.
 4. Move current TFM ligature/kern realization behind the common shape
    interface and emit clusters.
 5. Add the transient `HList` run accumulator and all materialization barriers.
@@ -415,10 +415,9 @@ The refactor will be implemented and committed in independently tested slices.
 8. Move text accents onto cluster composition once the common representation is
    stable.
 
-Compatibility aliases may temporarily preserve `Ligature` and
-`NODE_TYPE.LIGATURE` for old tests or serialized material, but new concrete text
-must converge on `GlyphCluster`. Compatibility code is removed after all
-consumers use the new protocol.
+The dedicated ligature node and node-type compatibility path have now been
+removed. Serialized material and shipped format dumps must use `GlyphCluster`;
+the project does not load dumps from the transitional representation.
 
 ## Verification Requirements
 

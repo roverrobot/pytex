@@ -37,6 +37,7 @@ from pytex.glue import Glue
 from pytex.module import Module
 from pytex.opentype import TrueTypeBackend
 from pytex import font_subst
+from pytex import glyph as glyph_data
 from pytex import reflow
 from pytex import svg
 
@@ -595,11 +596,11 @@ class Text(reflow.Element):
         super().__init__(node)
 
     def setChar(self, char: nd.Node, font_backend=None):
-        if char.node_type == nd.NODE_TYPE.LIGATURE:
-            for child in char.source:
-                self.setChar(child, font_backend)
-        else:
-            value = char.char
+        source = glyph_data.textSource(char)
+        if source is None:
+            return
+        for item in source:
+            value = item.char
             if font_backend is not None:
                 unicode_char = getattr(font_backend, "unicodeChar", None)
                 if unicode_char is not None:

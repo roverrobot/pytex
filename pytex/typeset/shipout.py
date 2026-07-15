@@ -164,7 +164,7 @@ class Shipout:
         if layout.node_type == nd.NODE_TYPE.GLYPH:
             self._ship_glyph(layout)
             return
-        if layout.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+        if layout.node_type == nd.NODE_TYPE.CHAR:
             self._ship_char(layout)
             return
         self._ship_box(layout, parent)
@@ -223,7 +223,7 @@ class Shipout:
         glue_state = self._glue_state(box)
         for node in items:
             node_type = node.node_type
-            if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
+            if node_type == nd.NODE_TYPE.CHAR:
                 self._ship_char(node)
             elif node_type == nd.NODE_TYPE.GLYPH:
                 self._ship_glyph(node)

@@ -245,8 +245,6 @@ def _lineEndingWord(hbox):
             source = glyph.textSource(sub)
             if source:
                 text += "".join(char.char for char in source)
-            elif sub.node_type == nd.NODE_TYPE.LIGATURE:
-                text += sub.char
         return text
 
     words = []
@@ -255,9 +253,6 @@ def _lineEndingWord(hbox):
         source = glyph.textSource(node)
         if source:
             current += "".join(char.char for char in source)
-            continue
-        if node.node_type == nd.NODE_TYPE.LIGATURE:
-            current += node.char
             continue
         if node.node_type == nd.NODE_TYPE.DISC:
             current = append_nodes(current, getattr(node, "list", node.replace))
@@ -282,8 +277,6 @@ def _lineText(hbox):
         source = glyph.textSource(node)
         if source:
             chars.extend(c.char for c in source)
-        elif node.node_type == nd.NODE_TYPE.LIGATURE:
-            chars.append(node.char)
     return "".join(chars)
 
 
@@ -298,8 +291,8 @@ def _nodeText(nodes):
 
 def test_linebreaker_treats_glyph_clusters_as_indivisible_boxes(cmr10):
     font = cmr10.parameters["currentfont"]
-    first = glyph.GlyphCluster.fromLegacy(font["A"], word_char=True)
-    second = glyph.GlyphCluster.fromLegacy(font["A"], word_char=True)
+    first = glyph.GlyphCluster.fromCharNode(font["A"], word_char=True)
+    second = glyph.GlyphCluster.fromCharNode(font["A"], word_char=True)
     para = paragraph.Paragraph(cmr10, False)
     para.list = [first, nd.Glue(glue.Glue(), None), second]
     cmr10.layout["hsize"] = first.width
@@ -318,7 +311,7 @@ def test_linebreaker_treats_glyph_clusters_as_indivisible_boxes(cmr10):
 def test_hyphenation_reshapes_a_split_inside_glyph_cluster(cmr10):
     cmr10.parse("\\hyphenation{tech-nical}")
     font = cmr10.parameters["currentfont"]
-    prefix = glyph.GlyphCluster.fromLegacy(font["a"], word_char=True)
+    prefix = glyph.GlyphCluster.fromCharNode(font["a"], word_char=True)
     source = [glyph.TextChar(char, font, True) for char in "technical"]
     word = glyph.GlyphCluster(source, glyph.Glyph.fromCharNode(font["t"]))
     nodes = [
@@ -341,7 +334,7 @@ def test_hyphenation_reshapes_a_split_inside_glyph_cluster(cmr10):
 
 def test_discretionary_hyphen_detection_uses_cluster_source(cmr10):
     font = cmr10.parameters["currentfont"]
-    hyphen = glyph.GlyphCluster.fromLegacy(font[chr(font.fontchar["hyphenchar"])])
+    hyphen = glyph.GlyphCluster.fromCharNode(font[chr(font.fontchar["hyphenchar"])])
 
     assert _discHyphenated(hmode.Disc([hyphen], [], []))
 
@@ -560,14 +553,9 @@ def test_noindent_with_hanging_label_does_not_add_first_line_indent(parser):
 def _flatten_text(nodes):
     out = []
     for node in nodes or []:
-        if node.node_type == nd.NODE_TYPE.CHAR:
-            out.append(node.char)
-        elif node.node_type == nd.NODE_TYPE.LIGATURE:
-            source = getattr(node, "source", None)
-            if source:
-                out.extend(char.char for char in source)
-            else:
-                out.append(node.char)
+        source = glyph.textSource(node)
+        if source:
+            out.extend(char.char for char in source)
         elif node.node_type == nd.NODE_TYPE.GLUE:
             out.append(" ")
         elif node.node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):

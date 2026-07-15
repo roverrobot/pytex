@@ -1,11 +1,10 @@
 """Parser-owned math translation pipeline."""
 
 from pytex import box
+from pytex import glyph
 from pytex import mmode as mm
 from pytex import node as nd
 from pytex.dimen import Dimen
-from pytex.hmode import Ligature
-from pytex.ligature import run_ligature_program
 
 Style = mm.Style
 MATH_STYLE = mm.MATH_STYLE
@@ -41,11 +40,12 @@ def _label_atom_tree(node, atom):
     if node is None or atom is None:
         return node
     node_type = getattr(node, "node_type", None)
+    if node_type == nd.NODE_TYPE.GLYPH_CLUSTER:
+        node.owner = atom
+        return node
     if node_type in (nd.NODE_TYPE.HLIST, nd.NODE_TYPE.VLIST):
         node.source = atom
         return node
-    if node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
-        return _AtomSourceWrapper(node, atom)
     return node
 
 
@@ -54,7 +54,10 @@ def _label_math_cache(nodes, holder):
         return nodes
     for node in nodes:
         node_type = getattr(node, "node_type", None)
-        if node_type not in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE) and getattr(node, "source", None) is None:
+        if node_type == nd.NODE_TYPE.GLYPH_CLUSTER:
+            if node.owner is None:
+                node.owner = holder
+        elif getattr(node, "source", None) is None:
             node.source = holder
         _label_box_tree(node, holder)
     return nodes
@@ -84,33 +87,6 @@ class _AtomWrapper:
         return getattr(self._atom, name)
 
 
-class _AtomSourceWrapper(nd.Box):
-    """
-    Lightweight source carrier for shared leaf nodes (e.g., cached CharNode).
-
-    It exposes the wrapped node's attributes via __getattr__ while keeping
-    atom ownership on this wrapper object.
-    """
-
-    def __init__(self, node: nd.CharNode, source):
-        super().__init__(node.width, node.height, node.depth)
-        self._node = node
-        self.source = source
-        self.node_type = getattr(node, "node_type", None)
-
-    def saveInfo(self):
-        return self._node.saveInfo()
-
-    def __getattr__(self, name):
-        return getattr(self._node, name)
-
-    def __repr__(self):
-        return repr(self._node)
-    
-    def meaning(self, parser):
-        return self._node.meaning(parser)
-
-
 class MathTypesetter:
     """
     Parser-owned math translation pipeline.
@@ -125,7 +101,10 @@ class MathTypesetter:
         for n in expanded:
             if n is source:
                 continue
-            if getattr(n, "source", None) is None:
+            if n.node_type == nd.NODE_TYPE.GLYPH_CLUSTER:
+                if n.owner is None:
+                    n.owner = source
+            elif getattr(n, "source", None) is None:
                 n.source = source
         collected.extend(expanded)
 
@@ -175,7 +154,10 @@ class MathTypesetter:
                     for n in expanded:
                         if n is node:
                             continue
-                        if getattr(n, "source", None) is None:
+                        if n.node_type == nd.NODE_TYPE.GLYPH_CLUSTER:
+                            if n.owner is None:
+                                n.owner = node
+                        elif getattr(n, "source", None) is None:
                             n.source = node
                     collected.extend(expanded)
                     continue
@@ -258,20 +240,29 @@ class MathTypesetter:
                         if isinstance(n1, MathSymbol) and isinstance(n2, MathSymbol) and n1.fam == n2.fam:
                             cur.text_symbol = True
                             font = mathfont(parser, cur.style, n1.fam)
-                            c1 = font[n1.char]
-                            c2 = font[n2.char]
-                            working = run_ligature_program(
-                                [c1, c2],
-                                make_ligature=lambda insert_char, replaced, step, base, after: Ligature(insert_char, replaced),
-                                make_kern=lambda step, base, after: nd.Kern(step.kern * base.font.at, automatic=True),
-                                source_nodes=lambda n: list(n.source) if isinstance(n, Ligature) else [n],
+                            shaped = font.shape(
+                                [
+                                    glyph.TextChar(n1.char, font, False),
+                                    glyph.TextChar(n2.char, font, False),
+                                ],
+                                parser=parser,
                             )
-                            if len(working) == 1 and isinstance(working[0], Ligature):
+                            layout = shaped[0].layout if len(shaped) == 1 else None
+                            if (
+                                layout is not None
+                                and layout.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.GLYPH)
+                                and layout.char is not None
+                            ):
                                 lig = Atom(ATOM_TYPE.ORD)
-                                lig.nucleus = MathSymbol(
-                                    (ATOM_TYPE.ORD.value << 12) | (n1.fam << 8) | ord(working[0].char),
+                                symbol = MathSymbol(
+                                    (ATOM_TYPE.ORD.value << 12) | (n1.fam << 8) | ord(layout.char),
                                     -1,
                                 )
+                                symbol.source_chars = (
+                                    list(getattr(n1, "source_chars", (n1.char,)))
+                                    + list(getattr(n2, "source_chars", (n2.char,)))
+                                )
+                                lig.nucleus = symbol
                                 lig.source = [cur.atom, nxt.atom]
                                 collected[i:i + 2] = [
                                     _AtomWrapper(
@@ -284,8 +275,12 @@ class MathTypesetter:
                                 i = max(i - 1, 0)
                                 prev = previous_atom(i)
                                 continue
-                            if len(working) == 3 and isinstance(working[1], nd.Kern):
-                                k = nd.Kern(working[1].kern, automatic=True)
+                            layout_nodes = getattr(layout, "list", ())
+                            if (
+                                len(layout_nodes) == 3
+                                and isinstance(layout_nodes[1], nd.Kern)
+                            ):
+                                k = nd.Kern(layout_nodes[1].kern, automatic=True)
                                 k.source = [cur.atom, nxt.atom]
                                 collected.insert(i + 1, k)
                                 prev = cur
@@ -298,11 +293,20 @@ class MathTypesetter:
 
     def emitMathSymbol(self, symbol, packed, context, style, include_italic=True):
         font = mathfont(self.parser, style, symbol.fam)
-        node = font[symbol.char]
+        node = self.mathCharCluster(
+            font[symbol.char],
+            source_chars=getattr(symbol, "source_chars", None),
+        )
         packed.append(node)
         if include_italic and int(node.italic) != 0:
             packed.append(nd.Kern(node.italic, automatic=True))
         return packed
+
+    @staticmethod
+    def mathCharCluster(node, source_chars=None):
+        chars = [node.char] if source_chars is None else list(source_chars)
+        source = [glyph.TextChar(char, node.font, False) for char in chars]
+        return glyph.GlyphCluster.fromCharNode(node, source=source)
 
     def _delimiterFontSearchOrder(self, style, family):
         level = style.style if isinstance(style, Style) else style
@@ -338,7 +342,7 @@ class MathTypesetter:
         info = font.glyphInfo(char)
         if info is None:
             return None, None
-        return info, font[char]
+        return info, self.mathCharCluster(font[char])
 
     def _scanDelimiterSymbol(self, symbol, style, minimum, best):
         if Delim._symbolIsNull(symbol):
@@ -497,7 +501,7 @@ class MathTypesetter:
             delta += x.height - old_h
             accent._attach_scripts = False
         y = box.HBox(self.parser, None, 0)
-        y.list.append(y_char)
+        y.list.append(self.mathCharCluster(y_char))
         if int(y_char.italic) != 0:
             y.list.append(nd.Kern(y_char.italic, automatic=True))
         y = y.typeset(self.parser)

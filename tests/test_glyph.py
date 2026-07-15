@@ -2,7 +2,6 @@ import pytest
 
 from pytex import glyph
 from pytex import box as bx
-from pytex import hmode
 from pytex import node as nd
 from pytex import serialization
 from pytex.dimen import Dimen
@@ -66,26 +65,27 @@ def test_shaping_records_reject_incomplete_values(factory):
         factory()
 
 
-def test_legacy_ligature_adapts_to_one_glyph_cluster():
+def test_one_glyph_cluster_can_represent_multiple_source_characters():
     font = _GlyphFont()
-    ligature = hmode.Ligature(
-        nd.CharNode("A", font),
-        [nd.CharNode("f", font), nd.CharNode("i", font)],
-    )
+    output = nd.CharNode("A", font)
+    source = [
+        glyph.TextChar("f", font, True),
+        glyph.TextChar("i", font, True),
+    ]
 
-    cluster = glyph.GlyphCluster.fromLegacy(
-        ligature,
-        word_char=str.isalpha,
+    cluster = glyph.GlyphCluster.fromCharNode(
+        output,
+        source=source,
     )
 
     assert cluster.node_type == nd.NODE_TYPE.GLYPH_CLUSTER
     assert cluster.text == "fi"
     assert all(item.word_char for item in cluster.source)
     assert cluster.layout.node_type == nd.NODE_TYPE.GLYPH
-    assert cluster.layout.char == ligature.char
-    assert cluster.width == ligature.width
-    assert cluster.height == ligature.height
-    assert cluster.depth == ligature.depth
+    assert cluster.layout.char == output.char
+    assert cluster.width == output.width
+    assert cluster.height == output.height
+    assert cluster.depth == output.depth
 
 
 def test_cluster_measures_boxes_kerns_and_vertical_shifts(parser):
@@ -122,10 +122,10 @@ def test_cluster_requires_one_glyph_or_one_packed_hbox(parser):
         glyph.GlyphCluster(source, unpacked)
 
 
-def test_text_source_supports_new_and_legacy_nodes(parser):
+def test_text_source_supports_clusters_and_unclustered_char_nodes(parser):
     font = parser.parameters["currentfont"]
     char = font["A"]
-    cluster = glyph.GlyphCluster.fromLegacy(char, word_char=True)
+    cluster = glyph.GlyphCluster.fromCharNode(char, word_char=True)
 
     assert [item.char for item in glyph.textSource(char, True)] == ["A"]
     assert glyph.textSource(cluster) == cluster.source

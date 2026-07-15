@@ -38,24 +38,6 @@ class _IntercharAppendToken(Token):
         return "interchar append continuation"
 
 
-class Ligature(nd.CharNode):
-    """
-    Compatibility ligature node used by math and legacy material.
-
-    Horizontal font shaping emits GlyphCluster nodes instead.
-    @param char: the ligature character
-    @param replaced: the original char nodes replaced by the ligature
-    """
-    def __init__(self, char, replaced):
-        super().__init__(char.char, char.font)
-        self.source = list(replaced)
-
-    node_type = nd.NODE_TYPE.LIGATURE
-
-    def __repr__(self):
-        s = "".join([c.char for c in self.source])
-        return f"Ligature({s})"
-
 from pytex.box import AccentNode, IndentBox
 
 
@@ -541,9 +523,6 @@ def _sumHorizontalNodes(nodes):
     width = Dimen()
     for node in nodes:
         if isinstance(node, nd.Box):
-            width += node.width
-            continue
-        if node.node_type in (nd.NODE_TYPE.CHAR, nd.NODE_TYPE.LIGATURE):
             width += node.width
             continue
         if node.node_type == nd.NODE_TYPE.KERN:

@@ -10,6 +10,7 @@ from pytex import box
 from pytex import font as txfont
 from pytex import glue
 from pytex import graphics
+from pytex import glyph
 from pytex import html_reflow
 from pytex import hmode
 from pytex import mmode
@@ -479,20 +480,23 @@ def test_html_reflow_converts_and_bundles_type1_font(parser, tmp_path):
     assert copied.read_bytes() == converted.fontData()
 
 
-def test_html_reflow_emits_ligature_sources_for_opentype_shaping(parser):
+def test_html_reflow_emits_cluster_sources_for_opentype_shaping(parser):
     parser.registerSupportedFontClasses(opentype.TrueTypeBackend)
     converted = parser.loadFontBackend("cmr10")
     if not isinstance(converted, opentype.Type1TrueTypeBackend):
         pytest.skip("cmr10 Type 1 font not found")
     font = txfont.Font(converted, Dimen(10))
 
-    hyphens = [nd.CharNode("-", font) for _ in range(3)]
-    emdash = hmode.Ligature(nd.CharNode(chr(124), font), hyphens)
+    hyphens = [glyph.TextChar("-", font, True) for _ in range(3)]
+    emdash = glyph.GlyphCluster(hyphens, nd.CharNode(chr(124), font))
     dashes = html_reflow.TextRun(font)
     dashes.setChar(emdash)
 
-    quote_sources = [nd.CharNode(chr(96), font) for _ in range(2)]
-    double_quote = hmode.Ligature(nd.CharNode(chr(92), font), quote_sources)
+    quote_sources = [glyph.TextChar(chr(96), font, False) for _ in range(2)]
+    double_quote = glyph.GlyphCluster(
+        quote_sources,
+        nd.CharNode(chr(92), font),
+    )
     quotes = html_reflow.TextRun(font)
     quotes.setChar(double_quote)
 

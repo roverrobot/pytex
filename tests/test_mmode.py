@@ -8,6 +8,8 @@ from pytex import paragraph
 from pytex import texlive
 from pytex import hmode
 from pytex import box
+from pytex import glyph
+from pytex import serialization
 from pytex.dimen import Dimen
 from pytex.font_backend import GlyphAssembly, GlyphInfo
 from pytex.typeset.math import _AtomWrapper
@@ -179,14 +181,19 @@ def test_mlist_typeset_inline(math):
     assert packed[-1].kern == math.layout["mathsurround"]
 
 
-def test_inline_math_typeset_does_not_require_char_atom_sources(math):
+def test_inline_math_clusters_keep_logical_text_separate_from_atom_ownership(math):
     math.parse("$a+b$")
     mlist = _inline_math_node(math.lists[-1])
     packed = []
     _typeset_inline_math(math, mlist, packed)
-    chars = [n for n in packed[1:-1] if getattr(n, "node_type", None) == nd.NODE_TYPE.CHAR]
-    assert chars
-    assert not any(isinstance(getattr(n, "source", None), mmode.InlineMathNode) for n in chars)
+    clusters = [
+        n
+        for n in packed[1:-1]
+        if getattr(n, "node_type", None) == nd.NODE_TYPE.GLYPH_CLUSTER
+    ]
+    assert clusters
+    assert all(all(isinstance(item, glyph.TextChar) for item in n.source) for n in clusters)
+    assert not any(isinstance(n.owner, mmode.InlineMathNode) for n in clusters)
 
 
 def test_inline_math_typeset_labels_wrapping_boxes_with_atom_sources(math):
@@ -203,22 +210,22 @@ def test_inline_math_typeset_labels_wrapping_boxes_with_atom_sources(math):
     assert any(isinstance(getattr(n, "source", None), mmode.Atom) for n in boxes)
 
 
-def test_inline_math_typeset_wraps_shared_chars_for_atom_sources(math):
+def test_inline_math_typeset_labels_clusters_with_atom_owners(math):
     math.parse("$a+b$")
     mlist = _inline_math_node(math.lists[-1])
     packed = []
     _typeset_inline_math(math, mlist, packed)
-    atom_chars = [
+    atom_clusters = [
         n
         for n in packed[1:-1]
-        if getattr(n, "node_type", None) == nd.NODE_TYPE.CHAR and isinstance(getattr(n, "source", None), mmode.Atom)
+        if getattr(n, "node_type", None) == nd.NODE_TYPE.GLYPH_CLUSTER
+        and isinstance(getattr(n, "owner", None), mmode.Atom)
     ]
-    assert atom_chars
-    assert all(not isinstance(n, nd.CharNode) for n in atom_chars)
-    assert all(isinstance(n, nd.Box) for n in atom_chars)
-    assert all(getattr(n, "width", None) == getattr(n._node, "width", None) for n in atom_chars)
-    assert all(getattr(n, "height", None) == getattr(n._node, "height", None) for n in atom_chars)
-    assert all(getattr(n, "depth", None) == getattr(n._node, "depth", None) for n in atom_chars)
+    assert atom_clusters
+    assert all(isinstance(n, glyph.GlyphCluster) for n in atom_clusters)
+    assert all(n.width == n.layout.width for n in atom_clusters)
+    assert all(n.height == n.layout.height for n in atom_clusters)
+    assert all(n.depth == n.layout.depth for n in atom_clusters)
 
 
 def test_inline_math_subscript_emits_single_atom_source(math):
@@ -227,9 +234,12 @@ def test_inline_math_subscript_emits_single_atom_source(math):
     packed = []
     _typeset_inline_math(math, mlist, packed)
     atom_ids = {
-        id(getattr(n, "source", None))
+        id(n.owner if n.node_type == nd.NODE_TYPE.GLYPH_CLUSTER else getattr(n, "source", None))
         for n in packed[1:-1]
-        if isinstance(getattr(n, "source", None), mmode.Atom)
+        if isinstance(
+            n.owner if n.node_type == nd.NODE_TYPE.GLYPH_CLUSTER else getattr(n, "source", None),
+            mmode.Atom,
+        )
     }
     assert len(atom_ids) == 1
 
@@ -322,7 +332,8 @@ def test_subformula_single_char_drops_outer_hbox(math):
     _typeset_inline_math(math, mlist, packed)
     assert len(packed) == 3
     assert packed[0].node_type == nd.NODE_TYPE.MATH
-    assert packed[1].node_type == nd.NODE_TYPE.CHAR
+    assert packed[1].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert packed[1].text == "a"
     assert packed[2].node_type == nd.NODE_TYPE.MATH
 
 
@@ -532,7 +543,8 @@ def test_mathsymbol_saveinfo_and_typeset(math):
     context = inline_context(math)
     symbol.typeset(math, packed, context, mmode.Style(mmode.MATH_STYLE.T))
     assert len(packed) == 1
-    assert packed[0].char == "a"
+    assert packed[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert packed[0].text == "a"
 
 
 def test_active(math):
@@ -734,6 +746,23 @@ def test_rule14_ord_op_ligature_collapses_pair(math):
     assert isinstance(w.atom.nucleus, mmode.MathSymbol)
     assert w.atom.nucleus.fam == 0
     assert w.atom.nucleus.char not in ("f", "i")
+    assert w.atom.nucleus.source_chars == ["f", "i"]
+
+    packed = []
+    w.atom.nucleus.typeset(
+        math,
+        packed,
+        ctx,
+        mmode.Style(mmode.MATH_STYLE.T),
+    )
+    assert packed[0].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert packed[0].text == "fi"
+
+    restored = serialization.deserialize(
+        math,
+        serialization.serialize(w.atom.nucleus),
+    )
+    assert restored.source_chars == ["f", "i"]
 
 
 def test_rule14_ord_op_kern_inserts_kern_and_keeps_op(math):
@@ -1339,8 +1368,10 @@ def test_rule13_op_cases(math):
     assert len(b.list) == 1, "rule13 successor path should emit single nucleus box"
     nucleus = b.list[0]
     assert nucleus.node_type == nd.NODE_TYPE.HLIST, "rule13 successor nucleus should be hbox"
-    assert nucleus.list[0].node_type == nd.NODE_TYPE.CHAR, "rule13 successor nucleus should start with char"
-    assert nucleus.list[0].char == target_char, "rule13 display style should choose successor character"
+    cluster = nucleus.list[0]
+    assert cluster.node_type == nd.NODE_TYPE.GLYPH_CLUSTER, "rule13 successor nucleus should start with cluster"
+    assert cluster.layout.char == target_char, "rule13 display style should choose successor character"
+    assert cluster.text == source_char, "rule13 cluster should retain the source math character"
 
 
 def test_indent(math):
@@ -1445,8 +1476,8 @@ def test_style_node_is_consumed_by_typeset(math):
     _typeset_inline_math(math, mlist, packed)
     assert len(packed) == 3
     assert isinstance(packed[0], nd.MathShift)
-    assert packed[1].node_type == nd.NODE_TYPE.CHAR
-    assert packed[1].char == "a"
+    assert packed[1].node_type == nd.NODE_TYPE.GLYPH_CLUSTER
+    assert packed[1].text == "a"
     assert isinstance(packed[2], nd.MathShift)
 
 
@@ -1604,7 +1635,9 @@ def test_rule12_accent_cases(math):
     missing = mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (3 << 8) | 0xFF, -1)
     atom = mmode.Accent(missing, mmode.MathSymbol((mmode.ATOM_TYPE.ORD.value << 12) | (1 << 8) | ord("a"), -1))
     b = atom.assemble(math, ctx, style)
-    assert any(getattr(n, "char", None) == "a" for n in b.list), "rule12 missing accent should keep base char"
+    assert any(
+        getattr(n, "text", None) == "a" for n in b.list
+    ), "rule12 missing accent should keep base cluster"
     assert not any(n.node_type == nd.NODE_TYPE.VLIST for n in b.list), "rule12 missing accent should skip accent vbox"
 
 
@@ -2112,23 +2145,19 @@ def test_atom_rebox_returns_same_box_when_width_matches(math):
 
 
 def test_atom_rebox_unpackages_hbox_and_centers(math):
-    class FakeChar(nd.Box):
-        node_type = nd.NODE_TYPE.CHAR
-
-        def __init__(self, width, font, italic=0):
-            super().__init__(width, 1, 0)
-            self.font = font
-            self.italic = Dimen(italic)
-            # Use a non-letter so the hlist ligature pass does not enter word mode.
-            self.char = "("
-
+    font = math.parameters["currentfont"]
+    layout = glyph.Glyph(font, 5, 1, 0, italic=2, char="(", glyph_id=ord("("))
+    cluster = glyph.GlyphCluster(
+        [glyph.TextChar("(", font, False)],
+        layout,
+    )
     b = box.HBox(math, None, None)
-    b.list.append(FakeChar(5, math.parameters["currentfont"], italic=2))
+    b.list.append(cluster)
     b.typeset(math, [])
     target = b.width + Dimen(10)
     out = mmode.Atom.rebox(math, b, target)
     assert out.width == target
-    assert any(n.node_type == nd.NODE_TYPE.CHAR for n in out.list)
+    assert any(n.node_type == nd.NODE_TYPE.GLYPH_CLUSTER for n in out.list)
     # \hss glue added at both sides.
     assert out.list[0].node_type == nd.NODE_TYPE.GLUE
     assert out.list[-1].node_type == nd.NODE_TYPE.GLUE

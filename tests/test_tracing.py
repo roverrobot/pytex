@@ -36,9 +36,11 @@ def test_showthe_reports_expanded_value(parser):
 def test_showbox_dumps_box_contents(cmr10):
     cmr10.parse("\\setbox1=\\hbox{a}\\showbox1")
     log = cmr10.logContent()
+    cluster = cmr10.box[1].list[0]
+    dimensions = f"{cluster.width}x({cluster.height}+{cluster.depth})"
     assert "> \\box1=" in log
     assert "\\hbox(" in log
-    assert "glyph cluster 'a'" in log
+    assert f"{cluster.font} a {dimensions}" in log
 
 
 def test_showbox_respects_breadth_limit(cmr10):
@@ -67,7 +69,8 @@ def test_showlists_dumps_current_list_stack(cmr10):
     assert "> \\showlists" in log
     assert "### list 0" in log
     assert "Paragraph" in log
-    assert "glyph cluster 'a'" in log
+    assert f"{cmr10.parameters['currentfont']} a " in log
+    assert "x(" in log
 
 
 def test_showlists_omits_main_vlist_wrapper(cmr10):

@@ -292,7 +292,10 @@ class GlyphCluster(nd.Box):
         return f"GlyphCluster({self.text!r}, {self.layout!r})"
 
     def meaning(self, parser):
-        return f"glyph cluster {self.text!r} ({self.font} {self.text})"
+        return (
+            f"{self.font} {self.text} "
+            f"{self.width}x({self.height}+{self.depth})"
+        )
 
 
 def textSource(node, word_char=False):

@@ -2,7 +2,10 @@ import io
 from pathlib import Path
 
 import pytest
+from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.boundsPen import BoundsPen
+from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 from pytex import font_backend
 from pytex import glyph
@@ -29,6 +32,47 @@ class _UnsupportedSearchBackend(_SearchBackend):
     @classmethod
     def load(cls, parser, name):
         return cls(name)
+
+
+def _script_space_font():
+    builder = FontBuilder(1000, isTTF=True)
+    glyph_order = [".notdef", "space", "space.arab"]
+    builder.setupGlyphOrder(glyph_order)
+    glyphs = {}
+    for name in glyph_order:
+        pen = TTGlyphPen(None)
+        glyphs[name] = pen.glyph()
+    builder.setupGlyf(glyphs)
+    builder.setupHorizontalMetrics(
+        {
+            ".notdef": (500, 0),
+            "space": (120, 0),
+            "space.arab": (200, 0),
+        }
+    )
+    builder.setupHorizontalHeader(ascent=800, descent=-200)
+    builder.setupCharacterMap({ord(" "): "space"})
+    builder.setupNameTable(
+        {
+            "familyName": "Script Space Test",
+            "styleName": "Regular",
+            "uniqueFontIdentifier": "Script Space Test Regular",
+            "fullName": "Script Space Test Regular",
+            "psName": "ScriptSpaceTest-Regular",
+        }
+    )
+    builder.setupOS2()
+    builder.setupPost()
+    builder.setupMaxp()
+    addOpenTypeFeaturesFromString(
+        builder.font,
+        "languagesystem DFLT dflt;"
+        "languagesystem arab dflt;"
+        "feature locl { script arab; sub space by space.arab; } locl;",
+    )
+    data = io.BytesIO()
+    builder.font.save(data)
+    return builder.font, data.getvalue()
 
 
 class _SupportedSearchBackend(_SearchBackend):
@@ -295,19 +339,50 @@ def test_load_opentype_font_backend(parser):
     assert float(backend.fontdimen[5]) == 1.0
 
 
-def test_opentype_backend_exposes_gpos_kern_to_tex(parser):
+def test_opentype_natural_space_uses_script_shaped_u0020(parser):
+    _font, data = _script_space_font()
+    default_backend = opentype.OpenTypeBackend._newBackend(
+        "script-space-default.ttf",
+        TTFont(io.BytesIO(data)),
+        font_data=data,
+    )
+    default_font = Font(default_backend, Dimen(10))
+
+    arab_backend = opentype.OpenTypeBackend._newBackend(
+        "script-space-arab.ttf",
+        TTFont(io.BytesIO(data)),
+        font_data=data,
+    )
+    spec = font_backend.FontSpec(
+        "script-space-arab.ttf",
+        lookup="file",
+        features="script=arab;language=dflt;",
+    )
+    opentype.OpenTypeBackend._configureXeTeXRenderer(arab_backend, spec)
+    arab_font = Font(arab_backend, Dimen(10), font_name=spec)
+
+    assert default_backend.glyphInfo(" ").width == pytest.approx(0.12)
+    assert default_font.spaceglue.dimen == Dimen(1.2)
+    assert arab_font.spaceglue.dimen == Dimen(2)
+
+    parser.parameters["currentfont"] = arab_font
+    parser.globals["spacefactor"] = 1000
+    assert parser.interwordGlue().dimen == Dimen(2)
+
+    parser.globals["spacefactor"] = 2000
+    assert parser.interwordGlue().dimen > arab_font.spaceglue.dimen
+
+
+def test_opentype_backend_does_not_expose_transitional_gpos_program(parser):
     try:
         backend = parser.loadFontBackend("lmroman10-regular.otf")
     except FileNotFoundError:
         pytest.skip("lmroman10-regular.otf not found")
 
-    step = backend.glyphInfo("b").program[ord("e")]
-
-    assert step.isKern
-    assert step.kern > 0
+    assert backend.glyphInfo("b").program is None
 
 
-def test_opentype_font_shape_contains_transitional_gpos_kern_in_cluster(parser):
+def test_opentype_font_shape_uses_harfbuzz_gpos_advance(parser):
     try:
         backend = parser.loadFontBackend("lmroman10-regular.otf")
     except FileNotFoundError:
@@ -317,14 +392,101 @@ def test_opentype_font_shape_contains_transitional_gpos_kern_in_cluster(parser):
 
     shaped = font.shape(source, parser=parser)
 
-    assert len(shaped) == 1
-    assert shaped[0].text == "be"
+    assert [cluster.text for cluster in shaped] == ["b", "e"]
     assert shaped[0].layout.node_type == nd.NODE_TYPE.HLIST
-    left, kern, right = shaped[0].layout.list
-    assert left.char_info.glyph_id == backend.glyphInfo("b").glyph_id
-    assert right.char_info.glyph_id == backend.glyphInfo("e").glyph_id
+    left, kern = shaped[0].layout.list
+    assert left.glyph_id == backend.glyphInfo("b").glyph_id
     assert kern.node_type == nd.NODE_TYPE.KERN
-    assert not kern.automatic
+    assert kern.automatic
+    assert kern.kern > 0
+    assert sum((cluster.width for cluster in shaped), Dimen()) > (
+        font["b"].width + font["e"].width
+    )
+
+
+def test_opentype_font_shape_uses_harfbuzz_ligature(parser):
+    try:
+        backend = parser.loadFontBackend("lmroman10-regular.otf")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+    font = Font(backend, Dimen(10))
+    source = [glyph.TextChar(char, font, True) for char in "fi"]
+
+    shaped = font.shape(source, parser=parser)
+
+    assert len(shaped) == 1
+    assert shaped[0].text == "fi"
+    assert shaped[0].layout.node_type == nd.NODE_TYPE.GLYPH
+    assert shaped[0].layout.glyph_name == "f_i"
+
+
+def test_opentype_harfbuzz_options_use_xetex_font_spec():
+    spec = font_backend.FontSpec(
+        "example.otf",
+        features=(
+            "script=arab;language=dflt;+liga;-kern;ss01=2;"
+            "mapping=tex-text;"
+        ),
+    )
+    font = type("FeatureFont", (), {"font_name": spec})()
+
+    script, language, features = opentype.OpenTypeBackend._harfBuzzOptions(font)
+
+    assert script == "arab"
+    assert language == "dflt"
+    assert features == {"liga": True, "kern": False, "ss01": 2}
+
+
+def test_opentype_harfbuzz_applies_xetex_feature_switches(parser):
+    try:
+        backend = parser.loadFontBackend("lmroman10-regular.otf")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+    spec = font_backend.FontSpec("lmroman10-regular.otf", features="-liga")
+    font = Font(backend, Dimen(10), font_name=spec)
+    source = [glyph.TextChar(char, font, True) for char in "fi"]
+
+    shaped = font.shape(source, parser=parser)
+
+    assert [cluster.text for cluster in shaped] == ["f", "i"]
+    assert [cluster.layout.glyph_name for cluster in shaped] == ["f", "i"]
+
+
+def test_opentype_materializes_harfbuzz_offsets_as_boxes(parser):
+    try:
+        backend = parser.loadFontBackend("lmroman10-regular.otf")
+    except FileNotFoundError:
+        pytest.skip("lmroman10-regular.otf not found")
+    font = Font(backend, Dimen(10))
+    source = [glyph.TextChar("A", font, True)]
+    shaped_glyph = glyph.ShapedGlyph(
+        x_advance=5,
+        width=4,
+        height=6,
+        depth=1,
+        glyph_id=backend.glyphId("A"),
+        glyph_name=backend.font.getGlyphName(backend.glyphId("A")),
+        x_offset=-1,
+        y_offset=2,
+    )
+
+    cluster = backend._materializeShapedCluster(
+        parser,
+        font,
+        source,
+        glyph.ShapedCluster(0, 1, [shaped_glyph]),
+    )
+
+    assert cluster.width == Dimen(5)
+    assert cluster.height == Dimen(8)
+    assert cluster.depth == Dimen()
+    leading, raised, trailing = cluster.layout.list
+    assert leading.kern == Dimen(-1)
+    assert leading.automatic
+    assert raised.node_type == nd.NODE_TYPE.HLIST
+    assert raised.shifted == Dimen(-2)
+    assert trailing.kern == Dimen(2)
+    assert trailing.automatic
 
 
 def test_tex_line_measurement_applies_opentype_gpos_kern(parser):
@@ -334,19 +496,11 @@ def test_tex_line_measurement_applies_opentype_gpos_kern(parser):
         pytest.skip("lmroman10-regular.otf not found")
 
     box = parser.box[0]
-    assert len(box.list) == 1
-    cluster = box.list[0]
-    assert cluster.text == "be"
-    assert cluster.layout.node_type == nd.NODE_TYPE.HLIST
-    kerns = [
-        node for node in cluster.layout.list
-        if node.node_type == nd.NODE_TYPE.KERN
-    ]
     font = parser.lookup("\\f")
-    expected = font.at * font.backend.glyphInfo("b").program[ord("e")].kern
 
-    assert len(kerns) == 1
-    assert kerns[0].kern == expected
+    assert [cluster.text for cluster in box.list] == ["b", "e"]
+    assert box.width == sum((cluster.width for cluster in box.list), Dimen())
+    assert box.width > font["b"].width + font["e"].width
 
 
 def test_read_opentype_font(parser):

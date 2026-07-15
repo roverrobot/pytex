@@ -14,7 +14,10 @@ from typing import Optional
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTCollection, TTFont, TTLibError, TTLibFileIsCollectionError
 from fontTools.ttLib.tables.grUtils import tag2num
+import uharfbuzz as hb
 
+from pytex import glyph as glyph_data
+from pytex.dimen import Dimen
 from pytex.font_backend import (
     FontBackend,
     FontSpec,
@@ -25,7 +28,7 @@ from pytex.font_backend import (
     registerFontConverter,
 )
 from pytex.module import Module
-from pytex.tfm import KernOp, TFMBackend
+from pytex.tfm import TFMBackend
 
 
 @registerBackend
@@ -65,12 +68,13 @@ class OpenTypeBackend(FontBackend):
         self._synthetic_glyphs = {}
         self._next_synthetic_codepoint = 0xF0000
         self._variant_info = None
-        self._kerning_programs = None
         self._fontdimen = None
         self._x_height = None
         self._xetex_features = None
         self._xetex_scripts = None
         self._xetex_feature_tags = {}
+        self._hb_face = None
+        self._xetex_font_spec = None
 
     @staticmethod
     def _backendClass(font):
@@ -265,6 +269,10 @@ class OpenTypeBackend(FontBackend):
     def _configureXeTeXRenderer(backend, spec):
         if backend is None:
             return None
+        backend._xetex_font_spec = spec
+        # Native font parameters can depend on the selected script and
+        # features (notably the shaped advance of U+0020).
+        backend._fontdimen = None
         renderer = spec.options.strip("/").upper()
         if renderer == "GR" and "Silf" in backend.font and "Feat" in backend.font:
             backend.xetex_font_type = 3
@@ -486,77 +494,6 @@ class OpenTypeBackend(FontBackend):
         glyph.draw(pen)
         return pen.bounds
 
-    @staticmethod
-    def _pairAdjustment(record):
-        adjustment = 0
-        for value in (getattr(record, "Value1", None), getattr(record, "Value2", None)):
-            adjustment += getattr(value, "XAdvance", 0) or 0
-        return adjustment
-
-    def _buildKerningPrograms(self):
-        """Translate active GPOS ``kern`` pairs into TeX kern programs."""
-        table = self.font.get("GPOS")
-        if table is None or table.table.FeatureList is None or table.table.LookupList is None:
-            return {}
-        lookup_indices = {
-            index
-            for record in table.table.FeatureList.FeatureRecord
-            if record.FeatureTag == "kern"
-            for index in record.Feature.LookupListIndex
-        }
-        pairs = {}
-
-        def add_pair(left, right, adjustment):
-            left_char = self._reverse_cmap.get(left)
-            right_char = self._reverse_cmap.get(right)
-            if left_char is None or right_char is None or not adjustment:
-                return
-            pairs.setdefault(left, {})[right_char] = KernOp(
-                chr(right_char), self._scaled(adjustment)
-            )
-
-        def add_subtable(subtable):
-            if getattr(subtable, "Format", None) == 1:
-                coverage = getattr(getattr(subtable, "Coverage", None), "glyphs", ())
-                for left, pair_set in zip(coverage, getattr(subtable, "PairSet", ())):
-                    for record in pair_set.PairValueRecord:
-                        add_pair(left, record.SecondGlyph, self._pairAdjustment(record))
-                return
-            if getattr(subtable, "Format", None) != 2:
-                return
-            coverage = getattr(getattr(subtable, "Coverage", None), "glyphs", ())
-            right_by_class = {}
-            class2 = getattr(getattr(subtable, "ClassDef2", None), "classDefs", {})
-            for right in self._reverse_cmap:
-                right_by_class.setdefault(class2.get(right, 0), []).append(right)
-            class1 = getattr(getattr(subtable, "ClassDef1", None), "classDefs", {})
-            records = getattr(subtable, "Class1Record", ())
-            for left in coverage:
-                left_class = class1.get(left, 0)
-                if left_class >= len(records):
-                    continue
-                for right_class, record in enumerate(records[left_class].Class2Record):
-                    adjustment = self._pairAdjustment(record)
-                    if not adjustment:
-                        continue
-                    for right in right_by_class.get(right_class, ()):
-                        add_pair(left, right, adjustment)
-
-        lookups = table.table.LookupList.Lookup
-        for index in lookup_indices:
-            lookup = lookups[index]
-            for subtable in lookup.SubTable:
-                if lookup.LookupType == 2:
-                    add_subtable(subtable)
-                elif lookup.LookupType == 9 and getattr(subtable, "ExtensionLookupType", None) == 2:
-                    add_subtable(subtable.ExtSubTable)
-        return pairs
-
-    def _kerningProgram(self, glyph_name):
-        if self._kerning_programs is None:
-            self._kerning_programs = self._buildKerningPrograms()
-        return self._kerning_programs.get(glyph_name)
-
     def _glyphInfoByName(self, char: str, glyph_name: str):
         info = self._glyph_info.get(char)
         if info is not None:
@@ -579,7 +516,7 @@ class OpenTypeBackend(FontBackend):
             italic=0,
             glyph_name=glyph_name,
             glyph_id=self.font.getGlyphID(glyph_name),
-            program=self._kerningProgram(glyph_name),
+            program=None,
             next_larger=variant.get("next_larger"),
             assembly=variant.get("assembly"),
         )
@@ -745,12 +682,246 @@ class OpenTypeBackend(FontBackend):
         self._xetex_feature_tags[key] = result
         return result
 
-    def shape(self, font, source, **kwargs):
-        # Transitional path: retain the GPOS-derived TeX kern programs until
-        # HarfBuzz replaces this method with full OpenType shaping.
-        return self._shapeLigKern(font, source, **kwargs)
+    @staticmethod
+    def _harfBuzzSpecOptions(spec):
+        """Return XeTeX segment properties and HarfBuzz feature values."""
+        raw = spec.features if isinstance(spec, FontSpec) else ""
+        script = None
+        language = None
+        features = {}
+        for item in raw.split(";"):
+            item = item.strip()
+            if not item:
+                continue
+            enabled = None
+            if item[0] in "+-":
+                enabled = item[0] == "+"
+                item = item[1:]
+            if "=" in item:
+                tag, value = (part.strip() for part in item.split("=", 1))
+            else:
+                tag, value = item, None
+            lower = tag.lower()
+            if lower == "script":
+                script = value or None
+                continue
+            if lower == "language":
+                language = value or None
+                continue
+            if len(tag) != 4:
+                # XeTeX also puts renderer controls such as ``mapping`` and
+                # synthetic transforms in this string. They are not OpenType
+                # Layout feature tags.
+                continue
+            if enabled is not None:
+                features[tag] = enabled
+                continue
+            if value is None:
+                features[tag] = True
+                continue
+            normalized = value.lower()
+            if normalized in ("true", "on", "yes"):
+                features[tag] = True
+            elif normalized in ("false", "off", "no"):
+                features[tag] = False
+            else:
+                try:
+                    features[tag] = int(value, 0)
+                except ValueError:
+                    continue
+        return script, language, features
+
+    @classmethod
+    def _harfBuzzOptions(cls, font):
+        return cls._harfBuzzSpecOptions(getattr(font, "font_name", None))
+
+    def _harfBuzzFace(self):
+        if self._hb_face is None:
+            self._hb_face = hb.Face(self.fontData())
+        return self._hb_face
+
+    @staticmethod
+    def _shapeDimen(font, value, units_per_em):
+        return Dimen(
+            integer=Dimen._round_div(
+                int(font.at) * int(value),
+                int(units_per_em),
+            )
+        )
+
+    def _shapedGlyph(self, font, info, position):
+        glyph_id = int(info.codepoint)
+        glyph_name = self.font.getGlyphName(glyph_id)
+        advance, _side_bearing = self.font["hmtx"].metrics.get(
+            glyph_name,
+            (0, 0),
+        )
+        bounds = self._glyphBounds(glyph_name)
+        if bounds is None:
+            height = depth = 0
+        else:
+            _x_min, y_min, _x_max, y_max = bounds
+            height = max(0, y_max)
+            depth = max(0, -y_min)
+        codepoint = self._reverse_cmap.get(glyph_name)
+        char = None if codepoint is None else chr(codepoint)
+        scale = lambda value: self._shapeDimen(font, value, self.units_per_em)
+        return glyph_data.ShapedGlyph(
+            x_advance=scale(position.x_advance),
+            width=scale(advance),
+            height=scale(height),
+            depth=scale(depth),
+            char=char,
+            glyph_id=glyph_id,
+            glyph_name=glyph_name,
+            x_offset=scale(position.x_offset),
+            y_offset=scale(position.y_offset),
+        )
+
+    @staticmethod
+    def _packHBox(parser, nodes, width=None):
+        if parser is None:
+            raise ValueError(
+                "positioned OpenType glyph clusters require a parser for HBox packing"
+            )
+        from pytex import box as bx
+
+        layout = bx.HBox(parser, width, None)
+        layout.list[:] = nodes
+        return layout.typeset(parser)
+
+    def _glyphPlacement(self, parser, font, shaped):
+        glyph = glyph_data.Glyph.fromShaped(font, shaped)
+        if (
+            shaped.x_advance == shaped.width
+            and shaped.x_offset == 0
+            and shaped.y_offset == 0
+        ):
+            return glyph
+
+        child = glyph
+        if shaped.y_offset != 0:
+            child = self._packHBox(parser, [glyph])
+            # HarfBuzz's positive Y axis points up; TeX's box shift points down.
+            child.shifted = -shaped.y_offset
+
+        from pytex import node as nd
+
+        nodes = []
+        if shaped.x_offset != 0:
+            nodes.append(nd.Kern(shaped.x_offset, automatic=True))
+        nodes.append(child)
+        trailing = shaped.x_advance - shaped.x_offset - shaped.width
+        if trailing != 0:
+            nodes.append(nd.Kern(trailing, automatic=True))
+        return self._packHBox(parser, nodes, shaped.x_advance)
+
+    def _materializeShapedCluster(self, parser, font, source, shaped):
+        placements = [
+            self._glyphPlacement(parser, font, item)
+            for item in shaped.glyphs
+        ]
+        if len(placements) == 1:
+            layout = placements[0]
+        else:
+            layout = self._packHBox(parser, placements)
+        return glyph_data.GlyphCluster(
+            source[shaped.source_start:shaped.source_end],
+            layout,
+        )
+
+    @staticmethod
+    def _harfBuzzClusters(source, infos, glyphs, direction):
+        # A backward run must remain one parent-list unit until the bidi layer
+        # owns visual reordering. Its source is still retained in logical order,
+        # while its fixed layout follows HarfBuzz's visual glyph order.
+        if direction in ("rtl", "btt"):
+            return [glyph_data.ShapedCluster(0, len(source), glyphs)]
+
+        groups = []
+        for info, shaped in zip(infos, glyphs):
+            cluster = int(info.cluster)
+            if not groups or groups[-1][0] != cluster:
+                groups.append((cluster, [shaped]))
+            else:
+                groups[-1][1].append(shaped)
+        starts = sorted(cluster for cluster, _items in groups)
+        ranges = {}
+        for index, start in enumerate(starts):
+            source_start = 0 if index == 0 else start
+            source_end = starts[index + 1] if index + 1 < len(starts) else len(source)
+            ranges[start] = (source_start, source_end)
+        return [
+            glyph_data.ShapedCluster(*ranges[cluster], items)
+            for cluster, items in groups
+        ]
+
+    def shape(
+        self,
+        font,
+        source,
+        *,
+        parser=None,
+        left_boundary=False,
+        right_boundary=False,
+    ):
+        """Shape a logical Unicode run through HarfBuzz into fixed clusters."""
+        source = self._shapeSource(font, source)
+        if not source:
+            return []
+
+        hb_font = hb.Font(self._harfBuzzFace())
+        hb_font.scale = (self.units_per_em, self.units_per_em)
+        buffer = hb.Buffer()
+        buffer.add_codepoints([ord(item.char) for item in source])
+        script, language, features = self._harfBuzzOptions(font)
+        if script is not None:
+            buffer.script = script
+        if language is not None:
+            buffer.language = language
+        buffer.guess_segment_properties()
+        flags = hb.BufferFlags.DEFAULT
+        if left_boundary:
+            flags |= hb.BufferFlags.BOT
+        if right_boundary:
+            flags |= hb.BufferFlags.EOT
+        buffer.flags = flags
+        hb.shape(hb_font, buffer, features)
+
+        infos = list(buffer.glyph_infos)
+        glyphs = [
+            self._shapedGlyph(font, info, position)
+            for info, position in zip(infos, buffer.glyph_positions)
+        ]
+        shaped = self._harfBuzzClusters(
+            source,
+            infos,
+            glyphs,
+            str(buffer.direction),
+        )
+        return [
+            self._materializeShapedCluster(parser, font, source, cluster)
+            for cluster in shaped
+        ]
 
     def _spaceWidth(self):
+        hb_font = hb.Font(self._harfBuzzFace())
+        hb_font.scale = (self.units_per_em, self.units_per_em)
+        buffer = hb.Buffer()
+        buffer.add_codepoints([ord(" ")])
+        script, language, features = self._harfBuzzSpecOptions(
+            self._xetex_font_spec
+        )
+        if script is not None:
+            buffer.script = script
+        if language is not None:
+            buffer.language = language
+        buffer.guess_segment_properties()
+        buffer.flags = hb.BufferFlags.BOT | hb.BufferFlags.EOT
+        hb.shape(hb_font, buffer, features)
+        advance = sum(position.x_advance for position in buffer.glyph_positions)
+        if advance > 0:
+            return self._scaled(advance)
         space = self.glyphInfo(" ")
         if space is not None and space.width > 0:
             return space.width
@@ -934,6 +1105,10 @@ class Type1TrueTypeBackend(TrueTypeBackend):
 
     def rightBoundaryChar(self):
         return self.source_backend.rightBoundaryChar()
+
+    def shape(self, font, source, **kwargs):
+        """Preserve the source TFM font's ligature and kern programs."""
+        return self._shapeLigKern(font, source, **kwargs)
 
     def _spaceWidth(self):
         glyph_name = self._cmap.get(ord(" "))

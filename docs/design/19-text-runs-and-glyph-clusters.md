@@ -206,9 +206,15 @@ The backend boundary is responsible for font-specific shaping rules:
   HarfBuzz and returns HarfBuzz cluster mappings and positions.
 - the null/fallback backend produces one simple cluster per character.
 
-The existing OpenType conversion of selected GPOS pairs into TFM-style kern
-programs is transitional. It should be removed once HarfBuzz shaping covers the
-same path, so the same adjustment is not applied twice.
+The former OpenType conversion of selected GPOS pairs into TFM-style kern
+programs has been removed. HarfBuzz now owns the native OpenType shaping path,
+so the same adjustment cannot be applied twice. Converted Type 1 fonts retain
+their source TFM programs separately.
+
+For native OpenType fonts, the natural interword-space parameter is the
+HarfBuzz advance of an isolated U+0020 shaped with the same script, language,
+and feature settings. TeX still applies `\spacefactor`, `\spaceskip`,
+`\xspaceskip`, stretch, and shrink when it constructs the resulting glue.
 
 ## HList Run Accumulation
 

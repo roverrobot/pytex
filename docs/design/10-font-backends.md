@@ -225,16 +225,23 @@ OpenType currently provides:
 
 - glyph widths from `hmtx`
 - glyph height and depth from outline bounds
+- GSUB/GPOS shaping through HarfBuzz, including ligatures, pair positioning,
+  multiple substitutions, and positioned marks
+- XeTeX `script`, `language`, and OpenType feature settings on native font
+  requests
+- fixed-layout `GlyphCluster` results whose boxes preserve HarfBuzz advances
+  and horizontal/vertical offsets
 - a default design size of `10pt`
 - a checksum from the font `head` table
-- synthetic `fontdimen` defaults derived from italic angle, space width, and
-  x-height
+- synthetic `fontdimen` defaults derived from italic angle, x-height, and the
+  HarfBuzz advance of an isolated U+0020 under the font request's script,
+  language, and feature settings
+- `next_larger` chains and extensible assemblies when the font supplies an
+  OpenType MATH table
 
-The current OpenType backend does **not** provide TeX ligature/kern programs,
-`next_larger` chains, or extensible assembly recipes.
-
-So it is currently a metric-and-outline backend, not a full replacement for the
-TFM math machinery.
+Native OpenType fonts deliberately do **not** expose TeX ligature/kern programs;
+they shape through HarfBuzz instead. Type 1 fonts converted for outline output
+retain their source TFM programs behind the same common shaping interface.
 
 ### CFF to TrueType conversion
 
@@ -348,9 +355,8 @@ OpenType-backed fonts directly.
 The main current limits are:
 
 - OpenType is not directly writable to DVI
-- OpenType does not yet provide TeX-style ligature/kern programs
-- OpenType does not yet provide math extension data such as `next_larger` or
-  `GlyphAssembly`
+- native OpenType does not expose TeX-style ligature/kern programs because its
+  GSUB/GPOS processing is handled by HarfBuzz
 - the synthetic OpenType `fontdimen` table only supplies the basic seven text
   parameters
 

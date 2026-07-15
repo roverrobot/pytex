@@ -872,6 +872,65 @@ def test_xetex_feature_queries_reject_opentype_font(parser, source):
         parser.parse(source)
 
 
+def test_xetex_opentype_script_and_language_primitives(collector):
+    handle = collector.resolver.openIn(
+        "lmroman10-regular.otf",
+        "fonts/opentype",
+    )
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle.close()
+
+    collector.parse('\\font\\f="[lmroman10-regular.otf]" at 10pt ')
+    scripts = collector.equitable["\\f"].backend.xetexScripts()
+    expected_scripts = tuple(
+        int.from_bytes(tag, "big")
+        for tag in (b"DFLT", b"cyrl", b"latn")
+    )
+    assert scripts == expected_scripts
+
+    dflt, cyrl, latn = scripts
+    aze = int.from_bytes(b"AZE ", "big")
+    trk = int.from_bytes(b"TRK ", "big")
+    collector.parse(
+        "\\number\\XeTeXOTcountscripts\\f;"
+        "\\number\\XeTeXOTscripttag\\f 0;"
+        "\\number\\XeTeXOTscripttag\\f 1;"
+        "\\number\\XeTeXOTscripttag\\f 2;"
+        "\\number\\XeTeXOTscripttag\\f 99;"
+        f"\\number\\XeTeXOTlanguagetag\\f {latn} 0;"
+        f"\\number\\XeTeXOTlanguagetag\\f {latn} 6;"
+        f"\\number\\XeTeXOTlanguagetag\\f {latn} 7"
+    )
+
+    assert collector.getString().strip() == (
+        f"3;{dflt};{cyrl};{latn};0;{aze};{trk};0"
+    )
+
+
+def test_xetex_opentype_script_count_is_zero_for_legacy_font(collector):
+    collector.parse(
+        "\\font\\f=cmr10 "
+        "\\number\\XeTeXOTcountscripts\\f"
+    )
+
+    assert collector.getString().strip() == "0"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "\\count0=\\XeTeXOTscripttag\\f 0",
+        "\\count0=\\XeTeXOTlanguagetag\\f 0 0",
+    ],
+)
+def test_xetex_opentype_tag_queries_reject_legacy_font(parser, source):
+    parser.parse("\\font\\f=cmr10 ")
+
+    with pytest.raises(ValueError, match="not an OpenType Layout font"):
+        parser.parse(source)
+
+
 def test_xetex_fontspec_tfm_loads_with_font_substitution(parser):
     font_subst.installFontSubstitution(parser)
 

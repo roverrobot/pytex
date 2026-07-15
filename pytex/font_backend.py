@@ -123,6 +123,14 @@ class FontBackend:
         """Return ``(numeric code, localized name)`` feature records."""
         return ()
 
+    def xetexScripts(self):
+        """Return the OpenType script tags exposed by XeTeX."""
+        return ()
+
+    def xetexLanguageTag(self, script, index):
+        """Return an indexed OpenType language tag, or zero if unavailable."""
+        return 0
+
     def unicodeChar(self, char: str) -> str:
         """Return the Unicode text represented by an engine character slot."""
         return char

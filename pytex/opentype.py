@@ -69,6 +69,7 @@ class OpenTypeBackend(FontBackend):
         self._fontdimen = None
         self._x_height = None
         self._xetex_features = None
+        self._xetex_scripts = None
 
     @staticmethod
     def _backendClass(font):
@@ -658,6 +659,45 @@ class OpenTypeBackend(FontBackend):
             else:
                 self._xetex_features = ()
         return self._xetex_features
+
+    def _scriptRecords(self, table_tag):
+        table = self.font.get(table_tag)
+        if table is None:
+            return ()
+        script_list = getattr(table.table, "ScriptList", None)
+        if script_list is None:
+            return ()
+        return tuple(script_list.ScriptRecord)
+
+    def xetexScripts(self):
+        if self.xetex_font_type != 2:
+            return ()
+        if self._xetex_scripts is None:
+            # XeTeX's HarfBuzz bridge enumerates the GSUB script list.  GPOS
+            # is consulted later for language metadata.
+            self._xetex_scripts = tuple(
+                tag2num(record.ScriptTag)
+                for record in self._scriptRecords("GSUB")
+            )
+        return self._xetex_scripts
+
+    def xetexLanguageTag(self, script, index):
+        if self.xetex_font_type != 2 or index < 0:
+            return 0
+        try:
+            script_index = self.xetexScripts().index(script)
+        except ValueError:
+            return 0
+        # Match XeTeX's GSUB-first lookup.  Its GPOS fallback uses the same
+        # script and language indices rather than merging or deduplicating.
+        for table_tag in ("GSUB", "GPOS"):
+            records = self._scriptRecords(table_tag)
+            if script_index >= len(records):
+                continue
+            languages = records[script_index].Script.LangSysRecord
+            if index < len(languages):
+                return tag2num(languages[index].LangSysTag)
+        return 0
 
     def shape(self, font, source, **kwargs):
         # Transitional path: retain the GPOS-derived TeX kern programs until

@@ -120,6 +120,79 @@ def _font_features(font):
     return tuple(font.backend.xetexFeatures())
 
 
+def _opentype_scripts(font):
+    if font.backend.xetex_font_type != 2:
+        return None
+    return tuple(font.backend.xetexScripts())
+
+
+class XeTeXOTCountScripts(Command):
+    r"""Return the number of OpenType Layout scripts in a font."""
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        font = font_data.readFont(parser)
+        scripts = _opentype_scripts(font)
+        return len(scripts or ()), accessor.VALUE_TYPE.INT
+
+    def execute(self, parser):
+        raise ValueError(
+            f"{self.name} cannot be executed, it is read-only",
+            parser.input.position(),
+        )
+
+
+class XeTeXOTScriptTag(Command):
+    r"""Return the numeric tag of an indexed OpenType Layout script."""
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        font = font_data.readFont(parser)
+        scripts = _opentype_scripts(font)
+        if scripts is None:
+            raise ValueError(
+                f"Cannot use {self.name} with {font.backend.name}; "
+                "not an OpenType Layout font",
+                parser.input.position(),
+            )
+        index = parser.readInteger()
+        value = scripts[index] if 0 <= index < len(scripts) else 0
+        return value, accessor.VALUE_TYPE.INT
+
+    def execute(self, parser):
+        raise ValueError(
+            f"{self.name} cannot be executed, it is read-only",
+            parser.input.position(),
+        )
+
+
+class XeTeXOTLanguageTag(Command):
+    r"""Return an indexed language tag within an OpenType script."""
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        font = font_data.readFont(parser)
+        if _opentype_scripts(font) is None:
+            raise ValueError(
+                f"Cannot use {self.name} with {font.backend.name}; "
+                "not an OpenType Layout font",
+                parser.input.position(),
+            )
+        script = parser.readInteger()
+        index = parser.readInteger()
+        value = font.backend.xetexLanguageTag(script, index)
+        return value, accessor.VALUE_TYPE.INT
+
+    def execute(self, parser):
+        raise ValueError(
+            f"{self.name} cannot be executed, it is read-only",
+            parser.input.position(),
+        )
+
+
 class XeTeXCountFeatures(Command):
     r"""Return the number of AAT or Graphite features in a font."""
 
@@ -189,6 +262,9 @@ mod = Module(
         "parseFontName": parseFontName,
     },
     commands={
+        "XeTeXOTcountscripts": XeTeXOTCountScripts(),
+        "XeTeXOTscripttag": XeTeXOTScriptTag(),
+        "XeTeXOTlanguagetag": XeTeXOTLanguageTag(),
         "XeTeXcountfeatures": XeTeXCountFeatures(),
         "XeTeXfeaturecode": XeTeXFeatureCode(),
         "XeTeXfeaturename": XeTeXFeatureName(),

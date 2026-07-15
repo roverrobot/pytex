@@ -24,6 +24,9 @@ from .font import (
     XeTeXFeatureCode,
     XeTeXFeatureName,
     XeTeXFontType,
+    XeTeXOTCountScripts,
+    XeTeXOTLanguageTag,
+    XeTeXOTScriptTag,
     parseFontName,
 )
 from .interchar import (

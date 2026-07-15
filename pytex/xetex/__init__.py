@@ -18,7 +18,14 @@ from .figures import (
     XeTeXPDFFile,
     XeTeXPicFile,
 )
-from .font import COLLECTION_FONT_RE, XeTeXFontType, parseFontName
+from .font import (
+    COLLECTION_FONT_RE,
+    XeTeXCountFeatures,
+    XeTeXFeatureCode,
+    XeTeXFeatureName,
+    XeTeXFontType,
+    parseFontName,
+)
 from .interchar import (
     INTERCHAR_CLASS_MAX,
     XeTeXCharClassAccessor,

@@ -689,6 +689,19 @@ def test_xetex_font_name_parser_marks_bracketed_file_specs(parser):
     )
 
 
+def test_xetex_font_name_parser_preserves_prefixed_renderer_options(parser):
+    assert parser.parseFontName("file:Padauk-Regular.ttf/GR") == FontSpec(
+        "Padauk-Regular.ttf",
+        lookup="file",
+        options="/GR",
+    )
+    assert parser.parseFontName("name:Helvetica/AAT") == FontSpec(
+        "Helvetica",
+        lookup="system",
+        options="/AAT",
+    )
+
+
 def test_xetex_bracketed_extensionless_font_file_loads(parser):
     handle = parser.resolver.openIn("lmroman10-regular", "fonts/opentype")
     if handle is None:
@@ -758,6 +771,105 @@ def test_xetex_fonttype_preserves_tfm_type_after_output_conversion(parser):
     font = parser.equitable["\\f"]
     assert isinstance(font.backend, opentype.Type1TrueTypeBackend)
     assert parser.count[0] == 0
+
+
+def test_xetex_graphite_feature_primitives(collector):
+    handle = collector.resolver.openIn(
+        "Padauk-Regular.ttf",
+        "fonts/truetype",
+    )
+    if handle is None:
+        pytest.skip("Padauk-Regular.ttf not found")
+    handle.close()
+
+    collector.parse('\\font\\f="[Padauk-Regular.ttf]/GR" at 10pt ')
+    features = collector.equitable["\\f"].backend.xetexFeatures()
+    assert features[0] == (
+        int.from_bytes(b"kdot", "big"),
+        "Khamti style dots",
+    )
+
+    code, name = features[0]
+    collector.parse(
+        "\\number\\XeTeXfonttype\\f;"
+        "\\number\\XeTeXcountfeatures\\f;"
+        "\\number\\XeTeXfeaturecode\\f 0;"
+        f"\\XeTeXfeaturename\\f {code}"
+    )
+
+    assert collector.getString().strip() == (
+        f"3;{len(features)};{code};{name}"
+    )
+
+
+def test_xetex_feature_primitives_return_missing_values(collector):
+    handle = collector.resolver.openIn(
+        "Padauk-Regular.ttf",
+        "fonts/truetype",
+    )
+    if handle is None:
+        pytest.skip("Padauk-Regular.ttf not found")
+    handle.close()
+
+    collector.parse(
+        '\\font\\f="[Padauk-Regular.ttf]/GR" at 10pt '
+        "\\number\\XeTeXfeaturecode\\f 999;"
+        "[\\XeTeXfeaturename\\f 999]"
+    )
+
+    assert collector.getString().strip() == "-1;[]"
+
+
+def test_xetex_aat_feature_primitives(collector):
+    if opentype.OpenTypeBackend._systemFontPath("Helvetica") is None:
+        pytest.skip("an AAT Helvetica system font is not available")
+
+    collector.parse('\\font\\f="name:Helvetica/AAT" at 10pt ')
+    features = collector.equitable["\\f"].backend.xetexFeatures()
+    assert features[0] == (1, "Ligatures")
+
+    code, name = features[0]
+    collector.parse(
+        "\\number\\XeTeXfonttype\\f;"
+        "\\number\\XeTeXcountfeatures\\f;"
+        "\\number\\XeTeXfeaturecode\\f 0;"
+        f"\\XeTeXfeaturename\\f {code}"
+    )
+
+    assert collector.getString().strip() == (
+        f"1;{len(features)};{code};{name}"
+    )
+
+
+def test_xetex_countfeatures_returns_zero_for_opentype_font(collector):
+    handle = collector.resolver.openIn(
+        "lmroman10-regular.otf",
+        "fonts/opentype",
+    )
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle.close()
+
+    collector.parse(
+        '\\font\\f="[lmroman10-regular.otf]" at 10pt '
+        "\\number\\XeTeXcountfeatures\\f"
+    )
+
+    assert collector.getString().strip() == "0"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "\\count0=\\XeTeXfeaturecode\\f 0",
+        "\\edef\\name{\\XeTeXfeaturename\\f 0}",
+    ],
+)
+def test_xetex_feature_queries_reject_opentype_font(parser, source):
+    parser.parse('\\font\\f="[lmroman10-regular.otf]" at 10pt ')
+
+    with pytest.raises(ValueError, match="not an AAT or Graphite font"):
+        parser.parse(source)
 
 
 def test_xetex_fontspec_tfm_loads_with_font_substitution(parser):

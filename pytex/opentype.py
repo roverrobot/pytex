@@ -13,6 +13,7 @@ from typing import Optional
 
 from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTCollection, TTFont, TTLibError, TTLibFileIsCollectionError
+from fontTools.ttLib.tables.grUtils import tag2num
 
 from pytex.font_backend import (
     FontBackend,
@@ -67,6 +68,7 @@ class OpenTypeBackend(FontBackend):
         self._kerning_programs = None
         self._fontdimen = None
         self._x_height = None
+        self._xetex_features = None
 
     @staticmethod
     def _backendClass(font):
@@ -257,6 +259,17 @@ class OpenTypeBackend(FontBackend):
             font_number=font_number,
         )
 
+    @staticmethod
+    def _configureXeTeXRenderer(backend, spec):
+        if backend is None:
+            return None
+        renderer = spec.options.strip("/").upper()
+        if renderer == "GR" and "Silf" in backend.font and "Feat" in backend.font:
+            backend.xetex_font_type = 3
+        elif renderer == "AAT" and "glyf" in backend.font:
+            backend.xetex_font_type = 1
+        return backend
+
     @classmethod
     def _loadFileFont(cls, parser, name: str, backend_name: str, font_number: int = 0, extensionless: bool = False):
         types = cls._fileTypes(name, extensionless=extensionless)
@@ -283,6 +296,7 @@ class OpenTypeBackend(FontBackend):
     @classmethod
     def load(cls, parser, name: str):
         if isinstance(name, FontSpec):
+            spec = name
             backend_name = name.backend_name
             if name.lookup != "system":
                 backend = cls._loadFileFont(
@@ -293,8 +307,9 @@ class OpenTypeBackend(FontBackend):
                     extensionless=name.lookup == "file",
                 )
                 if backend is not None or name.lookup == "file":
-                    return backend
-            return cls._loadSystemFont(name.name, backend_name)
+                    return cls._configureXeTeXRenderer(backend, spec)
+            backend = cls._loadSystemFont(name.name, backend_name)
+            return cls._configureXeTeXRenderer(backend, spec)
 
         type = cls._type(name)
         if type is None:
@@ -597,6 +612,52 @@ class OpenTypeBackend(FontBackend):
             next_larger=None,
             assembly=None,
         )
+
+    def _aatFeatures(self):
+        table = self.font.get("feat")
+        names = self.font.get("name")
+        if table is None:
+            return ()
+        records = table.table.FeatureNames.FeatureName
+        return tuple(
+            (
+                int(record.FeatureType),
+                (
+                    names.getDebugName(record.FeatureNameID) or ""
+                    if names is not None
+                    else ""
+                ),
+            )
+            for record in records
+        )
+
+    def _graphiteFeatures(self):
+        table = self.font.get("Feat")
+        names = self.font.get("name")
+        if table is None:
+            return ()
+        records = sorted(table.features.items(), key=lambda item: item[1].index)
+        return tuple(
+            (
+                tag2num(tag),
+                (
+                    names.getDebugName(record.label) or ""
+                    if names is not None
+                    else ""
+                ),
+            )
+            for tag, record in records
+        )
+
+    def xetexFeatures(self):
+        if self._xetex_features is None:
+            if self.xetex_font_type == 1:
+                self._xetex_features = self._aatFeatures()
+            elif self.xetex_font_type == 3:
+                self._xetex_features = self._graphiteFeatures()
+            else:
+                self._xetex_features = ()
+        return self._xetex_features
 
     def shape(self, font, source, **kwargs):
         # Transitional path: retain the GPOS-derived TeX kern programs until

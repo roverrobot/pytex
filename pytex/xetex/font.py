@@ -3,6 +3,7 @@
 import re
 
 from pytex import accessor
+from pytex import expandable
 from pytex import font as font_data
 from pytex.font_backend import FontSpec
 from pytex.integer import IntegerArrayItemAccessor
@@ -53,10 +54,23 @@ def parseFontName(parser, name):
     if not isinstance(name, str):
         return name
     if name.startswith("file:"):
-        lookup_name, font_number = _split_collection_index(name[5:])
-        return FontSpec(lookup_name, lookup="file", font_number=font_number)
+        lookup_name, options, features = _split_font_suffix(name[5:])
+        lookup_name, font_number = _split_collection_index(lookup_name)
+        return FontSpec(
+            lookup_name,
+            lookup="file",
+            font_number=font_number,
+            options=options,
+            features=features,
+        )
     if name.startswith("name:"):
-        return FontSpec(name[5:], lookup="system")
+        lookup_name, options, features = _split_font_suffix(name[5:])
+        return FontSpec(
+            lookup_name,
+            lookup="system",
+            options=options,
+            features=features,
+        )
     if name.startswith("["):
         end = name.find("]")
         if end >= 0:
@@ -100,12 +114,84 @@ class XeTeXFontType(Command):
         )
 
 
+def _font_features(font):
+    if font.backend.xetex_font_type not in (1, 3):
+        return None
+    return tuple(font.backend.xetexFeatures())
+
+
+class XeTeXCountFeatures(Command):
+    r"""Return the number of AAT or Graphite features in a font."""
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        font = font_data.readFont(parser)
+        features = _font_features(font)
+        return len(features or ()), accessor.VALUE_TYPE.INT
+
+    def execute(self, parser):
+        raise ValueError(
+            f"{self.name} cannot be executed, it is read-only",
+            parser.input.position(),
+        )
+
+
+class XeTeXFeatureCode(Command):
+    r"""Return the numeric code of an indexed AAT or Graphite feature."""
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        font = font_data.readFont(parser)
+        features = _font_features(font)
+        if features is None:
+            raise ValueError(
+                f"Cannot use {self.name} with {font.backend.name}; "
+                "not an AAT or Graphite font",
+                parser.input.position(),
+            )
+        index = parser.readInteger()
+        value = features[index][0] if 0 <= index < len(features) else -1
+        return value, accessor.VALUE_TYPE.INT
+
+    def execute(self, parser):
+        raise ValueError(
+            f"{self.name} cannot be executed, it is read-only",
+            parser.input.position(),
+        )
+
+
+class XeTeXFeatureName(Command):
+    r"""Expand to the name of an AAT or Graphite feature code."""
+
+    def expand(self, parser):
+        font = font_data.readFont(parser)
+        features = _font_features(font)
+        if features is None:
+            raise ValueError(
+                f"Cannot use {self.name} with {font.backend.name}; "
+                "not an AAT or Graphite font",
+                parser.input.position(),
+            )
+        code = parser.readInteger()
+        name = next(
+            (name for feature_code, name in features if feature_code == code),
+            "",
+        )
+        if name:
+            parser.input.pushTokenList(expandable.toToks(name))
+
+
 mod = Module(
     "xetex.font",
     attributes={
         "parseFontName": parseFontName,
     },
     commands={
+        "XeTeXcountfeatures": XeTeXCountFeatures(),
+        "XeTeXfeaturecode": XeTeXFeatureCode(),
+        "XeTeXfeaturename": XeTeXFeatureName(),
         "XeTeXfonttype": XeTeXFontType(),
     },
     parameters={

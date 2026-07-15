@@ -119,6 +119,10 @@ class FontBackend:
     def fallbackGlyphInfo(self, char: str):
         return None
 
+    def xetexFeatures(self):
+        """Return ``(numeric code, localized name)`` feature records."""
+        return ()
+
     def unicodeChar(self, char: str) -> str:
         """Return the Unicode text represented by an engine character slot."""
         return char

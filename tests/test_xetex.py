@@ -931,6 +931,71 @@ def test_xetex_opentype_tag_queries_reject_legacy_font(parser, source):
         parser.parse(source)
 
 
+def test_xetex_opentype_feature_primitives(collector):
+    handle = collector.resolver.openIn(
+        "lmroman10-regular.otf",
+        "fonts/opentype",
+    )
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle.close()
+
+    collector.parse('\\font\\f="[lmroman10-regular.otf]" at 10pt ')
+    latn = int.from_bytes(b"latn", "big")
+    aze = int.from_bytes(b"AZE ", "big")
+    expected_tags = tuple(
+        int.from_bytes(tag, "big")
+        for tag in (
+            b"aalt",
+            b"dlig",
+            b"frac",
+            b"liga",
+            b"lnum",
+            b"onum",
+            b"pnum",
+            b"tnum",
+            b"zero",
+            b"cpsp",
+            b"kern",
+            b"size",
+        )
+    )
+    backend = collector.equitable["\\f"].backend
+    assert backend.xetexFeatureTags(latn, 0) == expected_tags
+    assert backend.xetexFeatureTags(latn, aze) == expected_tags
+
+    collector.parse(
+        f"\\number\\XeTeXOTcountfeatures\\f {latn} 0;"
+        f"\\number\\XeTeXOTfeaturetag\\f {latn} 0 0;"
+        f"\\number\\XeTeXOTfeaturetag\\f {latn} 0 8;"
+        f"\\number\\XeTeXOTfeaturetag\\f {latn} 0 9;"
+        f"\\number\\XeTeXOTfeaturetag\\f {latn} 0 11;"
+        f"\\number\\XeTeXOTfeaturetag\\f {latn} 0 99;"
+        f"\\number\\XeTeXOTcountfeatures\\f {latn} {aze};"
+        "\\number\\XeTeXOTcountfeatures\\f 0 0;"
+        "\\number\\XeTeXOTfeaturetag\\f 0 0 0"
+    )
+
+    assert collector.getString().strip() == (
+        f"12;{expected_tags[0]};{expected_tags[8]};{expected_tags[9]};"
+        f"{expected_tags[11]};0;12;0;0"
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "\\count0=\\XeTeXOTcountfeatures\\f 0 0",
+        "\\count0=\\XeTeXOTfeaturetag\\f 0 0 0",
+    ],
+)
+def test_xetex_opentype_feature_queries_reject_legacy_font(parser, source):
+    parser.parse("\\font\\f=cmr10 ")
+
+    with pytest.raises(ValueError, match="not an OpenType Layout font"):
+        parser.parse(source)
+
+
 def test_xetex_fontspec_tfm_loads_with_font_substitution(parser):
     font_subst.installFontSubstitution(parser)
 

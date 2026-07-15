@@ -70,6 +70,7 @@ class OpenTypeBackend(FontBackend):
         self._x_height = None
         self._xetex_features = None
         self._xetex_scripts = None
+        self._xetex_feature_tags = {}
 
     @staticmethod
     def _backendClass(font):
@@ -698,6 +699,51 @@ class OpenTypeBackend(FontBackend):
             if index < len(languages):
                 return tag2num(languages[index].LangSysTag)
         return 0
+
+    def _langSys(self, table_tag, script, language):
+        records = self._scriptRecords(table_tag)
+        script_record = next(
+            (
+                record
+                for record in records
+                if tag2num(record.ScriptTag) == script
+            ),
+            None,
+        )
+        if script_record is None:
+            return None
+        if language == 0:
+            return script_record.Script.DefaultLangSys
+        language_record = next(
+            (
+                record
+                for record in script_record.Script.LangSysRecord
+                if tag2num(record.LangSysTag) == language
+            ),
+            None,
+        )
+        return None if language_record is None else language_record.LangSys
+
+    def xetexFeatureTags(self, script, language):
+        if self.xetex_font_type != 2:
+            return ()
+        key = (script, language)
+        cached = self._xetex_feature_tags.get(key)
+        if cached is not None:
+            return cached
+        tags = []
+        for table_tag in ("GSUB", "GPOS"):
+            lang_sys = self._langSys(table_tag, script, language)
+            if lang_sys is None:
+                continue
+            feature_list = self.font[table_tag].table.FeatureList.FeatureRecord
+            tags.extend(
+                tag2num(feature_list[index].FeatureTag)
+                for index in lang_sys.FeatureIndex
+            )
+        result = tuple(tags)
+        self._xetex_feature_tags[key] = result
+        return result
 
     def shape(self, font, source, **kwargs):
         # Transitional path: retain the GPOS-derived TeX kern programs until

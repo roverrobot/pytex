@@ -193,6 +193,64 @@ class XeTeXOTLanguageTag(Command):
         )
 
 
+def _opentype_feature_tags(font, script, language):
+    if font.backend.xetex_font_type != 2:
+        return None
+    return tuple(font.backend.xetexFeatureTags(script, language))
+
+
+class XeTeXOTCountFeatures(Command):
+    r"""Return the OpenType feature count for a script and language."""
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        font = font_data.readFont(parser)
+        if font.backend.xetex_font_type != 2:
+            raise ValueError(
+                f"Cannot use {self.name} with {font.backend.name}; "
+                "not an OpenType Layout font",
+                parser.input.position(),
+            )
+        script = parser.readInteger()
+        language = parser.readInteger()
+        tags = _opentype_feature_tags(font, script, language)
+        return len(tags), accessor.VALUE_TYPE.INT
+
+    def execute(self, parser):
+        raise ValueError(
+            f"{self.name} cannot be executed, it is read-only",
+            parser.input.position(),
+        )
+
+
+class XeTeXOTFeatureTag(Command):
+    r"""Return an indexed OpenType feature tag."""
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        font = font_data.readFont(parser)
+        if font.backend.xetex_font_type != 2:
+            raise ValueError(
+                f"Cannot use {self.name} with {font.backend.name}; "
+                "not an OpenType Layout font",
+                parser.input.position(),
+            )
+        script = parser.readInteger()
+        language = parser.readInteger()
+        index = parser.readInteger()
+        tags = _opentype_feature_tags(font, script, language)
+        value = tags[index] if 0 <= index < len(tags) else 0
+        return value, accessor.VALUE_TYPE.INT
+
+    def execute(self, parser):
+        raise ValueError(
+            f"{self.name} cannot be executed, it is read-only",
+            parser.input.position(),
+        )
+
+
 class XeTeXCountFeatures(Command):
     r"""Return the number of AAT or Graphite features in a font."""
 
@@ -265,6 +323,8 @@ mod = Module(
         "XeTeXOTcountscripts": XeTeXOTCountScripts(),
         "XeTeXOTscripttag": XeTeXOTScriptTag(),
         "XeTeXOTlanguagetag": XeTeXOTLanguageTag(),
+        "XeTeXOTcountfeatures": XeTeXOTCountFeatures(),
+        "XeTeXOTfeaturetag": XeTeXOTFeatureTag(),
         "XeTeXcountfeatures": XeTeXCountFeatures(),
         "XeTeXfeaturecode": XeTeXFeatureCode(),
         "XeTeXfeaturename": XeTeXFeatureName(),

@@ -25,6 +25,8 @@ from .font import (
     XeTeXFeatureName,
     XeTeXFontType,
     XeTeXOTCountScripts,
+    XeTeXOTCountFeatures,
+    XeTeXOTFeatureTag,
     XeTeXOTLanguageTag,
     XeTeXOTScriptTag,
     parseFontName,

@@ -81,6 +81,10 @@ class FontSpec(Serializable):
 class FontBackend:
     kind = None
     supports_contextual_space_shaping = False
+    # XeTeX classifies classic TeX metric-backed fonts as type 0.  Native
+    # layout backends override this, while conversion wrappers can preserve
+    # the type of the font TeX originally selected.
+    xetex_font_type = 0
 
     @classmethod
     def load(cls, parser, name: str):

@@ -717,6 +717,49 @@ def test_xetex_font_file_suffixes_are_ignored_for_lookup(parser):
     assert font.backend.path.endswith("lmroman10-regular.otf")
 
 
+def test_xetex_fonttype_reports_legacy_and_null_fonts(collector):
+    collector.parse(
+        "\\font\\f=cmr10 "
+        "\\number\\XeTeXfonttype\\f,"
+        "\\number\\XeTeXfonttype\\nullfont"
+    )
+
+    assert collector.getString().strip() == "0,0"
+
+
+def test_xetex_fonttype_reports_native_opentype_font(collector):
+    handle = collector.resolver.openIn(
+        "lmroman10-regular.otf",
+        "fonts/opentype",
+    )
+    if handle is None:
+        pytest.skip("lmroman10-regular.otf not found")
+    handle.close()
+
+    collector.parse(
+        '\\font\\f="[lmroman10-regular.otf]" at 10pt '
+        "\\number\\XeTeXfonttype\\f"
+    )
+
+    assert collector.getString().strip() == "2"
+
+
+def test_xetex_fonttype_preserves_tfm_type_after_output_conversion(parser):
+    source = parser.loadFontBackend("cmr10")
+    if source.pfb_file is None:
+        pytest.skip("cmr10 Type 1 font not found")
+    parser.registerSupportedFontClasses(opentype.TrueTypeBackend)
+
+    parser.parse(
+        "\\font\\f=cmr10 "
+        "\\count0=\\XeTeXfonttype\\f "
+    )
+
+    font = parser.equitable["\\f"]
+    assert isinstance(font.backend, opentype.Type1TrueTypeBackend)
+    assert parser.count[0] == 0
+
+
 def test_xetex_fontspec_tfm_loads_with_font_substitution(parser):
     font_subst.installFontSubstitution(parser)
 

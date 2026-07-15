@@ -32,6 +32,7 @@ class OpenTypeBackend(FontBackend):
     supports_contextual_space_shaping = True
 
     kind = "opentype"
+    xetex_font_type = 2
     uses_font_program_kerning = True
     DEFAULT_DESIGN_SIZE = 10.0
     _system_font_paths = None
@@ -688,6 +689,12 @@ class Type1TrueTypeBackend(TrueTypeBackend):
         source = source_backend.font.font if source_backend.font is not None else {}
         self._type1_encoding = tuple(source.get("Encoding", ()))
         self._type1_glyph_info = {}
+
+    @property
+    def xetex_font_type(self):
+        # Conversion is an output accommodation.  XeTeX still sees the
+        # original TFM/Type 1 font as a legacy TeX font.
+        return self.source_backend.xetex_font_type
 
     def _glyphName(self, char: str):
         codepoint = ord(char)

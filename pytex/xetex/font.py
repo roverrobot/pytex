@@ -2,9 +2,12 @@
 
 import re
 
+from pytex import accessor
+from pytex import font as font_data
 from pytex.font_backend import FontSpec
 from pytex.integer import IntegerArrayItemAccessor
 from pytex.module import Module
+from pytex.token import Command
 
 
 COLLECTION_FONT_RE = re.compile(r"^(.+\.(?:otc|ttc|dfont)):(\d+)$", re.IGNORECASE)
@@ -80,10 +83,30 @@ def parseFontName(parser, name):
     return FontSpec(name, lookup="auto")
 
 
+class XeTeXFontType(Command):
+    r"""Read the XeTeX layout-engine type of a font."""
+
+    def fetchValue(self, parser, requested_type):
+        if not accessor.canReadAs(accessor.VALUE_TYPE.INT, requested_type):
+            return None, None
+        font = font_data.readFont(parser)
+        value = getattr(font.backend, "xetex_font_type", 0)
+        return value, accessor.VALUE_TYPE.INT
+
+    def execute(self, parser):
+        raise ValueError(
+            f"{self.name} cannot be executed, it is read-only",
+            parser.input.position(),
+        )
+
+
 mod = Module(
     "xetex.font",
     attributes={
         "parseFontName": parseFontName,
+    },
+    commands={
+        "XeTeXfonttype": XeTeXFontType(),
     },
     parameters={
         "suppressfontnotfounderror": {

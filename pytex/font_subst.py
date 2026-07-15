@@ -516,6 +516,13 @@ class SubstituteFontBackend:
         return requested if requested is not None else getattr(self._backend, "checksum", 0)
 
     @property
+    def xetex_font_type(self):
+        # Reflow substitution must not turn a requested TFM font into a native
+        # font from the point of view of engine-level font introspection.
+        backend = self._requested_backend or self._backend
+        return getattr(backend, "xetex_font_type", 0)
+
+    @property
     def fontdimen(self):
         return getattr(self._backend, "fontdimen", ())
 

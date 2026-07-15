@@ -3,6 +3,7 @@
 import re
 
 from pytex.font_backend import FontSpec
+from pytex.integer import IntegerArrayItemAccessor
 from pytex.module import Module
 
 
@@ -83,5 +84,12 @@ mod = Module(
     "xetex.font",
     attributes={
         "parseFontName": parseFontName,
+    },
+    parameters={
+        "suppressfontnotfounderror": {
+            "value": 0,
+            "accessor": IntegerArrayItemAccessor,
+            "domain": "parameters",
+        },
     },
 )

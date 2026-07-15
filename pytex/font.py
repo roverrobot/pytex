@@ -324,7 +324,21 @@ class FontDefineAccessor(EquitableAccessor):
         if name is None:
             raise ValueError("expecting a font name")
         name = parser.parseFontName(name)
-        backend = parser.loadFontBackend(name)
+        try:
+            backend = parser.loadFontBackend(name)
+        except FileNotFoundError:
+            suppress = dict.get(
+                parser.parameters,
+                "suppressfontnotfounderror",
+            )
+            if suppress is None or suppress.value == 0:
+                raise
+            keyword = parser.readKeyword({"at", "scaled"})
+            if keyword == "at":
+                parser.readDimen()
+            elif keyword == "scaled":
+                parser.readInteger()
+            return nullfont
         keyword = parser.readKeyword({"at", "scaled"})
         design = Dimen(backend.design_size)
         mag = Fraction(parser.mag.value, 1000)

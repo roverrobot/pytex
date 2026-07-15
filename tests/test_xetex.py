@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 from pypdf import PdfReader
@@ -722,6 +724,77 @@ def test_xetex_fontspec_tfm_loads_with_font_substitution(parser):
 
     font = parser.equitable["\\f"]
     assert font.backend.dvi_name == "cmr10"
+
+
+def test_xetex_fontspec_package_loads_with_bundled_latex_format(tmp_path):
+    source = tmp_path / "fontspec-probe.tex"
+    source.write_text(
+        "\\documentclass{article}"
+        "\\usepackage{fontspec}"
+        "\\begin{document}fontspec probe\\end{document}"
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytex",
+            "--engine",
+            "xetex",
+            "--format",
+            "latex",
+            "--output",
+            "xdv",
+            source.name,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert source.with_suffix(".xdv").is_file()
+
+
+def test_suppressfontnotfounderror_is_grouped_integer_parameter(parser):
+    assert parser.parameters["suppressfontnotfounderror"] == 0
+
+    parser.parse(
+        "\\suppressfontnotfounderror=1"
+        "{\\suppressfontnotfounderror=0}"
+    )
+
+    assert parser.parameters["suppressfontnotfounderror"] == 1
+    assert parser.dumpState()["parameters"]["suppressfontnotfounderror"] == 1
+
+
+def test_suppressfontnotfounderror_assigns_nullfont(parser, monkeypatch):
+    def missing_font(name, kind=None):
+        raise FileNotFoundError(f"font {name} not found")
+
+    monkeypatch.setattr(parser, "loadFontBackend", missing_font)
+
+    parser.parse(
+        '\\suppressfontnotfounderror=1 '
+        '\\font\\missing="Codex Definitely Missing" at 10pt '
+        '\\ifx\\missing\\nullfont\\count0=1\\else\\count0=2\\fi '
+    )
+
+    assert parser.equitable["\\missing"] is parser.equitable["\\nullfont"]
+    assert parser.count[0] == 1
+    assert parser.lists[-1].type == lists.LISTTYPE.VERTICAL
+
+
+def test_unsuppressed_missing_font_still_raises(parser, monkeypatch):
+    def missing_font(name, kind=None):
+        raise FileNotFoundError(f"font {name} not found")
+
+    monkeypatch.setattr(parser, "loadFontBackend", missing_font)
+
+    with pytest.raises(FileNotFoundError, match="Codex Definitely Missing"):
+        parser.parse('\\font\\missing="Codex Definitely Missing" at 10pt ')
+
+    assert parser.equitable["\\missing"] is parser.equitable["\\nullfont"]
 
 
 def test_xetex_name_prefix_forces_system_font_lookup(parser, monkeypatch):

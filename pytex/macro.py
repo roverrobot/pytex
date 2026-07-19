@@ -260,6 +260,7 @@ class ReadArgDelim1Caller(Serializable):
                 braces += 1
             else:
                 append(t)
+                braces = 2
 
 
 class ReadArgDelim2Caller(Serializable):

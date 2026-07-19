@@ -299,3 +299,7 @@ def test_macro_balanced(parser):
 def test_macro_ReadArgDelim1Caller(collector):
     collector.parse("\\def\\a#1x{\\def\\b{#1}}\\a{1}{x}x\\b")
     assert collector.getString() == "1x"
+    collector.parse("\\def\\a#1x{\\def\\b{#1}}\\a{1}yx")
+    b = collector.lookup("\\b")
+    assert b is not None
+    assert len(b.replacement) == 4

@@ -241,30 +241,25 @@ class ReadArgDelim1Caller(Serializable):
         token = parser.token
         result = []
         append = result.append
+        braces = 0
         while True:
             try:
                 t = token()
             except EOFError:
                 _macroMismatch(parser, macro)
             if t.catcode == self.bracket.catcode and t.name == self.bracket.name:
-                args.append(result)
+                if braces == 1:
+                    args.append(result[1:-1])
+                else:
+                    args.append(result)
                 return
             if t.catcode == CATCODE.BEGIN_GROUP:
-                keep = bool(result)
                 append(t)
                 result, end = parser.readTo(CATCODE.END_GROUP, result)
-                if keep:
-                    append(end)
-                    continue
-                try:
-                    t = token()
-                except EOFError:
-                    _macroMismatch(parser, macro)
-                if t.catcode == self.bracket.catcode and t.name == self.bracket.name:
-                    args.append(result if keep else result[1:])
-                    return
                 append(end)
-            append(t)
+                braces += 1
+            else:
+                append(t)
 
 
 class ReadArgDelim2Caller(Serializable):

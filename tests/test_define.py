@@ -295,3 +295,7 @@ def test_macro_balanced(parser):
     parser.parse(r"\catcode`\^^@=2 \catcode`:=11 \catcode`_=11 \catcode32=9\def\a{ \exp:w \if_false: { \fi: `^^@ \exp_stop_f: }")
     a = parser.lookup("\\a")
     assert len(a.replacement) == 7
+
+def test_macro_ReadArgDelim1Caller(collector):
+    collector.parse("\\def\\a#1x{\\def\\b{#1}}\\a{1}{x}x\\b")
+    assert collector.getString() == "1x"
